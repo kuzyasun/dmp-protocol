@@ -14,7 +14,7 @@ function(dmp_require_revision directory expected)
     endif()
 endfunction()
 dmp_require_revision("${PROJECT_SOURCE_DIR}/third_party/noise-c"
-    0d86934919dc9220eaa49574bc9b22f0abe972b2)
+    cfb45b9041d174b3e3106333235c87af47dcb425)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}"
     40c22448d6e8f42be56c45f739b52a5c8d21c8ca)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}/libsodium"
@@ -74,3 +74,54 @@ dmp_add_provider_experiment(dmp_noise_rng_handshake_probe
 target_include_directories(dmp_noise_rng_handshake_probe PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(dmp_noise_rng_handshake_probe PRIVATE dmp_noise_fallible_entropy)
+
+# Compile the actual startup wrapper; rename only its backend init call for
+# return-code injection. This target cannot prove backend entropy readiness.
+function(dmp_add_init_probe name threaded)
+    dmp_add_provider_experiment(${name} noise_init_probe.c
+        "${PROJECT_SOURCE_DIR}/third_party/noise-c/src/protocol/util.c")
+    target_include_directories(${name} PRIVATE
+        "${PROJECT_SOURCE_DIR}/third_party/noise-c/include"
+        "${PROJECT_SOURCE_DIR}/third_party/noise-c/src")
+    target_compile_definitions(${name} PRIVATE
+        NOISE_USE_PTHREAD=${threaded} sodium_init=noise_test_sodium_init)
+    target_link_libraries(${name} PRIVATE sodium)
+    if(threaded)
+        target_link_libraries(${name} PRIVATE Threads::Threads)
+    endif()
+    set_tests_properties(${name} PROPERTIES LABELS "init-wrapper-fault-injection")
+    foreach(case already failure)
+        add_test(NAME ${name}_${case} COMMAND ${name} ${case})
+        set_tests_properties(${name}_${case} PROPERTIES
+            TIMEOUT 30 LABELS "init-wrapper-fault-injection")
+    endforeach()
+endfunction()
+dmp_add_init_probe(dmp_noise_init_serial_probe 0)
+
+include(CheckIncludeFile)
+check_include_file(pthread.h DMP_HAVE_PTHREAD_H)
+find_package(Threads QUIET)
+if(DMP_HAVE_PTHREAD_H AND Threads_FOUND)
+    dmp_add_init_probe(dmp_noise_init_pthread_probe 1)
+else()
+    message(STATUS "Pthread init probe unavailable on this host; not counted as passed")
+endif()
+
+# GNU-linker Windows diagnostic only: real backend init, interposed OS RNG.
+# It supervises an expected abort and is never a provider-capability pass.
+if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    add_executable(dmp_noise_init_abort_probe noise_init_abort_probe.c)
+    set_target_properties(dmp_noise_init_abort_probe PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    target_compile_options(dmp_noise_init_abort_probe PRIVATE
+        -Wall -Wextra -Wpedantic -Werror)
+    target_link_options(dmp_noise_init_abort_probe PRIVATE "-Wl,--wrap=SystemFunction036")
+    target_link_libraries(dmp_noise_init_abort_probe PRIVATE noise_c)
+    add_test(NAME dmp_noise_init_backend_abort
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/check_noise_init_abort.py"
+            "$<TARGET_FILE:dmp_noise_init_abort_probe>")
+    set_tests_properties(dmp_noise_init_backend_abort PROPERTIES
+        TIMEOUT 30 LABELS "expected-limitations")
+else()
+    message(STATUS "Windows GNU startup abort diagnostic unavailable; not counted as passed")
+endif()

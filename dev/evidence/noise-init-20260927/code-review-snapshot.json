@@ -1,0 +1,5 @@
+{
+  "third_party/noise-c/DMP_PATCHES.md": "b5a8574aebbb7c49fbd7d9c43f5832e56dcdba3cc899b53bab2738388467413d",
+  "third_party/noise-c/include/noise/protocol/util.h": "f0fc52bfce2b38625b64c125a5a82b3f3753050cd5406b45f0125262cf358e21",
+  "third_party/noise-c/src/protocol/util.c": "39705f5a49a8134cab7b9c309c974a4183c15ac78db7217a21f048b1e245e996"
+}

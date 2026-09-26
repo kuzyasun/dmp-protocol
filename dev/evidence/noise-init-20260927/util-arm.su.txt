@@ -1,0 +1,7 @@
+third_party/noise-c/src/protocol/util.c:104:5:noise_init_framework	8	static
+third_party/noise-c/src/protocol/util.c:151:7:noise_new_object	8	static
+third_party/noise-c/src/protocol/util.c:186:6:noise_clean	0	static
+third_party/noise-c/src/protocol/util.c:168:6:noise_free	8	static
+third_party/noise-c/src/protocol/util.c:204:5:noise_is_equal	12	static
+third_party/noise-c/src/protocol/util.c:227:5:noise_is_zero	0	static
+third_party/noise-c/src/protocol/util.c:261:5:noise_format_fingerprint	152	static

@@ -1,0 +1,37 @@
+{
+  "reviewer": "/root/dh_final_review",
+  "model": "gpt-6-astra",
+  "effort": "max",
+  "scope": "Read-only production, test, registration and recorded evidence review",
+  "findings": [],
+  "code_snapshot_entries_verified": 3,
+  "final_snapshot_entries_verified": 17,
+  "normative_files_verified": 7,
+  "backend_tree_digests_independently_reproduced": true,
+  "backend_regular_file_counts": {
+    "sodium_port": 47,
+    "libsodium": 670
+  },
+  "checks": "Coordinator:73 build steps/no emitted warnings;17/17 CTest invocations (6 injected-return cases, 1 new expected backend abort limitation). Inherited vectors52 run/988 skipped. Reviewer inspected evidence, did not run builds/tests.",
+  "acceptance": "INIT-01 returned-error propagation accepted; full backend startup/cold-boot/no-process-exit gate NOT passed; P01 remains running",
+  "fork_commit": "cfb45b9041d174b3e3106333235c87af47dcb425",
+  "post_review_changes": [
+    "Committed unchanged reviewed fork source locally",
+    "Updated only engine pin literal in noise_experiment.cmake; CMake reconfiguration exit0",
+    "Updated root/evidence README, board, conformance row and execution log acceptance metadata",
+    "Added review-result.json; historical reviewed snapshots retained"
+  ],
+  "remaining_limits": [
+    "Real Windows backend OS RNG failure reaches SIGABRT before returning; observed by supervised expected-limitations diagnostic",
+    "Checked backend startup must cover readiness and allocator-canary entropy before successful init publication",
+    "Wrapper fault tests rename only init symbol; they do not prove backend entropy behavior",
+    "Callers must enforce init success before objects; constructors do not add automatic admission guards",
+    "Only serialized util.c ARM/Xtensa compile; MCU runtime/resources, real entropy quality and boundedness open",
+    "Pthread_once own-error injection, alternate backends/platforms, storage/complete erasure and other P01 gates remain open",
+    "No primitive/normative/backend source change, push, hardware or DTrack integration"
+  ],
+  "post_review_sha256": {
+    "tests/provider/noise_experiment.cmake": "6c8d18eb7afbc96ce155da0b08e796c833f748f9d118af88c32cfa26b2961637",
+    "dev/evidence/noise-init-20260927/README.md": "42da2baf34cfde0ac97855671849c279a3fa3f9103d0510b636488b87850a2cc"
+  }
+}

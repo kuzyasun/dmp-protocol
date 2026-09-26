@@ -1,0 +1,66 @@
+{
+  "results": [
+    {
+      "target": "arm",
+      "command": [
+        "C:/ST/STM32CubeCLT_1.20.0/GNU-tools-for-STM32/bin/arm-none-eabi-gcc.exe",
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror",
+        "-ffreestanding",
+        "-Os",
+        "-fstack-usage",
+        "-DNOISE_USE_CUSTOM_RAND=1",
+        "-DNOISE_USE_SODIUM_RAND=0",
+        "-DNOISE_REQUIRE_FALLIBLE_RAND=1",
+        "-DNOISE_USE_PTHREAD=0",
+        "-mcpu=cortex-m4",
+        "-mthumb",
+        "-mfloat-abi=soft",
+        "-Ithird_party/noise-c/include",
+        "-Ithird_party/noise-c/src",
+        "-Ibuild/noise-upstream/_deps/esphome_libsodium-1.10021.11/libsodium/src/libsodium/include",
+        "-Ibuild/noise-upstream/_deps/esphome_libsodium-1.10021.11/port_include",
+        "-c",
+        "third_party/noise-c/src/protocol/util.c",
+        "-o",
+        "build\\init01-util-arm.o"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "target": "xtensa",
+      "command": [
+        "C:/Espressif/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc.exe",
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror",
+        "-ffreestanding",
+        "-Os",
+        "-fstack-usage",
+        "-DNOISE_USE_CUSTOM_RAND=1",
+        "-DNOISE_USE_SODIUM_RAND=0",
+        "-DNOISE_REQUIRE_FALLIBLE_RAND=1",
+        "-DNOISE_USE_PTHREAD=0",
+        "-Ithird_party/noise-c/include",
+        "-Ithird_party/noise-c/src",
+        "-Ibuild/noise-upstream/_deps/esphome_libsodium-1.10021.11/libsodium/src/libsodium/include",
+        "-Ibuild/noise-upstream/_deps/esphome_libsodium-1.10021.11/port_include",
+        "-c",
+        "third_party/noise-c/src/protocol/util.c",
+        "-o",
+        "build\\init01-util-xtensa.o"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "limits": "Only util.c compile with serialized init; not complete MCU provider/thread/runtime or stack budget"
+}

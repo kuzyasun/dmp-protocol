@@ -89,6 +89,15 @@ Default root builds keep these experiments disabled and fetch no provider.
   at initiator/responder writes, zero publishable flight, FAILED/no-resume,
   independent attempt isolation and fresh exact fixture/hash/Split recovery.
   Fixture ephemerals enter through the test entropy port, not fixed-key setters.
+- `dmp_noise_init_serial_probe` and `dmp_noise_init_pthread_probe` (three cases
+  each): the real Noise wrapper compiled with an injected sodium_init symbol
+  propagates returned failures and retains pthread-once outcomes. These are
+  wrapper fault tests, not real backend startup-failure acceptance.
+- `dmp_noise_init_backend_abort` (`expected-limitations`, Windows/GNU only):
+  healthy actual startup succeeds; an injected OS RNG failure reaches real
+  backend SIGABRT in a supervised subprocess. A pass reproduces the blocker.
+  [INIT-01 evidence](../../dev/evidence/noise-init-20260927/README.md) records why
+  full startup/cold-boot acceptance remains open.
 - Inherited `unit`/`vectors`: upstream regression evidence only. Disabled suites
   are explicitly skipped, not passed. AESGCM is disabled in this configuration.
 

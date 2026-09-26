@@ -262,3 +262,47 @@ reviewed fork source was committed locally as `0d86934919dc9220eaa49574bc9b22f0a
 updating the exact parent pin and reconfiguring succeeded. Only the revision
 pin and acceptance metadata followed the reviewed snapshot. See
 [review result](evidence/noise-rng-20260927/review-result.json). No push or hardware action.
+
+## 2026-09-27 — INIT-01 error visibility and confirmed backend startup blocker
+
+Resumed clean parent `3b5338f` and fork `0d86934`. The coordinator fixed the
+confirmed Noise wrapper bug: a returned negative sodium_init result now maps
+to SYSTEM, and pthread_once retains the actual initializer result rather than
+masking failure. Explicit non-pthread initialization remains caller-serialized;
+no global per-object admission guard or implicit retry was added.
+
+One bounded worker authored the wrapper return tests; another independently
+inspected the actual backend startup path without edits/builds. The coordinator
+verified both and added a supervised Windows diagnostic using real sodium_init
+with the OS RNG call interposed. Healthy startup succeeds. Forced OS failure
+reaches real backend SIGABRT before Noise returns, confirming an unresolved
+no-process-exit blocker through allocator-canary randombytes_buf. No fake RNG,
+backend initialization bypass or modified primitive is accepted.
+
+RBO discovery returned fetch failed. Local first integrated configure/build/test
+passed: 73 build steps without emitted warnings; 17/17 CTest invocations,
+including six return-code injection cases and the separately labeled expected
+backend-abort limitation. Prior PN/DH/RNG checks pass; inherited vectors ran 52
+and skipped 988. util.c compiled strictly for Cortex-M4 and Xtensa in serialized
+mode; these two objects do not prove complete MCU runtime/resources.
+
+[INIT-01 evidence](evidence/noise-init-20260927/README.md) records the source
+hashes, commands, outputs and [backend boundary](evidence/noise-init-20260927/backend-boundary.md).
+Full startup/cold-boot and P01 remain open. Next recommended experiment is a
+maintained checked backend startup integration covering both readiness and
+allocator-canary entropy, with failure before publishing initialized state.
+Independent read-only review by `/root/dh_final_review` found no actionable
+finding, verified 3 production and 17 final hashes, 7 normative hashes and both
+backend tree digests, and confirmed the stated evidence limits. The coordinator
+accepted returned-error handling only. The unchanged fork source was committed
+locally as `cfb45b9041d174b3e3106333235c87af47dcb425`; the parent exact pin was
+updated and CMake reconfiguration succeeded. Only the pin and acceptance
+metadata followed the snapshot. See [review result](evidence/noise-init-20260927/review-result.json).
+No backend source, normative bytes, hardware, DTrack integration or remote
+repository was changed.
+
+Final documentation scripting hit Windows default encoding/newline issues;
+these were corrected with explicit UTF-8 and verified preservation of the
+previous log content. No tested code changed. Some task files were staged
+during work; their content was checked against the frozen snapshot before
+updating the authorized commit, without resetting the index.
