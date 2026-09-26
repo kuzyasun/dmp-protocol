@@ -1,0 +1,18 @@
+{
+  "dev/evidence/noise-dh-20260926/README.md": "79ba89288e7a05e028dcbf78606d7ef7c068920f50d96f628d5f8d439cde6147",
+  "dev/evidence/noise-dh-20260926/backend-pins.json": "af372eafb3c7c44822b5f2234dc684869f6d7683a8f4067b5ca024aa16b22974",
+  "dev/evidence/noise-dh-20260926/baseline.json": "208a47261966d0361e024af684c996e2807f5b867dd87f409fa9febbcedfb942",
+  "dev/evidence/noise-dh-20260926/build-final.log": "0587ab4e968e85596e5fbe5aa4e71f6c66ed3e0c25b5f6af8fae0b7c06530b38",
+  "dev/evidence/noise-dh-20260926/build.log": "89720b89389324e6dbda0b4f213a232e05712dca46414c4642db2751eee66eaa",
+  "dev/evidence/noise-dh-20260926/code-review-snapshot.json": "d9d20e1762496bc92b5c3d4fac362fa1425c6f0702aecd5aa52b08a14cc58ea5",
+  "dev/evidence/noise-dh-20260926/compile-checks.json": "e6e06ce6b8bb5cdbb5284c421edb28b47cfd5af3f20d3ef5357df88616238163",
+  "dev/evidence/noise-dh-20260926/configure.log": "ac1584fe0162cb4891c4b9bc95fce0b212d9f1503cbe358d28e03fbe35773352",
+  "dev/evidence/noise-dh-20260926/ctest-full.log": "c7617c124dc15e0a594104109c6cdd27e69718da0ac1120626b5ec392da0bfa3",
+  "dev/evidence/noise-dh-20260926/ctest-summary.log": "afe750c3db310bfba818dd486ad7fa9187e3b4c64130c13f0143fa45765f946d",
+  "dev/evidence/noise-dh-20260926/dhstate-arm.su.txt": "c52662d1ca4d292f613a378192ed6303591de699c097aea34164f78fafc71a16",
+  "dev/evidence/noise-dh-20260926/dhstate-xtensa.su.txt": "b52c836c78ed06f7fe235aceb67c344724319758398d0133193f238c74053a66",
+  "dev/evidence/noise-dh-20260926/handshake-baseline-strict-compile.log": "5d345198394a99b408cde65cab349462a0e42f33f4bec3e61d019e4c63083aa5",
+  "tests/provider/README.md": "0f9dff4be18b762a46ba2237bf975de8abe80fe3eb8f9e32cb51a3b298892165",
+  "tests/provider/noise_dh_probe.c": "72740099739484ea88ef5a533d692fc6bdbd1ff0bd29abac05a10b8b31fcdfe1",
+  "tests/provider/noise_experiment.cmake": "6801573ba16e91e9ccf74d5c9ff03e4692f2a47757fe24e0ec23b4558f8bc71b"
+}

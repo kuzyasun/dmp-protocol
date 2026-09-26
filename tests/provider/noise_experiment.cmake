@@ -14,7 +14,7 @@ function(dmp_require_revision directory expected)
     endif()
 endfunction()
 dmp_require_revision("${PROJECT_SOURCE_DIR}/third_party/noise-c"
-    355b2923666c23df0d52c096a7459e7bee09b88a)
+    c707782972b9c9015a8a1ba06724a07572306d50)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}"
     40c22448d6e8f42be56c45f739b52a5c8d21c8ca)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}/libsodium"
@@ -47,3 +47,9 @@ target_link_libraries(dmp_noise_fixture_probe PRIVATE noise_c)
 dmp_add_provider_experiment(dmp_noise_pn_probe noise_pn_probe.c "${_fixture_header}")
 target_include_directories(dmp_noise_pn_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(dmp_noise_pn_probe PRIVATE noise_c)
+
+dmp_add_provider_experiment(dmp_noise_dh_probe noise_dh_probe.c "${_fixture_header}")
+target_include_directories(dmp_noise_dh_probe PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    "${PROJECT_SOURCE_DIR}/third_party/noise-c/src")
+target_link_libraries(dmp_noise_dh_probe PRIVATE noise_c)

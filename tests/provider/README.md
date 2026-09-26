@@ -75,14 +75,18 @@ Default root builds keep these experiments disabled and fetch no provider.
 - `dmp_noise_baseline_probe` (`expected-limitations`): the retained legacy
   monotonic API still has its original limitations; sequential AEAD works,
   while the current monotonic nonce API cannot implement unordered receive;
-  literal-zero DH behavior is characterized separately from low-order rejection.
+  DH-01 now requires literal-zero and u=1 rejection with cleared outputs.
   Success means the recorded limitation was reproduced, **not** that SEC-1 passed.
+- `dmp_noise_dh_probe`: real-backend low-order ephemeral/static handshake
+  rejection, FAILED-state continuation/Split refusal and independent fresh
+  valid states. Internal manipulation is confined to constructing malicious
+  test messages; the receiving DH backend is unchanged.
 - Inherited `unit`/`vectors`: upstream regression evidence only. Disabled suites
   are explicitly skipped, not passed. AESGCM is disabled in this configuration.
 
 The probes use serialized operations and bounded test buffers. They are neither
 endpoint implementations nor resource measurements. Entropy/storage failure,
-allocation/erasure, full e/static attack paths, admission/restart budgets, MCU
+allocation/erasure, full endpoint attack paths, admission/restart budgets, MCU
 resources and independent live interoperability remain separate acceptance work.
 The full [P01 checklist](../../dev/DMP_Implementation_Plan.md#abort-first-provider-experiment-before-p01-acceptance)
 remains required before production layouts are frozen.

@@ -185,3 +185,38 @@ is unchanged; only the documented resource clarification, engine pin and review
 metadata followed the frozen snapshot. No push was performed. The recommended
 next bounded patch is DH-01 strict all-zero DH-result rejection and full
 ephemeral/static negative-path coverage; P01 is not complete.
+
+## 2026-09-26 — P01 strict X25519 DH-result rejection
+
+Resumed clean parent `e3fc79a` and clean fork `355b292`; no staged or unrelated
+changes were present. The owner requested continuation of the recommended DH-01
+wave. The coordinator confirmed that the inherited DH null-key override masked
+backend errors and that the handshake mixed the result even after DH failure.
+The bounded patch applies SEC-1's existing strict X25519 policy and guards MixKey;
+no normative bytes, primitives, KDF, backend sources or other DH policies changed.
+
+Two bounded workers authored disjoint inherited tests and the host DH probe.
+The coordinator inspected the diffs, corrected a missed null-vector expectation
+through worker feedback, and fixed two probe compilation errors (bounded mutable
+plaintext copy and string-label access). RBO discovery returned `fetch failed`;
+local integrated CTest passed 8/8 with no emitted final-build warnings. Both exact
+fixture modes and the PN seam still pass; 988 skipped vectors remain skips.
+
+Strict `dhstate.c` object builds passed on ARM and Xtensa. The stronger ARM
+`handshakestate.c` compile check hit two inherited unused parameters; the same
+failure was reproduced from the pre-patch fork. That check, full MCU provider
+builds and runtime resources remain unresolved, without warning suppression.
+See [DH-01 evidence](evidence/noise-dh-20260926/README.md) for case mapping,
+failed/successful logs, hashes, and the separate code/final review records.
+P01 remains running; the next bounded work is fallible entropy and its failure
+paths, followed by storage/cleanup/resource acceptance. No push or hardware action.
+
+Independent read-only review by `/root/dh_final_review` found no actionable
+defects within this bounded host scope. It verified the six-file code snapshot,
+16 final probe/evidence entries, seven normative hashes and both backend tree
+digests, and inspected the recorded 8/8 results without rerunning tests. The
+coordinator accepted DH-01, retaining all broader P01 limitations. The reviewed
+fork source was committed locally as `c707782972b9c9015a8a1ba06724a07572306d50`;
+updating the exact parent pin and reconfiguring succeeded. Only the revision pin
+and acceptance metadata followed the reviewed source snapshot. See
+[review result](evidence/noise-dh-20260926/review-result.json). Next: RNG-01.

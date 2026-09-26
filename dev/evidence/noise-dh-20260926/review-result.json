@@ -1,0 +1,36 @@
+{
+  "reviewer": "/root/dh_final_review",
+  "model": "gpt-6-astra",
+  "effort": "max",
+  "scope": "Independent read-only code review followed by frozen probe, registration and execution-evidence review",
+  "findings": [],
+  "code_snapshot_entries_verified": 6,
+  "final_snapshot_entries_verified": 16,
+  "normative_files_verified": 7,
+  "backend_tree_digests_independently_reproduced": true,
+  "backend_regular_file_counts": {
+    "sodium_port": 47,
+    "libsodium": 670
+  },
+  "baseline_handshake_compile_source_verified_against_git": true,
+  "tests": "Coordinator ran CTest 8/8; 52 inherited vectors executed and 988 skipped. Reviewer inspected sources and logs, did not rerun builds/tests",
+  "acceptance": "DH-01 accepted in the tested host sodium configuration; P01 remains running",
+  "fork_commit": "c707782972b9c9015a8a1ba06724a07572306d50",
+  "post_review_changes": [
+    "Committed the unchanged reviewed Noise-C source locally",
+    "Updated only the engine SHA literal in noise_experiment.cmake and successfully reconfigured; no tested source or backend pin changed",
+    "Updated evidence README status, root README, board, conformance row and execution log to reflect scoped acceptance",
+    "Added this review result; original code-review-snapshot.json and review-snapshot.json remain historical reviewed hashes",
+    "Staged whitespace check found a trailing blank line in ctest-full.log; removed only that final blank line, preserving test output content"
+  ],
+  "remaining_limits": [
+    "Strict ARM handshake translation-unit check remains an inherited unused-parameter failure; Xtensa handshake check not run",
+    "MCU provider builds, linking, runtime resource measurements and production budgets remain pending",
+    "Fallible entropy/storage, allocation and complete secret erasure remain pending",
+    "Pin/payload post-check abort, DMP admission/restart/concurrency and independent peer integration remain pending",
+    "No optional cipher/backend acceptance, production adoption, push, hardware action or DTrack integration"
+  ],
+  "post_review_log_sha256": {
+    "ctest-full.log": "8738964feb3f1895c3c1e4867fe9c3662df5f206ea0bc662bb0c6a516c4a70dc"
+  }
+}

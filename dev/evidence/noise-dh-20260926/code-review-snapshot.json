@@ -1,0 +1,8 @@
+{
+  "third_party/noise-c/src/protocol/dhstate.c": "2d7a128ac9f70be93f49bff1be7b80b92541f43d6441c34a55d4c4b52254a6b3",
+  "third_party/noise-c/src/protocol/handshakestate.c": "49fb3ba0e390ac075eee8345389c5e267f7c56936a9f9c0859b58df7fa819a20",
+  "third_party/noise-c/tests/unit/test-dhstate.c": "dfb0452fa4102613d30958ed6a35715785cc25604bdfcf1e94c67373aa74d240",
+  "third_party/noise-c/tests/unit/test-handshakestate.c": "86f750c262022f68893530c8661fc238e2d0cbd53b6c01d50857ed89ac4cc387",
+  "third_party/noise-c/DMP_PATCHES.md": "1930c07637f6cf466a10dbf6678aedc945ac2e11ba7399240ed608e4a928f10a",
+  "tests/provider/noise_baseline_probe.c": "9102f706df42869c8d5a0ca7dd4b7ddd83a62031f622ed7177eb472dec92c684"
+}

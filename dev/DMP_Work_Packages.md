@@ -1,6 +1,6 @@
 # DMP implementation work packages
 
-**Status:** owner authorized commits, fork setup and experiments on 2026-09-26. P00 preparation is accepted with finite experimental configurations; P01 is running on the explicit receive-PN patch. Production/provider acceptance remains open.\
+**Status:** owner authorized commits, fork setup and experiments on 2026-09-26. P00 preparation is accepted with finite experimental configurations; P01 has accepted bounded PN-01 and DH-01 host checks and remains running. Production/provider acceptance remains open.\
 **Authority:** [implementation plan](DMP_Implementation_Plan.md) and its normative references. This file adds scheduling and ownership, not protocol behavior.\
 **Baseline:** main document revision 10, SEC-1 revision 5 / BOOT_VERSION 2, SELECTIVE-32 revision 1. The first package records exact document hashes and verifies these revisions.
 
@@ -21,7 +21,7 @@ The table is the single status board. The coordinator fills Owner/Evidence with 
 | ID | Phase / work | Depends on | Default | Proposed write area | Status | Owner / Evidence |
 |---|---|---|---|---|---|---|
 | P00 | 0: scope, baseline and minimal scaffold | — | Lead | root build/config, `dev/`, `tests/provider/` runner | done | Coordinator; [P00 preparation acceptance](evidence/noise-pn-20260926/p00-acceptance.md), experimental envelopes and toolchains; no provider/production acceptance |
-| P01 | 0: provider feasibility experiment and gate | P00 | Lead | `tests/provider/`, provider adapter experiment, `dev/` evidence | running | Coordinator; [PN-01 brief](evidence/noise-pn-20260926/p00-acceptance.md); other provider/resource gates remain open |
+| P01 | 0: provider feasibility experiment and gate | P00 | Lead | `tests/provider/`, provider adapter experiment, `dev/` evidence | running | Coordinator; [PN-01](evidence/noise-pn-20260926/README.md) and [DH-01](evidence/noise-dh-20260926/README.md) host checks accepted; entropy/storage/cleanup/provider-resource gates remain open |
 | P02 | 1: manifest representation and offline validator | P01 | Mid | `tools/validate_profile.py`, `tests/profiles/`; shared schema by explicit assignment | pending | — |
 | P03 | 1: direct/simulated-radio manifests and gate | P02 | Lead | `profiles/`, digest fixtures, traceability matrix | pending | — |
 | P04 | 2: public core/transport seams for this wave | P03 | Lead | `include/dmp/`, build registration, interface evidence | pending | — |

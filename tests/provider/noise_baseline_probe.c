@@ -407,11 +407,11 @@ static int test_x25519_public_key_edges(void)
     err = noise_dhstate_calculate(private_state, public_state,
                                   zero_shared, sizeof(zero_shared));
     if (!expect_result("calculate with literal-zero X25519 public key",
-                       err, NOISE_ERROR_NONE))
+                       err, NOISE_ERROR_INVALID_PARAM))
         goto done;
     if (!all_zero(zero_shared, sizeof(zero_shared))) {
         (void)fprintf(stderr,
-                      "FAIL: literal-zero X25519 public key did not yield an all-zero shared secret\n");
+                      "FAIL: rejected literal-zero X25519 result was not cleared\n");
         goto done;
     }
 
@@ -427,7 +427,11 @@ static int test_x25519_public_key_edges(void)
                        err, NOISE_ERROR_INVALID_PARAM))
         goto done;
 
-    (void)printf("NOT SEC-1 CONFORMANT: SEC-1 requires rejecting all-zero X25519 shared results; literal zero maps to Noise null-key success, while libsodium rejects low-order u=1.\n");
+    if (!all_zero(low_order_shared, sizeof(low_order_shared))) {
+        (void)fprintf(stderr, "FAIL: rejected u=1 X25519 result was not cleared\n");
+        goto done;
+    }
+    (void)printf("DH-01 regression: literal zero and low-order u=1 propagate sodium errors and clear output. Legacy PN setter limitations remain below the explicit receive API.\n");
     ok = 1;
 
 done:
