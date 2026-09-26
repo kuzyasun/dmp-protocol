@@ -37,6 +37,7 @@ Compactness, low memory use and reduced airtime are design goals. Whether this c
 | [Implementation and tooling plan](dev/DMP_Implementation_Plan.md) | Portable core, profile validator, simulator, decoder, benchmarks and release gates |
 | [Agent workflow](AGENTS.md) | Coordinator, bounded worker assignments, ownership and review rules |
 | [Implementation work packages](dev/DMP_Work_Packages.md) | Dependency board, package acceptance and restartable execution |
+| [Noise decision record](dev/DMP_Noise_ADR.md) and [source survey](dev/DMP_Noise_Provider_Survey.md) | Abort-first, controlled-core research, separate backend assessment and pending provider experiments |
 
 `docs/` is the normative source where a document says so. `dev/` contains planning, fixture helpers and historical reviews. [Revision 7 review](dev/dmp-revision-7-review.md) and [comparative critique](dev/dmp-comparative-critique.md) describe their dated snapshots, not a review of the current revision. [Revision 8 review](dev/dmp-revision-8-review.md) records the historical extraction review and its limits.
 

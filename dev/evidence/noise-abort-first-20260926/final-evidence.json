@@ -1,0 +1,113 @@
+{
+  "recorded_at_utc": "2026-09-26T18:05:55.544399+00:00",
+  "scope": "Owner-authorized research and coordinated draft changes; no provider implementation/adoption",
+  "baseline_head": "03de75750d3aafe0bb0f4cf527916b7041589474",
+  "final_head": "64495d7e26f187a281435d17b39a19291d374c1a",
+  "initial_index_sha256": "a09858c3431fbd271d33e1ea0af59248a26f56ccdfd15a23f1a6e3df2ad9b12a",
+  "final_index_sha256": "373c690ce00859937d19cccf4aab50df0850c71eaa6364304f8bcd09c4b280d6",
+  "index_unchanged_since_review": true,
+  "index_changed_externally_during_task": true,
+  "coordinator_git_mutations": [],
+  "changed_existing_files": [
+    "AGENTS.md",
+    "README.md",
+    "dev/DMP_Conformance_Matrix.md",
+    "dev/DMP_Execution_Log.md",
+    "dev/DMP_Implementation_Plan.md",
+    "dev/DMP_Work_Packages.md",
+    "dev/dmp_generate_security_vectors.py",
+    "dev/dmp_verify_security_vectors.cjs",
+    "docs/DMP_v2_Deployment_Profiles.md",
+    "docs/DMP_v2_Design_Tradeoffs.md",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md",
+    "docs/DMP_v2_Reference_Application.md",
+    "docs/DMP_v2_Security_Profile.md",
+    "docs/DMP_v2_Security_Test_Vectors.json",
+    "docs/DMP_v2_Selective_Recovery.md",
+    "tests/provider/README.md",
+    "dev/DMP_Noise_Provider_Survey.md"
+  ],
+  "new_design_document": "dev/DMP_Noise_ADR.md",
+  "reviewed_files": {
+    "AGENTS.md": "047e87c464712114b0c544a937d5c04a4de220737e93ff98f9598c476eb98767",
+    "README.md": "0bf372ee971d4ebf515f60ec851b0abf01f29a12381bb940715f018d577311b7",
+    "dev/DMP_Conformance_Matrix.md": "f6ea4e98661d767d83afcd2abc25383caa954bbaf27d8aecaa1f90fa4c3ae10c",
+    "dev/DMP_Execution_Log.md": "d51fdbb997bc6d4b2aa27f3eb9041956306625af3e8133d1697b818ab60e9ca6",
+    "dev/DMP_Implementation_Plan.md": "81c0e4340a18dbd7f2eb05c48ac73424394faebd178398725d1e1d41b2a57470",
+    "dev/DMP_Work_Packages.md": "02155d219dcb08c297b99d3001b22680e603f95a83b59643cd502a6f7542bcad",
+    "dev/dmp_generate_security_vectors.py": "dfb6c94c630f506768f95fcae85fa1f03c6a671ccb7026ce1439d76bd4e21608",
+    "dev/dmp_verify_security_vectors.cjs": "b001eb1ab46d9cde8bf50e0028b2761de52588c9a00ae8f6600174b20f1a31e0",
+    "docs/DMP_v2_Deployment_Profiles.md": "f1fdb79e6ca4d20f41c98e48cffeafb0ab1fd001c0128eac4bb35b4e2eb59778",
+    "docs/DMP_v2_Design_Tradeoffs.md": "f1d0737160dc6a916a1051776804790f0c6930dce0b52f24b3eb40ed6ef59e92",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "0c22f0c0381504821b71eb5defaccda40c353966363a518274625cbfacdc4d9d",
+    "docs/DMP_v2_Reference_Application.md": "ef7d78119b987200c054209c82c365043e4d95ea8b722a7dd84b3653b32a78be",
+    "docs/DMP_v2_Security_Profile.md": "8f6bf8c34ba37e33a1cbfc8f7fc062da577c5ce0a2872b321bb9f5e6b29669f3",
+    "docs/DMP_v2_Security_Test_Vectors.json": "4eb2c5b466c884d5b448b5117d32ca57c14096a8db058bea68d8b2478922ec7e",
+    "docs/DMP_v2_Selective_Recovery.md": "25d2384c9ff4ab5650ced1a3d77e0762cc1de3a74d944921c5e5c0a822ca65b7",
+    "tests/provider/README.md": "d86e8698ebf93ffcd9a27afe6e7846d6707eb694add3650179f8304f787c02c1",
+    "dev/DMP_Noise_Provider_Survey.md": "1e0a9da8098dd6407c3b3e5f63312bd3634ca7b2589e21b7b093144d976e38e2",
+    "dev/DMP_Noise_ADR.md": "a443093b2e3ca4783f7f9a800376e1e1bb08d21bbb8f170620ebf413f594b511",
+    "dev/evidence/noise-abort-first-20260926/vector-impact.json": "1a332a8e026c613c2175b51d52cfd2376f54cc3a04a61567ff389ef0ccdedc6b",
+    "dev/evidence/noise-abort-first-20260926/sources.json": "e1f753f59629fb694c49f1fef0e0897a41a66f6f0a398f7bce171869561e90d7"
+  },
+  "review_snapshot_sha256": "d0c0bc19e0f6a0969f097d28083393ebf5c8dcb16d9b08ff613dab711a37ea77",
+  "review": {
+    "agent": "/root/abort_first_final_review",
+    "result": "No material findings",
+    "hashes_verified_before_and_after": 20,
+    "scope": "Independent adversarial document/consistency review and Node fixture check; no claim of full crypto source audit"
+  },
+  "validation": {
+    "baseline_revision9_node_exit": 0,
+    "python": "3.12.8",
+    "cryptography": "46.0.4",
+    "node": "24.11.1",
+    "generation_command": "python dev/dmp_generate_security_vectors.py --upstream <hash-verified cacophony.txt>",
+    "upstream_sha256": "3bde7c09a6f349ee11c825c50fcc02649f8f02a47c857a459206b357f9386cae",
+    "generator_exit": 0,
+    "upstream_patterns": 4,
+    "replay_model_assertions": 9,
+    "node_command": "node dev/dmp_verify_security_vectors.cjs",
+    "node_exit": 0,
+    "fixtures": 4,
+    "packets": 64,
+    "mutations": 44,
+    "wrong_key_rejections": 64,
+    "structural_rejections": 164,
+    "fixture_policy_rejections": 8,
+    "fixed_old_manifest_reproduces_old_vectors": true,
+    "initial_regeneration_verifier_failure": "Old manifest literal remained; updated only literal, then Node passed",
+    "git_diff_check": 0,
+    "git_cached_diff_check": 0,
+    "local_links_checked": 97,
+    "missing_local_links": 0,
+    "all_30_packages_pending": true,
+    "production_code_build_license_unchanged": true
+  },
+  "additional_sources": [
+    {
+      "url": "https://github.com/jedisct1/libsodium/blob/d24faf56214469b354b01c8ba36257e04737101e/LICENSE",
+      "blob_sha": "95c22fbadfa457cd7898ebe96aaa05147589b655",
+      "finding": "ISC license also verified at port submodule pin"
+    },
+    {
+      "url": "https://github.com/LoupVaillant/Monocypher/blob/1830c06d5910fba451cec329c8f30f348fc607db/src/monocypher.h",
+      "blob_sha": "2736f374102f44d04ce48a0ff9c8a353489c6c27",
+      "finding": "Primary header uses BLAKE2b; no SHA256 API"
+    }
+  ],
+  "recommendation": "First experiment: maintained ESPHome C engine plus small controlled patch queue; independently reviewed sodium software backend. No production dependency accepted.",
+  "not_run": [
+    "Upstream/provider builds or execution",
+    "Abort-first endpoint lifecycle tests",
+    "MCU retained/scratch/stack/flash/CPU/energy measurements",
+    "Fork or production implementation",
+    "Firmware integration or hardware actions"
+  ],
+  "open_acceptance_gaps": [
+    "Numeric product/target budgets and complete manifests",
+    "Executable provider PN/error/storage/entropy/erasure behavior",
+    "Reference-backend component provenance and exact build viability",
+    "Independent endpoint interoperability and backend independence"
+  ]
+}

@@ -9,7 +9,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const data = JSON.parse(fs.readFileSync(path.join(__dirname, '../docs/DMP_v2_Security_Test_Vectors.json')));
-assert.equal(data.specification, 'DMP v2 revision 9 / SEC-1 revision 4 / BOOT_VERSION 2');
+assert.equal(data.specification, 'DMP v2 revision 10 / SEC-1 revision 5 / BOOT_VERSION 2');
 const b = h => Buffer.from(h, 'hex');
 const sha = x => crypto.createHash('sha256').update(x).digest();
 
@@ -193,7 +193,7 @@ let packets = 0, mutations = 0, structuralRejections = 0, fixturePolicyRejection
 for (const v of data.vectors) {
   const input = v.test_only_inputs;
   assert.equal(b(input.manifest_bytes).toString(),
-    'DMP-SEC1-PUBLIC-VECTOR-PROFILE/2\nmain=9;sec1=4;default_service=1;explicit_application_service=2\n');
+    'DMP-SEC1-PUBLIC-VECTOR-PROFILE/3\nmain=10;sec1=5;handshake_error=abort-first;default_service=1;explicit_application_service=2\n');
   for (const packet of v.packets) fixtureService(b(packet.frame));
   for (const [replyName, requestName] of [
     ['request_receipt', 'routed_request'], ['request_receipt_retry', 'routed_request'],

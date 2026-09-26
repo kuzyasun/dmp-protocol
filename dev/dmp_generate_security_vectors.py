@@ -205,7 +205,7 @@ def packet(label, h, keys, cipher, direction, kind, seq, pn, plaintext, **kwargs
 def fixture(mode, cipher):
     ie, re, si, sr, psk = [bytes(range(start, start + 32)) for start in (0, 32, 64, 96, 128)]
     attempt = bytes(range(16))
-    manifest = b"DMP-SEC1-PUBLIC-VECTOR-PROFILE/2\nmain=9;sec1=4;default_service=1;explicit_application_service=2\n"
+    manifest = b"DMP-SEC1-PUBLIC-VECTOR-PROFILE/3\nmain=10;sec1=5;handshake_error=abort-first;default_service=1;explicit_application_service=2\n"
     ph = sha(manifest)
     prefix = struct.pack("<BBBB16sIII32sII", 2, mode, cipher, 1, attempt, 1, 10, 20, ph, 5 if mode == 1 else 0, 7)
     assert len(prefix) == 72
@@ -319,7 +319,7 @@ def main():
     args = ap.parse_args()
     provenance = check_upstream(args.upstream)
     fixtures = [fixture(m, c) for m in (1, 2) for c in (1, 2)]
-    report = {"specification": "DMP v2 revision 9 / SEC-1 revision 4 / BOOT_VERSION 2",
+    report = {"specification": "DMP v2 revision 10 / SEC-1 revision 5 / BOOT_VERSION 2",
               "warning": "PUBLIC TEST KEYS ONLY. Encoding fixtures do not establish live trust, ACLs or token grants.",
               "upstream_validation": provenance, "vectors": fixtures}
     path = Path(__file__).resolve().parents[1] / "docs" / "DMP_v2_Security_Test_Vectors.json"

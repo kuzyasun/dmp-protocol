@@ -8,9 +8,12 @@ test IDs, expected outcomes and ownership before any enabled-module claim.
 | Requirement | Test / evidence | Owner gate | Expected outcome | Actual result |
 |---|---|---|---|---|
 | C11 host toolchain and CTest runner | `dmp_host_environment` | P00 | Compile with strict warnings; run successfully | Not run |
-| Existing public SEC-1 fixture consistency | `fixtures.sec1` / `node dev/dmp_verify_security_vectors.cjs` | P00 baseline only | Current revision fixture verifier succeeds | Passed revision 9 corpus: 4 fixtures / 64 packets / 44 mutations / 164 structural / 8 service negatives; fixture-only, [checks](evidence/approved-amendments-20260926/checks.json) |
-| Maintained provider, exact Noise suites/flights/prologue | P01 experiment (not yet implemented) | P01 | Selected suites match independent vectors | Pending |
-| S3.1 invalid then valid receive / pin verification | P01 experiment (not yet implemented) | P01 | Preserve pre-flight state/deadline, erase rejected tentative state | Pending |
+| Existing public SEC-1 fixture consistency | `fixtures.sec1` / `node dev/dmp_verify_security_vectors.cjs` | P00 baseline only | Current revision fixture verifier succeeds | Passed revision 10 corpus: 4 fixtures / 64 packets / 44 mutations / 64 wrong-key / 164 structural / 8 service negatives; fixture-only, [impact](evidence/noise-abort-first-20260926/vector-impact.json). Historical revision 9 [checks](evidence/approved-amendments-20260926/checks.json) remain dated evidence |
+| Reviewed engine/backend, exact Noise suites/flights/prologue | P01 experiment (not yet implemented) | P01 | Selected suites match independent vectors; controlled-core delta/provenance reviewed | Pending |
+| S3.1 / S10.17 abort-first read and pin/payload checks | P01 experiment (not yet implemented) | P01; endpoint P13/P15/P21C | Admitted bad read/post-check aborts attempt; late continuation cannot resume; separately scheduled fresh attempt within episode/global limits | Pending |
+| S3.1 structural/conflicting-duplicate boundary | P01/P13 fault cases | P01/P13/P15/P21C | No crypto call, response, deadline renewal or destruction of admitted pending state | Pending |
+| Future preserve-state read/pin transaction | No implementation selected | Future separately authorized scope | Requires tentative storage/erasure, nonrollbackable work/time and explicit pair/path policy | Deferred; not current acceptance or supported feature |
+| S2.2 all-zero X25519 result / low-order inputs | Each enabled DH backend and e/static engine path | P01/P13/P21C | SEC-1 rejection before MixKey, no masked backend failure or continued attempt | Pending |
 | S2.2 / S3.2 cache, erasure and finite resource work | P01 experiment (not yet implemented) | P01 | No repeated flight encryption; bounded retained/scratch/work | Pending |
 | S4 / S5 explicit nonce and authenticated header | P01 experiment (not yet implemented) | P01 | Provider permits exact PN/AAD semantics | Pending |
 | Main 22.8 structural/framing cases | Assigned case-by-case at P03 | P05–P08 | Normative positive/negative outcomes | Pending |

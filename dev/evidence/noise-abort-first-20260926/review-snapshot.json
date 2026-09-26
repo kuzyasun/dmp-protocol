@@ -1,0 +1,36 @@
+{
+  "baseline_head": "03de75750d3aafe0bb0f4cf527916b7041589474",
+  "current_head": "64495d7e26f187a281435d17b39a19291d374c1a",
+  "index_sha256": "373c690ce00859937d19cccf4aab50df0850c71eaa6364304f8bcd09c4b280d6",
+  "files": {
+    "AGENTS.md": "047e87c464712114b0c544a937d5c04a4de220737e93ff98f9598c476eb98767",
+    "README.md": "0bf372ee971d4ebf515f60ec851b0abf01f29a12381bb940715f018d577311b7",
+    "dev/DMP_Conformance_Matrix.md": "f6ea4e98661d767d83afcd2abc25383caa954bbaf27d8aecaa1f90fa4c3ae10c",
+    "dev/DMP_Execution_Log.md": "d51fdbb997bc6d4b2aa27f3eb9041956306625af3e8133d1697b818ab60e9ca6",
+    "dev/DMP_Implementation_Plan.md": "81c0e4340a18dbd7f2eb05c48ac73424394faebd178398725d1e1d41b2a57470",
+    "dev/DMP_Work_Packages.md": "02155d219dcb08c297b99d3001b22680e603f95a83b59643cd502a6f7542bcad",
+    "dev/dmp_generate_security_vectors.py": "dfb6c94c630f506768f95fcae85fa1f03c6a671ccb7026ce1439d76bd4e21608",
+    "dev/dmp_verify_security_vectors.cjs": "b001eb1ab46d9cde8bf50e0028b2761de52588c9a00ae8f6600174b20f1a31e0",
+    "docs/DMP_v2_Deployment_Profiles.md": "f1fdb79e6ca4d20f41c98e48cffeafb0ab1fd001c0128eac4bb35b4e2eb59778",
+    "docs/DMP_v2_Design_Tradeoffs.md": "f1d0737160dc6a916a1051776804790f0c6930dce0b52f24b3eb40ed6ef59e92",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "0c22f0c0381504821b71eb5defaccda40c353966363a518274625cbfacdc4d9d",
+    "docs/DMP_v2_Reference_Application.md": "ef7d78119b987200c054209c82c365043e4d95ea8b722a7dd84b3653b32a78be",
+    "docs/DMP_v2_Security_Profile.md": "8f6bf8c34ba37e33a1cbfc8f7fc062da577c5ce0a2872b321bb9f5e6b29669f3",
+    "docs/DMP_v2_Security_Test_Vectors.json": "4eb2c5b466c884d5b448b5117d32ca57c14096a8db058bea68d8b2478922ec7e",
+    "docs/DMP_v2_Selective_Recovery.md": "25d2384c9ff4ab5650ced1a3d77e0762cc1de3a74d944921c5e5c0a822ca65b7",
+    "tests/provider/README.md": "d86e8698ebf93ffcd9a27afe6e7846d6707eb694add3650179f8304f787c02c1",
+    "dev/DMP_Noise_Provider_Survey.md": "1e0a9da8098dd6407c3b3e5f63312bd3634ca7b2589e21b7b093144d976e38e2",
+    "dev/DMP_Noise_ADR.md": "a443093b2e3ca4783f7f9a800376e1e1bb08d21bbb8f170620ebf413f594b511",
+    "dev/evidence/noise-abort-first-20260926/vector-impact.json": "1a332a8e026c613c2175b51d52cfd2376f54cc3a04a61567ff389ef0ccdedc6b",
+    "dev/evidence/noise-abort-first-20260926/sources.json": "e1f753f59629fb694c49f1fef0e0897a41a66f6f0a398f7bce171869561e90d7"
+  },
+  "checks": {
+    "relative_links": 97,
+    "missing_links": [],
+    "pending_packages": 30,
+    "diff_check": 0,
+    "cached_diff_check": 0,
+    "code_build_license_unchanged": true
+  },
+  "external_index_change": true
+}

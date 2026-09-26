@@ -50,7 +50,7 @@ DMP connects devices, gateways and applications over packet transports or explic
 
 Conformance is modular:
 
-| Module | Revision 9 status | Dependency |
+| Module | Revision 10 status | Dependency |
 |---|---|---|
 | Core packet encoder/parser | Defined | Agreed application/binding context |
 | Payload descriptor and extensions | Defined | Registry/profile agreement |

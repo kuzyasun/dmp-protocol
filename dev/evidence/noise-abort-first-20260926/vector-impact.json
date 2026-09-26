@@ -1,0 +1,10 @@
+{
+  "old_manifest_reproduces_all_old_vectors": true,
+  "fixtures": 4,
+  "cryptographic_algorithm_changes": false,
+  "changed_input": "Exact test manifest revision and abort-first policy",
+  "new_specification": "DMP v2 revision 10 / SEC-1 revision 5 / BOOT_VERSION 2",
+  "packet_lengths_unchanged": true,
+  "old_vector_sha256": "0d40ef9ad3b3b05f35dd713f992419380c3de30ca111eac4581e2f9ba9349ade",
+  "new_vector_sha256": "4eb2c5b466c884d5b448b5117d32ca57c14096a8db058bea68d8b2478922ec7e"
+}

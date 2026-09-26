@@ -1,0 +1,150 @@
+{
+  "checked_on": "2026-09-26",
+  "mode": "read-only GitHub source/API and official documentation",
+  "heads": [
+    {
+      "repo": "esphome-libs/noise-c",
+      "head": "44722c19f7795dd409b46728712067fac87ffc53",
+      "date": "2026-09-10T20:08:04Z"
+    },
+    {
+      "repo": "rweather/noise-c",
+      "head": "cfe25410979a87391bb9ac8d4d4bef64e9f268c6",
+      "date": "2023-12-06T20:51:04Z"
+    },
+    {
+      "repo": "blckngm/noise-rust",
+      "head": "ffb4de5b752c88256ea31c118c0c4af5269093fc",
+      "date": "2026-03-11T03:46:04Z"
+    },
+    {
+      "repo": "mcginty/snow",
+      "head": "8ac60f51cfe3e010c84f0a454cc575ad9204fa12",
+      "date": "2026-03-25T20:18:15Z"
+    },
+    {
+      "repo": "Inria-Prosecco/noise-star",
+      "head": "ca2a3643821cb1433caf1d104f4020534b0d52c6",
+      "date": "2023-11-03T16:50:00Z"
+    },
+    {
+      "repo": "jedisct1/libsodium",
+      "head": "c960b3b0c6e430ff2dfdb776bf1c990e62f3f18b",
+      "date": "2026-09-22T08:39:29Z"
+    },
+    {
+      "repo": "esphome-libs/libsodium",
+      "head": "40c22448d6e8f42be56c45f739b52a5c8d21c8ca",
+      "date": "2026-09-10T20:03:12Z"
+    },
+    {
+      "repo": "LoupVaillant/Monocypher",
+      "head": "1830c06d5910fba451cec329c8f30f348fc607db",
+      "date": "2026-07-28T12:25:15Z"
+    }
+  ],
+  "sources": [
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/protocol/dhstate.c",
+      "blob_sha": "79c117ce81d4e5ee0c5051bec9578519760a3f06",
+      "scope": "coordinator source verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/protocol/handshakestate.c",
+      "blob_sha": "4b4c4b6ace31ecd1d34d8e68aa81c9157eb1675a",
+      "scope": "coordinator source verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/protocol/cipherstate.c",
+      "blob_sha": "173e3d119032fc948b17519e19888993053b8371",
+      "scope": "coordinator source verification"
+    },
+    {
+      "url": "https://github.com/rweather/noise-c/blob/cfe25410979a87391bb9ac8d4d4bef64e9f268c6/src/protocol/handshakestate.c",
+      "blob_sha": "87ce1eaa299be4d1e6c0cdd9b75764ba161121a3",
+      "scope": "coordinator source verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/crypto/README",
+      "blob_sha": "fe0c414889903a87c0cbc94dc3ddc62400022f14",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/crypto/x25519/x25519-license.txt",
+      "blob_sha": "81e4862112527a90604172e2e663fa54bd591da0",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/crypto/donna/curve25519-donna.c",
+      "blob_sha": "ae79c639e75be3cf5e8934c2976580290d349b2e",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/crypto/donna/poly1305-donna.c",
+      "blob_sha": "68c71ea088c7591c3d9e0bfa190243dc1c617077",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/crypto/chacha/chacha.c",
+      "blob_sha": "c84cf20581ac8691578ce87e686de6376b3df789",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/crypto/sha2/sha256.c",
+      "blob_sha": "1d20e7aed4604bd0baee656b03c15cdb079ad5cb",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/backend/ref/dh-curve25519.c",
+      "blob_sha": "9af265af3ba7b4f5c3a9dec6f00358c1b0ad2564",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/include/noise/defines.h",
+      "blob_sha": "df1549f33b33cb1758da9cdf3eaa01db193a76e8",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/crypto/donna/poly1305-donna.h",
+      "blob_sha": "5f15f5e17a2a4d09755ebf7919b1f5976b3ad909",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/crypto/donna/curve25519-donna-c64.c",
+      "blob_sha": "32575d8560ff8cf53859e74358409fa245788394",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/noise-c/blob/44722c19f7795dd409b46728712067fac87ffc53/src/backend/ref/cipher-aesgcm.c",
+      "blob_sha": "ef4cff62eeccfb51fbd989a4c952348b79b2b89d",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/jedisct1/libsodium/blob/c960b3b0c6e430ff2dfdb776bf1c990e62f3f18b/LICENSE",
+      "blob_sha": "95c22fbadfa457cd7898ebe96aaa05147589b655",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/jedisct1/libsodium/blob/c960b3b0c6e430ff2dfdb776bf1c990e62f3f18b/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c",
+      "blob_sha": "3b0dffaf5aeec919aca31ebb6921bb69b176ae71",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/libsodium/blob/40c22448d6e8f42be56c45f739b52a5c8d21c8ca/idf_component.yml",
+      "blob_sha": "8624c590745e4b9b344725bee585ef6cee406cd1",
+      "scope": "backend component verification"
+    },
+    {
+      "url": "https://github.com/esphome-libs/libsodium/blob/40c22448d6e8f42be56c45f739b52a5c8d21c8ca/LICENSE",
+      "blob_sha": "5d8d708fe2897166b0ca9288ee4e9367ac114954",
+      "scope": "backend component verification"
+    }
+  ],
+  "port_libsodium_gitlink": "d24faf56214469b354b01c8ba36257e04737101e",
+  "not_run": [
+    "provider builds",
+    "provider executions",
+    "MCU measurements"
+  ],
+  "source_vs_runtime": "Source assertions do not satisfy P01."
+}
