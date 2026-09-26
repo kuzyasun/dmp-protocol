@@ -1,0 +1,30 @@
+{
+  "base": "c9dabbf72746bb20bebe3546bf4ce5aa8b967a3d",
+  "submodule": "44722c19f7795dd409b46728712067fac87ffc53",
+  "files": {
+    ".gitmodules": "e875b46ebdd808e43f443f090f0ed78a3600e2114bb5d965b568dc608590dc4e",
+    "CMakeLists.txt": "89a9ac820269463c21503cf3334c4b25e589e99ac4ba94886a5e2cce0dc095d4",
+    "README.md": "13f928faf2fb93212e7d10a36d2aa0ccebaa61284d92238e1decbe3442bdf7d3",
+    "dev/DMP_Conformance_Matrix.md": "f140751833c0b7fd241df96d8747373f1a4223cdf9ba22e51cf57f74d30eacb5",
+    "dev/DMP_Execution_Log.md": "fe2055400ad7818ed49e9adf7ba9c1206d7689bd1ed0e9f2d00760871b5a9464",
+    "dev/DMP_Implementation_Plan.md": "16515f42c0853b43528d043cc09b02d796640295240d53c77c9f282a48ee9bc0",
+    "dev/DMP_Work_Packages.md": "b57299114d803d56d2db1a2c06a62193ed1e411aec0e26a6162d85d46ede8f21",
+    "dev/evidence/noise-baseline-20260926/README.md": "700d06a4fecc9c8176de115eca8942dd3893b9e96eb27995b260b715501a149d",
+    "dev/evidence/noise-baseline-20260926/baseline.json": "55dfac1b85e372c2405202f03b782d5aabc288f328705b1f9044463413a3c432",
+    "dev/evidence/noise-baseline-20260926/build-final.log": "782e0ff28e2818d3cc3bdbb208a110814e9eb38e589d78329c371a633756ec0f",
+    "dev/evidence/noise-baseline-20260926/build-initial-failure.log": "36feeff50866403a9042feb5ab0195f356463df0dd49676deb429c6025e85600",
+    "dev/evidence/noise-baseline-20260926/build.log": "36feeff50866403a9042feb5ab0195f356463df0dd49676deb429c6025e85600",
+    "dev/evidence/noise-baseline-20260926/configure.log": "9664fb3bd29591fb814e8f363cd17f5d75fd6ab16f0126b49eafc93303aa3a61",
+    "dev/evidence/noise-baseline-20260926/ctest-summary.log": "25a7c1978850f9e2a7b5b9b202f3f9a06ef9d15296acae2ad3884cfada01e72c",
+    "dev/evidence/noise-baseline-20260926/experiments-ctest.log": "29ae1664c48b332a904e2109753817a78b978f1df402451c4ffcdd3fc0793ff5",
+    "dev/evidence/noise-baseline-20260926/scaffold-ctest.log": "3a9fa028ff1a8e17452a11c145335ab69e5cfd4410fec2ae03fff361de0ff46b",
+    "dev/evidence/noise-baseline-20260926/upstream-ctest.log": "bb1699603b3d7bcc84ac793ec3636479a156e38ae5cb25d63b026eccfb029e1a",
+    "tests/provider/CMakeLists.txt": "706a1be86439cefaf7c86767cee86b138b6248caf9acf2a95fede263850c1356",
+    "tests/provider/README.md": "b7c590bd50087260386e78a312caeff4cc05cc931392a8f81fc29800eaa22de1",
+    "tests/provider/generate_noise_fixture_header.py": "db4628e410dd865e762044b4a5dee09b103966c043cc4ffbc58d4a4d1fe5ff4a",
+    "tests/provider/host_environment.c": "e8bdf2ef75db2da3ef43bb074424458171b80b2b1566201ffdf1440404f66dca",
+    "tests/provider/noise_baseline_probe.c": "99a9f6c2eaff51607b725d8b95dd0960c81395e795470dd531761d270df9af79",
+    "tests/provider/noise_experiment.cmake": "f5d0497e7aae11ba907414bb13bd0665a54323cee3b0682d3df2640b3d3ba579",
+    "tests/provider/noise_fixture_probe.c": "a8c0aa1394a269aa08bda0ec3da393bba38b36d686a77d56ec1261829e209ad4"
+  }
+}

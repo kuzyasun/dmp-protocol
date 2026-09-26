@@ -1,0 +1,81 @@
+{
+  "scope": "Initial unmodified candidate characterization; no production adoption or P01 acceptance",
+  "parent_base": "c9dabbf72746bb20bebe3546bf4ce5aa8b967a3d",
+  "engine": {
+    "head": "44722c19f7795dd409b46728712067fac87ffc53",
+    "status": "",
+    "files": 110,
+    "tree_sha256": "bd1abc9d65bcf11c36343e308cb61a24eeed4806a5af0554faae68ab1e757218"
+  },
+  "sodium_port": {
+    "head": "40c22448d6e8f42be56c45f739b52a5c8d21c8ca",
+    "status": "m libsodium",
+    "files": 47,
+    "tree_sha256": "4da3210c5eecdfd9480fc6ae6a938724527aec7cb15cd3a21d8c078061408e4a"
+  },
+  "libsodium": {
+    "head": "d24faf56214469b354b01c8ba36257e04737101e",
+    "status": "M src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c\n M src/libsodium/crypto_hash/sha256/cp/hash_sha256_cp.c\n M src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c\n M src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna32.h\n M src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c\n M src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c\n M src/libsodium/include/sodium/private/ed25519_ref10_fe_25_5.h\n M src/libsodium/sodium/core.c\n?? src/libsodium/crypto_core/ed25519/ref10/base_packed.h\n?? src/libsodium/include/sodium/sodium_esphome_patched.h",
+    "files": 670,
+    "tree_sha256": "5e9ca1fb8f4736f1547df7cd27c295a86be096c06a6d10c547613a8bc4bfc9d4"
+  },
+  "tree_digest_algorithm": "SHA256 of compact sorted JSON mapping each git ls-files --cached --others --exclude-standard regular file name to SHA256 of working-file bytes; nested gitlinks separately snapshotted",
+  "normative_files": {
+    "docs/DMP_v2_Deployment_Profiles.md": "f1fdb79e6ca4d20f41c98e48cffeafb0ab1fd001c0128eac4bb35b4e2eb59778",
+    "docs/DMP_v2_Design_Tradeoffs.md": "f1d0737160dc6a916a1051776804790f0c6930dce0b52f24b3eb40ed6ef59e92",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "0c22f0c0381504821b71eb5defaccda40c353966363a518274625cbfacdc4d9d",
+    "docs/DMP_v2_Reference_Application.md": "ef7d78119b987200c054209c82c365043e4d95ea8b722a7dd84b3653b32a78be",
+    "docs/DMP_v2_Security_Profile.md": "8f6bf8c34ba37e33a1cbfc8f7fc062da577c5ce0a2872b321bb9f5e6b29669f3",
+    "docs/DMP_v2_Security_Test_Vectors.json": "4eb2c5b466c884d5b448b5117d32ca57c14096a8db058bea68d8b2478922ec7e",
+    "docs/DMP_v2_Selective_Recovery.md": "25d2384c9ff4ab5650ced1a3d77e0762cc1de3a74d944921c5e5c0a822ca65b7"
+  },
+  "host": {
+    "os": "Windows x86-64",
+    "compiler": "GCC 15.2.0 w64devkit",
+    "compiler_path": "C:/develop/mingw/w64devkit/bin/gcc.exe",
+    "cmake": "3.28.1",
+    "ninja": "1.11.1",
+    "node": "24.11.1",
+    "python": "3.12.8",
+    "probe_flags": "C11 -Wall -Wextra -Wpedantic -Werror; no optimization override",
+    "upstream_flags": "upstream generic CMake defaults; NOISE_C_BUILD_TESTS=ON; NOISE_USE_CUSTOM_RAND=0; DMP adds NOISE_REQUIRE_SODIUM_FAST_PATH"
+  },
+  "upstream_vectors": {
+    "cacophony": {
+      "run": 36,
+      "skipped": 540
+    },
+    "noise_c_basic": {
+      "run": 15,
+      "skipped": 225
+    },
+    "noise_c_fallback": {
+      "run": 1,
+      "skipped": 15
+    },
+    "noise_c_hybrid": {
+      "run": 0,
+      "skipped": 208
+    }
+  },
+  "targets": {
+    "esp32s3": {
+      "toolchain_discovery": "ESP-IDF v6.0.2 via eim run",
+      "provider_build": "not run",
+      "memory_regions_and_product_budget": "not selected"
+    },
+    "cortex_m4": {
+      "compiler": "GNU Tools for STM32 13.3.rel1.20250523-0900 / GCC 13.3.1 20240614",
+      "abi": "ARMv7E-M Thumb-2 EABI5 little-endian soft-float",
+      "flags": "-std=c11 -Wall -Wextra -Wpedantic -Werror -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -ffreestanding -c",
+      "result": "host_environment.c compiled to relocatable ELF32 ARM object; no linking, execution or provider build",
+      "memory_regions_and_product_budget": "not selected"
+    }
+  },
+  "limits": "Serialized host probes; no resource/latency comparison, endpoint runtime or MCU support claim",
+  "backend_notices": {
+    "Noise-C": "MIT root plus component-specific notices; retain complete fork",
+    "ESPHome_port": "MIT",
+    "libsodium": "ISC root plus component-specific notices; selected-component distribution audit remains open"
+  }
+}

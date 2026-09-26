@@ -1,0 +1,30 @@
+{
+  "reviewer": "/root/abort_first_final_review",
+  "model": "gpt-6-astra",
+  "effort": "max",
+  "scope": "Independent read-only review of initial unchanged candidate probes and evidence",
+  "findings": [],
+  "snapshot_files_verified": 24,
+  "normative_hashes_verified": true,
+  "engine_backend_working_tree_digests_independently_verified": true,
+  "tests": "Coordinator CTest 6/6; reviewer checked logs and test source, did not rerun suite",
+  "interpretation": "Expected-limitation PASS reproduces PN/DH incompatibilities; no P01 acceptance",
+  "limits": [
+    "P00 target envelopes/resource preparation",
+    "P01 corrected PN and strict DH adapter",
+    "full e/static and pin/payload negatives",
+    "fallible entropy and storage",
+    "cleanup/erasure and allocation",
+    "scheduler/quotas/concurrency",
+    "MCU resources and independent live interoperation"
+  ],
+  "log_note": "build.log and build-initial-failure.log retain the initial generator error. build-final.log and ctest-summary.log record the successful corrected rerun. Evidence log copies normalize trailing whitespace; original tool output content is otherwise unchanged.",
+  "post_review_changes": {
+    "reason": "git diff --cached --check found trailing whitespace emitted by CMake/Ninja; normalized line endings/trailing whitespace in three log copies only, plus appended the review-result paragraph to the execution log",
+    "log_hashes": {
+      "dev/evidence/noise-baseline-20260926/build-initial-failure.log": "654c84a3f205a6a3f7ca36538f37c7288c17ea5b67b3109a27f44849195ad3d7",
+      "dev/evidence/noise-baseline-20260926/build.log": "654c84a3f205a6a3f7ca36538f37c7288c17ea5b67b3109a27f44849195ad3d7",
+      "dev/evidence/noise-baseline-20260926/configure.log": "1510c0a368881f7b2633ee9847e2ed1fa5b5b21169622936b76f66aaaf2430fd"
+    }
+  }
+}

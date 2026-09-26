@@ -1,0 +1,4 @@
+[submodule "third_party/noise-c"]
+	path = third_party/noise-c
+	url = https://github.com/kuzyasun/noise-c.git
+	branch = main

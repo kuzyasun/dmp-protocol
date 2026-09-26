@@ -106,3 +106,41 @@ The baseline revision-9 Node verifier passed. After updating the exact public ma
 During work, HEAD advanced externally from `03de75750d3aafe0bb0f4cf527916b7041589474` to `64495d7` and the staged set changed. The coordinator issued no commit/stage/reset commands and preserved that state; baseline index SHA-256 was `a09858c3431fbd271d33e1ea0af59248a26f56ccdfd15a23f1a6e3df2ad9b12a`, later observed `373c690ce00859937d19cccf4aab50df0850c71eaa6364304f8bcd09c4b280d6`. Review uses frozen file hashes and the original content baseline, not unstaged diff alone. Final review/check evidence is recorded in `dev/evidence/noise-abort-first-20260926/`.
 
 No provider builds/executions, MCU resource measurements, firmware integration, installs, fork implementation, hardware actions or external issues/PRs were performed. Existing C/build scaffold files are unchanged; all 30 packages remain pending. The next implementation experiment is specified in the plan, not started. Missing numeric product manifests/target budgets, backend provenance gaps and runtime/independent interoperability evidence are explicit acceptance gaps.
+
+
+## 2026-09-26 — Authorized commit, fork and initial executable experiments
+
+The owner authorized local commits, adding their Noise-C fork as a submodule,
+and starting experiments. Created documentation commit `c9dabbf72746bb20bebe3546bf4ce5aa8b967a3d`
+with the reviewed revision-10/SEC-1-revision-5 changes and evidence. Added
+`third_party/noise-c` from `https://github.com/kuzyasun/noise-c` at the inspected
+ESPHome-derived commit `44722c19f7795dd409b46728712067fac87ffc53`; no engine patch
+or fork commit is part of this initial wave. No push was performed.
+
+RBO discovery returned `fetch failed`, so local host checks were used. The
+unchanged upstream library built and passed both inherited CTest entries, with
+52 executed and 988 explicitly skipped vectors. Root host scaffold passed 2/2.
+ESP-IDF v6.0.2 was discovered; the additional Cortex-M4 soft-float compile-only
+scaffold check passed with GCC 13.3.1. Neither is MCU provider/resource evidence.
+The [baseline record](evidence/noise-baseline-20260926/README.md) contains source
+provenance, test logs, exact toolchain scope and remaining gates.
+
+Two bounded workers authored disjoint host-only probes: public API limitations
+and independent DMP fixture reproduction. The coordinator owns registration,
+source review, runtime checks and acceptance. No production API, normative bytes
+or engine primitives changed. P00 preparation is running and P01 remains pending
+its prerequisite and full acceptance, including target resources. During work,
+the current experiment files were staged externally; HEAD stayed at `c9dabbf`.
+The coordinator preserves this staging and reviews the complete content before
+creating the authorized experiment commit.
+
+Integrated host CTest passed 6/6, including exact NNpsk0/XX ChaChaPoly fixture
+flights/hash/Split AEAD and final-flight FAILED/no-resume checks. The first build
+found a new fixture-header generator formatting bug; the corrected generator and
+strict C11 build passed. The expected-limitation probe confirmed monotonic receive
+PN incompatibility, invalid-high-PN poisoning and literal-zero DH success. Its
+success is a reproduced blocker, not SEC-1 conformance. The coordinator corrected
+the high-PN test ordering so lower-PN rejection is observed before any successful
+high-PN authentication. Independent review is recorded with the final snapshot.
+
+Independent read-only review by `/root/abort_first_final_review` found no material findings. All 24 snapshot hashes, normative hashes and all three engine/backend tree digests matched. It checked source and the recorded 6/6 results without rerunning the suite; limits remain explicit. See [review result](evidence/noise-baseline-20260926/review-result.json). Only this review-result entry and review metadata were added after the reviewed source snapshot.

@@ -14,3 +14,7 @@ endfunction()
 
 dmp_add_provider_experiment(dmp_host_environment host_environment.c)
 set_tests_properties(dmp_host_environment PROPERTIES LABELS "scaffold-only")
+
+if(DMP_NOISE_EXPERIMENTS)
+    include(noise_experiment.cmake)
+endif()

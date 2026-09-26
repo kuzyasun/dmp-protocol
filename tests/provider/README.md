@@ -1,12 +1,18 @@
-# Milestone 0 experiments
+# Noise candidate experiments
 
-This directory is a host-only C11 test scaffold. It contains no cryptographic
-provider, production security adapter, endpoint implementation, or MCU budget.
-`host_environment.c` checks compiler integer assumptions and CTest execution.
-`fixtures.sec1` runs the existing independent public fixture verifier unchanged.
-Neither check can satisfy P01.
+These host-only tests characterize the unmodified candidate. They do not select
+a production provider or pass P01. Public fixture keys are test-only.
 
-Run from the repository root (CMake 3.20+, a C11 compiler and Node.js required):
+The submodule is the owner's fork of ESPHome Noise-C, pinned by the superproject
+gitlink. The initial experiment expects commit
+`44722c19f7795dd409b46728712067fac87ffc53`. Update this expectation explicitly
+when introducing reviewed fork patches; do not use a floating branch for tests.
+
+## Minimal scaffold
+
+`host_environment.c` checks C11 integer assumptions and CTest execution;
+`fixtures.sec1` runs the existing independent fixture verifier unchanged.
+Neither check satisfies P01. CMake 3.20+, a C11 compiler and Node.js are required:
 
 ```text
 cmake -S . -B build/host -DDMP_BUILD_TESTS=ON
@@ -14,24 +20,64 @@ cmake --build build/host
 ctest --test-dir build/host --output-on-failure
 ```
 
-Multi-configuration generators additionally need the same `--config Debug` for
-build and `-C Debug` for CTest. `DMP_BUILD_TESTS=OFF` configures no library or tests;
-a production library will be introduced only after the prerequisite gates.
+Multi-configuration generators need matching `--config Debug` / `-C Debug`.
+`DMP_BUILD_TESTS=OFF` configures no library or tests. The private
+`dmp_add_provider_experiment` runner applies strict warnings and a 30-second
+timeout; it is not a public provider ABI. A capability test must fail on a
+missing requirement. The separately labeled baseline limitation test below
+asserts an incompatibility and cannot be counted as a capability pass.
 
-The private `dmp_add_provider_experiment(name sources...)` CMake function gives
-P01 bounded executable tests, strict compiler warnings and a 30-second timeout.
-The coordinator registers provider sources, pinned dependencies and any necessary
-test timeout changes here. It is not a public provider ABI. Provider failure
-must return a nonzero status; missing capabilities must not be reported as passes.
+## Reproduce on a host
 
-P01 must independently demonstrate exact SEC-1 revision 5 prologues/flights for
-the declared modes/ciphers, abort-first after admitted read or mandatory
-post-read/pin failure, and a separately scheduled fresh restart within unchanged
-episode/global budgets. Structural rejects and conflicting processed-flight
-duplicates retain their own preserve-attempt expectation; cloning is not required.
-Test cached flights without another encryption call, unordered explicit PN/AAD,
-invalid-high-PN isolation, low-order X25519 rejection, fallible entropy/storage,
-erasure and bounded pre-authentication work. Record engine/backend provenance,
-reviewed changes, retained/scratch/allocation/concurrency and target limitations
-before freezing production layouts. Follow the experiment checklist in the
-[implementation plan](../../dev/DMP_Implementation_Plan.md#abort-first-provider-experiment-before-p01-acceptance).
+Initialize the submodule, then run the unchanged candidate's tests first.
+This explicit upstream configuration downloads its sodium dependency and applies
+the upstream port patches inside the ignored build directory. It needs Git,
+CMake >= 3.14, Ninja, a C compiler and `sh` for the patch script.
+
+```text
+git submodule update --init third_party/noise-c
+cmake -S third_party/noise-c -B build/noise-upstream -G Ninja -DNOISE_C_BUILD_TESTS=ON
+cmake --build build/noise-upstream
+ctest --test-dir build/noise-upstream --output-on-failure
+```
+
+Then build DMP's opt-in probes using that prepared source, without another fetch.
+Use an absolute path for `DMP_SODIUM_SOURCE_DIR`.
+
+```text
+cmake -S . -B build/noise-experiments -G Ninja -DDMP_NOISE_EXPERIMENTS=ON -DDMP_SODIUM_SOURCE_DIR=<repo>/build/noise-upstream/_deps/esphome_libsodium-1.10021.11
+cmake --build build/noise-experiments
+ctest --test-dir build/noise-experiments --output-on-failure
+```
+
+Both configurations must use the same intended host compiler. The recorded
+Windows run adds `-DCMAKE_C_COMPILER=C:/develop/mingw/w64devkit/bin/gcc.exe`.
+The second configuration requires Python 3.10+ (standard library only) and Node.
+It verifies engine, backend-port and nested libsodium commit IDs, rebuilds both
+libraries from source, and requires the patched sodium fast path at compile time.
+Commit checks do not prove a clean working tree; retain source hashes and review
+any local source changes with the run evidence. Backend patches are expected
+working-tree changes. Never point the upstream fetch/patch workflow at a checkout
+containing personal edits.
+
+Default root builds keep these experiments disabled and fetch no provider.
+
+## What a pass means
+
+- `dmp_noise_fixture_probe`: exact independent DMP ChaChaPoly NNpsk0/XX fixture
+  flights, payloads and hashes, role-correct Split checked through FINISH/READY
+  AEAD bytes, and the engine's destructive read-error boundary. FINISH/READY
+  bytes do not test enrollment or association activation.
+- `dmp_noise_baseline_probe` (`expected-limitations`): sequential AEAD works,
+  while the current monotonic nonce API cannot implement unordered receive;
+  literal-zero DH behavior is characterized separately from low-order rejection.
+  Success means the recorded limitation was reproduced, **not** that SEC-1 passed.
+- Inherited `unit`/`vectors`: upstream regression evidence only. Disabled suites
+  are explicitly skipped, not passed. AESGCM is disabled in this configuration.
+
+Both probes use serialized operations and bounded test buffers. They are neither
+endpoint implementations nor resource measurements. Entropy/storage failure,
+allocation/erasure, full e/static attack paths, admission/restart budgets, MCU
+resources and independent live interoperability remain separate acceptance work.
+The full [P01 checklist](../../dev/DMP_Implementation_Plan.md#abort-first-provider-experiment-before-p01-acceptance)
+remains required before production layouts are frozen.
