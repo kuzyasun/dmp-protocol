@@ -1,0 +1,74 @@
+--- a/libsodium/src/libsodium/sodium/core.c
++++ b/libsodium/src/libsodium/sodium/core.c
+@@ -20,6 +20,9 @@
+ #include "utils.h"
+ #include "private/implementations.h"
+ #include "private/mutex.h"
++#if defined(DMP_SODIUM_CHECKED_INIT) && DMP_SODIUM_CHECKED_INIT
++# include "dmp_sodium_entropy.h"
++#endif
+ 
+ /* Stub implementations for unused algorithms in ESPHome */
+ int _crypto_pwhash_argon2_pick_best_implementation(void) {
+@@ -53,9 +56,23 @@
+         }
+         return 1;
+     }
++#if defined(DMP_SODIUM_CHECKED_INIT) && DMP_SODIUM_CHECKED_INIT
++    /* A failed attempt remains uninitialized; only an explicit call retries. */
++    if (dmp_sodium_entropy_ready() != 0) {
++        (void) sodium_crit_leave();
++        return -1;
++    }
++#endif
+     _sodium_runtime_get_cpu_features();
++#if defined(DMP_SODIUM_CHECKED_INIT) && DMP_SODIUM_CHECKED_INIT
++    /* The selected provider uses checked platform entropy, not randombytes. */
++#else
+     randombytes_stir();
+-    _sodium_alloc_init();
++#endif
++    if (_sodium_alloc_init() != 0) {
++        (void) sodium_crit_leave();
++        return -1;
++    }
+     _crypto_pwhash_argon2_pick_best_implementation();
+     _crypto_generichash_blake2b_pick_best_implementation();
+     _crypto_onetimeauth_poly1305_pick_best_implementation();
+--- a/libsodium/src/libsodium/sodium/utils.c
++++ b/libsodium/src/libsodium/sodium/utils.c
+@@ -52,6 +52,9 @@
+ #include "core.h"
+ #include "randombytes.h"
+ #include "utils.h"
++#if defined(DMP_SODIUM_CHECKED_INIT) && DMP_SODIUM_CHECKED_INIT
++# include "dmp_sodium_entropy.h"
++#endif
+ 
+ #ifndef ENOSYS
+ # define ENOSYS ENXIO
+@@ -418,10 +421,22 @@
+ #  warning Unknown page size
+ # endif
+     if (page_size < CANARY_SIZE || page_size < sizeof(size_t)) {
++#if defined(DMP_SODIUM_CHECKED_INIT) && DMP_SODIUM_CHECKED_INIT
++        sodium_memzero(canary, sizeof canary);
++        return -1;
++#else
+         sodium_misuse(); /* LCOV_EXCL_LINE */
+-    }
+-#endif
++#endif
++    }
++#endif
++#if defined(DMP_SODIUM_CHECKED_INIT) && DMP_SODIUM_CHECKED_INIT
++    if (dmp_sodium_entropy_read(canary, sizeof canary) != 0) {
++        sodium_memzero(canary, sizeof canary);
++        return -1;
++    }
++#else
+     randombytes_buf(canary, sizeof canary);
++#endif
+ 
+     return 0;
+ }

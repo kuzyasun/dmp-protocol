@@ -122,3 +122,17 @@ target settings, finite envelopes and sensitivity rows. These are inputs for
 P01 measurements, not validated deployment profiles. `targets/cortex-m4.cmake`
 is archive-only; `targets/esp32s3/sdkconfig.defaults` is for a future isolated
 IDF project. No MCU provider build or resource pass is implied by these files.
+
+
+## Checked backend startup experiment
+
+BINIT-01 adds a separately built, hash-pinned two-file startup patch and checked
+platform entropy contract. It returns readiness/canary-read failures before
+successful initialization, clears partial canary bytes and permits an explicit
+later retry. The original backend and its abort reproduction remain unchanged.
+
+[Backend integration and license](backend/README.md) describe the maintained
+patch, source preparation and excluded legacy RNG APIs. [Evidence](../../dev/evidence/noise-backend-init-20260927/README.md)
+records deterministic and Windows OS failure tests, exact Noise/PN/DH/RNG reruns
+and inherited unit/vector regression on the checked backend. No production
+entropy quality, MCU runtime/resource or complete P01 acceptance follows.

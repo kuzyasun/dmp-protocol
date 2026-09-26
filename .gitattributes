@@ -1,0 +1,3 @@
+# Unified patch context lines contain a required leading space, even when empty.
+# git apply --whitespace=error checks the actual added C lines.
+tests/provider/backend/checked-init.patch text eol=lf whitespace=-blank-at-eol

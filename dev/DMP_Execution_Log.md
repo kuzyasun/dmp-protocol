@@ -306,3 +306,44 @@ these were corrected with explicit UTF-8 and verified preservation of the
 previous log content. No tested code changed. Some task files were staged
 during work; their content was checked against the frozen snapshot before
 updating the authorized commit, without resetting the index.
+
+## 2026-09-27 — BINIT-01 checked backend startup
+
+Resumed clean parent `2896cf3` and unchanged Noise fork `cfb45b9`. The owner
+requested the recommended backend integration experiment. The coordinator
+created a maintained two-file patch, checked entropy port, isolated source
+preparation and separate backend/Noise targets. Two workers authored disjoint
+preparation tooling/tests and startup probes. No fetched backend file, Noise
+submodule source or normative contract changed.
+
+Checked startup propagates readiness/canary-read errors before initialized is
+published, wipes partial canary bytes and releases the existing startup lock.
+No implicit retry or fallback is introduced. An explicit later call can recover.
+CPU/primitive setup is retained; selected Noise runtime entropy still uses the
+RNG-01 checked custom port. Legacy libsodium RNG APIs remain outside this surface.
+
+RBO discovery returned fetch failed. The initial local configure found an ASM
+scope issue, corrected without changing cryptography. A 97-step build and 29
+CTest invocations passed. The coordinator added inherited unit/vector suites on
+the checked backend and distinct per-call deterministic fixture entropy; the
+30-step incremental build and 31/31 suite passed. Each inherited configuration
+runs 52 vectors and skips 988. The original backend's expected abort reproduction
+remains separate from checked-backend startup acceptance.
+
+Independent review found an output hard-link preservation bug in the preparer.
+The coordinator confirmed and fixed it with new-file atomic replacement for
+both source outputs and the report, then added a real hard-link regression.
+All 7 preparation cases and the final 31/31 CTest invocations passed without
+skips in the preparation tests; reconfiguration left generated C unchanged.
+Original backend digests and normative hashes still match the clean baseline.
+The worker's earlier sandbox/fixture failures and rejected machine-specific
+path workaround are recorded as failed pre-acceptance work, not passed evidence.
+
+See [BINIT-01 evidence](evidence/noise-backend-init-20260927/README.md) for the
+maintained patch/license, exact source/configuration identities, failed and
+successful logs, case mapping and scope limits. The independent reviewer verified
+12 final code hashes and 18 evidence hashes and returned scoped PASS with the
+hard-link finding resolved; [review result](evidence/noise-backend-init-20260927/review-result.json).
+The coordinator accepts the serialized host scope. P01 remains running; physical cold-boot quality, MCU resources,
+concurrent/lock bounds and other storage/cleanup gates remain open. Next:
+MEM-01 bounded setup allocation, OOM and cleanup. No push/hardware/DTrack action.

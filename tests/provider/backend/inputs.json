@@ -1,0 +1,7 @@
+{
+  "files": {
+    "libsodium/src/libsodium/sodium/core.c": "7cb57eeae6de9fdeaff48c4ae0ac4429ece8b44807a5490aea245311fc3f006b",
+    "libsodium/src/libsodium/sodium/utils.c": "366ee717eb3fa5eab8bdbe61959310fbed7436491bcc956661af38fe7ab097f3"
+  },
+  "hash_normalization": "crlf-to-lf"
+}

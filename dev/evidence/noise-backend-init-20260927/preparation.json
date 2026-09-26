@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "normalized_source_hashes": {
+    "libsodium/src/libsodium/sodium/core.c": "7cb57eeae6de9fdeaff48c4ae0ac4429ece8b44807a5490aea245311fc3f006b",
+    "libsodium/src/libsodium/sodium/utils.c": "366ee717eb3fa5eab8bdbe61959310fbed7436491bcc956661af38fe7ab097f3"
+  },
+  "output_hashes": {
+    "libsodium/src/libsodium/sodium/core.c": "518e910657ea82db8c3a19881a2a14d163245e261966328561d0e807c888d9ac",
+    "libsodium/src/libsodium/sodium/utils.c": "e6015a16d4c2aac60e5ab76caab9748c0986aa2a5013e0c45494d86b7e73e348"
+  },
+  "patch_sha256": "4c445610ec8b6a0902ca25a14a5cf68acfa3a2766c6c96500f0ee50efe58dc99",
+  "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-upstream\\_deps\\esphome_libsodium-1.10021.11",
+  "source_hash_normalization": "crlf-to-lf",
+  "source_hashes": {
+    "libsodium/src/libsodium/sodium/core.c": "f3629e7af2b5192d6636eed6e52999e75fde59296f43204e35aedcc8e12651e5",
+    "libsodium/src/libsodium/sodium/utils.c": "a0e067052f75d43123a3531584c1638a8480fd1d5e9da34fede3d75c00444c8c"
+  },
+  "temporary_source_line_endings": "CRLF normalized to LF"
+}

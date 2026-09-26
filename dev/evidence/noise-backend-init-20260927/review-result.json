@@ -1,0 +1,47 @@
+{
+  "reviewer": "/root/dh_final_review",
+  "model": "gpt-6-astra",
+  "effort": "max",
+  "scope": "Read-only final source, build graph, pinned identities and recorded evidence review; reviewer did not run builds/tests",
+  "findings": [
+    {
+      "priority": "P2",
+      "issue": "In-place output writes could truncate a hard-linked original source",
+      "resolution": "Coordinator confirmed; mkstemp plus os.replace now materializes generated sources and report without truncating an existing inode",
+      "verification": "Regression covers both pinned originals, output inode separation and unchanged original bytes; independent reviewer confirmed repair",
+      "status": "resolved"
+    }
+  ],
+  "open_actionable_findings": 0,
+  "code_snapshot_entries_verified": 12,
+  "evidence_snapshot_entries_verified": 18,
+  "normative_files_verified": 7,
+  "backend_tree_digests_independently_reproduced": true,
+  "backend_regular_file_counts": {"sodium_port": 47, "libsodium": 670},
+  "generated_source_hashes_verified": 2,
+  "checks": {
+    "build": "97 initial plus 30 incremental steps without emitted warnings; final reconfigure succeeded and build reported no work",
+    "ctest": "Final 31/31 invocations passed; two expected-limitations diagnostics do not count as capability acceptance",
+    "preparation": "7/7 Python cases passed without skips, also run within final CTest",
+    "inherited_vectors_each_configuration": {"run": 52, "skipped": 988},
+    "failed_preacceptance_attempts": "Initial ASM-scope configure failure and worker sandbox/fixture failures retained or described in evidence README"
+  },
+  "acceptance": "BINIT-01 serialized host checked-startup scope accepted; P01 remains running",
+  "fork_commit_unchanged": "cfb45b9041d174b3e3106333235c87af47dcb425",
+  "post_review_changes": [
+    "Acceptance metadata only in root/evidence README, work board, conformance matrix and execution log",
+    "Added review-result.json; historical reviewed snapshots retained unchanged",
+    "No reviewed implementation, generated C, fetched backend, Noise fork or normative file changed"
+  ],
+  "remaining_limits": [
+    "No production adoption or full provider acceptance",
+    "MCU cold-boot entropy quality, builds and runtime resources remain open",
+    "Concurrent startup, lock bounds, critical-section and invalid-page fault injection remain open",
+    "Serialized explicit retry tested; pthread_once still caches first initialization error",
+    "Callers must require initialization success before provider object use",
+    "Full secret-copy erasure, storage and allocation-failure gates remain open",
+    "Legacy libsodium randombytes APIs remain outside selected provider surface; original backend abort still reproduced",
+    "No push, hardware operation or DTrack integration"
+  ],
+  "recommended_next": "MEM-01 bounded setup allocation, OOM and secret cleanup"
+}

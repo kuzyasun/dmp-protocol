@@ -1,0 +1,14 @@
+{
+  ".gitattributes": "29ed1e8a70c900688261a6cdccf94c87361f1aada0e11287cc850b997ee2ab31",
+  "tests/provider/backend/checked-init.patch": "4c445610ec8b6a0902ca25a14a5cf68acfa3a2766c6c96500f0ee50efe58dc99",
+  "tests/provider/backend/dmp_sodium_entropy.h": "296e40e15f095aceb9e60324073a167fc2358c718f3dd0a7d65083ffd2f49857",
+  "tests/provider/backend/inputs.json": "d8842e52698480fe700ece878207aba893dee9b32c91fc588e98967edcf6a27f",
+  "tests/provider/backend/LICENSE.libsodium": "93e7cac854d71cdafc9d9e4e9f8fd28d87ae541b3dda224d7c8fe23d37875704",
+  "tests/provider/backend/prepare_checked_sodium.py": "2104a7995b428bc094c1043064cc20b8a904518a5ac962dc01fc675c512f7e23",
+  "tests/provider/backend/test_prepare_checked_sodium.py": "020e37a524c5a91ea5fe8a8f1abd122f525413e2cfde7e4f02e39da372c3cbb8",
+  "tests/provider/checked_backend.cmake": "cd56cd86727e413a1b5bb9bf489c339f813999582371297fb1c0c8e75b931491",
+  "tests/provider/noise_experiment.cmake": "e1692ebab41723b1669b355eaececece27f27fdd42f23daffba7ba0425f54466",
+  "tests/provider/noise_checked_fixture_port.c": "8ccd07ca8195e7a46ac18ab091eba7bad8069b6d3fdb8fd517c4a14656b09274",
+  "tests/provider/noise_checked_init_probe.c": "dd9af9e9a9585cd7ff0380e8d6799f93ef0463d85da87c9b0977d49a7e40683b",
+  "tests/provider/noise_checked_no_legacy_rng.c": "98f6831797db2eac3f6224b90dbfc3c8e85e179d20e8d54f0bce9d0e33fd0ad3"
+}

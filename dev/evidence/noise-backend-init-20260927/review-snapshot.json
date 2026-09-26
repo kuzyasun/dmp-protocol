@@ -1,0 +1,20 @@
+{
+  "tests/provider/README.md": "ddf5fff49ed0eb942cf5de848a429ceeb9d3593014b3d1e7cd4d06273d34fdd7",
+  "tests/provider/backend/README.md": "7db5b0d742b63b69c6910a18414a5bcca528ac8bf566ab55055bdc2aa89b44aa",
+  "dev/evidence/noise-backend-init-20260927/backend-pins.json": "af372eafb3c7c44822b5f2234dc684869f6d7683a8f4067b5ca024aa16b22974",
+  "dev/evidence/noise-backend-init-20260927/baseline.json": "9bdbf1dff2480c3fa357b5f5d5e5998fdeb1a1fd9e56974956d0a7461e915f7d",
+  "dev/evidence/noise-backend-init-20260927/build-final.log": "71aa391ec7d7e291b419a7f40fba91919e14ac2394ab4e8b66ed126e267d70f6",
+  "dev/evidence/noise-backend-init-20260927/build-first.log": "150d9331d6456a329d4867ed0e19343e56ffc01b3c2561d5570ac6762eb20096",
+  "dev/evidence/noise-backend-init-20260927/build.log": "5db242ede06565c0eefca9bb74e70b7e368938ad35d16517ef9bbd1014423848",
+  "dev/evidence/noise-backend-init-20260927/code-review-final-snapshot.json": "6673ae19838bd6fb2d54b3d57506cbca17bce77176fa3bc47a03e27a0d0932c1",
+  "dev/evidence/noise-backend-init-20260927/code-review-snapshot.json": "06771b4d91b063f151c2c11f091979ac764d04301a16fd5747fabf327df15783",
+  "dev/evidence/noise-backend-init-20260927/configure-final.log": "53fc70a194272c158a6220e9d4d0a115bf9fe36c4efbdd802790939cf499a432",
+  "dev/evidence/noise-backend-init-20260927/configure-initial-failure.log": "e4dc5ee69e19d9cc33b639e0f44d0f5936d222f4959450d62d47eb8ca24aa016",
+  "dev/evidence/noise-backend-init-20260927/configure.log": "356ebfee299625e1bbc3ac50e22c83fb1d78d64babe27e8024bd9573ca6f694b",
+  "dev/evidence/noise-backend-init-20260927/ctest-full.log": "a47f61637f08292eb1f0b8c068fda6d6bdaaad0c02264bb77c4e3a242f834f10",
+  "dev/evidence/noise-backend-init-20260927/ctest-summary-first.log": "ce0946e39d9c621caee2a3b423944277fc518bada1e513e655a39a3c03091e22",
+  "dev/evidence/noise-backend-init-20260927/ctest-summary.log": "317f843acdb66a940cbe17c1be87d9f37c0d21140a957beb23e4740bf45ff910",
+  "dev/evidence/noise-backend-init-20260927/preparation-hardlink-recheck.log": "58f4a5bd474165bea6d27dec4095fea25f4f765a33f317c8301dff3ed9ad338c",
+  "dev/evidence/noise-backend-init-20260927/preparation.json": "8bd6afc1f750b9c9bf4d5b90d02c6ef59ac92038afc20c84923b744756f211ba",
+  "dev/evidence/noise-backend-init-20260927/README.md": "2aad9f71fa3db2a32022dd3441dcd7c079d5633a7f1f5788dec61776dab3bbc8"
+}

@@ -125,3 +125,5 @@ if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
 else()
     message(STATUS "Windows GNU startup abort diagnostic unavailable; not counted as passed")
 endif()
+
+include(checked_backend.cmake)

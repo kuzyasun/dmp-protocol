@@ -1,0 +1,26 @@
+{
+  "parent_head": "2896cf3411fec6b470fc3596d99fc13f7ef0f86b",
+  "fork_head": "cfb45b9041d174b3e3106333235c87af47dcb425",
+  "initial_parent_and_fork_status": "clean; no staged changes",
+  "normative_sha256": {
+    "docs/DMP_v2_Deployment_Profiles.md": "f1fdb79e6ca4d20f41c98e48cffeafb0ab1fd001c0128eac4bb35b4e2eb59778",
+    "docs/DMP_v2_Design_Tradeoffs.md": "f1d0737160dc6a916a1051776804790f0c6930dce0b52f24b3eb40ed6ef59e92",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "0c22f0c0381504821b71eb5defaccda40c353966363a518274625cbfacdc4d9d",
+    "docs/DMP_v2_Reference_Application.md": "ef7d78119b987200c054209c82c365043e4d95ea8b722a7dd84b3653b32a78be",
+    "docs/DMP_v2_Security_Profile.md": "8f6bf8c34ba37e33a1cbfc8f7fc062da577c5ce0a2872b321bb9f5e6b29669f3",
+    "docs/DMP_v2_Security_Test_Vectors.json": "4eb2c5b466c884d5b448b5117d32ca57c14096a8db058bea68d8b2478922ec7e",
+    "docs/DMP_v2_Selective_Recovery.md": "25d2384c9ff4ab5650ced1a3d77e0762cc1de3a74d944921c5e5c0a822ca65b7"
+  },
+  "backend_pins": {
+    "sodium_port": {
+      "head": "40c22448d6e8f42be56c45f739b52a5c8d21c8ca",
+      "files": 47,
+      "tree_sha256": "4da3210c5eecdfd9480fc6ae6a938724527aec7cb15cd3a21d8c078061408e4a"
+    },
+    "libsodium": {
+      "head": "d24faf56214469b354b01c8ba36257e04737101e",
+      "files": 670,
+      "tree_sha256": "5e9ca1fb8f4736f1547df7cd27c295a86be096c06a6d10c547613a8bc4bfc9d4"
+    }
+  }
+}
