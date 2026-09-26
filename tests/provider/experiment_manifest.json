@@ -1,0 +1,59 @@
+{
+  "schema": "dmp-provider-experiment/1",
+  "status": "test parameters, not a deployment manifest or supported-hardware claim",
+  "modes": ["Noise_NNpsk0_25519_ChaChaPoly_SHA256", "Noise_XX_25519_ChaChaPoly_SHA256"],
+  "optional_aesgcm": "disabled; requires separate build and evidence",
+  "targets": {
+    "host": {"abi": "Windows x86-64", "compiler": "GCC 15.2.0 w64devkit", "standard": "C11"},
+    "esp32s3": {
+      "sdk": "ESP-IDF v6.0.2",
+      "compiler": "xtensa-esp-elf GCC 15.2.0, esp-15.2.0_20251204",
+      "abi": "Xtensa ESP32-S3, 32-bit little-endian, SDK toolchain ABI",
+      "configuration": "targets/esp32s3/sdkconfig.defaults",
+      "memory": {
+        "mutable": "internal DRAM; IDF dram0_0_seg; no PSRAM",
+        "code": "flash-mapped text/rodata; required IRAM charged to RAM envelope",
+        "layout_authority": "ESP-IDF components/esp_system/ld/esp32s3/memory.ld.in",
+        "shared_iram_dram": "count physical overlapping memory once",
+        "rtc": "excluded from DMP experiment",
+        "configured_flash_bytes": 4194304
+      },
+      "provider_build_and_measurement": "pending; no physical board selected"
+    },
+    "cortex_m4": {
+      "compiler": "GNU Tools for STM32 13.3.rel1.20250523-0900, GCC 13.3.1",
+      "abi": "ARMv7E-M Thumb-2 EABI5 little-endian soft-float",
+      "configuration": "targets/cortex-m4.cmake",
+      "memory": {
+        "mutable": "single internal SRAM region; budget only, no board address assumed",
+        "code": "nonvolatile text/rodata region; budget only",
+        "external_ram": false,
+        "linking": "archive-only until an explicit board/linker map is selected"
+      },
+      "provider_build_and_measurement": "pending; only C11 scaffold object compiled"
+    }
+  },
+  "proposed_envelopes_per_target_bytes": [
+    {"name": "small", "retained": 8192, "stack_and_scratch": 4096, "adapter_and_message_buffers": 3072, "control_reserve": 1024, "total_ram": 16384, "linked_flash": 131072},
+    {"name": "medium", "retained": 16384, "stack_and_scratch": 8192, "adapter_and_message_buffers": 6144, "control_reserve": 2048, "total_ram": 32768, "linked_flash": 262144},
+    {"name": "large", "retained": 32768, "stack_and_scratch": 16384, "adapter_and_message_buffers": 12288, "control_reserve": 4096, "total_ram": 65536, "linked_flash": 524288}
+  ],
+  "sensitivity_rows": [
+    {"name": "single", "peers": 1, "services": 1, "active_associations": 1, "draining_associations": 1, "pending_attempts": 1, "crypto_slots": 1, "application_operations": 1, "mtu_bytes": 128, "max_message_bytes": 1024, "return_period_ms": 0, "return_window_ms": 0},
+    {"name": "four_serial", "peers": 4, "services": 2, "active_associations": 4, "draining_associations": 4, "pending_attempts": 4, "crypto_slots": 1, "application_operations": 4, "mtu_bytes": 256, "max_message_bytes": 4096, "return_period_ms": 1000, "return_window_ms": 250},
+    {"name": "four_parallel", "peers": 4, "services": 2, "active_associations": 4, "draining_associations": 4, "pending_attempts": 4, "crypto_slots": 2, "application_operations": 4, "mtu_bytes": 256, "max_message_bytes": 4096, "return_period_ms": 1000, "return_window_ms": 250}
+  ],
+  "measurement_rules": {
+    "budget_scope": "each RAM and linked-flash envelope applies to one endpoint instance; never sum the RAM of remote endpoints against one envelope",
+    "sensitivity_counts_scope": "peers, services, active/draining associations, pending attempts, crypto slots and application operations are totals per endpoint, not per role or mode",
+    "sweep": "each row against each envelope; roles/modes separately and coexisting within one endpoint, charged to the same total; remote endpoints evaluated independently; not yet executed",
+    "return_zero": "continuous availability; values are future harness sensitivity inputs, not a validated radio schedule",
+    "ram_scope": "include pending/active/draining state, setup allocator overhead, pools, simultaneous scratch/stacks, TX/RX/cache/retry/result/rejection buffers, adapter/DMA and control reserve; shared buffers counted once only with proven exclusive lifetime",
+    "flash_scope": "linked DMP plus provider/backend contribution including required rodata; report SDK base separately",
+    "unimplemented_components": "report missing, never zero; provider-only results cannot pass the whole DMP envelope",
+    "overrun": "mark that experimental combination infeasible; do not silently increase a budget",
+    "ownership": "one serialized owner per Noise state; concurrent slots require distinct states and scratch",
+    "cpu_stack_energy": "host timing and compiler stack reports are separate from MCU high-water/CPU/energy measurements",
+    "production_freeze": "P03 only after P01; no product minimum or latency guarantee selected here"
+  }
+}

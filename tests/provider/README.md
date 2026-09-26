@@ -1,12 +1,12 @@
 # Noise candidate experiments
 
-These host-only tests characterize the unmodified candidate. They do not select
+These host-only tests characterize the controlled Noise-C candidate and its receive-PN patch. They do not select
 a production provider or pass P01. Public fixture keys are test-only.
 
 The submodule is the owner's fork of ESPHome Noise-C, pinned by the superproject
-gitlink. The initial experiment expects commit
-`44722c19f7795dd409b46728712067fac87ffc53`. Update this expectation explicitly
-when introducing reviewed fork patches; do not use a floating branch for tests.
+gitlink. The original baseline is `44722c19f7795dd409b46728712067fac87ffc53`;
+the current exact expected pin is in `noise_experiment.cmake`. The fork retains
+a patch ledger in `DMP_PATCHES.md`. Never use a floating branch for tests.
 
 ## Minimal scaffold
 
@@ -29,7 +29,7 @@ asserts an incompatibility and cannot be counted as a capability pass.
 
 ## Reproduce on a host
 
-Initialize the submodule, then run the unchanged candidate's tests first.
+Initialize the submodule, then run the pinned fork's inherited tests first.
 This explicit upstream configuration downloads its sodium dependency and applies
 the upstream port patches inside the ignored build directory. It needs Git,
 CMake >= 3.14, Ninja, a C compiler and `sh` for the patch script.
@@ -68,16 +68,29 @@ Default root builds keep these experiments disabled and fetch no provider.
   flights, payloads and hashes, role-correct Split checked through FINISH/READY
   AEAD bytes, and the engine's destructive read-error boundary. FINISH/READY
   bytes do not test enrollment or association activation.
-- `dmp_noise_baseline_probe` (`expected-limitations`): sequential AEAD works,
+- `dmp_noise_pn_probe`: the new explicit-nonce receive API decrypts independent
+  public fixture packets out of order. It checks invalid-high-PN isolation,
+  wrong AAD/tag and retention of the old implicit receive counter. Repeated
+  explicit receive is allowed here; DMP replay handling remains separate.
+- `dmp_noise_baseline_probe` (`expected-limitations`): the retained legacy
+  monotonic API still has its original limitations; sequential AEAD works,
   while the current monotonic nonce API cannot implement unordered receive;
   literal-zero DH behavior is characterized separately from low-order rejection.
   Success means the recorded limitation was reproduced, **not** that SEC-1 passed.
 - Inherited `unit`/`vectors`: upstream regression evidence only. Disabled suites
   are explicitly skipped, not passed. AESGCM is disabled in this configuration.
 
-Both probes use serialized operations and bounded test buffers. They are neither
+The probes use serialized operations and bounded test buffers. They are neither
 endpoint implementations nor resource measurements. Entropy/storage failure,
 allocation/erasure, full e/static attack paths, admission/restart budgets, MCU
 resources and independent live interoperability remain separate acceptance work.
 The full [P01 checklist](../../dev/DMP_Implementation_Plan.md#abort-first-provider-experiment-before-p01-acceptance)
 remains required before production layouts are frozen.
+
+## Experimental resource configurations
+
+[experiment_manifest.json](experiment_manifest.json) freezes P00 test-only
+target settings, finite envelopes and sensitivity rows. These are inputs for
+P01 measurements, not validated deployment profiles. `targets/cortex-m4.cmake`
+is archive-only; `targets/esp32s3/sdkconfig.defaults` is for a future isolated
+IDF project. No MCU provider build or resource pass is implied by these files.

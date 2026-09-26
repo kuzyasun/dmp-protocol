@@ -1,0 +1,37 @@
+{
+  "reviewer": "/root/abort_first_final_review",
+  "model": "gpt-6-astra",
+  "effort": "max",
+  "scope": "Independent read-only review of PN-01 source, tests, P00 inputs and recorded evidence",
+  "original_snapshot_files_verified": 26,
+  "normative_hashes_verified": true,
+  "unchanged_backend_tree_digests_verified": true,
+  "findings": [
+    {
+      "priority": "P2",
+      "description": "Resource envelopes and sensitivity counts did not explicitly distinguish one endpoint from combined remote endpoints",
+      "resolution": "Both resource documents now state per-endpoint totals, coexisting roles sharing that endpoint budget, and independent evaluation of remote endpoints",
+      "status": "closed",
+      "verification": "Reviewer narrowly rechecked both corrected documents and both SHA-256 entries in review-delta.json; did not restart the completed code/test audit"
+    }
+  ],
+  "remaining_material_findings": [],
+  "tests": "Coordinator CTest 7/7 and strict ARM/Xtensa cipherstate.c object compilation; reviewer inspected source and logs without rerunning tests",
+  "acceptance": "P00 preparation done; PN-01 seam accepted for the tested sodium ChaChaPoly configuration; P01 remains running",
+  "fork_commit": "355b2923666c23df0d52c096a7459e7bee09b88a",
+  "post_review_changes": [
+    "Two resource documents corrected and independently verified against review-delta.json",
+    "Committed the unchanged reviewed fork source locally",
+    "Updated only the engine revision literal in tests/provider/noise_experiment.cmake to fork_commit; backend pins unchanged",
+    "CMake reconfiguration accepted the new exact engine pin; no source changed and no additional runtime test run was needed",
+    "Added this review result and appended the execution-log closure"
+  ],
+  "limits": [
+    "P01 strict all-zero DH rejection, entropy, storage, allocation and erasure remain open",
+    "Full MCU provider builds, linking, runtime memory and resource-envelope sweeps remain open",
+    "Compile-only wrapper frames do not establish stack high-water or total memory budgets",
+    "Replay admission, endpoint lifecycle and independent DMP interoperability are later gates",
+    "Other cipher backends and 988 skipped inherited vectors are not passes",
+    "Local commits only; no push, hardware operation or DTrack integration"
+  ]
+}

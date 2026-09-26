@@ -69,6 +69,51 @@ def validate_packet(vector, name, direction, directional_key, plaintext):
     return packet
 
 
+def validate_transport_packets(vector, i_to_r_key, r_to_i_key):
+    packets = vector.get("packets")
+    if not isinstance(packets, list) or len(packets) != 16:
+        raise ValueError("{} must contain all 16 transport packets".format(vector["protocol_name"]))
+
+    directional_keys = {0: i_to_r_key, 1: r_to_i_key}
+    seen_names = set()
+    seen_packet_numbers = set()
+    decoded_packets = []
+    for packet in packets:
+        if not isinstance(packet, dict):
+            raise ValueError("{} has a malformed transport packet".format(vector["protocol_name"]))
+        name = packet.get("name")
+        direction = packet.get("direction")
+        packet_number = packet.get("pn")
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9_]+", name):
+            raise ValueError("{} has an invalid transport packet name".format(vector["protocol_name"]))
+        if name in seen_names:
+            raise ValueError("{} has duplicate packet name {}".format(vector["protocol_name"], name))
+        if type(direction) is not int or direction not in directional_keys:
+            raise ValueError("{} packet {} has an invalid direction".format(vector["protocol_name"], name))
+        if type(packet_number) is not int or packet_number < 0 or packet_number >= (1 << 64) - 1:
+            raise ValueError("{} packet {} has an invalid packet number".format(vector["protocol_name"], name))
+        if (direction, packet_number) in seen_packet_numbers:
+            raise ValueError("{} has duplicate direction/packet-number metadata".format(vector["protocol_name"]))
+
+        decoded = {}
+        for field in ("key", "nonce", "aad", "header", "plaintext", "ciphertext", "tag", "frame"):
+            decoded[field] = required_bytes(packet, field, name + "." + field)
+        if decoded["key"] != directional_keys[direction]:
+            raise ValueError("{} packet {} key does not match its direction".format(vector["protocol_name"], name))
+        if len(decoded["nonce"]) != 12 or decoded["nonce"] != b"\x00" * 4 + packet_number.to_bytes(8, "little"):
+            raise ValueError("{} packet {} nonce does not encode its packet number".format(vector["protocol_name"], name))
+        if len(decoded["tag"]) != 16 or len(decoded["ciphertext"]) != len(decoded["plaintext"]):
+            raise ValueError("{} packet {} has invalid ChaChaPoly lengths".format(vector["protocol_name"], name))
+
+        seen_names.add(name)
+        seen_packet_numbers.add((direction, packet_number))
+        decoded_packets.append(packet)
+
+    if not {"finish", "ready"}.issubset(seen_names):
+        raise ValueError("{} transport packets must include FINISH and READY".format(vector["protocol_name"]))
+    return decoded_packets
+
+
 def validate_vector(vector, protocol_name, short_name, mode, flight_count):
     if vector.get("protocol_name") != protocol_name:
         raise ValueError("unexpected protocol name")
@@ -135,6 +180,7 @@ def validate_vector(vector, protocol_name, short_name, mode, flight_count):
 
     finish = validate_packet(vector, "finish", 0, i_to_r_key, b"\x04")
     ready = validate_packet(vector, "ready", 1, r_to_i_key, b"\x05")
+    transport_packets = validate_transport_packets(vector, i_to_r_key, r_to_i_key)
     return {
         "name": short_name,
         "protocol_name": protocol_name,
@@ -146,6 +192,7 @@ def validate_vector(vector, protocol_name, short_name, mode, flight_count):
         "flights": decoded_flights,
         "finish": finish,
         "ready": ready,
+        "transport_packets": transport_packets,
     }
 
 
@@ -160,7 +207,7 @@ def emit_packet(builder, fixture_name, field_name, packet):
         fields.append(".{} = {}".format(key, bytes_ref(builder, "noise_fixture_{}_{}_{}".format(fixture_name, field_name, key), value)))
     fields.extend(
         [
-            ".name = {}".format(c_string(field_name)),
+            ".name = {}".format(c_string(packet.get("name", field_name))),
             ".direction = {}U".format(packet["direction"]),
             ".pn = UINT64_C({})".format(packet["pn"]),
         ]
@@ -198,6 +245,15 @@ def emit_fixture(builder, fixture):
     fields.append(".flight_count = sizeof(noise_fixture_{}_flights) / sizeof(noise_fixture_{}_flights[0])".format(name, name))
     fields.append(".finish = {}".format(emit_packet(builder, name, "finish", fixture["finish"])))
     fields.append(".ready = {}".format(emit_packet(builder, name, "ready", fixture["ready"])))
+    packet_rows = [
+        emit_packet(builder, name, "transport_" + packet["name"], packet)
+        for packet in fixture["transport_packets"]
+    ]
+    builder.lines.append("static const noise_fixture_probe_packet_t noise_fixture_{}_transport_packets[] = {{".format(name))
+    builder.lines.extend("    {},".format(row) for row in packet_rows)
+    builder.lines.append("};")
+    fields.append(".transport_packets = noise_fixture_{}_transport_packets".format(name))
+    fields.append(".transport_packet_count = sizeof(noise_fixture_{}_transport_packets) / sizeof(noise_fixture_{}_transport_packets[0])".format(name, name))
     fields.append(".name = {}".format(c_string(name)))
     fields.append(".protocol_name = {}".format(c_string(fixture["protocol_name"])))
     return "    {\n        " + ",\n        ".join(fields) + "\n    }"
@@ -248,6 +304,8 @@ def generate_header(source_path, source, vectors):
         "    size_t flight_count;",
         "    noise_fixture_probe_packet_t finish;",
         "    noise_fixture_probe_packet_t ready;",
+        "    const noise_fixture_probe_packet_t *transport_packets;",
+        "    size_t transport_packet_count;",
         "} noise_fixture_probe_fixture_t;",
         "",
         "#define NOISE_FIXTURE_PROBE_BYTES(name) {name, sizeof(name)}",

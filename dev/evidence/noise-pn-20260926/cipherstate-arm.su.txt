@@ -1,0 +1,17 @@
+third_party/noise-c/src/protocol/cipherstate.c:77:5:noise_cipherstate_new_by_id	8	static
+third_party/noise-c/src/protocol/cipherstate.c:126:5:noise_cipherstate_new_by_name	16	static
+third_party/noise-c/src/protocol/cipherstate.c:156:5:noise_cipherstate_free	8	static
+third_party/noise-c/src/protocol/cipherstate.c:178:5:noise_cipherstate_get_cipher_id	0	static
+third_party/noise-c/src/protocol/cipherstate.c:192:8:noise_cipherstate_get_key_length	0	static
+third_party/noise-c/src/protocol/cipherstate.c:206:8:noise_cipherstate_get_mac_length	0	static
+third_party/noise-c/src/protocol/cipherstate.c:225:5:noise_cipherstate_init_key	8	static
+third_party/noise-c/src/protocol/cipherstate.c:251:5:noise_cipherstate_has_key	0	static
+third_party/noise-c/src/protocol/cipherstate.c:343:5:noise_cipherstate_encrypt_with_ad	32	static
+third_party/noise-c/src/protocol/cipherstate.c:423:5:noise_cipherstate_decrypt_with_ad	32	static
+third_party/noise-c/src/protocol/cipherstate.c:283:5:noise_cipherstate_decrypt_with_ad_at_nonce	16	static
+third_party/noise-c/src/protocol/cipherstate.c:502:5:noise_cipherstate_encrypt	0	static
+third_party/noise-c/src/protocol/cipherstate.c:544:5:noise_cipherstate_decrypt	0	static
+third_party/noise-c/src/protocol/cipherstate.c:568:5:noise_cipherstate_set_nonce	8	static
+third_party/noise-c/src/protocol/cipherstate.c:592:5:noise_cipherstate_get_max_key_length	0	static
+third_party/noise-c/src/protocol/cipherstate.c:602:5:noise_cipherstate_get_max_mac_length	0	static
+third_party/noise-c/src/protocol/cipherstate.c:621:5:noise_cipherstate_rekey	40	dynamic

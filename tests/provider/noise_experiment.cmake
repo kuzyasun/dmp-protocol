@@ -1,5 +1,5 @@
 # Host characterization only. No production provider or network fetch by default.
-# First prepare the unmodified upstream baseline as documented in README.md.
+# First prepare the backend using the standalone fork build in README.md.
 set(DMP_SODIUM_SOURCE_DIR "" CACHE PATH "Prepared ESPHome sodium source for experiments")
 if(NOT IS_DIRECTORY "${DMP_SODIUM_SOURCE_DIR}")
     message(FATAL_ERROR "Set DMP_SODIUM_SOURCE_DIR to the prepared pinned backend")
@@ -14,7 +14,7 @@ function(dmp_require_revision directory expected)
     endif()
 endfunction()
 dmp_require_revision("${PROJECT_SOURCE_DIR}/third_party/noise-c"
-    44722c19f7795dd409b46728712067fac87ffc53)
+    355b2923666c23df0d52c096a7459e7bee09b88a)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}"
     40c22448d6e8f42be56c45f739b52a5c8d21c8ca)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}/libsodium"
@@ -43,3 +43,7 @@ add_custom_command(OUTPUT "${_fixture_header}"
 dmp_add_provider_experiment(dmp_noise_fixture_probe noise_fixture_probe.c "${_fixture_header}")
 target_include_directories(dmp_noise_fixture_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(dmp_noise_fixture_probe PRIVATE noise_c)
+
+dmp_add_provider_experiment(dmp_noise_pn_probe noise_pn_probe.c "${_fixture_header}")
+target_include_directories(dmp_noise_pn_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(dmp_noise_pn_probe PRIVATE noise_c)

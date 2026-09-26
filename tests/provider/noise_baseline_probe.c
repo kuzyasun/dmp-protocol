@@ -1,5 +1,5 @@
 /*
- * Standalone baseline characterization for the unmodified Noise-C API.
+ * Characterization of the legacy monotonic and DH APIs retained in the fork.
  *
  * All keys and plaintexts below are fixed public test data. This executable
  * characterizes provider limitations; it does not test DMP conformance.
@@ -448,7 +448,7 @@ int main(void)
                        noise_init_framework(), NOISE_ERROR_NONE))
         return 1;
 
-    (void)printf("EXPECTED-LIMITATION BASELINE ONLY; NOT A DMP CONFORMANCE TEST.\n");
+    (void)printf("EXPECTED LEGACY-API LIMITATIONS; NOT A TEST OF THE NEW EXPLICIT-NONCE API.\n");
     if (!test_sequential_aead() ||
         !test_lower_packet_number() ||
         !test_invalid_high_packet_number() ||

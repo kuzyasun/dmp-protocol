@@ -144,3 +144,44 @@ the high-PN test ordering so lower-PN rejection is observed before any successfu
 high-PN authentication. Independent review is recorded with the final snapshot.
 
 Independent read-only review by `/root/abort_first_final_review` found no material findings. All 24 snapshot hashes, normative hashes and all three engine/backend tree digests matched. It checked source and the recorded 6/6 results without rerunning the suite; limits remain explicit. See [review result](evidence/noise-baseline-20260926/review-result.json). Only this review-result entry and review metadata were added after the reviewed source snapshot.
+
+
+## 2026-09-26 — P00 acceptance and P01 explicit receive PN
+
+Resumed clean parent `f649853` and clean fork `44722c19f7795dd409b46728712067fac87ffc53`.
+The owner authorized the recommended P00 completion and bounded PN implementation.
+[P00 acceptance](evidence/noise-pn-20260926/p00-acceptance.md) records finite
+experimental RAM/flash/concurrency/path sensitivity inputs, MCU memory-placement
+choices, exact available toolchains and runner evidence. These are experiment
+inputs, not production budgets or hardware support. P00 is done; P01 is running.
+
+The coordinator designed and implemented a keyed explicit receive nonce/AAD
+wrapper in the controlled fork. Two bounded workers separately authored upstream
+boundary tests and independent DMP transport-vector tests. Actual source diffs
+were reviewed; the coordinator added the missing assertion of implicit nonce
+preservation after the parameter/length-error block through worker feedback.
+Integrated local CTest passed 7/7 after RBO returned `fetch failed`. No runtime
+failure occurred in this patch wave. The changed cipherstate translation unit
+also compiled with strict warnings for Cortex-M4 and ESP32-S3; this is neither a
+full MCU provider build nor runtime memory evidence. New normative bytes, crypto
+primitives, KDF, TX behavior, handshake semantics and DTrack integration are absent.
+
+The [PN-01 evidence](evidence/noise-pn-20260926/README.md) distinguishes capability
+checks from the retained expected-legacy-limitations test, and records the open
+DH/entropy/storage/cleanup/resource and endpoint gates. Independent review and
+final source pins are recorded separately in that evidence directory.
+
+Independent read-only review verified the frozen 26-file snapshot, normative
+hashes and unchanged backend digests. Its sole P2 finding was ambiguous resource
+scope: envelopes and sensitivity counts now explicitly apply per endpoint,
+including coexisting roles. A narrow follow-up verified both corrected documents
+and their hashes and closed the finding. No other material findings remain within
+the reviewed scope; see the [review result](evidence/noise-pn-20260926/review-result.json).
+
+Committed the reviewed fork source locally as
+`355b2923666c23df0d52c096a7459e7bee09b88a` and updated the parent experiment's
+exact engine pin. CMake reconfiguration accepted that revision. Tested source
+is unchanged; only the documented resource clarification, engine pin and review
+metadata followed the frozen snapshot. No push was performed. The recommended
+next bounded patch is DH-01 strict all-zero DH-result rejection and full
+ephemeral/static negative-path coverage; P01 is not complete.
