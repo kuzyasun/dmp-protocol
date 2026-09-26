@@ -1,0 +1,11 @@
+{
+  "third_party/noise-c/src/protocol/handshakestate.c": "dc013213f9e5d7b18279d1f75d5aeaf804313353045e99ed62276db4ad0f9142",
+  "third_party/noise-c/DMP_PATCHES.md": "2d5b2732516b4054de1ef655d6266020c177e6f69c105aa86473da50893d9718",
+  "tests/provider/noise_memory_probe.c": "35848998fc8d38e0daffc5214aef392fa6dde8a1e3d29b16f013c7cc2bfbbb24",
+  "tests/provider/checked_backend.cmake": "521507220e3ffd3b1e3af3a95c260e8ba71209213785b235f626cfa08b1540dd",
+  "tests/provider/noise_experiment.cmake": "e1692ebab41723b1669b355eaececece27f27fdd42f23daffba7ba0425f54466",
+  "tests/provider/CMakeLists.txt": "706a1be86439cefaf7c86767cee86b138b6248caf9acf2a95fede263850c1356",
+  "tests/provider/noise_checked_fixture_port.c": "8ccd07ca8195e7a46ac18ab091eba7bad8069b6d3fdb8fd517c4a14656b09274",
+  "tests/provider/noise_checked_no_legacy_rng.c": "98f6831797db2eac3f6224b90dbfc3c8e85e179d20e8d54f0bce9d0e33fd0ad3",
+  "tests/provider/experiment_manifest.json": "31e16299c8577d277f8643854eb4b6b9f556d873e192fe441b69256df3157ca4"
+}

@@ -1,0 +1,19 @@
+Internal ctest changing into directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments
+Test project C:/projects/gemslibe/dmp-protocol/build/noise-experiments
+    Start 30: dmp_noise_memory_probe
+1/1 Test #30: dmp_noise_memory_probe ...........***Failed    0.02 sec
+nnpsk0: allocation calls/bytes setup=14/2394 start=0/0 write=0/0 read=0/0 split=2/256 traffic=0/0 total_calls=16 peak_live_bytes=2650
+nnpsk0: constructor returned 17665 with non-null initiator output after failure
+nnpsk0: OOM sweep ordinal 5 did not fail cleanly (result 2)
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+provider-memory-experiment    =   0.02 sec*proc (1 test)
+
+Total Test time (real) =   0.02 sec
+
+The following tests FAILED:
+	 30 - dmp_noise_memory_probe (Failed)
+Errors while running CTest

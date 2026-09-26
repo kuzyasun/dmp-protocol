@@ -1,0 +1,2773 @@
+Start testing: Sep 27 01:25 FLE Daylight Time
+----------------------------------------------------------
+1/32 Testing: fixtures.sec1
+1/32 Test: fixtures.sec1
+Command: "C:/nvm4w/nodejs/node.exe" "C:/projects/gemslibe/dmp-protocol/dev/dmp_verify_security_vectors.cjs"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments
+"fixtures.sec1" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+{"runtime":"Node crypto","fixtures":4,"packets":64,"mutations":44,"wrongKeyRejections":64,"structuralRejections":164,"fixturePolicyRejections":8}
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"fixtures.sec1" end time: Sep 27 01:25 FLE Daylight Time
+"fixtures.sec1" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/32 Testing: dmp_host_environment
+2/32 Test: dmp_host_environment
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_host_environment.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_host_environment" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+host scaffold: C11, octets=8, pointer_bits=64, size_t_bits=64
+No provider, endpoint, target-memory or conformance claim.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_host_environment" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_host_environment" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/32 Testing: dmp_noise_baseline_probe
+3/32 Test: dmp_noise_baseline_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_baseline_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_baseline_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: initialize Noise framework (error code 0)
+EXPECTED LEGACY-API LIMITATIONS; NOT A TEST OF THE NEW EXPLICIT-NONCE API.
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt nonce-zero packet with AAD (error code 0)
+PASS: decrypt nonce-zero packet with AAD (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt nonce-one packet with AAD (error code 0)
+PASS: decrypt nonce-one packet with AAD (error code 0)
+PASS: sequential ChaChaPoly ciphertext/AAD exchange authenticated both plaintexts
+PASS: free sequential sender state (error code 0)
+PASS: free sequential receiver state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt standalone packet (error code 0)
+PASS: free standalone sender state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt standalone packet (error code 0)
+PASS: free standalone sender state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: select PN one on independent fresh receiver (error code 0)
+PASS: independently authenticate lower packet PN one (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: select PN two on receiver (error code 0)
+PASS: authenticate packet PN two (error code 0)
+PASS: select lower PN one after authentic PN two (error code 17677)
+PASS: attempt authentic PN one while receiver nonce cannot move backward (error code 17668)
+NOT SEC-1 CONFORMANT: the public monotonic nonce setter cannot select valid lower PN one after PN two.
+PASS: free reordered-PN receiver state (error code 0)
+PASS: free independent lower-PN receiver state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt standalone packet (error code 0)
+PASS: free standalone sender state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt standalone packet (error code 0)
+PASS: free standalone sender state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: select PN three on independent fresh receiver (error code 0)
+PASS: independently authenticate lower packet PN three (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: install candidate high PN 100 (error code 0)
+PASS: reject corrupted MAC at candidate PN 100 (error code 17668)
+PASS: select lower PN three after failed PN 100 authentication (error code 17677)
+PASS: attempt authentic PN three while nonce remains at high PN (error code 17668)
+PASS: authenticate original PN 100 after failed MAC without resetting nonce (error code 0)
+NOT SEC-1 CONFORMANT: after failed high-PN authentication, the monotonic setter still cannot select valid lower PN three.
+PASS: free invalid-high receiver state (error code 0)
+PASS: free independent lower-PN receiver state (error code 0)
+PASS: create X25519 private state (error code 0)
+PASS: create X25519 public state (error code 0)
+PASS: install X25519 test private key (error code 0)
+PASS: install literal-zero X25519 public key (error code 0)
+PASS: calculate with literal-zero X25519 public key (error code 17675)
+PASS: install X25519 low-order u=1 public key (error code 0)
+PASS: calculate with X25519 low-order u=1 public key (error code 17675)
+DH-01 regression: literal zero and low-order u=1 propagate sodium errors and clear output. Legacy PN setter limitations remain below the explicit receive API.
+PASS: free X25519 private state (error code 0)
+PASS: free X25519 public state (error code 0)
+Baseline characterization completed with expected results.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_baseline_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_baseline_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/32 Testing: dmp_noise_fixture_probe
+4/32 Test: dmp_noise_fixture_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_fixture_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_fixture_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+nnpsk0: exact Noise flights/hash/Split packets and abort-first read behavior passed
+xx: exact Noise flights/hash/Split packets and abort-first read behavior passed
+Public deterministic fixtures characterize fixed-key provider behavior; RNG fault handling, provider adoption, and P01 acceptance remain untested.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_fixture_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_fixture_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/32 Testing: dmp_noise_pn_probe
+5/32 Test: dmp_noise_pn_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_pn_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_pn_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+nnpsk0: 16 explicit receive fixtures passed in reverse PN order; failed-auth retry, repeated PN, and implicit PN 0 preservation passed
+xx: 16 explicit receive fixtures passed in reverse PN order; failed-auth retry, repeated PN, and implicit PN 0 preservation passed
+Public deterministic keys are test-only. Repeated explicit receives are accepted here; replay admission belongs to the caller. No RNG, lifecycle, or production claim is tested.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_pn_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_pn_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/32 Testing: dmp_noise_dh_probe
+6/32 Test: dmp_noise_dh_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_dh_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_dh_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+X25519 low-order/backend and authenticated XX s-rejection probes passed; valid fixture handshakes still split successfully.
+These host probes characterize the selected sodium backend only; they are not endpoint, lifecycle, interoperability, resource, or production-provider acceptance evidence.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_dh_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_dh_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/32 Testing: dmp_noise_rng_state_probe
+7/32 Test: dmp_noise_rng_state_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_rng_state_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_rng_state_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+Fallible entropy propagation, DH cleanup, RandState invalidation, and output clearing probes passed.
+The host probe checks API behavior; direct full-erasure verification remains a source-review gate, not an entropy-quality claim.
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_rng_state_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_rng_state_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/32 Testing: dmp_noise_rng_handshake_probe
+8/32 Test: dmp_noise_rng_handshake_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_rng_handshake_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_rng_handshake_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+nnpsk0: partial entropy aborts both write positions; fresh fixture handshake passes
+xx: partial entropy aborts both write positions; fresh fixture handshake passes
+Separate attempt entropy failure left an established fixture handshake usable. Test hook does not establish production entropy quality or a DMP restart scheduler.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_rng_handshake_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_rng_handshake_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/32 Testing: dmp_noise_init_serial_probe
+9/32 Test: dmp_noise_init_serial_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_init_serial_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_init_serial_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: injected success result; wrapper result 0; real backend initialization not exercised.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_serial_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_init_serial_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/32 Testing: dmp_noise_init_serial_probe_already
+10/32 Test: dmp_noise_init_serial_probe_already
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_init_serial_probe.exe" "already"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_init_serial_probe_already" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: injected already initialized result; wrapper result 0; real backend initialization not exercised.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_serial_probe_already" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_init_serial_probe_already" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/32 Testing: dmp_noise_init_serial_probe_failure
+11/32 Test: dmp_noise_init_serial_probe_failure
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_init_serial_probe.exe" "failure"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_init_serial_probe_failure" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: injected failure result; wrapper result 17670; real backend initialization not exercised.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_serial_probe_failure" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_init_serial_probe_failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/32 Testing: dmp_noise_init_pthread_probe
+12/32 Test: dmp_noise_init_pthread_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_init_pthread_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_init_pthread_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: injected success result; wrapper result 0; real backend initialization not exercised.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_pthread_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_init_pthread_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/32 Testing: dmp_noise_init_pthread_probe_already
+13/32 Test: dmp_noise_init_pthread_probe_already
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_init_pthread_probe.exe" "already"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_init_pthread_probe_already" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: injected already initialized result; wrapper result 0; real backend initialization not exercised.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_pthread_probe_already" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_init_pthread_probe_already" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/32 Testing: dmp_noise_init_pthread_probe_failure
+14/32 Test: dmp_noise_init_pthread_probe_failure
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_init_pthread_probe.exe" "failure"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_init_pthread_probe_failure" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: injected failure result; wrapper result 17670; real backend initialization not exercised.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_pthread_probe_failure" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_init_pthread_probe_failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/32 Testing: dmp_noise_init_backend_abort
+15/32 Test: dmp_noise_init_backend_abort
+Command: "C:/develop/Python312/python.exe" "C:/projects/gemslibe/dmp-protocol/tests/provider/check_noise_init_abort.py" "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_init_abort_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_init_backend_abort" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+INIT_RETURNED result=0 rng_calls=1
+Injected OS RNG failure reached real backend SIGABRT before Noise returned.
+Expected limitation reproduced; cold-boot/no-process-exit gate remains FAILED.
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_backend_abort" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_init_backend_abort" time elapsed: 00:00:00
+----------------------------------------------------------
+
+16/32 Testing: dmp_checked_backend_preparation
+16/32 Test: dmp_checked_backend_preparation
+Command: "C:/develop/Python312/python.exe" "C:/projects/gemslibe/dmp-protocol/tests/provider/backend/test_prepare_checked_sodium.py"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_checked_backend_preparation" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.674s
+
+OK
+<end of output>
+Test time =   0.77 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_backend_preparation" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_checked_backend_preparation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+17/32 Testing: dmp_noise_checked_init_probe
+17/32 Test: dmp_noise_checked_init_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_checked_init_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_checked_init_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: checked startup healthy path, already-initialized result, and real SHA-256.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_checked_init_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+18/32 Testing: dmp_noise_checked_init_ready-failure
+18/32 Test: dmp_noise_checked_init_ready-failure
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_checked_init_probe.exe" "ready-failure"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_checked_init_ready-failure" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: ready-failure propagated twice, cleared failed startup state, and retried successfully.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_ready-failure" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_checked_init_ready-failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+19/32 Testing: dmp_noise_checked_init_read-failure
+19/32 Test: dmp_noise_checked_init_read-failure
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_checked_init_probe.exe" "read-failure"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_checked_init_read-failure" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: read-failure propagated twice, cleared failed startup state, and retried successfully.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_read-failure" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_checked_init_read-failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+20/32 Testing: dmp_checked_noise_fixture_probe
+20/32 Test: dmp_checked_noise_fixture_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_checked_noise_fixture_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_checked_noise_fixture_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+nnpsk0: exact Noise flights/hash/Split packets and abort-first read behavior passed
+xx: exact Noise flights/hash/Split packets and abort-first read behavior passed
+Public deterministic fixtures characterize fixed-key provider behavior; RNG fault handling, provider adoption, and P01 acceptance remain untested.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_fixture_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_checked_noise_fixture_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+21/32 Testing: dmp_checked_noise_pn_probe
+21/32 Test: dmp_checked_noise_pn_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_checked_noise_pn_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_checked_noise_pn_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+nnpsk0: 16 explicit receive fixtures passed in reverse PN order; failed-auth retry, repeated PN, and implicit PN 0 preservation passed
+xx: 16 explicit receive fixtures passed in reverse PN order; failed-auth retry, repeated PN, and implicit PN 0 preservation passed
+Public deterministic keys are test-only. Repeated explicit receives are accepted here; replay admission belongs to the caller. No RNG, lifecycle, or production claim is tested.
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_pn_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_checked_noise_pn_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+22/32 Testing: dmp_checked_noise_dh_probe
+22/32 Test: dmp_checked_noise_dh_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_checked_noise_dh_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_checked_noise_dh_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+X25519 low-order/backend and authenticated XX s-rejection probes passed; valid fixture handshakes still split successfully.
+These host probes characterize the selected sodium backend only; they are not endpoint, lifecycle, interoperability, resource, or production-provider acceptance evidence.
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_dh_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_checked_noise_dh_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+23/32 Testing: dmp_checked_noise_rng_state_probe
+23/32 Test: dmp_checked_noise_rng_state_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_checked_noise_rng_state_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_checked_noise_rng_state_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+Fallible entropy propagation, DH cleanup, RandState invalidation, and output clearing probes passed.
+The host probe checks API behavior; direct full-erasure verification remains a source-review gate, not an entropy-quality claim.
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_rng_state_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_checked_noise_rng_state_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+24/32 Testing: dmp_checked_noise_rng_handshake_probe
+24/32 Test: dmp_checked_noise_rng_handshake_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_checked_noise_rng_handshake_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_checked_noise_rng_handshake_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+nnpsk0: partial entropy aborts both write positions; fresh fixture handshake passes
+xx: partial entropy aborts both write positions; fresh fixture handshake passes
+Separate attempt entropy failure left an established fixture handshake usable. Test hook does not establish production entropy quality or a DMP restart scheduler.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_rng_handshake_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_checked_noise_rng_handshake_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+25/32 Testing: dmp_noise_checked_init_os_probe
+25/32 Test: dmp_noise_checked_init_os_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_checked_init_os_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_checked_init_os_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: checked startup healthy path, already-initialized result, and real SHA-256.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_os_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_checked_init_os_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+26/32 Testing: dmp_noise_checked_init_os_ready-failure
+26/32 Test: dmp_noise_checked_init_os_ready-failure
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_checked_init_os_probe.exe" "ready-failure"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_checked_init_os_ready-failure" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: ready-failure propagated twice, cleared failed startup state, and retried successfully.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_os_ready-failure" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_checked_init_os_ready-failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+27/32 Testing: dmp_noise_checked_init_os_read-failure
+27/32 Test: dmp_noise_checked_init_os_read-failure
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_checked_init_os_probe.exe" "read-failure"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_checked_init_os_read-failure" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+PASS: read-failure propagated twice, cleared failed startup state, and retried successfully.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+DMP_TEST_SYSTEM_RNG_FAILURE
+DMP_TEST_SYSTEM_RNG_FAILURE
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_os_read-failure" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_checked_init_os_read-failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+28/32 Testing: dmp_checked_noise_unit
+28/32 Test: dmp_checked_noise_unit
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_checked_noise_unit.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_checked_noise_unit" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+cipherstate ... ok
+dhstate ... ok
+errors ... ok
+handshakestate ... ok
+handshakestate_preset_ephemeral ... ok
+hashstate ... ok
+names ... ok
+patterns ... ok
+randstate ... ok
+single_protocol ... ok
+small_build ... ok
+symmetricstate ... ok
+All tests succeeded
+<end of output>
+Test time =   0.83 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_unit" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_checked_noise_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+29/32 Testing: dmp_checked_noise_vector
+29/32 Test: dmp_checked_noise_vector
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_checked_noise_vector.exe" "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-basic.txt" "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/cacophony.txt" "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-fallback.txt" "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-hybrid.txt"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_checked_noise_vector" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+--------------------------------------------------------------
+Processing vectors from C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-basic.txt
+Noise_N_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_25519_ChaChaPoly_SHA256 ... ok
+Noise_N_25519_ChaChaPoly_SHA512 ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_448_ChaChaPoly_SHA256 ... skipped
+Noise_N_448_ChaChaPoly_SHA512 ... skipped
+Noise_N_25519_AESGCM_BLAKE2s ... skipped
+Noise_N_25519_AESGCM_BLAKE2b ... skipped
+Noise_N_25519_AESGCM_SHA256 ... skipped
+Noise_N_25519_AESGCM_SHA512 ... skipped
+Noise_N_448_AESGCM_BLAKE2s ... skipped
+Noise_N_448_AESGCM_BLAKE2b ... skipped
+Noise_N_448_AESGCM_SHA256 ... skipped
+Noise_N_448_AESGCM_SHA512 ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_25519_ChaChaPoly_SHA256 ... ok
+Noise_X_25519_ChaChaPoly_SHA512 ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_448_ChaChaPoly_SHA256 ... skipped
+Noise_X_448_ChaChaPoly_SHA512 ... skipped
+Noise_X_25519_AESGCM_BLAKE2s ... skipped
+Noise_X_25519_AESGCM_BLAKE2b ... skipped
+Noise_X_25519_AESGCM_SHA256 ... skipped
+Noise_X_25519_AESGCM_SHA512 ... skipped
+Noise_X_448_AESGCM_BLAKE2s ... skipped
+Noise_X_448_AESGCM_BLAKE2b ... skipped
+Noise_X_448_AESGCM_SHA256 ... skipped
+Noise_X_448_AESGCM_SHA512 ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_25519_ChaChaPoly_SHA256 ... ok
+Noise_K_25519_ChaChaPoly_SHA512 ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_448_ChaChaPoly_SHA256 ... skipped
+Noise_K_448_ChaChaPoly_SHA512 ... skipped
+Noise_K_25519_AESGCM_BLAKE2s ... skipped
+Noise_K_25519_AESGCM_BLAKE2b ... skipped
+Noise_K_25519_AESGCM_SHA256 ... skipped
+Noise_K_25519_AESGCM_SHA512 ... skipped
+Noise_K_448_AESGCM_BLAKE2s ... skipped
+Noise_K_448_AESGCM_BLAKE2b ... skipped
+Noise_K_448_AESGCM_SHA256 ... skipped
+Noise_K_448_AESGCM_SHA512 ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_25519_ChaChaPoly_SHA256 ... ok
+Noise_NN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_448_ChaChaPoly_SHA256 ... skipped
+Noise_NN_448_ChaChaPoly_SHA512 ... skipped
+Noise_NN_25519_AESGCM_BLAKE2s ... skipped
+Noise_NN_25519_AESGCM_BLAKE2b ... skipped
+Noise_NN_25519_AESGCM_SHA256 ... skipped
+Noise_NN_25519_AESGCM_SHA512 ... skipped
+Noise_NN_448_AESGCM_BLAKE2s ... skipped
+Noise_NN_448_AESGCM_BLAKE2b ... skipped
+Noise_NN_448_AESGCM_SHA256 ... skipped
+Noise_NN_448_AESGCM_SHA512 ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_25519_ChaChaPoly_SHA256 ... ok
+Noise_NK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_448_ChaChaPoly_SHA256 ... skipped
+Noise_NK_448_ChaChaPoly_SHA512 ... skipped
+Noise_NK_25519_AESGCM_BLAKE2s ... skipped
+Noise_NK_25519_AESGCM_BLAKE2b ... skipped
+Noise_NK_25519_AESGCM_SHA256 ... skipped
+Noise_NK_25519_AESGCM_SHA512 ... skipped
+Noise_NK_448_AESGCM_BLAKE2s ... skipped
+Noise_NK_448_AESGCM_BLAKE2b ... skipped
+Noise_NK_448_AESGCM_SHA256 ... skipped
+Noise_NK_448_AESGCM_SHA512 ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_25519_ChaChaPoly_SHA256 ... ok
+Noise_NX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_448_ChaChaPoly_SHA256 ... skipped
+Noise_NX_448_ChaChaPoly_SHA512 ... skipped
+Noise_NX_25519_AESGCM_BLAKE2s ... skipped
+Noise_NX_25519_AESGCM_BLAKE2b ... skipped
+Noise_NX_25519_AESGCM_SHA256 ... skipped
+Noise_NX_25519_AESGCM_SHA512 ... skipped
+Noise_NX_448_AESGCM_BLAKE2s ... skipped
+Noise_NX_448_AESGCM_BLAKE2b ... skipped
+Noise_NX_448_AESGCM_SHA256 ... skipped
+Noise_NX_448_AESGCM_SHA512 ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_25519_ChaChaPoly_SHA256 ... ok
+Noise_XN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_448_ChaChaPoly_SHA256 ... skipped
+Noise_XN_448_ChaChaPoly_SHA512 ... skipped
+Noise_XN_25519_AESGCM_BLAKE2s ... skipped
+Noise_XN_25519_AESGCM_BLAKE2b ... skipped
+Noise_XN_25519_AESGCM_SHA256 ... skipped
+Noise_XN_25519_AESGCM_SHA512 ... skipped
+Noise_XN_448_AESGCM_BLAKE2s ... skipped
+Noise_XN_448_AESGCM_BLAKE2b ... skipped
+Noise_XN_448_AESGCM_SHA256 ... skipped
+Noise_XN_448_AESGCM_SHA512 ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_25519_ChaChaPoly_SHA256 ... ok
+Noise_XK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_448_ChaChaPoly_SHA256 ... skipped
+Noise_XK_448_ChaChaPoly_SHA512 ... skipped
+Noise_XK_25519_AESGCM_BLAKE2s ... skipped
+Noise_XK_25519_AESGCM_BLAKE2b ... skipped
+Noise_XK_25519_AESGCM_SHA256 ... skipped
+Noise_XK_25519_AESGCM_SHA512 ... skipped
+Noise_XK_448_AESGCM_BLAKE2s ... skipped
+Noise_XK_448_AESGCM_BLAKE2b ... skipped
+Noise_XK_448_AESGCM_SHA256 ... skipped
+Noise_XK_448_AESGCM_SHA512 ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_25519_ChaChaPoly_SHA256 ... ok
+Noise_XX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_448_ChaChaPoly_SHA256 ... skipped
+Noise_XX_448_ChaChaPoly_SHA512 ... skipped
+Noise_XX_25519_AESGCM_BLAKE2s ... skipped
+Noise_XX_25519_AESGCM_BLAKE2b ... skipped
+Noise_XX_25519_AESGCM_SHA256 ... skipped
+Noise_XX_25519_AESGCM_SHA512 ... skipped
+Noise_XX_448_AESGCM_BLAKE2s ... skipped
+Noise_XX_448_AESGCM_BLAKE2b ... skipped
+Noise_XX_448_AESGCM_SHA256 ... skipped
+Noise_XX_448_AESGCM_SHA512 ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_25519_ChaChaPoly_SHA256 ... ok
+Noise_KN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_448_ChaChaPoly_SHA256 ... skipped
+Noise_KN_448_ChaChaPoly_SHA512 ... skipped
+Noise_KN_25519_AESGCM_BLAKE2s ... skipped
+Noise_KN_25519_AESGCM_BLAKE2b ... skipped
+Noise_KN_25519_AESGCM_SHA256 ... skipped
+Noise_KN_25519_AESGCM_SHA512 ... skipped
+Noise_KN_448_AESGCM_BLAKE2s ... skipped
+Noise_KN_448_AESGCM_BLAKE2b ... skipped
+Noise_KN_448_AESGCM_SHA256 ... skipped
+Noise_KN_448_AESGCM_SHA512 ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_25519_ChaChaPoly_SHA256 ... ok
+Noise_KK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_448_ChaChaPoly_SHA256 ... skipped
+Noise_KK_448_ChaChaPoly_SHA512 ... skipped
+Noise_KK_25519_AESGCM_BLAKE2s ... skipped
+Noise_KK_25519_AESGCM_BLAKE2b ... skipped
+Noise_KK_25519_AESGCM_SHA256 ... skipped
+Noise_KK_25519_AESGCM_SHA512 ... skipped
+Noise_KK_448_AESGCM_BLAKE2s ... skipped
+Noise_KK_448_AESGCM_BLAKE2b ... skipped
+Noise_KK_448_AESGCM_SHA256 ... skipped
+Noise_KK_448_AESGCM_SHA512 ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_25519_ChaChaPoly_SHA256 ... ok
+Noise_KX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_448_ChaChaPoly_SHA256 ... skipped
+Noise_KX_448_ChaChaPoly_SHA512 ... skipped
+Noise_KX_25519_AESGCM_BLAKE2s ... skipped
+Noise_KX_25519_AESGCM_BLAKE2b ... skipped
+Noise_KX_25519_AESGCM_SHA256 ... skipped
+Noise_KX_25519_AESGCM_SHA512 ... skipped
+Noise_KX_448_AESGCM_BLAKE2s ... skipped
+Noise_KX_448_AESGCM_BLAKE2b ... skipped
+Noise_KX_448_AESGCM_SHA256 ... skipped
+Noise_KX_448_AESGCM_SHA512 ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_25519_ChaChaPoly_SHA256 ... ok
+Noise_IN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_448_ChaChaPoly_SHA256 ... skipped
+Noise_IN_448_ChaChaPoly_SHA512 ... skipped
+Noise_IN_25519_AESGCM_BLAKE2s ... skipped
+Noise_IN_25519_AESGCM_BLAKE2b ... skipped
+Noise_IN_25519_AESGCM_SHA256 ... skipped
+Noise_IN_25519_AESGCM_SHA512 ... skipped
+Noise_IN_448_AESGCM_BLAKE2s ... skipped
+Noise_IN_448_AESGCM_BLAKE2b ... skipped
+Noise_IN_448_AESGCM_SHA256 ... skipped
+Noise_IN_448_AESGCM_SHA512 ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_25519_ChaChaPoly_SHA256 ... ok
+Noise_IK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_448_ChaChaPoly_SHA256 ... skipped
+Noise_IK_448_ChaChaPoly_SHA512 ... skipped
+Noise_IK_25519_AESGCM_BLAKE2s ... skipped
+Noise_IK_25519_AESGCM_BLAKE2b ... skipped
+Noise_IK_25519_AESGCM_SHA256 ... skipped
+Noise_IK_25519_AESGCM_SHA512 ... skipped
+Noise_IK_448_AESGCM_BLAKE2s ... skipped
+Noise_IK_448_AESGCM_BLAKE2b ... skipped
+Noise_IK_448_AESGCM_SHA256 ... skipped
+Noise_IK_448_AESGCM_SHA512 ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_25519_ChaChaPoly_SHA256 ... ok
+Noise_IX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_448_ChaChaPoly_SHA256 ... skipped
+Noise_IX_448_ChaChaPoly_SHA512 ... skipped
+Noise_IX_25519_AESGCM_BLAKE2s ... skipped
+Noise_IX_25519_AESGCM_BLAKE2b ... skipped
+Noise_IX_25519_AESGCM_SHA256 ... skipped
+Noise_IX_25519_AESGCM_SHA512 ... skipped
+Noise_IX_448_AESGCM_BLAKE2s ... skipped
+Noise_IX_448_AESGCM_BLAKE2b ... skipped
+Noise_IX_448_AESGCM_SHA256 ... skipped
+Noise_IX_448_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+15 vectors run, 225 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/cacophony.txt
+Noise_NN_25519_AESGCM_BLAKE2b ... skipped
+Noise_NN_25519_AESGCM_BLAKE2s ... skipped
+Noise_NN_25519_AESGCM_SHA256 ... skipped
+Noise_NN_25519_AESGCM_SHA512 ... skipped
+Noise_NN_448_AESGCM_BLAKE2b ... skipped
+Noise_NN_448_AESGCM_BLAKE2s ... skipped
+Noise_NN_448_AESGCM_SHA256 ... skipped
+Noise_NN_448_AESGCM_SHA512 ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_25519_ChaChaPoly_SHA256 ... ok
+Noise_NN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_448_ChaChaPoly_SHA256 ... skipped
+Noise_NN_448_ChaChaPoly_SHA512 ... skipped
+Noise_KN_25519_AESGCM_BLAKE2b ... skipped
+Noise_KN_25519_AESGCM_BLAKE2s ... skipped
+Noise_KN_25519_AESGCM_SHA256 ... skipped
+Noise_KN_25519_AESGCM_SHA512 ... skipped
+Noise_KN_448_AESGCM_BLAKE2b ... skipped
+Noise_KN_448_AESGCM_BLAKE2s ... skipped
+Noise_KN_448_AESGCM_SHA256 ... skipped
+Noise_KN_448_AESGCM_SHA512 ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_25519_ChaChaPoly_SHA256 ... ok
+Noise_KN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_448_ChaChaPoly_SHA256 ... skipped
+Noise_KN_448_ChaChaPoly_SHA512 ... skipped
+Noise_NK_25519_AESGCM_BLAKE2b ... skipped
+Noise_NK_25519_AESGCM_BLAKE2s ... skipped
+Noise_NK_25519_AESGCM_SHA256 ... skipped
+Noise_NK_25519_AESGCM_SHA512 ... skipped
+Noise_NK_448_AESGCM_BLAKE2b ... skipped
+Noise_NK_448_AESGCM_BLAKE2s ... skipped
+Noise_NK_448_AESGCM_SHA256 ... skipped
+Noise_NK_448_AESGCM_SHA512 ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_25519_ChaChaPoly_SHA256 ... ok
+Noise_NK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_448_ChaChaPoly_SHA256 ... skipped
+Noise_NK_448_ChaChaPoly_SHA512 ... skipped
+Noise_KK_25519_AESGCM_BLAKE2b ... skipped
+Noise_KK_25519_AESGCM_BLAKE2s ... skipped
+Noise_KK_25519_AESGCM_SHA256 ... skipped
+Noise_KK_25519_AESGCM_SHA512 ... skipped
+Noise_KK_448_AESGCM_BLAKE2b ... skipped
+Noise_KK_448_AESGCM_BLAKE2s ... skipped
+Noise_KK_448_AESGCM_SHA256 ... skipped
+Noise_KK_448_AESGCM_SHA512 ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_25519_ChaChaPoly_SHA256 ... ok
+Noise_KK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_448_ChaChaPoly_SHA256 ... skipped
+Noise_KK_448_ChaChaPoly_SHA512 ... skipped
+Noise_NX_25519_AESGCM_BLAKE2b ... skipped
+Noise_NX_25519_AESGCM_BLAKE2s ... skipped
+Noise_NX_25519_AESGCM_SHA256 ... skipped
+Noise_NX_25519_AESGCM_SHA512 ... skipped
+Noise_NX_448_AESGCM_BLAKE2b ... skipped
+Noise_NX_448_AESGCM_BLAKE2s ... skipped
+Noise_NX_448_AESGCM_SHA256 ... skipped
+Noise_NX_448_AESGCM_SHA512 ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_25519_ChaChaPoly_SHA256 ... ok
+Noise_NX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_448_ChaChaPoly_SHA256 ... skipped
+Noise_NX_448_ChaChaPoly_SHA512 ... skipped
+Noise_KX_25519_AESGCM_BLAKE2b ... skipped
+Noise_KX_25519_AESGCM_BLAKE2s ... skipped
+Noise_KX_25519_AESGCM_SHA256 ... skipped
+Noise_KX_25519_AESGCM_SHA512 ... skipped
+Noise_KX_448_AESGCM_BLAKE2b ... skipped
+Noise_KX_448_AESGCM_BLAKE2s ... skipped
+Noise_KX_448_AESGCM_SHA256 ... skipped
+Noise_KX_448_AESGCM_SHA512 ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_25519_ChaChaPoly_SHA256 ... ok
+Noise_KX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_448_ChaChaPoly_SHA256 ... skipped
+Noise_KX_448_ChaChaPoly_SHA512 ... skipped
+Noise_XN_25519_AESGCM_BLAKE2b ... skipped
+Noise_XN_25519_AESGCM_BLAKE2s ... skipped
+Noise_XN_25519_AESGCM_SHA256 ... skipped
+Noise_XN_25519_AESGCM_SHA512 ... skipped
+Noise_XN_448_AESGCM_BLAKE2b ... skipped
+Noise_XN_448_AESGCM_BLAKE2s ... skipped
+Noise_XN_448_AESGCM_SHA256 ... skipped
+Noise_XN_448_AESGCM_SHA512 ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_25519_ChaChaPoly_SHA256 ... ok
+Noise_XN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_448_ChaChaPoly_SHA256 ... skipped
+Noise_XN_448_ChaChaPoly_SHA512 ... skipped
+Noise_IN_25519_AESGCM_BLAKE2b ... skipped
+Noise_IN_25519_AESGCM_BLAKE2s ... skipped
+Noise_IN_25519_AESGCM_SHA256 ... skipped
+Noise_IN_25519_AESGCM_SHA512 ... skipped
+Noise_IN_448_AESGCM_BLAKE2b ... skipped
+Noise_IN_448_AESGCM_BLAKE2s ... skipped
+Noise_IN_448_AESGCM_SHA256 ... skipped
+Noise_IN_448_AESGCM_SHA512 ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_25519_ChaChaPoly_SHA256 ... ok
+Noise_IN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_448_ChaChaPoly_SHA256 ... skipped
+Noise_IN_448_ChaChaPoly_SHA512 ... skipped
+Noise_XK_25519_AESGCM_BLAKE2b ... skipped
+Noise_XK_25519_AESGCM_BLAKE2s ... skipped
+Noise_XK_25519_AESGCM_SHA256 ... skipped
+Noise_XK_25519_AESGCM_SHA512 ... skipped
+Noise_XK_448_AESGCM_BLAKE2b ... skipped
+Noise_XK_448_AESGCM_BLAKE2s ... skipped
+Noise_XK_448_AESGCM_SHA256 ... skipped
+Noise_XK_448_AESGCM_SHA512 ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_25519_ChaChaPoly_SHA256 ... ok
+Noise_XK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_448_ChaChaPoly_SHA256 ... skipped
+Noise_XK_448_ChaChaPoly_SHA512 ... skipped
+Noise_IK_25519_AESGCM_BLAKE2b ... skipped
+Noise_IK_25519_AESGCM_BLAKE2s ... skipped
+Noise_IK_25519_AESGCM_SHA256 ... skipped
+Noise_IK_25519_AESGCM_SHA512 ... skipped
+Noise_IK_448_AESGCM_BLAKE2b ... skipped
+Noise_IK_448_AESGCM_BLAKE2s ... skipped
+Noise_IK_448_AESGCM_SHA256 ... skipped
+Noise_IK_448_AESGCM_SHA512 ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_25519_ChaChaPoly_SHA256 ... ok
+Noise_IK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_448_ChaChaPoly_SHA256 ... skipped
+Noise_IK_448_ChaChaPoly_SHA512 ... skipped
+Noise_XX_25519_AESGCM_BLAKE2b ... skipped
+Noise_XX_25519_AESGCM_BLAKE2s ... skipped
+Noise_XX_25519_AESGCM_SHA256 ... skipped
+Noise_XX_25519_AESGCM_SHA512 ... skipped
+Noise_XX_448_AESGCM_BLAKE2b ... skipped
+Noise_XX_448_AESGCM_BLAKE2s ... skipped
+Noise_XX_448_AESGCM_SHA256 ... skipped
+Noise_XX_448_AESGCM_SHA512 ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_25519_ChaChaPoly_SHA256 ... ok
+Noise_XX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_448_ChaChaPoly_SHA256 ... skipped
+Noise_XX_448_ChaChaPoly_SHA512 ... skipped
+Noise_IX_25519_AESGCM_BLAKE2b ... skipped
+Noise_IX_25519_AESGCM_BLAKE2s ... skipped
+Noise_IX_25519_AESGCM_SHA256 ... skipped
+Noise_IX_25519_AESGCM_SHA512 ... skipped
+Noise_IX_448_AESGCM_BLAKE2b ... skipped
+Noise_IX_448_AESGCM_BLAKE2s ... skipped
+Noise_IX_448_AESGCM_SHA256 ... skipped
+Noise_IX_448_AESGCM_SHA512 ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_25519_ChaChaPoly_SHA256 ... ok
+Noise_IX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_448_ChaChaPoly_SHA256 ... skipped
+Noise_IX_448_ChaChaPoly_SHA512 ... skipped
+Noise_N_25519_AESGCM_BLAKE2b ... skipped
+Noise_N_25519_AESGCM_BLAKE2s ... skipped
+Noise_N_25519_AESGCM_SHA256 ... skipped
+Noise_N_25519_AESGCM_SHA512 ... skipped
+Noise_N_448_AESGCM_BLAKE2b ... skipped
+Noise_N_448_AESGCM_BLAKE2s ... skipped
+Noise_N_448_AESGCM_SHA256 ... skipped
+Noise_N_448_AESGCM_SHA512 ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_25519_ChaChaPoly_SHA256 ... ok
+Noise_N_25519_ChaChaPoly_SHA512 ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_448_ChaChaPoly_SHA256 ... skipped
+Noise_N_448_ChaChaPoly_SHA512 ... skipped
+Noise_K_25519_AESGCM_BLAKE2b ... skipped
+Noise_K_25519_AESGCM_BLAKE2s ... skipped
+Noise_K_25519_AESGCM_SHA256 ... skipped
+Noise_K_25519_AESGCM_SHA512 ... skipped
+Noise_K_448_AESGCM_BLAKE2b ... skipped
+Noise_K_448_AESGCM_BLAKE2s ... skipped
+Noise_K_448_AESGCM_SHA256 ... skipped
+Noise_K_448_AESGCM_SHA512 ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_25519_ChaChaPoly_SHA256 ... ok
+Noise_K_25519_ChaChaPoly_SHA512 ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_448_ChaChaPoly_SHA256 ... skipped
+Noise_K_448_ChaChaPoly_SHA512 ... skipped
+Noise_X_25519_AESGCM_BLAKE2b ... skipped
+Noise_X_25519_AESGCM_BLAKE2s ... skipped
+Noise_X_25519_AESGCM_SHA256 ... skipped
+Noise_X_25519_AESGCM_SHA512 ... skipped
+Noise_X_448_AESGCM_BLAKE2b ... skipped
+Noise_X_448_AESGCM_BLAKE2s ... skipped
+Noise_X_448_AESGCM_SHA256 ... skipped
+Noise_X_448_AESGCM_SHA512 ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_25519_ChaChaPoly_SHA256 ... ok
+Noise_X_25519_ChaChaPoly_SHA512 ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_448_ChaChaPoly_SHA256 ... skipped
+Noise_X_448_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_NNpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_NNpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk0_448_AESGCM_SHA256 ... skipped
+Noise_NNpsk0_448_AESGCM_SHA512 ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_NNpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_NNpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NNpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NNpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NNpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NNpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NNpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_NKpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_NKpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk0_448_AESGCM_SHA256 ... skipped
+Noise_NKpsk0_448_AESGCM_SHA512 ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_NKpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_NKpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_NXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_XNpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XNpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XNpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XNpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XNpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XNpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XNpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XNpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XNpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XNpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XNpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_XKpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XKpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XKpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XKpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XKpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XKpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XKpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XKpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XKpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XKpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XKpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_XXpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XXpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XXpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XXpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XXpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XXpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XXpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XXpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XXpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XXpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XXpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_KNpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_KNpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk0_448_AESGCM_SHA256 ... skipped
+Noise_KNpsk0_448_AESGCM_SHA512 ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_KNpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_KNpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KNpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KNpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KNpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KNpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KNpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_KKpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_KKpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk0_448_AESGCM_SHA256 ... skipped
+Noise_KKpsk0_448_AESGCM_SHA512 ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_KKpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_KKpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_KXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_INpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_INpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_INpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_INpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_INpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_INpsk1_448_AESGCM_SHA256 ... skipped
+Noise_INpsk1_448_AESGCM_SHA512 ... skipped
+Noise_INpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_INpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_INpsk1_448_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_INpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_INpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_INpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_INpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_INpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_INpsk2_448_AESGCM_SHA256 ... skipped
+Noise_INpsk2_448_AESGCM_SHA512 ... skipped
+Noise_INpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_INpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_INpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_IKpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_IKpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk1_448_AESGCM_SHA256 ... skipped
+Noise_IKpsk1_448_AESGCM_SHA512 ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_IKpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_IKpsk1_448_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_IKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_IKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_IKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_IKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_IKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_IXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_IXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_IXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_IXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_IXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_IXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_IXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_IXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_IXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_IXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_Npsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_Npsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_Npsk0_25519_AESGCM_SHA256 ... skipped
+Noise_Npsk0_25519_AESGCM_SHA512 ... skipped
+Noise_Npsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_Npsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_Npsk0_448_AESGCM_SHA256 ... skipped
+Noise_Npsk0_448_AESGCM_SHA512 ... skipped
+Noise_Npsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Npsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Npsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_Npsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Npsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Npsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Npsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_Npsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_Kpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_Kpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_Kpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_Kpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_Kpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_Kpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_Kpsk0_448_AESGCM_SHA256 ... skipped
+Noise_Kpsk0_448_AESGCM_SHA512 ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_Kpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Kpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Kpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Kpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_Kpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_Xpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_Xpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_Xpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_Xpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_Xpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_Xpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_Xpsk1_448_AESGCM_SHA256 ... skipped
+Noise_Xpsk1_448_AESGCM_SHA512 ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_Xpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Xpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Xpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Xpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_Xpsk1_448_ChaChaPoly_SHA512 ... skipped
+--------------------------------------------------------------
+36 vectors run, 540 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-fallback.txt
+Noise_XXfallback_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback_25519_ChaChaPoly_SHA256 ... ok
+Noise_XXfallback_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback_448_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback_448_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback_25519_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback_25519_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback_25519_AESGCM_SHA256 ... skipped
+Noise_XXfallback_25519_AESGCM_SHA512 ... skipped
+Noise_XXfallback_448_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback_448_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback_448_AESGCM_SHA256 ... skipped
+Noise_XXfallback_448_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+1 vectors run, 15 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-hybrid.txt
+Noise_NNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_INhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_INhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_INhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_INhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_IKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_IKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_IKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_IKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_IXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_IXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_IXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_IXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+0 vectors run, 208 skipped as not in this build
+<end of output>
+Test time =   0.16 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_vector" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_checked_noise_vector" time elapsed: 00:00:00
+----------------------------------------------------------
+
+30/32 Testing: dmp_noise_memory_probe
+30/32 Test: dmp_noise_memory_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider/dmp_noise_memory_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/tests/provider
+"dmp_noise_memory_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+Measurements aggregate one initiator/responder pair (two endpoints), with supplied fixture ephemerals; not a per-endpoint RAM budget.
+nnpsk0: allocation calls/bytes setup=14/2394 start=0/0 write=0/0 read=0/0 split=2/256 traffic=0/0 total_calls=16 peak_live_bytes=2650
+nnpsk0: all 16 allocation ordinals returned NO_MEMORY with complete tracked cleanup; fresh fixture success passed
+xx: allocation calls/bytes setup=18/3066 start=0/0 write=0/0 read=0/0 split=2/256 traffic=0/0 total_calls=20 peak_live_bytes=3322
+xx: all 20 allocation ordinals returned NO_MEMORY with complete tracked cleanup; fresh fixture success passed
+Host allocation sizes are requested heap bytes for tracked blocks only; no allocator overhead, production quota, embedded RAM, endpoint, or generation claim is established.
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_memory_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_memory_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+31/32 Testing: unit
+31/32 Test: unit
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/experiment-noise/noise-c-test-unit.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/experiment-noise
+"unit" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+cipherstate ... ok
+dhstate ... ok
+errors ... ok
+handshakestate ... ok
+handshakestate_preset_ephemeral ... ok
+hashstate ... ok
+names ... ok
+patterns ... ok
+randstate ... ok
+single_protocol ... ok
+small_build ... ok
+symmetricstate ... ok
+All tests succeeded
+<end of output>
+Test time =   0.80 sec
+----------------------------------------------------------
+Test Passed.
+"unit" end time: Sep 27 01:25 FLE Daylight Time
+"unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+32/32 Testing: vectors
+32/32 Test: vectors
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-experiments/experiment-noise/noise-c-test-vector.exe" "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/cacophony.txt" "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-basic.txt" "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-fallback.txt" "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-hybrid.txt"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-experiments/experiment-noise
+"vectors" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+--------------------------------------------------------------
+Processing vectors from C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/cacophony.txt
+Noise_NN_25519_AESGCM_BLAKE2b ... skipped
+Noise_NN_25519_AESGCM_BLAKE2s ... skipped
+Noise_NN_25519_AESGCM_SHA256 ... skipped
+Noise_NN_25519_AESGCM_SHA512 ... skipped
+Noise_NN_448_AESGCM_BLAKE2b ... skipped
+Noise_NN_448_AESGCM_BLAKE2s ... skipped
+Noise_NN_448_AESGCM_SHA256 ... skipped
+Noise_NN_448_AESGCM_SHA512 ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_25519_ChaChaPoly_SHA256 ... ok
+Noise_NN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_448_ChaChaPoly_SHA256 ... skipped
+Noise_NN_448_ChaChaPoly_SHA512 ... skipped
+Noise_KN_25519_AESGCM_BLAKE2b ... skipped
+Noise_KN_25519_AESGCM_BLAKE2s ... skipped
+Noise_KN_25519_AESGCM_SHA256 ... skipped
+Noise_KN_25519_AESGCM_SHA512 ... skipped
+Noise_KN_448_AESGCM_BLAKE2b ... skipped
+Noise_KN_448_AESGCM_BLAKE2s ... skipped
+Noise_KN_448_AESGCM_SHA256 ... skipped
+Noise_KN_448_AESGCM_SHA512 ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_25519_ChaChaPoly_SHA256 ... ok
+Noise_KN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_448_ChaChaPoly_SHA256 ... skipped
+Noise_KN_448_ChaChaPoly_SHA512 ... skipped
+Noise_NK_25519_AESGCM_BLAKE2b ... skipped
+Noise_NK_25519_AESGCM_BLAKE2s ... skipped
+Noise_NK_25519_AESGCM_SHA256 ... skipped
+Noise_NK_25519_AESGCM_SHA512 ... skipped
+Noise_NK_448_AESGCM_BLAKE2b ... skipped
+Noise_NK_448_AESGCM_BLAKE2s ... skipped
+Noise_NK_448_AESGCM_SHA256 ... skipped
+Noise_NK_448_AESGCM_SHA512 ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_25519_ChaChaPoly_SHA256 ... ok
+Noise_NK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_448_ChaChaPoly_SHA256 ... skipped
+Noise_NK_448_ChaChaPoly_SHA512 ... skipped
+Noise_KK_25519_AESGCM_BLAKE2b ... skipped
+Noise_KK_25519_AESGCM_BLAKE2s ... skipped
+Noise_KK_25519_AESGCM_SHA256 ... skipped
+Noise_KK_25519_AESGCM_SHA512 ... skipped
+Noise_KK_448_AESGCM_BLAKE2b ... skipped
+Noise_KK_448_AESGCM_BLAKE2s ... skipped
+Noise_KK_448_AESGCM_SHA256 ... skipped
+Noise_KK_448_AESGCM_SHA512 ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_25519_ChaChaPoly_SHA256 ... ok
+Noise_KK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_448_ChaChaPoly_SHA256 ... skipped
+Noise_KK_448_ChaChaPoly_SHA512 ... skipped
+Noise_NX_25519_AESGCM_BLAKE2b ... skipped
+Noise_NX_25519_AESGCM_BLAKE2s ... skipped
+Noise_NX_25519_AESGCM_SHA256 ... skipped
+Noise_NX_25519_AESGCM_SHA512 ... skipped
+Noise_NX_448_AESGCM_BLAKE2b ... skipped
+Noise_NX_448_AESGCM_BLAKE2s ... skipped
+Noise_NX_448_AESGCM_SHA256 ... skipped
+Noise_NX_448_AESGCM_SHA512 ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_25519_ChaChaPoly_SHA256 ... ok
+Noise_NX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_448_ChaChaPoly_SHA256 ... skipped
+Noise_NX_448_ChaChaPoly_SHA512 ... skipped
+Noise_KX_25519_AESGCM_BLAKE2b ... skipped
+Noise_KX_25519_AESGCM_BLAKE2s ... skipped
+Noise_KX_25519_AESGCM_SHA256 ... skipped
+Noise_KX_25519_AESGCM_SHA512 ... skipped
+Noise_KX_448_AESGCM_BLAKE2b ... skipped
+Noise_KX_448_AESGCM_BLAKE2s ... skipped
+Noise_KX_448_AESGCM_SHA256 ... skipped
+Noise_KX_448_AESGCM_SHA512 ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_25519_ChaChaPoly_SHA256 ... ok
+Noise_KX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_448_ChaChaPoly_SHA256 ... skipped
+Noise_KX_448_ChaChaPoly_SHA512 ... skipped
+Noise_XN_25519_AESGCM_BLAKE2b ... skipped
+Noise_XN_25519_AESGCM_BLAKE2s ... skipped
+Noise_XN_25519_AESGCM_SHA256 ... skipped
+Noise_XN_25519_AESGCM_SHA512 ... skipped
+Noise_XN_448_AESGCM_BLAKE2b ... skipped
+Noise_XN_448_AESGCM_BLAKE2s ... skipped
+Noise_XN_448_AESGCM_SHA256 ... skipped
+Noise_XN_448_AESGCM_SHA512 ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_25519_ChaChaPoly_SHA256 ... ok
+Noise_XN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_448_ChaChaPoly_SHA256 ... skipped
+Noise_XN_448_ChaChaPoly_SHA512 ... skipped
+Noise_IN_25519_AESGCM_BLAKE2b ... skipped
+Noise_IN_25519_AESGCM_BLAKE2s ... skipped
+Noise_IN_25519_AESGCM_SHA256 ... skipped
+Noise_IN_25519_AESGCM_SHA512 ... skipped
+Noise_IN_448_AESGCM_BLAKE2b ... skipped
+Noise_IN_448_AESGCM_BLAKE2s ... skipped
+Noise_IN_448_AESGCM_SHA256 ... skipped
+Noise_IN_448_AESGCM_SHA512 ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_25519_ChaChaPoly_SHA256 ... ok
+Noise_IN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_448_ChaChaPoly_SHA256 ... skipped
+Noise_IN_448_ChaChaPoly_SHA512 ... skipped
+Noise_XK_25519_AESGCM_BLAKE2b ... skipped
+Noise_XK_25519_AESGCM_BLAKE2s ... skipped
+Noise_XK_25519_AESGCM_SHA256 ... skipped
+Noise_XK_25519_AESGCM_SHA512 ... skipped
+Noise_XK_448_AESGCM_BLAKE2b ... skipped
+Noise_XK_448_AESGCM_BLAKE2s ... skipped
+Noise_XK_448_AESGCM_SHA256 ... skipped
+Noise_XK_448_AESGCM_SHA512 ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_25519_ChaChaPoly_SHA256 ... ok
+Noise_XK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_448_ChaChaPoly_SHA256 ... skipped
+Noise_XK_448_ChaChaPoly_SHA512 ... skipped
+Noise_IK_25519_AESGCM_BLAKE2b ... skipped
+Noise_IK_25519_AESGCM_BLAKE2s ... skipped
+Noise_IK_25519_AESGCM_SHA256 ... skipped
+Noise_IK_25519_AESGCM_SHA512 ... skipped
+Noise_IK_448_AESGCM_BLAKE2b ... skipped
+Noise_IK_448_AESGCM_BLAKE2s ... skipped
+Noise_IK_448_AESGCM_SHA256 ... skipped
+Noise_IK_448_AESGCM_SHA512 ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_25519_ChaChaPoly_SHA256 ... ok
+Noise_IK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_448_ChaChaPoly_SHA256 ... skipped
+Noise_IK_448_ChaChaPoly_SHA512 ... skipped
+Noise_XX_25519_AESGCM_BLAKE2b ... skipped
+Noise_XX_25519_AESGCM_BLAKE2s ... skipped
+Noise_XX_25519_AESGCM_SHA256 ... skipped
+Noise_XX_25519_AESGCM_SHA512 ... skipped
+Noise_XX_448_AESGCM_BLAKE2b ... skipped
+Noise_XX_448_AESGCM_BLAKE2s ... skipped
+Noise_XX_448_AESGCM_SHA256 ... skipped
+Noise_XX_448_AESGCM_SHA512 ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_25519_ChaChaPoly_SHA256 ... ok
+Noise_XX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_448_ChaChaPoly_SHA256 ... skipped
+Noise_XX_448_ChaChaPoly_SHA512 ... skipped
+Noise_IX_25519_AESGCM_BLAKE2b ... skipped
+Noise_IX_25519_AESGCM_BLAKE2s ... skipped
+Noise_IX_25519_AESGCM_SHA256 ... skipped
+Noise_IX_25519_AESGCM_SHA512 ... skipped
+Noise_IX_448_AESGCM_BLAKE2b ... skipped
+Noise_IX_448_AESGCM_BLAKE2s ... skipped
+Noise_IX_448_AESGCM_SHA256 ... skipped
+Noise_IX_448_AESGCM_SHA512 ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_25519_ChaChaPoly_SHA256 ... ok
+Noise_IX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_448_ChaChaPoly_SHA256 ... skipped
+Noise_IX_448_ChaChaPoly_SHA512 ... skipped
+Noise_N_25519_AESGCM_BLAKE2b ... skipped
+Noise_N_25519_AESGCM_BLAKE2s ... skipped
+Noise_N_25519_AESGCM_SHA256 ... skipped
+Noise_N_25519_AESGCM_SHA512 ... skipped
+Noise_N_448_AESGCM_BLAKE2b ... skipped
+Noise_N_448_AESGCM_BLAKE2s ... skipped
+Noise_N_448_AESGCM_SHA256 ... skipped
+Noise_N_448_AESGCM_SHA512 ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_25519_ChaChaPoly_SHA256 ... ok
+Noise_N_25519_ChaChaPoly_SHA512 ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_448_ChaChaPoly_SHA256 ... skipped
+Noise_N_448_ChaChaPoly_SHA512 ... skipped
+Noise_K_25519_AESGCM_BLAKE2b ... skipped
+Noise_K_25519_AESGCM_BLAKE2s ... skipped
+Noise_K_25519_AESGCM_SHA256 ... skipped
+Noise_K_25519_AESGCM_SHA512 ... skipped
+Noise_K_448_AESGCM_BLAKE2b ... skipped
+Noise_K_448_AESGCM_BLAKE2s ... skipped
+Noise_K_448_AESGCM_SHA256 ... skipped
+Noise_K_448_AESGCM_SHA512 ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_25519_ChaChaPoly_SHA256 ... ok
+Noise_K_25519_ChaChaPoly_SHA512 ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_448_ChaChaPoly_SHA256 ... skipped
+Noise_K_448_ChaChaPoly_SHA512 ... skipped
+Noise_X_25519_AESGCM_BLAKE2b ... skipped
+Noise_X_25519_AESGCM_BLAKE2s ... skipped
+Noise_X_25519_AESGCM_SHA256 ... skipped
+Noise_X_25519_AESGCM_SHA512 ... skipped
+Noise_X_448_AESGCM_BLAKE2b ... skipped
+Noise_X_448_AESGCM_BLAKE2s ... skipped
+Noise_X_448_AESGCM_SHA256 ... skipped
+Noise_X_448_AESGCM_SHA512 ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_25519_ChaChaPoly_SHA256 ... ok
+Noise_X_25519_ChaChaPoly_SHA512 ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_448_ChaChaPoly_SHA256 ... skipped
+Noise_X_448_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_NNpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_NNpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk0_448_AESGCM_SHA256 ... skipped
+Noise_NNpsk0_448_AESGCM_SHA512 ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_NNpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_NNpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NNpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NNpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NNpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NNpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NNpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_NKpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_NKpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk0_448_AESGCM_SHA256 ... skipped
+Noise_NKpsk0_448_AESGCM_SHA512 ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_NKpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_NKpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_NXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_XNpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XNpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XNpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XNpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XNpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XNpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XNpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XNpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XNpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XNpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XNpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_XKpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XKpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XKpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XKpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XKpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XKpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XKpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XKpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XKpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XKpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XKpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_XXpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XXpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XXpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XXpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XXpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XXpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XXpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XXpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XXpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XXpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XXpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_KNpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_KNpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk0_448_AESGCM_SHA256 ... skipped
+Noise_KNpsk0_448_AESGCM_SHA512 ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_KNpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_KNpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KNpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KNpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KNpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KNpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KNpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_KKpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_KKpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk0_448_AESGCM_SHA256 ... skipped
+Noise_KKpsk0_448_AESGCM_SHA512 ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_KKpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_KKpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_KXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_INpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_INpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_INpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_INpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_INpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_INpsk1_448_AESGCM_SHA256 ... skipped
+Noise_INpsk1_448_AESGCM_SHA512 ... skipped
+Noise_INpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_INpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_INpsk1_448_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_INpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_INpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_INpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_INpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_INpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_INpsk2_448_AESGCM_SHA256 ... skipped
+Noise_INpsk2_448_AESGCM_SHA512 ... skipped
+Noise_INpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_INpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_INpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_IKpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_IKpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk1_448_AESGCM_SHA256 ... skipped
+Noise_IKpsk1_448_AESGCM_SHA512 ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_IKpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_IKpsk1_448_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_IKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_IKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_IKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_IKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_IKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_IXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_IXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_IXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_IXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_IXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_IXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_IXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_IXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_IXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_IXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_Npsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_Npsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_Npsk0_25519_AESGCM_SHA256 ... skipped
+Noise_Npsk0_25519_AESGCM_SHA512 ... skipped
+Noise_Npsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_Npsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_Npsk0_448_AESGCM_SHA256 ... skipped
+Noise_Npsk0_448_AESGCM_SHA512 ... skipped
+Noise_Npsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Npsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Npsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_Npsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Npsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Npsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Npsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_Npsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_Kpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_Kpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_Kpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_Kpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_Kpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_Kpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_Kpsk0_448_AESGCM_SHA256 ... skipped
+Noise_Kpsk0_448_AESGCM_SHA512 ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_Kpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Kpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Kpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Kpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_Kpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_Xpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_Xpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_Xpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_Xpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_Xpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_Xpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_Xpsk1_448_AESGCM_SHA256 ... skipped
+Noise_Xpsk1_448_AESGCM_SHA512 ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_Xpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Xpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Xpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Xpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_Xpsk1_448_ChaChaPoly_SHA512 ... skipped
+--------------------------------------------------------------
+36 vectors run, 540 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-basic.txt
+Noise_N_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_25519_ChaChaPoly_SHA256 ... ok
+Noise_N_25519_ChaChaPoly_SHA512 ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_448_ChaChaPoly_SHA256 ... skipped
+Noise_N_448_ChaChaPoly_SHA512 ... skipped
+Noise_N_25519_AESGCM_BLAKE2s ... skipped
+Noise_N_25519_AESGCM_BLAKE2b ... skipped
+Noise_N_25519_AESGCM_SHA256 ... skipped
+Noise_N_25519_AESGCM_SHA512 ... skipped
+Noise_N_448_AESGCM_BLAKE2s ... skipped
+Noise_N_448_AESGCM_BLAKE2b ... skipped
+Noise_N_448_AESGCM_SHA256 ... skipped
+Noise_N_448_AESGCM_SHA512 ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_25519_ChaChaPoly_SHA256 ... ok
+Noise_X_25519_ChaChaPoly_SHA512 ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_448_ChaChaPoly_SHA256 ... skipped
+Noise_X_448_ChaChaPoly_SHA512 ... skipped
+Noise_X_25519_AESGCM_BLAKE2s ... skipped
+Noise_X_25519_AESGCM_BLAKE2b ... skipped
+Noise_X_25519_AESGCM_SHA256 ... skipped
+Noise_X_25519_AESGCM_SHA512 ... skipped
+Noise_X_448_AESGCM_BLAKE2s ... skipped
+Noise_X_448_AESGCM_BLAKE2b ... skipped
+Noise_X_448_AESGCM_SHA256 ... skipped
+Noise_X_448_AESGCM_SHA512 ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_25519_ChaChaPoly_SHA256 ... ok
+Noise_K_25519_ChaChaPoly_SHA512 ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_448_ChaChaPoly_SHA256 ... skipped
+Noise_K_448_ChaChaPoly_SHA512 ... skipped
+Noise_K_25519_AESGCM_BLAKE2s ... skipped
+Noise_K_25519_AESGCM_BLAKE2b ... skipped
+Noise_K_25519_AESGCM_SHA256 ... skipped
+Noise_K_25519_AESGCM_SHA512 ... skipped
+Noise_K_448_AESGCM_BLAKE2s ... skipped
+Noise_K_448_AESGCM_BLAKE2b ... skipped
+Noise_K_448_AESGCM_SHA256 ... skipped
+Noise_K_448_AESGCM_SHA512 ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_25519_ChaChaPoly_SHA256 ... ok
+Noise_NN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_448_ChaChaPoly_SHA256 ... skipped
+Noise_NN_448_ChaChaPoly_SHA512 ... skipped
+Noise_NN_25519_AESGCM_BLAKE2s ... skipped
+Noise_NN_25519_AESGCM_BLAKE2b ... skipped
+Noise_NN_25519_AESGCM_SHA256 ... skipped
+Noise_NN_25519_AESGCM_SHA512 ... skipped
+Noise_NN_448_AESGCM_BLAKE2s ... skipped
+Noise_NN_448_AESGCM_BLAKE2b ... skipped
+Noise_NN_448_AESGCM_SHA256 ... skipped
+Noise_NN_448_AESGCM_SHA512 ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_25519_ChaChaPoly_SHA256 ... ok
+Noise_NK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_448_ChaChaPoly_SHA256 ... skipped
+Noise_NK_448_ChaChaPoly_SHA512 ... skipped
+Noise_NK_25519_AESGCM_BLAKE2s ... skipped
+Noise_NK_25519_AESGCM_BLAKE2b ... skipped
+Noise_NK_25519_AESGCM_SHA256 ... skipped
+Noise_NK_25519_AESGCM_SHA512 ... skipped
+Noise_NK_448_AESGCM_BLAKE2s ... skipped
+Noise_NK_448_AESGCM_BLAKE2b ... skipped
+Noise_NK_448_AESGCM_SHA256 ... skipped
+Noise_NK_448_AESGCM_SHA512 ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_25519_ChaChaPoly_SHA256 ... ok
+Noise_NX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_448_ChaChaPoly_SHA256 ... skipped
+Noise_NX_448_ChaChaPoly_SHA512 ... skipped
+Noise_NX_25519_AESGCM_BLAKE2s ... skipped
+Noise_NX_25519_AESGCM_BLAKE2b ... skipped
+Noise_NX_25519_AESGCM_SHA256 ... skipped
+Noise_NX_25519_AESGCM_SHA512 ... skipped
+Noise_NX_448_AESGCM_BLAKE2s ... skipped
+Noise_NX_448_AESGCM_BLAKE2b ... skipped
+Noise_NX_448_AESGCM_SHA256 ... skipped
+Noise_NX_448_AESGCM_SHA512 ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_25519_ChaChaPoly_SHA256 ... ok
+Noise_XN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_448_ChaChaPoly_SHA256 ... skipped
+Noise_XN_448_ChaChaPoly_SHA512 ... skipped
+Noise_XN_25519_AESGCM_BLAKE2s ... skipped
+Noise_XN_25519_AESGCM_BLAKE2b ... skipped
+Noise_XN_25519_AESGCM_SHA256 ... skipped
+Noise_XN_25519_AESGCM_SHA512 ... skipped
+Noise_XN_448_AESGCM_BLAKE2s ... skipped
+Noise_XN_448_AESGCM_BLAKE2b ... skipped
+Noise_XN_448_AESGCM_SHA256 ... skipped
+Noise_XN_448_AESGCM_SHA512 ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_25519_ChaChaPoly_SHA256 ... ok
+Noise_XK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_448_ChaChaPoly_SHA256 ... skipped
+Noise_XK_448_ChaChaPoly_SHA512 ... skipped
+Noise_XK_25519_AESGCM_BLAKE2s ... skipped
+Noise_XK_25519_AESGCM_BLAKE2b ... skipped
+Noise_XK_25519_AESGCM_SHA256 ... skipped
+Noise_XK_25519_AESGCM_SHA512 ... skipped
+Noise_XK_448_AESGCM_BLAKE2s ... skipped
+Noise_XK_448_AESGCM_BLAKE2b ... skipped
+Noise_XK_448_AESGCM_SHA256 ... skipped
+Noise_XK_448_AESGCM_SHA512 ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_25519_ChaChaPoly_SHA256 ... ok
+Noise_XX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_448_ChaChaPoly_SHA256 ... skipped
+Noise_XX_448_ChaChaPoly_SHA512 ... skipped
+Noise_XX_25519_AESGCM_BLAKE2s ... skipped
+Noise_XX_25519_AESGCM_BLAKE2b ... skipped
+Noise_XX_25519_AESGCM_SHA256 ... skipped
+Noise_XX_25519_AESGCM_SHA512 ... skipped
+Noise_XX_448_AESGCM_BLAKE2s ... skipped
+Noise_XX_448_AESGCM_BLAKE2b ... skipped
+Noise_XX_448_AESGCM_SHA256 ... skipped
+Noise_XX_448_AESGCM_SHA512 ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_25519_ChaChaPoly_SHA256 ... ok
+Noise_KN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_448_ChaChaPoly_SHA256 ... skipped
+Noise_KN_448_ChaChaPoly_SHA512 ... skipped
+Noise_KN_25519_AESGCM_BLAKE2s ... skipped
+Noise_KN_25519_AESGCM_BLAKE2b ... skipped
+Noise_KN_25519_AESGCM_SHA256 ... skipped
+Noise_KN_25519_AESGCM_SHA512 ... skipped
+Noise_KN_448_AESGCM_BLAKE2s ... skipped
+Noise_KN_448_AESGCM_BLAKE2b ... skipped
+Noise_KN_448_AESGCM_SHA256 ... skipped
+Noise_KN_448_AESGCM_SHA512 ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_25519_ChaChaPoly_SHA256 ... ok
+Noise_KK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_448_ChaChaPoly_SHA256 ... skipped
+Noise_KK_448_ChaChaPoly_SHA512 ... skipped
+Noise_KK_25519_AESGCM_BLAKE2s ... skipped
+Noise_KK_25519_AESGCM_BLAKE2b ... skipped
+Noise_KK_25519_AESGCM_SHA256 ... skipped
+Noise_KK_25519_AESGCM_SHA512 ... skipped
+Noise_KK_448_AESGCM_BLAKE2s ... skipped
+Noise_KK_448_AESGCM_BLAKE2b ... skipped
+Noise_KK_448_AESGCM_SHA256 ... skipped
+Noise_KK_448_AESGCM_SHA512 ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_25519_ChaChaPoly_SHA256 ... ok
+Noise_KX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_448_ChaChaPoly_SHA256 ... skipped
+Noise_KX_448_ChaChaPoly_SHA512 ... skipped
+Noise_KX_25519_AESGCM_BLAKE2s ... skipped
+Noise_KX_25519_AESGCM_BLAKE2b ... skipped
+Noise_KX_25519_AESGCM_SHA256 ... skipped
+Noise_KX_25519_AESGCM_SHA512 ... skipped
+Noise_KX_448_AESGCM_BLAKE2s ... skipped
+Noise_KX_448_AESGCM_BLAKE2b ... skipped
+Noise_KX_448_AESGCM_SHA256 ... skipped
+Noise_KX_448_AESGCM_SHA512 ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_25519_ChaChaPoly_SHA256 ... ok
+Noise_IN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_448_ChaChaPoly_SHA256 ... skipped
+Noise_IN_448_ChaChaPoly_SHA512 ... skipped
+Noise_IN_25519_AESGCM_BLAKE2s ... skipped
+Noise_IN_25519_AESGCM_BLAKE2b ... skipped
+Noise_IN_25519_AESGCM_SHA256 ... skipped
+Noise_IN_25519_AESGCM_SHA512 ... skipped
+Noise_IN_448_AESGCM_BLAKE2s ... skipped
+Noise_IN_448_AESGCM_BLAKE2b ... skipped
+Noise_IN_448_AESGCM_SHA256 ... skipped
+Noise_IN_448_AESGCM_SHA512 ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_25519_ChaChaPoly_SHA256 ... ok
+Noise_IK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_448_ChaChaPoly_SHA256 ... skipped
+Noise_IK_448_ChaChaPoly_SHA512 ... skipped
+Noise_IK_25519_AESGCM_BLAKE2s ... skipped
+Noise_IK_25519_AESGCM_BLAKE2b ... skipped
+Noise_IK_25519_AESGCM_SHA256 ... skipped
+Noise_IK_25519_AESGCM_SHA512 ... skipped
+Noise_IK_448_AESGCM_BLAKE2s ... skipped
+Noise_IK_448_AESGCM_BLAKE2b ... skipped
+Noise_IK_448_AESGCM_SHA256 ... skipped
+Noise_IK_448_AESGCM_SHA512 ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_25519_ChaChaPoly_SHA256 ... ok
+Noise_IX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_448_ChaChaPoly_SHA256 ... skipped
+Noise_IX_448_ChaChaPoly_SHA512 ... skipped
+Noise_IX_25519_AESGCM_BLAKE2s ... skipped
+Noise_IX_25519_AESGCM_BLAKE2b ... skipped
+Noise_IX_25519_AESGCM_SHA256 ... skipped
+Noise_IX_25519_AESGCM_SHA512 ... skipped
+Noise_IX_448_AESGCM_BLAKE2s ... skipped
+Noise_IX_448_AESGCM_BLAKE2b ... skipped
+Noise_IX_448_AESGCM_SHA256 ... skipped
+Noise_IX_448_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+15 vectors run, 225 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-fallback.txt
+Noise_XXfallback_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback_25519_ChaChaPoly_SHA256 ... ok
+Noise_XXfallback_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback_448_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback_448_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback_25519_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback_25519_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback_25519_AESGCM_SHA256 ... skipped
+Noise_XXfallback_25519_AESGCM_SHA512 ... skipped
+Noise_XXfallback_448_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback_448_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback_448_AESGCM_SHA256 ... skipped
+Noise_XXfallback_448_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+1 vectors run, 15 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from C:/projects/gemslibe/dmp-protocol/third_party/noise-c/tests/vector/noise-c-hybrid.txt
+Noise_NNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_INhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_INhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_INhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_INhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_IKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_IKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_IKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_IKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_IXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_IXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_IXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_IXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+0 vectors run, 208 skipped as not in this build
+<end of output>
+Test time =   0.16 sec
+----------------------------------------------------------
+Test Passed.
+"vectors" end time: Sep 27 01:25 FLE Daylight Time
+"vectors" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 27 01:25 FLE Daylight Time
+
+build-input-validation =   0.77 sec*proc
+
+expected-limitations =   0.09 sec*proc
+
+fixture-only =   0.08 sec*proc
+
+inherited-regression =   0.98 sec*proc
+
+init-wrapper-fault-injection =   0.08 sec*proc
+
+provider-experiment =   0.37 sec*proc
+
+provider-memory-experiment =   0.04 sec*proc
+
+scaffold-only =   0.01 sec*proc

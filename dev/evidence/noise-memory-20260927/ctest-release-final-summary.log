@@ -1,0 +1,11 @@
+Internal ctest changing into directory: C:/projects/gemslibe/dmp-protocol/build/noise-memory-release
+Test project C:/projects/gemslibe/dmp-protocol/build/noise-memory-release
+    Start 30: dmp_noise_memory_probe
+1/1 Test #30: dmp_noise_memory_probe ...........   Passed    0.03 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+provider-memory-experiment    =   0.03 sec*proc (1 test)
+
+Total Test time (real) =   0.03 sec

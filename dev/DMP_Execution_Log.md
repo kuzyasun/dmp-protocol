@@ -347,3 +347,34 @@ hard-link finding resolved; [review result](evidence/noise-backend-init-20260927
 The coordinator accepts the serialized host scope. P01 remains running; physical cold-boot quality, MCU resources,
 concurrent/lock bounds and other storage/cleanup gates remain open. Next:
 MEM-01 bounded setup allocation, OOM and cleanup. No push/hardware/DTrack action.
+
+## 2026-09-27 — MEM-01 allocation failure and owned-heap cleanup
+
+Resumed clean parent bec767c and fork cfb45b9. RBO discovery returned fetch
+failed, so used local host checks. One bounded worker authored the memory probe;
+a separate read-only source investigator mapped ownership. The coordinator
+registered the checked backend probe and reviewed the actual code.
+
+The investigator's partial-constructor dangling output was confirmed in source
+and reproduced at NNpsk0 allocation ordinal 5. The coordinator clears the caller
+output after destroying the partial object. A separate prologue double-free
+allegation was rejected and retracted: malloc assigns NULL on failure.
+
+The probe originally passed a NULL pointer for XX's empty final payload; the
+coordinator corrected that test input, preserved the failed log, and strengthened
+allocator-interception self-checks. Final ordinary host checks passed 32/32;
+optimized Release memory probe passed 1/1. There are 16 NNpsk0 and 20 XX OOM
+ordinals, with zero live tracked allocations after cleanup. Pair aggregate peak
+requested heap bytes are 2650 and 3322; these are two-endpoint supplied-ephemeral
+fixture measurements, excluding allocator overhead, stack and DMP buffers.
+
+Initial Release compilation emitted one existing patterns.c memchr-bound
+warning. It is preserved in evidence and not suppressed; warning-free Release
+provider compilation is not claimed. Independent review returned scoped PASS;
+nine code hashes and 23 evidence hashes verified, no actionable findings. The
+reviewer assessed the existing warning against END-terminated static tables and
+first-match semantics; no observed overread or blocker for this scoped result.
+Reviewed fork source committed locally as 0a7eddb; parent pin updated afterward.
+See [MEM-01 evidence](evidence/noise-memory-20260927/README.md) for source pins,
+failure and success logs, scoped claims and remaining gates. P01 remains running.
+Next recommended: bounded setup storage/quota and both MCU configuration checks.

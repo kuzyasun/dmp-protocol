@@ -24,6 +24,7 @@ foreach(_file core utils)
     list(APPEND _checked_sodium_sources
         "${_checked_dir}/libsodium/src/libsodium/sodium/${_file}.c")
 endforeach()
+
 add_library(dmp_sodium_checked STATIC ${_checked_sodium_sources})
 get_target_property(_checked_sodium_includes sodium INCLUDE_DIRECTORIES)
 get_target_property(_checked_sodium_options sodium COMPILE_OPTIONS)
@@ -116,3 +117,19 @@ foreach(_suite unit vector)
             "-Wl,--wrap=randombytes_stir" "-Wl,--wrap=randombytes_buf")
     endif()
 endforeach()
+
+# MEM-01 observes the real allocator boundary without changing provider code.
+# These link wrappers are tested only with the selected Windows GNU host ABI.
+if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    dmp_add_provider_experiment(dmp_noise_memory_probe noise_memory_probe.c
+        noise_checked_fixture_port.c noise_checked_no_legacy_rng.c "${_fixture_header}")
+    target_include_directories(dmp_noise_memory_probe PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_compile_definitions(dmp_noise_memory_probe PRIVATE DMP_TEST_NOISE_ENTROPY_PORT=1)
+    target_link_libraries(dmp_noise_memory_probe PRIVATE dmp_noise_checked_startup)
+    target_link_options(dmp_noise_memory_probe PRIVATE
+        "-Wl,--wrap=malloc" "-Wl,--wrap=calloc" "-Wl,--wrap=realloc" "-Wl,--wrap=free"
+        "-Wl,--wrap=randombytes_stir" "-Wl,--wrap=randombytes_buf")
+    set_tests_properties(dmp_noise_memory_probe PROPERTIES LABELS "provider-memory-experiment")
+else()
+    message(STATUS "MEM-01 allocator wrappers unavailable on this configuration; not counted as passed")
+endif()

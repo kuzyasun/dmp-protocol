@@ -136,3 +136,14 @@ patch, source preparation and excluded legacy RNG APIs. [Evidence](../../dev/evi
 records deterministic and Windows OS failure tests, exact Noise/PN/DH/RNG reruns
 and inherited unit/vector regression on the checked backend. No production
 entropy quality, MCU runtime/resource or complete P01 acceptance follows.
+
+## Allocation and cleanup experiment
+
+MEM-01 instruments actual selected-provider allocator calls with Windows/GNU
+link wrappers. It sweeps NNpsk0/XX setup and Split allocation failures, checks
+complete tracked-block erasure before free and exercises traffic contexts after
+handshake destruction. A confirmed partial-constructor dangling output is fixed
+in the Noise fork. [Evidence](../../dev/evidence/noise-memory-20260927/README.md)
+separates ordinary and optimized host results, a rejected source-review claim,
+test repairs and measured two-endpoint heap bytes. No production arena, total
+MCU RAM envelope, full secret-copy erasure or endpoint cleanup gate is accepted.

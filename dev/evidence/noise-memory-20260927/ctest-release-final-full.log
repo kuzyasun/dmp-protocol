@@ -1,0 +1,26 @@
+Start testing: Sep 27 01:25 FLE Daylight Time
+----------------------------------------------------------
+30/32 Testing: dmp_noise_memory_probe
+30/32 Test: dmp_noise_memory_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-memory-release/tests/provider/dmp_noise_memory_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-memory-release/tests/provider
+"dmp_noise_memory_probe" start time: Sep 27 01:25 FLE Daylight Time
+Output:
+----------------------------------------------------------
+Measurements aggregate one initiator/responder pair (two endpoints), with supplied fixture ephemerals; not a per-endpoint RAM budget.
+nnpsk0: allocation calls/bytes setup=14/2394 start=0/0 write=0/0 read=0/0 split=2/256 traffic=0/0 total_calls=16 peak_live_bytes=2650
+nnpsk0: all 16 allocation ordinals returned NO_MEMORY with complete tracked cleanup; fresh fixture success passed
+xx: allocation calls/bytes setup=18/3066 start=0/0 write=0/0 read=0/0 split=2/256 traffic=0/0 total_calls=20 peak_live_bytes=3322
+xx: all 20 allocation ordinals returned NO_MEMORY with complete tracked cleanup; fresh fixture success passed
+Host allocation sizes are requested heap bytes for tracked blocks only; no allocator overhead, production quota, embedded RAM, endpoint, or generation claim is established.
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_memory_probe" end time: Sep 27 01:25 FLE Daylight Time
+"dmp_noise_memory_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 27 01:25 FLE Daylight Time
+
+provider-memory-experiment =   0.03 sec*proc

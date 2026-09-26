@@ -1,0 +1,61 @@
+{
+  "reviewer": "/root/dh_final_review",
+  "model": "gpt-6-astra",
+  "effort": "max",
+  "scope": "Read-only source, build graph, identities and recorded evidence; reviewer did not run builds/tests",
+  "acceptance": "MEM-01 host allocation and owned-heap cleanup scoped PASS; full P01 remains running",
+  "open_actionable_findings": 0,
+  "code_snapshot_entries_verified": 9,
+  "evidence_snapshot_entries_verified": 23,
+  "normative_files_verified": 7,
+  "backend_tree_digests_independently_reproduced": true,
+  "initial_parent_index_verified_unchanged": true,
+  "confirmed_repair": "NO_MEMORY in partial handshake construction left a dangling output; reproduced at NNpsk0 allocation 5 and fixed by clearing output after destruction",
+  "rejected_claim": "Prologue replacement double free was disproved: malloc assigns NULL before its failure branch; source investigator retracted it",
+  "coordinator_checks": {
+    "normal_ctest": "32/32 passed, including 7 preparation cases without skips",
+    "release_ctest": "1/1 targeted memory probe passed with -O3 -DNDEBUG; other Release tests not run",
+    "oom_ordinals": {
+      "nnpsk0": 16,
+      "xx": 20
+    },
+    "peak_live_requested_heap_bytes_two_endpoints": {
+      "nnpsk0": 2650,
+      "xx": 3322
+    },
+    "inherited_vectors_each_configuration": {
+      "run": 52,
+      "skipped": 988
+    },
+    "expected_limitation_diagnostics": 2,
+    "post_pin_configure": "Both ordinary and Release CMake reconfigurations succeeded; reviewed implementation unchanged"
+  },
+  "release_warning": {
+    "location": "third_party/noise-c/src/protocol/patterns.c:691",
+    "diagnostic": "memchr bound exceeds concrete static table size; -Wstringop-overread",
+    "assessment": "Not a blocker for current checked tables: END occurs inside the const arrays and C11 specifies as-if sequential reads stopping at first match. No warning suppression or pattern change; warning-free Release not claimed",
+    "reviewer_primary_reference": "https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf#page=384"
+  },
+  "fork_commit": "0a7eddb6c5d2c84e7f78d5b9831a42e103852520",
+  "post_review_changes": [
+    "Committed unchanged reviewed fork source locally and updated parent engine pin literal",
+    "Updated acceptance metadata and added this review result; historical reviewed snapshots retained",
+    "Corrected a transient metadata-script encoding error before staging; final diffs contain only intended status changes",
+    "No normative or fetched backend changes; no push, hardware or DTrack integration",
+    "Removed only extra blank lines at EOF from the two final full logs to pass staged whitespace checks; log content and results unchanged"
+  ],
+  "remaining_limits": [
+    "Supplied fixture ephemerals; measured pair sum is not a per-endpoint RAM budget",
+    "Production allocator, quota, target size/alignment, MCU build/runtime and complete P01 pending",
+    "Heap metadata, fragmentation, stack/register copies, static backend storage and DMP/adapter buffers excluded",
+    "Asynchronous ownership, late work and real endpoint post-read policy enforcement remain open",
+    "Release warning remains disclosed; no blanket warning-free build claim"
+  ],
+  "recommended_next": "MEM-02 bounded setup storage/quota, followed by both MCU configuration checks",
+  "post_review_sha256": {
+    "tests/provider/noise_experiment.cmake": "ecb79f1061a51ac109b54cca2a5513ff94ffcc3586274bc79374593c9fc1edd7",
+    "dev/evidence/noise-memory-20260927/README.md": "7139b4f8ac5b31835e797cfe6ce54802ed00ea78cf233ce41d81de30fd1418d2",
+    "dev/evidence/noise-memory-20260927/ctest-final-full.log": "6d96947aebd72dda31c23c8d385fe3d2bce4cb038b3cdc3eb6d4bc8322a06bb3",
+    "dev/evidence/noise-memory-20260927/ctest-release-final-full.log": "9093db7464432070a2bea035b758ad6bfcce041e869da1796ee6407060713dba"
+  }
+}
