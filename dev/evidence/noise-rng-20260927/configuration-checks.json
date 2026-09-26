@@ -1,0 +1,34 @@
+[
+  {
+    "defines": [
+      "-DNOISE_USE_CUSTOM_RAND=1",
+      "-DNOISE_USE_SODIUM_RAND=0",
+      "-DNOISE_REQUIRE_FALLIBLE_RAND=1"
+    ],
+    "exit_code": 0,
+    "name": "custom-required",
+    "expected_success": true,
+    "output": ""
+  },
+  {
+    "defines": [
+      "-DNOISE_USE_CUSTOM_RAND=0",
+      "-DNOISE_USE_SODIUM_RAND=1",
+      "-DNOISE_REQUIRE_FALLIBLE_RAND=1"
+    ],
+    "exit_code": 1,
+    "name": "sodium-rejected",
+    "expected_success": false,
+    "output": "In file included from <stdin>:1:\r\nthird_party/noise-c/include/noise/defines.h:78:2: error: #error \"Fallible entropy requires an explicit custom checked port\"\r\n   78 | #error \"Fallible entropy requires an explicit custom checked port\"\r\n      |  ^~~~~"
+  },
+  {
+    "defines": [
+      "-DNOISE_USE_CUSTOM_RAND=1",
+      "-DNOISE_USE_SODIUM_RAND=1"
+    ],
+    "exit_code": 1,
+    "name": "mixed-rejected",
+    "expected_success": false,
+    "output": "In file included from <stdin>:1:\r\nthird_party/noise-c/include/noise/defines.h:75:2: error: #error \"Custom entropy and sodium RNG cannot both be enabled\"\r\n   75 | #error \"Custom entropy and sodium RNG cannot both be enabled\"\r\n      |  ^~~~~"
+  }
+]

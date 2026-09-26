@@ -58,7 +58,7 @@ node dev/dmp_verify_security_vectors.cjs
 
 The upstream file is an external input, not bundled here. Its recorded SHA-256 is `3bde7c09a6f349ee11c825c50fcc02649f8f02a47c857a459206b357f9386cae`. Review regenerated output and provenance before replacing vectors. Public deterministic keys are test-only. The generator is not production cryptographic code, and the verifier is a fixture parser, not the future library parser. Existing checks do not implement the SELECTIVE-32 state machine or prove endpoint interoperability, BLE/radio timing or production security.
 
-P00 preparation is accepted: the host scaffold, declared MCU configurations and finite experimental resource envelopes are recorded. P01 has accepted bounded PN-01 receive and DH-01 strict X25519 host checks using the [fork submodule and opt-in probes](tests/provider/README.md); entropy, storage, cleanup and resource gates remain open. No endpoint or production crypto provider is accepted. Profile, simulator and benchmark tool commands remain proposed interfaces. No DTrack firmware, web UI or mobile client is moved here.
+P00 preparation is accepted: the host scaffold, declared MCU configurations and finite experimental resource envelopes are recorded. P01 has accepted bounded PN-01 receive, DH-01 strict X25519 and RNG-01 post-initialization entropy-failure host checks using the [fork submodule and opt-in probes](tests/provider/README.md); backend startup/cold-boot entropy, storage, cleanup and resource gates remain open. No endpoint or production crypto provider is accepted. Profile, simulator and benchmark tool commands remain proposed interfaces. No DTrack firmware, web UI or mobile client is moved here.
 
 ## License
 

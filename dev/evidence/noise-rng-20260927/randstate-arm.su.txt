@@ -1,0 +1,7 @@
+third_party/noise-c/src/protocol/randstate.c:248:13:noise_randstate_rekey	72	static
+third_party/noise-c/src/protocol/randstate.c:156:5:noise_randstate_free	8	static
+third_party/noise-c/src/protocol/randstate.c:186:5:noise_randstate_reseed	80	static
+third_party/noise-c/src/protocol/randstate.c:118:5:noise_randstate_new	16	static
+third_party/noise-c/src/protocol/randstate.c:286:5:noise_randstate_generate	56	static
+third_party/noise-c/src/protocol/randstate.c:384:5:noise_randstate_pad	24	static
+third_party/noise-c/src/protocol/randstate.c:427:5:noise_randstate_generate_simple	72	static

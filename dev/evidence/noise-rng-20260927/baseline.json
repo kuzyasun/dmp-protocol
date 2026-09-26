@@ -1,0 +1,21 @@
+{
+  "parent_head": "a99d7bddc98f9b28bde9b54583b242868a468465",
+  "fork_head": "c707782972b9c9015a8a1ba06724a07572306d50",
+  "parent_status": "clean",
+  "fork_status": "clean",
+  "files": {
+    "docs\\DMP_v2_Selective_Recovery.md": "25d2384c9ff4ab5650ced1a3d77e0762cc1de3a74d944921c5e5c0a822ca65b7",
+    "docs\\DMP_v2_Security_Test_Vectors.json": "4eb2c5b466c884d5b448b5117d32ca57c14096a8db058bea68d8b2478922ec7e",
+    "docs\\DMP_v2_Security_Profile.md": "8f6bf8c34ba37e33a1cbfc8f7fc062da577c5ce0a2872b321bb9f5e6b29669f3",
+    "docs\\DMP_v2_Reference_Application.md": "ef7d78119b987200c054209c82c365043e4d95ea8b722a7dd84b3653b32a78be",
+    "docs\\DMP_v2_Device_Messaging_Protocol_Specification.md": "0c22f0c0381504821b71eb5defaccda40c353966363a518274625cbfacdc4d9d",
+    "docs\\DMP_v2_Design_Tradeoffs.md": "f1d0737160dc6a916a1051776804790f0c6930dce0b52f24b3eb40ed6ef59e92",
+    "docs\\DMP_v2_Deployment_Profiles.md": "f1fdb79e6ca4d20f41c98e48cffeafb0ab1fd001c0128eac4bb35b4e2eb59778",
+    "third_party/noise-c/src/protocol/dhstate.c": "2d7a128ac9f70be93f49bff1be7b80b92541f43d6441c34a55d4c4b52254a6b3",
+    "third_party/noise-c/src/protocol/randstate.c": "0405d7df7707482a3ad28ffd181290ee50046658c39d1eddfade7cfc5345598e",
+    "third_party/noise-c/src/protocol/rand_os.c": "8b8cf69bce0a21faa9f778c8d97a180e443defd580fae82c78ffc3db958706eb",
+    "third_party/noise-c/src/protocol/rand_sodium.c": "2ec39ccdab7aff17f18c7947398c4793fff7cc1332c9ff7ac3835f4d22eca2c4",
+    "third_party/noise-c/src/backend/sodium/dh-curve25519.c": "7246c536c09b8e974490fb988b085bcdd1c5f4575c5883269b324772750a08e9",
+    "third_party/noise-c/src/backend/ref/dh-curve25519.c": "c721a7793e38c8e7716a4aed325956eaceadf0c3c6951dc629fa8405edd8cffc"
+  }
+}

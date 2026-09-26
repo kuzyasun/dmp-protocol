@@ -1,0 +1,36 @@
+{
+  "reviewer": "/root/dh_final_review",
+  "model": "gpt-6-astra",
+  "effort": "max",
+  "scope": "Independent read-only code review followed by frozen probes, registration and execution-evidence review",
+  "findings": [],
+  "code_snapshot_entries_verified": 10,
+  "final_snapshot_entries_verified": 21,
+  "normative_files_verified": 7,
+  "backend_tree_digests_independently_reproduced": true,
+  "backend_regular_file_counts": {
+    "sodium_port": 47,
+    "libsodium": 670
+  },
+  "checks": "Coordinator ran 105 build steps without emitted warnings and CTest 10/10; inherited vectors 52 run/988 skipped. Reviewer inspected source and logs, did not run tests.",
+  "acceptance": "RNG-01 accepted only for the tested post-initialization custom-port host configuration; complete entropy gate and P01 remain open",
+  "fork_commit": "0d86934919dc9220eaa49574bc9b22f0abe972b2",
+  "post_review_changes": [
+    "Committed unchanged reviewed Noise-C source locally",
+    "Updated only engine SHA literal in noise_experiment.cmake; CMake reconfiguration exit 0",
+    "Updated evidence README, root README, work board, conformance row and execution log with scoped acceptance",
+    "Added this review result; historical snapshots retained"
+  ],
+  "remaining_limits": [
+    "Backend startup/cold boot: sodium_init invokes backend RNG outside checked Noise port; no-process-exit gate unpassed",
+    "Production entropy quality/readiness/boundedness and hardware runtime not verified",
+    "Storage/allocation, complete erasure, cached-flight and remaining P01 lifecycle cases remain open",
+    "Cortex-M4/Xtensa wrapper compile checks are not complete provider link/runtime/stack budgets; inherited strict handshake warning issue remains",
+    "Windows OS port compile-only; reference/OS alternatives not runtime accepted",
+    "No production adoption, push, hardware action or DTrack integration"
+  ],
+  "post_review_sha256": {
+    "tests/provider/noise_experiment.cmake": "99682adaca4ccf4f51804f10baef28ef69392d1a953538693cdcae421f1256c6",
+    "dev/evidence/noise-rng-20260927/README.md": "90ee7180b62f2f7652d2ed7826fbc94fba74ea56315b67f1dc24e621bb79c532"
+  }
+}

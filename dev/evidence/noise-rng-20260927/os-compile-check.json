@@ -1,0 +1,21 @@
+{
+  "compiler": "C:/develop/mingw/w64devkit/bin/gcc.exe",
+  "arguments": [
+    "-std=c11",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Werror",
+    "-DNOISE_USE_CUSTOM_RAND=0",
+    "-DNOISE_USE_SODIUM_RAND=0",
+    "-Ithird_party/noise-c/include",
+    "-Ithird_party/noise-c/src",
+    "-c",
+    "third_party/noise-c/src/protocol/rand_os.c",
+    "-o",
+    "build/rng01-rand-os.o"
+  ],
+  "exit_code": 0,
+  "source_sha256": "9a3bf49d17272ef96dfa5d341a22994fd3e017307560b183c880dca0d85d8fec",
+  "scope": "Final Windows adapter strict compile only; no runtime or OS fault injection"
+}

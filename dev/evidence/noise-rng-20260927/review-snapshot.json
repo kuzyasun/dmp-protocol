@@ -1,0 +1,23 @@
+{
+  "tests/provider/noise_rng_state_probe.c": "18a9c674da714edc00a94556acf920d990413c59874144306e394a94c43e59f1",
+  "tests/provider/noise_rng_handshake_probe.c": "0390472a73fa7a6e0273c331bb658fff52eaf56508cf08e1a1ec747c16a02318",
+  "tests/provider/noise_experiment.cmake": "c15fb1d427a883290b3187b0b58980c576a57d4ec995ec9c0d1e8da7cf610f3e",
+  "tests/provider/README.md": "74efbee09cb625c953962c42075bb23765d7b39c1aee1c38571de1f03040465d",
+  "dev/evidence/noise-rng-20260927/backend-pins.json": "af372eafb3c7c44822b5f2234dc684869f6d7683a8f4067b5ca024aa16b22974",
+  "dev/evidence/noise-rng-20260927/baseline.json": "a6499c10f8a985efe63b14c80eb2d7b6b1668d2776afb4b5bf30f3a1f96f5e3d",
+  "dev/evidence/noise-rng-20260927/build.log": "0b95228897120415181f60f4415fc968c1c5ed7718b4326ef6e952f51921521d",
+  "dev/evidence/noise-rng-20260927/code-review-snapshot.json": "28448d27c6e210783b2250f55c70686a14078a3a0583e11bfc24fe813831a65a",
+  "dev/evidence/noise-rng-20260927/compile-checks.json": "f4173dc922c5c2a1e92aaae2dc4f3a7becfe878e3efe82af12aac7c18c0da560",
+  "dev/evidence/noise-rng-20260927/configuration-checks.json": "bc975900cde037f93ee7cbdac8334bfed7269e3e810d691b11f0d8f914a249a9",
+  "dev/evidence/noise-rng-20260927/configure.log": "fb92f615ef8ec83e856be5e89f881149a35d09434c1afc502ddf363ba1057d80",
+  "dev/evidence/noise-rng-20260927/ctest-full.log": "57855dee1d253391a21d6ff87a9ad9c7f04b0c4ccc758cbd152ba94a35098e43",
+  "dev/evidence/noise-rng-20260927/ctest-summary.log": "e926e9b0bebc578020be99226066fb1f24b16333f98413a37b5cc94eedb4934a",
+  "dev/evidence/noise-rng-20260927/dhstate-arm.su.txt": "8f98e803839be41f5ad000357ed5c6999568180e0c1b77d5526482ef63092d0d",
+  "dev/evidence/noise-rng-20260927/dhstate-xtensa.su.txt": "97cce548b8930768d40d1b329815a826bdffb60fd0750572d56f17b777db30c6",
+  "dev/evidence/noise-rng-20260927/os-compile-check.json": "20a632be0e1c4f01e6ffdb93cf76f49b38eb2eba74e939691b3ede2f7ca26def",
+  "dev/evidence/noise-rng-20260927/rand_os-arm.su.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "dev/evidence/noise-rng-20260927/rand_os-xtensa.su.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "dev/evidence/noise-rng-20260927/randstate-arm.su.txt": "9bf61ba28f3d8be31588533c81c8d46b1957b84eec83b1a72825139c597a5cb1",
+  "dev/evidence/noise-rng-20260927/randstate-xtensa.su.txt": "e042ba0f89cc199e5ea268e7ac1e14e413fe3e9502e69d362f7d95e923bb5ac4",
+  "dev/evidence/noise-rng-20260927/README.md": "6c1199f2e15e064af084954c66bda5320b05b5c33e82f3342a7a40cddc6ca787"
+}

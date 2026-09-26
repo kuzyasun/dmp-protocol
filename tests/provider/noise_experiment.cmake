@@ -14,7 +14,7 @@ function(dmp_require_revision directory expected)
     endif()
 endfunction()
 dmp_require_revision("${PROJECT_SOURCE_DIR}/third_party/noise-c"
-    c707782972b9c9015a8a1ba06724a07572306d50)
+    0d86934919dc9220eaa49574bc9b22f0abe972b2)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}"
     40c22448d6e8f42be56c45f739b52a5c8d21c8ca)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}/libsodium"
@@ -53,3 +53,24 @@ target_include_directories(dmp_noise_dh_probe PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
     "${PROJECT_SOURCE_DIR}/third_party/noise-c/src")
 target_link_libraries(dmp_noise_dh_probe PRIVATE noise_c)
+
+# Separate library configuration: tests supply the checked entropy symbol.
+# The inherited sodium-RNG regression library above is not a fallible port.
+get_target_property(_noise_entropy_sources noise_c SOURCES)
+list(TRANSFORM _noise_entropy_sources PREPEND "${PROJECT_SOURCE_DIR}/third_party/noise-c/")
+add_library(dmp_noise_fallible_entropy STATIC ${_noise_entropy_sources})
+target_include_directories(dmp_noise_fallible_entropy PUBLIC
+    "${PROJECT_SOURCE_DIR}/third_party/noise-c/include"
+    "${PROJECT_SOURCE_DIR}/third_party/noise-c/src")
+target_compile_definitions(dmp_noise_fallible_entropy PUBLIC
+    NOISE_USE_CUSTOM_RAND=1 NOISE_USE_SODIUM_RAND=0 NOISE_REQUIRE_FALLIBLE_RAND=1)
+target_compile_definitions(dmp_noise_fallible_entropy PRIVATE NOISE_REQUIRE_SODIUM_FAST_PATH)
+target_link_libraries(dmp_noise_fallible_entropy PUBLIC sodium)
+
+dmp_add_provider_experiment(dmp_noise_rng_state_probe noise_rng_state_probe.c)
+target_link_libraries(dmp_noise_rng_state_probe PRIVATE dmp_noise_fallible_entropy)
+dmp_add_provider_experiment(dmp_noise_rng_handshake_probe
+    noise_rng_handshake_probe.c "${_fixture_header}")
+target_include_directories(dmp_noise_rng_handshake_probe PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(dmp_noise_rng_handshake_probe PRIVATE dmp_noise_fallible_entropy)

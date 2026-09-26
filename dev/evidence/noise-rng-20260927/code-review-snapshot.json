@@ -1,0 +1,12 @@
+{
+  "third_party/noise-c/DMP_PATCHES.md": "a65c34aba657acdd15fdae4d2c0c1ae88760e192c98c17c3b688dc067ac49719",
+  "third_party/noise-c/include/noise/defines.h": "4b619636daec04c73906b7bfe829f2a0ed52391dd4caadf585bfe2129db0b1b6",
+  "third_party/noise-c/include/noise/protocol/randstate.h": "ff20f60b4b1d1db018d2495471b867e83208b8e49265bb9eb11ecc8c4f749de3",
+  "third_party/noise-c/src/backend/ref/dh-curve25519.c": "07f99075df4925c37ed12ecef2f5546e1a1c5f74defa46214e972a57032acd82",
+  "third_party/noise-c/src/backend/sodium/dh-curve25519.c": "0caa4d15189da331fb5796e6fc8c2a0666d1fd2723376d6c714d60aba9cd1984",
+  "third_party/noise-c/src/protocol/dhstate.c": "d80d3fd9717a2ac5ea943d32d230790d204f1a2b704e00f8361cbd62fc509dd4",
+  "third_party/noise-c/src/protocol/internal.h": "3388e9457c788251a11de999fb706a1f97974636eb02b9217d3fa0e4230a872e",
+  "third_party/noise-c/src/protocol/rand_os.c": "9a3bf49d17272ef96dfa5d341a22994fd3e017307560b183c880dca0d85d8fec",
+  "third_party/noise-c/src/protocol/rand_sodium.c": "87840309c1c575ff8d7827d722dace1c97178c181f29021556ba095adb1c209a",
+  "third_party/noise-c/src/protocol/randstate.c": "f96a9390ec387a576a9e05b1bbdbdf6198e6d569e3d2b7d71932b91bc16a58ae"
+}

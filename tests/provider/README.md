@@ -1,6 +1,6 @@
 # Noise candidate experiments
 
-These host-only tests characterize the controlled Noise-C candidate and its receive-PN patch. They do not select
+These host-only tests characterize the controlled Noise-C candidate and its receive-PN, strict-DH and checked-entropy patches. They do not select
 a production provider or pass P01. Public fixture keys are test-only.
 
 The submodule is the owner's fork of ESPHome Noise-C, pinned by the superproject
@@ -81,11 +81,26 @@ Default root builds keep these experiments disabled and fetch no provider.
   rejection, FAILED-state continuation/Split refusal and independent fresh
   valid states. Internal manipulation is confined to constructing malicious
   test messages; the receiving DH backend is unchanged.
+- `dmp_noise_rng_state_probe`: checked-port failures through both DH generation
+  APIs and RandState creation/reseed/generate/simple/pad. Checks invalidation,
+  exact errors, partial-key cleanup and complete output clearing even when an
+  automatic reseed fails after output has already been generated.
+- `dmp_noise_rng_handshake_probe`: actual NNpsk0/XX ephemeral generation failures
+  at initiator/responder writes, zero publishable flight, FAILED/no-resume,
+  independent attempt isolation and fresh exact fixture/hash/Split recovery.
+  Fixture ephemerals enter through the test entropy port, not fixed-key setters.
 - Inherited `unit`/`vectors`: upstream regression evidence only. Disabled suites
   are explicitly skipped, not passed. AESGCM is disabled in this configuration.
 
 The probes use serialized operations and bounded test buffers. They are neither
-endpoint implementations nor resource measurements. Entropy/storage failure,
+endpoint implementations nor resource measurements. The RNG probes link a
+separate `dmp_noise_fallible_entropy` build requiring the checked custom port;
+the inherited regression library keeps its legacy sodium RNG configuration.
+Both invoke real host framework initialization before testing. The backend's
+`sodium_init()` still accesses its own RNG outside the checked Noise port:
+startup/cold-boot failure and production entropy quality remain open. See the
+[RNG-01 evidence](../../dev/evidence/noise-rng-20260927/README.md).
+Storage failure,
 allocation/erasure, full endpoint attack paths, admission/restart budgets, MCU
 resources and independent live interoperability remain separate acceptance work.
 The full [P01 checklist](../../dev/DMP_Implementation_Plan.md#abort-first-provider-experiment-before-p01-acceptance)

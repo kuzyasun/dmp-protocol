@@ -220,3 +220,45 @@ fork source was committed locally as `c707782972b9c9015a8a1ba06724a07572306d50`;
 updating the exact parent pin and reconfiguring succeeded. Only the revision pin
 and acceptance metadata followed the reviewed source snapshot. See
 [review result](evidence/noise-dh-20260926/review-result.json). Next: RNG-01.
+
+## 2026-09-27 — P01 checked entropy port (RNG-01)
+
+Resumed clean parent `a99d7bd` and clean fork `c707782`. The owner requested
+continuation of the recommended RNG-01 wave and previously authorized local
+fork/parent commits. The coordinator owns the checked link-time entropy port,
+configuration guards and error propagation. Two bounded workers authored
+separate DH/RandState and handshake probes; the coordinator inspected actual
+source and test diffs. No normative contract or primitive/backend source changed.
+
+The custom-port build propagates entropy errors, invalidates/clears failed DH
+keys and RandState state, and discards the whole failed output. Tests exercise
+partial entropy at real ephemeral generation, first/second Noise writes,
+FAILED-state no-resume, fresh exact fixture/hash/Split recovery, and automatic
+reseed failure after part of a large host output was already generated.
+
+RBO discovery returned `fetch failed`; the local fallback's first integrated
+build had 105 steps and no emitted warnings. CTest passed 10/10, including the
+previous PN/DH checks; inherited vectors ran 52 cases and skipped 988. MCU
+wrapper checks passed for Cortex-M4 and Xtensa after correcting include paths
+and PowerShell argument quoting. These are compile-only checks, not complete
+provider builds or resource budgets. The Windows OS adapter passed strict
+object compilation only; alternative OS/reference configurations lack runtime
+acceptance. Source/backend/normative hashes and exact commands are recorded in
+[RNG-01 evidence](evidence/noise-rng-20260927/README.md).
+
+Source inspection found a separate startup blocker: `sodium_init()` calls its
+own RNG outside the checked Noise port, and framework/backend init failures are
+not fully exposed. Tests run after actual successful host initialization. The
+complete entropy/cold-boot gate remains open alongside storage/allocation,
+complete erasure, MCU resources and remaining P01 cases. No backend init was
+skipped or mocked. Next recommended wave: INIT-01 startup failure propagation.
+
+Independent read-only review by `/root/dh_final_review` found no actionable
+findings. It verified 10 fork and 21 final snapshot hashes, seven normative
+hashes and both backend tree digests (47/670 regular files), and inspected the
+recorded results without rerunning tests. The coordinator accepted RNG-01 only
+within the post-initialization host scope. P01 remains running. The unchanged
+reviewed fork source was committed locally as `0d86934919dc9220eaa49574bc9b22f0abe972b2`;
+updating the exact parent pin and reconfiguring succeeded. Only the revision
+pin and acceptance metadata followed the reviewed snapshot. See
+[review result](evidence/noise-rng-20260927/review-result.json). No push or hardware action.
