@@ -158,3 +158,26 @@ owner cleanup, preserved existing traffic and transferred Split contexts.
 from actual-type compile-only layout checks on Cortex-M4 and ESP32-S3. The static
 byte arena uses an explicit GNU/Clang -fno-strict-aliasing contract. MCU backend
 linking, runtime, complete memory envelopes and full P01 remain open.
+
+## MCU build feasibility
+
+MCU-01 adds isolated targets under `targets/cortex-m4/` and `targets/esp32s3/`.
+The former builds archives only; the latter links a deterministic test image or
+an SDK-only baseline. Both use the same pinned prepared backend and checked
+startup patch. `DMP_MCU_TEST_ONLY=ON` is required for fixture builds. Neither is
+a production image or an accepted platform entropy port. No hardware run is
+part of this experiment.
+
+CMake uses the upstream generic source inventories with explicit full protocol
+name tables so XX remains available alongside NNpsk0. The stock upstream IDF
+component disables those tables and is not used. ESP-IDF links the three static
+archives as a rescan group to resolve callbacks into the fixture port. No new
+warning suppression is introduced; inherited backend and SDK flags are recorded.
+
+See [commands, maps and results](../../dev/evidence/noise-mcu-20260927/README.md).
+`collect_mcu_build.py` inspects existing archives and optional ELF; it rejects
+legacy heap/RNG calls from the custom Noise archive and legacy RNG definitions
+in the ELF, requires expected symbols and preserves compiler stack estimates.
+Write its output outside the source/build inputs and check its exit status.
+Map contributions and archive totals have different meanings; compiler stack
+reports do not establish runtime high-water or per-endpoint budgets.

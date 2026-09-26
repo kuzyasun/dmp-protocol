@@ -415,3 +415,41 @@ See [MEM-02 evidence](evidence/noise-arena-20260927/README.md) and its review re
 P01 remains running. Next: complete provider/backend archive compilation for
 Cortex-M4 and an isolated ESP-IDF ESP32-S3 build/link. A Cortex-M4 board/linker
 map is not selected. Runtime, stack high-water and concurrency remain later gates.
+
+## 2026-09-27 — MCU-01 isolated provider build feasibility
+
+Resumed parent ccb3bc4 and clean Noise fork c40f2dc. RBO job
+job_01M3FZKED982WEBDVSKSDWX5H9 could not fetch the unpublished fork pin;
+local fallback used the recorded toolchains without pushing or installing.
+EIM-managed v6.0.2 activation was verified after its CLI invocation returned
+without executing the requested command.
+
+Added isolated Cortex-M4 archive and ESP32-S3 IDF projects, sharing the generic
+pinned source inventories and checked startup preparation. Explicit protocol
+tables retain NNpsk0 and XX; the upstream single-pattern IDF component is not
+used. Static archive rescan resolves callbacks into the fixture port. Public
+fixture keys/entropy require an explicit test-only opt-in. No fork or normative
+source changed. A read-only worker examined portability; another worker owned
+only the build-evidence collector. Coordinator owns integration and acceptance.
+
+Cortex built all three selected archives (74 translation units); ESP32-S3 linked
+the provider test and an SDK baseline with identical sdkconfig. Both symbol
+gates passed. The MCU logs emitted no compiler warnings; inherited backend/SDK
+warning policies remain visible. Failed configure/archive-order/group-scope
+attempts and final successful logs are retained. Missing test-only opt-in was
+rejected as expected. Compiler stack reports are not runtime stack measurements.
+
+ESP map attributes 38856 bytes of flash code/data and 143 static DIRAM bytes to
+Noise plus checked sodium. The fixture alone adds 9272 static DIRAM bytes,
+including its backing/arena, and substantial vectors/diagnostics. Whole-image
+size difference is 72176 bytes; this includes additional SDK/stdio retention.
+None of these values is an accepted per-endpoint DMP budget. Cortex has no board
+linker map; neither MCU ran the fixture. Entropy quality, runtime, concurrency,
+complete resource sensitivity and full P01 remain pending.
+
+Independent final review returned scoped PASS with no actionable findings: all
+9 code and 68 evidence snapshots, archive/ELF/map/source and backend-file hashes,
+RESCAN link graph and size claims verified. Sources stayed fixed after review;
+only acceptance metadata changed. See [MCU-01 evidence](evidence/noise-mcu-20260927/README.md).
+No flash, publication or DTrack integration was performed. Next: per-endpoint
+quota/ownership sensitivity with multiple live handshake and traffic contexts.

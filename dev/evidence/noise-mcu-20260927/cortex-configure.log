@@ -1,0 +1,13 @@
+-- The C compiler identification is GNU 13.3.1
+-- The ASM compiler identification is GNU
+-- Found assembler: C:/ST/STM32CubeCLT_1.20.0/GNU-tools-for-STM32/bin/arm-none-eabi-gcc.exe
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/ST/STM32CubeCLT_1.20.0/GNU-tools-for-STM32/bin/arm-none-eabi-gcc.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Found Python3: C:/develop/Python312/python.exe (found suitable version "3.12.8", minimum required is "3.10") found components: Interpreter
+-- Found Git: C:/Program Files/Git/cmd/git.exe (found version "2.52.0.windows.1")
+-- Configuring done (1.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/projects/gemslibe/dmp-protocol/build/noise-mcu-cortex-m4

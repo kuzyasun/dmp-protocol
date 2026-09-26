@@ -1,0 +1,98 @@
+{
+  "esp32s3-dmp_mcu_test_only.map.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3\\dmp_mcu_test_only.map",
+    "source_sha256": "804e772ba8ee510b4d411cec68d6b7f30f388ea8ff767753c1a90469998bc45b",
+    "gzip_sha256": "7b8f906a285b91a27f2f98fd2dddabafbe4c270e08cddde7dd245344cf9a927e"
+  },
+  "esp32s3-sdkconfig.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3\\sdkconfig",
+    "source_sha256": "c129e358328c10d0f804aaea3c2635efed0d9fd2493d3bee26be03ef660bb642",
+    "gzip_sha256": "42ef4bc65d6f318b5859500b5802a5903473f9a658ac022d704b5a5c9f9392d5"
+  },
+  "esp32s3-CMakeCache.txt.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3\\CMakeCache.txt",
+    "source_sha256": "37aa6bbe53005617c65c242044d3d3b9d7ea285440b0465759bd87540086f45a",
+    "gzip_sha256": "e403f27d2571d35fffc8a13fa7a7a54d8e87be9a75a548a6756b3cca438819c4"
+  },
+  "esp32s3-project_description.json.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3\\project_description.json",
+    "source_sha256": "ebe413fe282fb809b86da9ef8a679547a388cbfe1ae0760fb8ce73b6ec41f8ad",
+    "gzip_sha256": "ff0d4d1545a4f26b0f4a4bbd77b200587f08699a5ac6a89b3ebc2c52002a9f4f"
+  },
+  "esp32s3-compile_commands.json.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3\\compile_commands.json",
+    "source_sha256": "1ef47e690e8075e0d482feda3109d54129c005a8b3c352b0de1d44f6e70aecfd",
+    "gzip_sha256": "dbafe382136e17cf4eaee1694eb58eab6412d9367b15f76fd4dcc4ac1ba39e4f"
+  },
+  "esp32s3-dmp_mcu_test_only.elf": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3\\dmp_mcu_test_only.elf",
+    "source_sha256": "52e9a294f9b2c935202a7970aa86252dc2ba827d96db0b6330945db3728d8013",
+    "bytes": 3760872,
+    "retained": "ignored build artifact, not published"
+  },
+  "esp32s3-dmp_mcu_test_only.bin": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3\\dmp_mcu_test_only.bin",
+    "source_sha256": "cd84759104fed21d27314ab00425c820895cdd67f01c24bc2a1389dc77598e9a",
+    "bytes": 210784,
+    "retained": "ignored build artifact, not published"
+  },
+  "esp32s3-bootloader/bootloader.bin": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3\\bootloader\\bootloader.bin",
+    "source_sha256": "7deb5f2aaf6c5038059b73aea9efd5dedaed982eeecc2c42c7a24b094501b4f8",
+    "bytes": 21056,
+    "retained": "ignored build artifact, not published"
+  },
+  "esp32s3-baseline-dmp_mcu_test_only.map.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3-baseline\\dmp_mcu_test_only.map",
+    "source_sha256": "e7b513895a564352498e269feee9df2f64f53b739fedac6c9c986cb81221cf0d",
+    "gzip_sha256": "d0c6e1570a8c28502be17b465d3eb48c258a7338f8867c1fe76b5060ef88f081"
+  },
+  "esp32s3-baseline-sdkconfig.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3-baseline\\sdkconfig",
+    "source_sha256": "c129e358328c10d0f804aaea3c2635efed0d9fd2493d3bee26be03ef660bb642",
+    "gzip_sha256": "42ef4bc65d6f318b5859500b5802a5903473f9a658ac022d704b5a5c9f9392d5"
+  },
+  "esp32s3-baseline-CMakeCache.txt.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3-baseline\\CMakeCache.txt",
+    "source_sha256": "5e22ac580e2226163c35a65747db8b0ce4225f372d71511bbabcef848fd2e563",
+    "gzip_sha256": "a8884d1ff73dc6d35ff629b32e6d451fc25034666f2dd5775374a73f9c8c4109"
+  },
+  "esp32s3-baseline-project_description.json.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3-baseline\\project_description.json",
+    "source_sha256": "5dd9e539a7c2a556609dc09a227f908a8bc7e1947c7e143191f563dd0b19a0c2",
+    "gzip_sha256": "2b9a1d4d251bda29e82c034b3166375f6bb87075cf5e15a60af8d50c22b5e499"
+  },
+  "esp32s3-baseline-compile_commands.json.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3-baseline\\compile_commands.json",
+    "source_sha256": "03d404d4ca06d88be876cf373f216d48ba00f5d2a30e70f2dcf2ed8b38f1b3f6",
+    "gzip_sha256": "9065a6617f002daf10267d81e851a15b174566f042bcf1a91648f884bee3e487"
+  },
+  "esp32s3-baseline-dmp_mcu_test_only.elf": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3-baseline\\dmp_mcu_test_only.elf",
+    "source_sha256": "ab5e9f04a31b221504bf79a886ba2b3293a26e525a8513dc01ed069a46ae4d37",
+    "bytes": 3069264,
+    "retained": "ignored build artifact, not published"
+  },
+  "esp32s3-baseline-dmp_mcu_test_only.bin": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3-baseline\\dmp_mcu_test_only.bin",
+    "source_sha256": "250a99e9fedd2b99c64f2b2de0dd3ed4243add655dfe943541c23a4fe97785c2",
+    "bytes": 128288,
+    "retained": "ignored build artifact, not published"
+  },
+  "esp32s3-baseline-bootloader/bootloader.bin": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-esp32s3-baseline\\bootloader\\bootloader.bin",
+    "source_sha256": "f17dad818662fae7b89e69a81282d36c0d29f7d020b7d41fc95764b6c8ffc79b",
+    "bytes": 21056,
+    "retained": "ignored build artifact, not published"
+  },
+  "cortex-compile_commands.json.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-cortex-m4\\compile_commands.json",
+    "source_sha256": "30d8bc504407164202197d1be9c6e61184f4493e7895f3ab33a4aab21b4d57b1",
+    "gzip_sha256": "3d3642417d15c6cbf117a879cc1c978c6f531e1582839c458162062e22785c5f"
+  },
+  "cortex-CMakeCache.txt.gz": {
+    "source": "C:\\projects\\gemslibe\\dmp-protocol\\build\\noise-mcu-cortex-m4\\CMakeCache.txt",
+    "source_sha256": "ba97e4a7259c1d052ab8587c228d9d1709c5a707f611f42c7c466a1524ee2657",
+    "gzip_sha256": "35062635a8a9fb71b1c505dc82c5d35bf1205c061d83707f4163a36527f0de03"
+  }
+}

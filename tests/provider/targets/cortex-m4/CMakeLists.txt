@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(dmp_mcu_archive_experiment C ASM)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+include(../mcu_provider.cmake)
+dmp_add_mcu_provider()

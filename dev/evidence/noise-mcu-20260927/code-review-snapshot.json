@@ -1,0 +1,11 @@
+{
+  "tests/provider/targets/cortex-m4.cmake": "66ddd1be61dcfba9f8bb4089e795a0813562e46ec577f4ef15ed240a0b20c7ca",
+  "tests/provider/targets/mcu_provider.cmake": "6c8322f8759445a066dc4c2a3455a52f635bfa32db3f485486caaa8864f762b8",
+  "tests/provider/targets/cortex-m4/CMakeLists.txt": "f3fd5d4995953f2959d30254f9176463aa28d04d7ded7fc5cf94f40822e6c970",
+  "tests/provider/targets/esp32s3/CMakeLists.txt": "d975068ba5170cdda187e2c4c5f7c91a66e180a7ae3df63c68987e9a5bf362d6",
+  "tests/provider/targets/esp32s3/sdkconfig.defaults": "4e09cf14ee55e646c2b81bac15ebe2c28301a25131d9aa8851f04c07529ee31d",
+  "tests/provider/targets/esp32s3/main/CMakeLists.txt": "4a07c2fd0e6969f4a4fc4b48b1926295d7d37758c2bdede8bae1600e8fdcf4cd",
+  "tests/provider/targets/esp32s3/main/main.c": "dc1fb75b06d38c45fce1a9ff677051f7e61b683c29e9856211feacff5a030cba",
+  "tests/provider/collect_mcu_build.py": "df0af5294b6e104a0281884c04ad7e61413e4dcc574d9b7e18a3e421bc9eaf0f",
+  "tests/provider/experiment_manifest.json": "6d2ca537d1c6987a38226a11c43ff434666c89452da491c8e259529f761c919a"
+}

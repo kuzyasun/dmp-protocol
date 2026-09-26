@@ -18,7 +18,7 @@
         "rtc": "excluded from DMP experiment",
         "configured_flash_bytes": 4194304
       },
-      "provider_build_and_measurement": "pending; no physical board selected"
+      "provider_build_and_measurement": "MCU-01: isolated IDF v6.0.2 test image and SDK baseline linked; map/symbol evidence recorded; runtime and physical measurements pending"
     },
     "cortex_m4": {
       "compiler": "GNU Tools for STM32 13.3.rel1.20250523-0900, GCC 13.3.1",
@@ -30,7 +30,7 @@
         "external_ram": false,
         "linking": "archive-only until an explicit board/linker map is selected"
       },
-      "provider_build_and_measurement": "pending; only C11 scaffold object compiled"
+      "provider_build_and_measurement": "MCU-01: complete selected Noise, checked sodium and fixture archives compiled; no board link or runtime measurements"
     }
   },
   "proposed_envelopes_per_target_bytes": [

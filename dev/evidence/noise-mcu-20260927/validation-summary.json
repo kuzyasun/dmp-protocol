@@ -1,0 +1,15 @@
+{
+  "idf_head": "7101770dc6db2667b3c477cc31365dd1acd6db4e",
+  "idf_version": "v6.0.2",
+  "source_scope": "SDK source revision and generated config recorded; no hardware run",
+  "optin_negative": "Expected configure rejection passed without DMP_MCU_TEST_ONLY",
+  "collectors": "Both target collectors returned exit 0; archive and ESP ELF symbol gates passed",
+  "compiled_selected_units": {
+    "cortex_m4": 74,
+    "esp32s3": 75
+  },
+  "no_compiler_warning_observed": true,
+  "cortex_compiler": "GNU Tools for STM32 GCC 13.3.1; ARMv7E-M Thumb EABI soft float",
+  "esp_compiler": "Xtensa ESP32-S3 GCC 15.2.0 esp-15.2.0_20251204",
+  "parent_index_observation": "Initially clean; 12 task-owned entries observed staged before explicit final staging. Preserved; no unrelated staged entry; no unchanged-parent-index assertion."
+}

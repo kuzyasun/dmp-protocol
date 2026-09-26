@@ -1,0 +1,54 @@
+{
+  "reviewer": "/root/mcu_final_review",
+  "model": "gpt-6-astra",
+  "effort": "max",
+  "scope": "Read-only sources/build graph/retained static evidence; no reviewer builds or tests",
+  "acceptance": "MCU-01 scoped PASS; full P01 remains running",
+  "open_actionable_findings": 0,
+  "code_snapshot_entries_verified": 9,
+  "evidence_snapshot_entries_verified": 68,
+  "artifact_inventory_entries_verified": 18,
+  "backend_files_verified": {
+    "sodium_port": 47,
+    "libsodium": 670
+  },
+  "archive_members_per_target": {
+    "noise": 38,
+    "sodium": 31,
+    "fixture": 5
+  },
+  "coordinator_checks": {
+    "cortex_m4": "Complete selected provider/backend/fixture archives compiled with ARMv7E-M Thumb soft-float GCC13.3.1",
+    "esp32s3": "ESP-IDF v6.0.2 GCC15.2.0 provider test and SDK baseline linked; identical sdkconfig",
+    "symbol_gates": "Both archive gates and final ELF gate passed; no wrapped or actual legacy RNG definitions survive ELF GC",
+    "optin_negative": "Expected rejection without DMP_MCU_TEST_ONLY=ON",
+    "compiler_warnings": "None observed in recorded MCU logs; inherited SDK/backend policies preserved"
+  },
+  "esp_linked_observations": {
+    "noise_backend_flash_code_and_data": 38856,
+    "noise_backend_static_diram": 143,
+    "fixture_static_diram": 9272,
+    "whole_image_delta": 72176,
+    "scope": "Per-archive static map contributions; image delta includes fixtures and SDK; neither is full per-endpoint RAM budget"
+  },
+  "fork_commit_unchanged": "c40f2dca78eee064e521233a5d884853d471028a",
+  "index_note": "Baseline was clean; 12 task-owned paths were observed staged before final explicit staging; preserved without reset. No unrelated entries. No unchanged-parent-index claim.",
+  "post_review_changes": [
+    "Acceptance metadata only; no compiled source or contract changes",
+    "Local parent commit authorized; no fork source change or push"
+  ],
+  "remaining_gates": [
+    "MCU execution and entropy/readiness quality",
+    "Runtime stack high-water, timing and physical measurements",
+    "Cortex board/linker map selection and final board link",
+    "Multiple-live-owner quota/concurrency sensitivity and full P01"
+  ],
+  "recommended_next": "Per-endpoint quota/ownership sensitivity for multiple live handshake/traffic contexts; serialized crypto scheduling",
+  "post_review_sha256": {
+    "README.md": "26ffc889b9beeb1c7b395a6c3936d956874ae184842779914924a92dc33d660a",
+    "dev/DMP_Work_Packages.md": "668e742ce81db3fba654fe87f771b00406e254512354ddbbf83a6028f180344b",
+    "dev/DMP_Conformance_Matrix.md": "02e3d2874b911df69d4fa793eee02883dade0205f2f20d85388d6218c514f5ba",
+    "dev/DMP_Execution_Log.md": "9804eaa38dca1a461558a1f97277e20dc24673c2a29a611a61f47a3e32e006f0",
+    "dev/evidence/noise-mcu-20260927/README.md": "17b7d1cc14c14cd8e26c3041ec7f1696e71d9db2995d38716912ef25aa84ff26"
+  }
+}

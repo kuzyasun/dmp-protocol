@@ -1,4 +1,4 @@
-# Future isolated provider project: no physical board or firmware deployment.
+# Isolated provider experiment: no physical board or firmware deployment.
 CONFIG_SPIRAM=n
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y

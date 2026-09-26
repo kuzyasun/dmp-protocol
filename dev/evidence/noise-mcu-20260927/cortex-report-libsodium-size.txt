@@ -1,0 +1,668 @@
+aead_chacha20poly1305.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                    size   addr
+.text                                                         0      0
+.data                                                         0      0
+.bss                                                          0      0
+.text.store64_le                                             30      0
+.text.crypto_aead_chacha20poly1305_encrypt_detached         194      0
+.text.crypto_aead_chacha20poly1305_encrypt                   94      0
+.text.crypto_aead_chacha20poly1305_ietf_encrypt_detached    228      0
+.text.crypto_aead_chacha20poly1305_ietf_encrypt              94      0
+.text.crypto_aead_chacha20poly1305_decrypt_detached         222      0
+.text.crypto_aead_chacha20poly1305_decrypt                   90      0
+.text.crypto_aead_chacha20poly1305_ietf_decrypt_detached    260      0
+.text.crypto_aead_chacha20poly1305_ietf_decrypt              90      0
+.text.crypto_aead_chacha20poly1305_ietf_keybytes              4      0
+.text.crypto_aead_chacha20poly1305_ietf_npubbytes             4      0
+.text.crypto_aead_chacha20poly1305_ietf_nsecbytes             4      0
+.text.crypto_aead_chacha20poly1305_ietf_abytes                4      0
+.text.crypto_aead_chacha20poly1305_ietf_messagebytes_max      6      0
+.text.crypto_aead_chacha20poly1305_ietf_keygen                6      0
+.text.crypto_aead_chacha20poly1305_keybytes                   4      0
+.text.crypto_aead_chacha20poly1305_npubbytes                  4      0
+.text.crypto_aead_chacha20poly1305_nsecbytes                  4      0
+.text.crypto_aead_chacha20poly1305_abytes                     4      0
+.text.crypto_aead_chacha20poly1305_messagebytes_max           6      0
+.text.crypto_aead_chacha20poly1305_keygen                     4      0
+.rodata._pad0                                                16      0
+.comment                                                     68      0
+.ARM.attributes                                              46      0
+Total                                                      1486
+
+
+ed25519_ref10.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                    size   addr
+.text                                         0      0
+.data                                         0      0
+.bss                                          0      0
+.text.fe25519_neg                            74      0
+.text.fe25519_cmov                          178      0
+.text.load_3                                 20      0
+.text.load_4                                  6      0
+.text.fe25519_reduce                        184      0
+.text.slide_vartime                         160      0
+.text.equal                                  24      0
+.text.ge25519_cmov_cached                    56      0
+.text.fe25519_1                              16      0
+.text.fe25519_0                               8      0
+.text.ge25519_p3_0                           36      0
+.text.fe25519_copy                            6      0
+.text.ge25519_cmov8_cached                  284      0
+.text.fe25519_mul32.constprop.0             372      0
+.text.sodium_esphome_fe25519_add             98      0
+.text.sodium_esphome_fe25519_sub             98      0
+.text.sodium_esphome_fe25519_mul           1376      0
+.text.ge25519_madd                          140      0
+.text.sodium_esphome_fe25519_sq             920      0
+.text.fe25519_pow22523                      306      0
+.text.fe25519_sq2                           278      0
+.text.ge25519_p2_dbl                        112      0
+.text.ge25519_p3_dbl                         46      0
+.text.fe25519_sqmul                          38      0
+.text.fe25519_frombytes                     496      0
+.text.fe25519_tobytes                       192      0
+.text.fe25519_iszero                         26      0
+.text.fe25519_isnegative                     26      0
+.text.fe25519_abs                            46      0
+.text.ristretto255_sqrt_ratio_m1            216      0
+.text.ristretto255_elligator                336      0
+.text.fe25519_invert                        304      0
+.text.ge25519_add                           152      0
+.text.ge25519_frombytes                     248      0
+.text.ge25519_frombytes_negate_vartime      256      0
+.text.ge25519_p1p1_to_p2                     50      0
+.text.ge25519_p1p1_to_p3                     66      0
+.text.ge25519_p3_to_cached                   64      0
+.text.ge25519_sub                           152      0
+.text.ge25519_tobytes                        64      0
+.text.ge25519_elligator2                    504      0
+.text.ge25519_p3_tobytes                      4      0
+.text.ge25519_double_scalarmult_vartime     584      0
+.text.ge25519_scalarmult                    488      0
+.text.ge25519_scalarmult_base               456      0
+.text.ge25519_is_on_curve                   112      0
+.text.ge25519_is_on_main_subgroup           368      0
+.text.ge25519_is_canonical                   48      0
+.text.ge25519_has_small_order               136      0
+.text.sc25519_mul                          8284      0
+.text.sc25519_sqmul                          40      0
+.text.sc25519_muladd                       8344      0
+.text.sc25519_invert                        404      0
+.text.sc25519_reduce                       4728      0
+.text.sc25519_is_canonical                   52      0
+.text.ge25519_from_uniform                   44      0
+.text.ge25519_from_hash                     164      0
+.text.ristretto255_frombytes                312      0
+.text.ristretto255_p3_tobytes               340      0
+.text.ristretto255_from_hash                 82      0
+.rodata.L.0                                  32      0
+.rodata.blacklist.1                         224      0
+.rodata.aslide.2                            253      0
+.rodata.base_packed.3                     12288      0
+.rodata.Bi.4                                960      0
+.bss.optblocker_u8                            1      0
+.rodata.sqdmone                              40      0
+.rodata.onemsqd                              40      0
+.rodata.invsqrtamd                           40      0
+.rodata.sqrtadm1                             40      0
+.rodata.curve25519_A                         40      0
+.rodata.sqrtm1                               40      0
+.rodata.d2                                   40      0
+.rodata.d                                    40      0
+.comment                                     68      0
+.ARM.attributes                              46      0
+Total                                     47216
+
+
+core_salsa_ref.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                   size   addr
+.text                                        0      0
+.data                                        0      0
+.bss                                         0      0
+.text.load32_le                              4      0
+.text.store32_le                            16      0
+.text.crypto_core_salsa                    792      0
+.text.crypto_core_salsa20                   16      0
+.text.crypto_core_salsa20_outputbytes        4      0
+.text.crypto_core_salsa20_inputbytes         4      0
+.text.crypto_core_salsa20_keybytes           4      0
+.text.crypto_core_salsa20_constbytes         4      0
+.text.crypto_core_salsa2012                 16      0
+.text.crypto_core_salsa2012_outputbytes      4      0
+.text.crypto_core_salsa2012_inputbytes       4      0
+.text.crypto_core_salsa2012_keybytes         4      0
+.text.crypto_core_salsa2012_constbytes       4      0
+.text.crypto_core_salsa208                  16      0
+.text.crypto_core_salsa208_outputbytes       4      0
+.text.crypto_core_salsa208_inputbytes        4      0
+.text.crypto_core_salsa208_keybytes          4      0
+.text.crypto_core_salsa208_constbytes        4      0
+.comment                                    68      0
+.ARM.attributes                             46      0
+Total                                     1022
+
+
+crypto_hash.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                size   addr
+.text                                     0      0
+.data                                     0      0
+.bss                                      0      0
+.text.crypto_hash_bytes                   4      0
+.text.crypto_hash                         4      0
+.rodata.crypto_hash_primitive.str1.1      7      0
+.text.crypto_hash_primitive               8      0
+.comment                                 68      0
+.ARM.attributes                          46      0
+Total                                   137
+
+
+hash_sha256_cp.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                           size   addr
+.text                                0      0
+.data                                0      0
+.bss                                 0      0
+.text.SHA256_Transform             492      0
+.text.crypto_hash_sha256_init       28      0
+.text.crypto_hash_sha256_update    218      0
+.text.crypto_hash_sha256_final     190      0
+.text.crypto_hash_sha256            44      0
+.rodata.sha256_initial_state        32      0
+.rodata.Krnd                       256      0
+.comment                            68      0
+.ARM.attributes                     46      0
+Total                             1374
+
+
+hash_sha256.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                               size   addr
+.text                                    0      0
+.data                                    0      0
+.bss                                     0      0
+.text.crypto_hash_sha256_bytes           4      0
+.text.crypto_hash_sha256_statebytes      4      0
+.comment                                68      0
+.ARM.attributes                         46      0
+Total                                  122
+
+
+crypto_onetimeauth.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                       size   addr
+.text                                            0      0
+.data                                            0      0
+.bss                                             0      0
+.text.crypto_onetimeauth_statebytes              6      0
+.text.crypto_onetimeauth_bytes                   4      0
+.text.crypto_onetimeauth_keybytes                4      0
+.text.crypto_onetimeauth                         4      0
+.text.crypto_onetimeauth_verify                  4      0
+.text.crypto_onetimeauth_init                    4      0
+.text.crypto_onetimeauth_update                  4      0
+.text.crypto_onetimeauth_final                   4      0
+.rodata.crypto_onetimeauth_primitive.str1.1      9      0
+.text.crypto_onetimeauth_primitive               8      0
+.text.crypto_onetimeauth_keygen                  6      0
+.comment                                        68      0
+.ARM.attributes                                 46      0
+Total                                          171
+
+
+poly1305_donna.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                  size   addr
+.text                                                       0      0
+.data                                                       0      0
+.bss                                                        0      0
+.text.load32_le                                             4      0
+.text.poly1305_init                                       240      0
+.text.poly1305_blocks                                     552      0
+.text.crypto_onetimeauth_poly1305_donna_init               10      0
+.text.poly1305_update                                     184      0
+.text.crypto_onetimeauth_poly1305_donna_update             10      0
+.text.poly1305_finish                                     386      0
+.text.crypto_onetimeauth_poly1305_donna_final              10      0
+.text.crypto_onetimeauth_poly1305_donna                    58      0
+.text.crypto_onetimeauth_poly1305_donna_verify             28      0
+.text.crypto_onetimeauth_poly1305_aead_mac                250      0
+.data.crypto_onetimeauth_poly1305_donna_implementation     20      0
+.comment                                                   68      0
+.ARM.attributes                                            46      0
+Total                                                    1866
+
+
+onetimeauth_poly1305.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                       size   addr
+.text                                                            0      0
+.data                                                            0      0
+.bss                                                             0      0
+.text.crypto_onetimeauth_poly1305                               20      0
+.text.crypto_onetimeauth_poly1305_verify                        20      0
+.text.crypto_onetimeauth_poly1305_init                          12      0
+.text.crypto_onetimeauth_poly1305_update                        20      0
+.text.crypto_onetimeauth_poly1305_final                         12      0
+.text.crypto_onetimeauth_poly1305_bytes                          4      0
+.text.crypto_onetimeauth_poly1305_keybytes                       4      0
+.text.crypto_onetimeauth_poly1305_statebytes                     6      0
+.text.crypto_onetimeauth_poly1305_keygen                         6      0
+.text._crypto_onetimeauth_poly1305_pick_best_implementation     20      0
+.data.implementation                                             4      0
+.comment                                                        68      0
+.ARM.attributes                                                 46      0
+Total                                                          242
+
+
+crypto_scalarmult.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                      size   addr
+.text                                           0      0
+.data                                           0      0
+.bss                                            0      0
+.rodata.crypto_scalarmult_primitive.str1.1     11      0
+.text.crypto_scalarmult_primitive               8      0
+.text.crypto_scalarmult_base                    4      0
+.text.crypto_scalarmult                         4      0
+.text.crypto_scalarmult_bytes                   4      0
+.text.crypto_scalarmult_scalarbytes             4      0
+.comment                                       68      0
+.ARM.attributes                                46      0
+Total                                         149
+
+
+x25519_ref10.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                   size   addr
+.text                                                        0      0
+.data                                                        0      0
+.bss                                                         0      0
+.text.fe25519_cswap                                        352      0
+.text.crypto_scalarmult_curve25519_ref10_base              104      0
+.text.crypto_scalarmult_curve25519_ref10.part.0            752      0
+.text.crypto_scalarmult_curve25519_ref10                   160      0
+.rodata.blacklist.0                                        224      0
+.data.crypto_scalarmult_curve25519_ref10_implementation      8      0
+.comment                                                    68      0
+.ARM.attributes                                             46      0
+Total                                                     1714
+
+
+scalarmult_curve25519.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                        size   addr
+.text                                                             0      0
+.data                                                             0      0
+.bss                                                              0      0
+.text.crypto_scalarmult_curve25519                               64      0
+.text.crypto_scalarmult_curve25519_base                          12      0
+.text.crypto_scalarmult_curve25519_bytes                          4      0
+.text.crypto_scalarmult_curve25519_scalarbytes                    4      0
+.text._crypto_scalarmult_curve25519_pick_best_implementation     20      0
+.data.implementation                                              4      0
+.comment                                                         68      0
+.ARM.attributes                                                  46      0
+Total                                                           222
+
+
+chacha20_ref.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                size   addr
+.text                                                     0      0
+.data                                                     0      0
+.bss                                                      0      0
+.text.load32_le                                           4      0
+.text.store32_le                                         16      0
+.text.chacha_keysetup                                   120      0
+.text.chacha20_encrypt_bytes.part.0                    1356      0
+.text.chacha20_encrypt_bytes                             26      0
+.text.stream_ietf_ext_ref_xor_ic                        106      0
+.text.stream_ref_xor_ic                                 114      0
+.text.stream_ref                                         84      0
+.text.stream_ietf_ext_ref                                92      0
+.text.crypto_stream_chacha20_ietf_session_init           20      0
+.text.crypto_stream_chacha20_ietf_session_block0_xor     86      0
+.text.crypto_stream_chacha20_ietf_session_xor            26      0
+.data.crypto_stream_chacha20_ref_implementation          16      0
+.comment                                                 68      0
+.ARM.attributes                                          46      0
+Total                                                  2180
+
+
+stream_chacha20.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                  size   addr
+.text                                                       0      0
+.data                                                       0      0
+.bss                                                        0      0
+.text.crypto_stream_chacha20_keybytes                       4      0
+.text.crypto_stream_chacha20_noncebytes                     4      0
+.text.crypto_stream_chacha20_messagebytes_max               6      0
+.text.crypto_stream_chacha20_ietf_keybytes                  4      0
+.text.crypto_stream_chacha20_ietf_noncebytes                4      0
+.text.crypto_stream_chacha20_ietf_messagebytes_max          6      0
+.text.crypto_stream_chacha20                               32      0
+.text.crypto_stream_chacha20_xor_ic                        48      0
+.text.crypto_stream_chacha20_xor                           44      0
+.text.crypto_stream_chacha20_ietf_ext                      32      0
+.text.crypto_stream_chacha20_ietf_ext_xor_ic               40      0
+.text.crypto_stream_chacha20_ietf                          24      0
+.text.crypto_stream_chacha20_ietf_xor_ic                   66      0
+.text.crypto_stream_chacha20_ietf_xor                      40      0
+.text.crypto_stream_chacha20_keygen                         6      0
+.text.crypto_stream_chacha20_ietf_keygen                    4      0
+.text._crypto_stream_chacha20_pick_best_implementation     20      0
+.data.implementation                                        4      0
+.comment                                                   68      0
+.ARM.attributes                                            46      0
+Total                                                     502
+
+
+crypto_stream.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                  size   addr
+.text                                       0      0
+.data                                       0      0
+.bss                                        0      0
+.text.crypto_stream_keybytes                4      0
+.text.crypto_stream_noncebytes              4      0
+.text.crypto_stream_messagebytes_max        6      0
+.rodata.crypto_stream_primitive.str1.1      9      0
+.text.crypto_stream_primitive               8      0
+.text.crypto_stream                         4      0
+.text.crypto_stream_xor                     4      0
+.text.crypto_stream_keygen                  6      0
+.comment                                   68      0
+.ARM.attributes                            46      0
+Total                                     159
+
+
+salsa20_ref.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                          size   addr
+.text                                               0      0
+.data                                               0      0
+.bss                                                0      0
+.text.stream_ref_xor_ic                           296      0
+.text.stream_ref                                  222      0
+.data.crypto_stream_salsa20_ref_implementation      8      0
+.comment                                           68      0
+.ARM.attributes                                    46      0
+Total                                             640
+
+
+stream_salsa20.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                 size   addr
+.text                                                      0      0
+.data                                                      0      0
+.bss                                                       0      0
+.text.crypto_stream_salsa20_keybytes                       4      0
+.text.crypto_stream_salsa20_noncebytes                     4      0
+.text.crypto_stream_salsa20_messagebytes_max               6      0
+.text.crypto_stream_salsa20                               12      0
+.text.crypto_stream_salsa20_xor_ic                        20      0
+.text.crypto_stream_salsa20_xor                           36      0
+.text.crypto_stream_salsa20_keygen                         6      0
+.text._crypto_stream_salsa20_pick_best_implementation     20      0
+.data.implementation                                       4      0
+.comment                                                  68      0
+.ARM.attributes                                           46      0
+Total                                                    226
+
+
+salsa20_xmm6-asm.S.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section           size   addr
+.text                0      0
+.data                0      0
+.bss                 0      0
+.ARM.attributes     26      0
+Total               26
+
+
+salsa20_xmm6.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section           size   addr
+.text                0      0
+.data                0      0
+.bss                 0      0
+.comment            68      0
+.ARM.attributes     46      0
+Total              114
+
+
+salsa20_xmm6int-avx2.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section           size   addr
+.text                0      0
+.data                0      0
+.bss                 0      0
+.comment            68      0
+.ARM.attributes     46      0
+Total              114
+
+
+salsa20_xmm6int-sse2.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section           size   addr
+.text                0      0
+.data                0      0
+.bss                 0      0
+.comment            68      0
+.ARM.attributes     46      0
+Total              114
+
+
+verify.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                        size   addr
+.text                             0      0
+.data                             0      0
+.bss                              0      0
+.text.crypto_verify_n            92      0
+.text.crypto_verify_16_bytes      4      0
+.text.crypto_verify_32_bytes      4      0
+.text.crypto_verify_64_bytes      4      0
+.text.crypto_verify_16            6      0
+.text.crypto_verify_32            6      0
+.text.crypto_verify_64            6      0
+.bss.optblocker_u16               2      0
+.comment                         68      0
+.ARM.attributes                  46      0
+Total                           238
+
+
+randombytes_internal_random.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                   size   addr
+.text                                                        0      0
+.data                                                        0      0
+.bss                                                         0      0
+.rodata.randombytes_internal_implementation_name.str1.1      9      0
+.text.randombytes_internal_implementation_name               8      0
+.text.randombytes_internal_random_close                     60      0
+.rodata.randombytes_internal_random_stir.str1.1            195      0
+.text.randombytes_internal_random_stir                     336      0
+.text.randombytes_internal_random_stir_if_needed            28      0
+.rodata.randombytes_internal_random_buf.str1.1               9      0
+.text.randombytes_internal_random_buf                      136      0
+.text.randombytes_internal_random                          172      0
+.rodata.__emutls_t.stream                                  560      0
+.data.__emutls_v.stream                                     16      0
+.rodata.__func__.0                                          28      0
+.rodata.str1.1                                              25      0
+.data.devices.2                                             12      0
+.rodata.__func__.4                                          33      0
+.rodata.__func__.5                                          32      0
+.data.randombytes_internal_implementation                   24      0
+.data.global                                                20      0
+.comment                                                    68      0
+.ARM.attributes                                             46      0
+Total                                                     1817
+
+
+randombytes.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                 size   addr
+.text                                      0      0
+.data                                      0      0
+.bss                                       0      0
+.text.randombytes_set_implementation      12      0
+.text.randombytes_stir                    28      0
+.text.randombytes_init_if_needed          24      0
+.text.randombytes_implementation_name     24      0
+.text.randombytes_random                  24      0
+.text.randombytes_uniform                 64      0
+.text.randombytes_buf                     36      0
+.text.randombytes_buf_deterministic       28      0
+.text.randombytes_seedbytes                4      0
+.text.randombytes_close                   20      0
+.rodata.randombytes.str1.1               160      0
+.text.randombytes                         40      0
+.rodata.__func__.0                        12      0
+.rodata.nonce.1                           12      0
+.bss.implementation                        4      0
+.comment                                  68      0
+.ARM.attributes                           46      0
+Total                                    606
+
+
+randombytes_sysrandom.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                    size   addr
+.text                                                         0      0
+.data                                                         0      0
+.bss                                                          0      0
+.rodata.randombytes_sysrandom_implementation_name.str1.1     10      0
+.text.randombytes_sysrandom_implementation_name               8      0
+.text.randombytes_sysrandom_close                            40      0
+.text.randombytes_sysrandom_stir                            140      0
+.rodata.randombytes_sysrandom_buf.str1.1                    197      0
+.text.randombytes_sysrandom_buf                             144      0
+.text.randombytes_sysrandom                                  20      0
+.rodata.str1.1                                               25      0
+.data.devices.0                                              12      0
+.rodata.__func__.1                                           10      0
+.data.randombytes_sysrandom_implementation                   24      0
+.data.stream                                                 12      0
+.comment                                                     68      0
+.ARM.attributes                                              46      0
+Total                                                       756
+
+
+codecs.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                            size   addr
+.text                                 0      0
+.data                                 0      0
+.bss                                  0      0
+.text.b64_byte_to_char               86      0
+.text.b64_byte_to_urlsafe_char       86      0
+.text.parse_ipv4                    100      0
+.text.ip_write_num                   66      0
+.text.sodium_bin2hex                 94      0
+.text.sodium_hex2bin                236      0
+.text.sodium_base64_encoded_len      58      0
+.rodata.sodium_bin2base64.str1.1    149      0
+.text.sodium_bin2base64             312      0
+.text.sodium_base642bin             486      0
+.text.sodium_ip2bin                 396      0
+.text.sodium_bin2ip                 284      0
+.rodata.__func__.0                   18      0
+.rodata.ipv4_mapped_prefix           12      0
+.comment                             68      0
+.ARM.attributes                      46      0
+Total                              2497
+
+
+runtime.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                  size   addr
+.text                                       0      0
+.data                                       0      0
+.bss                                        0      0
+.text._sodium_runtime_get_cpu_features     20      0
+.text.sodium_runtime_has_neon              12      0
+.text.sodium_runtime_has_armcrypto         12      0
+.text.sodium_runtime_has_sse2              12      0
+.text.sodium_runtime_has_sse3              12      0
+.text.sodium_runtime_has_ssse3             12      0
+.text.sodium_runtime_has_sse41             12      0
+.text.sodium_runtime_has_avx               12      0
+.text.sodium_runtime_has_avx2              12      0
+.text.sodium_runtime_has_avx512f           12      0
+.text.sodium_runtime_has_pclmul            12      0
+.text.sodium_runtime_has_aesni             12      0
+.text.sodium_runtime_has_rdrand            12      0
+.bss._cpu_features                         52      0
+.comment                                   68      0
+.ARM.attributes                            46      0
+Total                                     330
+
+
+version.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                size   addr
+.text                                     0      0
+.data                                     0      0
+.bss                                      0      0
+.rodata.sodium_version_string.str1.1      7      0
+.text.sodium_version_string               8      0
+.text.sodium_library_version_major        4      0
+.text.sodium_library_version_minor        4      0
+.text.sodium_library_minimal              4      0
+.comment                                 68      0
+.ARM.attributes                          46      0
+Total                                   141
+
+
+x25519_m15.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                 size   addr
+.text                                      0      0
+.data                                      0      0
+.bss                                       0      0
+.text.f255_add                            74      0
+.text.f255_sub                            80      0
+.text.cswap                               38      0
+.text.le32_to_le13                        64      0
+.text.le13_to_le8.constprop.0             44      0
+.text.reduce_final_f255.isra.0            80      0
+.text.f255_mulgen                       5504      0
+.text.ge_m15_p1p1_to_p2                   58      0
+.text.ge_m15_p2_dbl                      136      0
+.text.f255_invert                        144      0
+.text.sodium_esphome_x25519_m15          512      0
+.text.sodium_esphome_x25519_m15_base     568      0
+.rodata.base_packed.0                  12288      0
+.comment                                  68      0
+.ARM.attributes                           46      0
+Total                                  19704
+
+
+core.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                                                      size   addr
+.text                                                           0      0
+.data                                                           0      0
+.bss                                                            0      0
+.text._crypto_pwhash_argon2_pick_best_implementation            4      0
+.text._crypto_generichash_blake2b_pick_best_implementation      4      0
+.text._crypto_aead_aegis128l_pick_best_implementation           4      0
+.text._crypto_aead_aegis256_pick_best_implementation            4      0
+.text.sodium_init                                              68      0
+.text.sodium_crit_enter                                         4      0
+.text.sodium_crit_leave                                         4      0
+.text.sodium_misuse                                            20      0
+.text.sodium_set_misuse_handler                                12      0
+.bss._misuse_handler                                            4      0
+.bss.locked                                                     4      0
+.bss.initialized                                                4      0
+.comment                                                       68      0
+.ARM.attributes                                                46      0
+Total                                                         250
+
+
+utils.c.obj   (ex C:\projects\gemslibe\dmp-protocol\build\noise-mcu-cortex-m4\sodium\libsodium.a):
+section                           size   addr
+.text                                0      0
+.data                                0      0
+.bss                                 0      0
+.text.sodium_memzero                24      0
+.text.sodium_stackzero               2      0
+.text.sodium_memcmp                 54      0
+.text.sodium_compare                88      0
+.text.sodium_is_zero                42      0
+.text.sodium_increment              22      0
+.text.sodium_add                    32      0
+.text.sodium_sub                    34      0
+.text._sodium_alloc_init            32      0
+.text.sodium_mlock                  16      0
+.text.sodium_munlock                20      0
+.text.sodium_malloc                 30      0
+.text.sodium_allocarray             38      0
+.text.sodium_free                    4      0
+.text.sodium_mprotect_noaccess      16      0
+.text.sodium_mprotect_readonly      16      0
+.text.sodium_mprotect_readwrite     16      0
+.text.sodium_pad                   112      0
+.text.sodium_unpad                 104      0
+.bss.canary                         16      0
+.comment                            68      0
+.ARM.attributes                     46      0
+Total                              832
