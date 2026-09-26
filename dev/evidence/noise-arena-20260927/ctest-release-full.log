@@ -1,0 +1,48 @@
+Start testing: Sep 27 01:50 FLE Daylight Time
+----------------------------------------------------------
+31/34 Testing: dmp_noise_arena_unit
+31/34 Test: dmp_noise_arena_unit
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-memory-release/tests/provider/dmp_noise_arena_unit.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-memory-release/tests/provider
+"dmp_noise_arena_unit" start time: Sep 27 01:50 FLE Daylight Time
+Output:
+----------------------------------------------------------
+noise test arena probe passed
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_arena_unit" end time: Sep 27 01:50 FLE Daylight Time
+"dmp_noise_arena_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+32/34 Testing: dmp_noise_allocator_probe
+32/34 Test: dmp_noise_allocator_probe
+Command: "C:/projects/gemslibe/dmp-protocol/build/noise-memory-release/tests/provider/dmp_noise_allocator_probe.exe"
+Directory: C:/projects/gemslibe/dmp-protocol/build/noise-memory-release/tests/provider
+"dmp_noise_allocator_probe" start time: Sep 27 01:50 FLE Daylight Time
+Output:
+----------------------------------------------------------
+Noise_NNpsk0_25519_ChaChaPoly_SHA256 role=20993: constructor blocks=6 charged=1136; block sweep, byte boundary and prologue refusal passed
+Noise_NNpsk0_25519_ChaChaPoly_SHA256 role=20994: constructor blocks=6 charged=1136; block sweep, byte boundary and prologue refusal passed
+Noise_XX_25519_ChaChaPoly_SHA256 role=20993: constructor blocks=8 charged=1488; block sweep, byte boundary and prologue refusal passed
+Noise_XX_25519_ChaChaPoly_SHA256 role=20994: constructor blocks=8 charged=1488; block sweep, byte boundary and prologue refusal passed
+Existing traffic context preserved across quota refusal and rejected live reset
+nnpsk0: exact Noise flights/hash/Split packets and abort-first read behavior passed
+xx: exact Noise flights/hash/Split packets and abort-first read behavior passed
+Public deterministic fixtures characterize fixed-key provider behavior; RNG fault handling, provider adoption, and P01 acceptance remain untested.
+Both fixtures/abort-first checks via arena: allocations=76 peak_charged=3424 storage=8192 metadata=2112 alignment=16
+Test-only serialized fixed storage; excludes stack, backend globals, DMP buffers and MCU runtime acceptance
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_allocator_probe" end time: Sep 27 01:50 FLE Daylight Time
+"dmp_noise_allocator_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 27 01:50 FLE Daylight Time
+
+allocator-unit =   0.02 sec*proc
+
+provider-allocator-experiment =   0.02 sec*proc

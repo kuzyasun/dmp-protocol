@@ -14,7 +14,7 @@ function(dmp_require_revision directory expected)
     endif()
 endfunction()
 dmp_require_revision("${PROJECT_SOURCE_DIR}/third_party/noise-c"
-    0a7eddb6c5d2c84e7f78d5b9831a42e103852520)
+    c40f2dca78eee064e521233a5d884853d471028a)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}"
     40c22448d6e8f42be56c45f739b52a5c8d21c8ca)
 dmp_require_revision("${DMP_SODIUM_SOURCE_DIR}/libsodium"

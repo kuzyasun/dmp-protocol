@@ -1,0 +1,12 @@
+{
+  "sodium_port": {
+    "head": "40c22448d6e8f42be56c45f739b52a5c8d21c8ca",
+    "files": 47,
+    "tree_sha256": "4da3210c5eecdfd9480fc6ae6a938724527aec7cb15cd3a21d8c078061408e4a"
+  },
+  "libsodium": {
+    "head": "d24faf56214469b354b01c8ba36257e04737101e",
+    "files": 670,
+    "tree_sha256": "5e9ca1fb8f4736f1547df7cd27c295a86be096c06a6d10c547613a8bc4bfc9d4"
+  }
+}

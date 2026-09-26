@@ -1,0 +1,16 @@
+{
+  "third_party/noise-c/include/noise/defines.h": "3b59a7ed652503fa82bea56e69f816853b5f4b6575b049423c75cf8e68ff20ca",
+  "third_party/noise-c/include/noise/protocol/util.h": "81ac105078537789b34aee9941b414476879a3fbd5cf907d5ac4ef4d8113f6b4",
+  "third_party/noise-c/src/protocol/util.c": "f54a869ba02f46d8a27c024d83ec0ead4c3fc7a606d7aebce2dd6e161bf0f49b",
+  "third_party/noise-c/src/protocol/handshakestate.c": "ac48839915a8c34cdfc75b82609827bdb2efb1d5dee220b64721c085cea7bbf7",
+  "third_party/noise-c/DMP_PATCHES.md": "a6e7241c6919ba6f3f300ba84db37c22b8ffde27528cf5ed0f730f77b4c91060",
+  "tests/provider/allocator_experiment.cmake": "d1096c74058b3bf9bd57ab78fd0069a580021bc26085edc9110b10c3bf2b9a49",
+  "tests/provider/checked_backend.cmake": "8c688d96fb1ca8e4f5bde15fe8fd8487f1cd6fb23bf32d86e19bfabf487955c2",
+  "tests/provider/noise_fixture_probe.c": "f2790e02b37621f3a2748134733179af3621bc70047a2dd86572f4309470f8c9",
+  "tests/provider/noise_allocator_probe.c": "1c968e47fe5ef09d19ac90177e438d9cbeddf59e097fa34a639bcef76cf36274",
+  "tests/provider/noise_test_arena.h": "d2a0cd66390463fa404e31883ec302ed62429edffe2ccf68b6ec143190127c5a",
+  "tests/provider/noise_test_arena.c": "0e4348fd39c3fcf85449c30a821bc1948d14cb084d999ce15c891d54655e005f",
+  "tests/provider/noise_test_arena_probe.c": "1ce25ea7519f55da874d900f35777de9fe26dcf91fe80b243b68645112597a2c",
+  "tests/provider/measure_noise_layout.py": "55ed79786b2472c87591ce0eddf025425293154d09f8c80b4ad48d5e55870ccb",
+  "tests/provider/noise_experiment.cmake": "ecb79f1061a51ac109b54cca2a5513ff94ffcc3586274bc79374593c9fc1edd7"
+}

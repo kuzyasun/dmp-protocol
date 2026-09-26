@@ -437,6 +437,18 @@ static int run_split_packet_checks(const noise_fixture_probe_fixture_t *fixture,
     }
 
     /* These packet checks exercise Noise Split and AEAD only, not SEC-1 activation state. */
+#ifdef DMP_NOISE_FIXTURE_EMBEDDED_RUNNER
+    /* The custom-storage experiment keeps transferred traffic owners alive
+       while releasing both obsolete handshakes back to the same arena. */
+    if (!expect_noise(fixture->name, "destroy split initiator handshake",
+                      noise_handshakestate_free(pair->initiator), NOISE_ERROR_NONE))
+        goto cleanup;
+    pair->initiator = NULL;
+    if (!expect_noise(fixture->name, "destroy split responder handshake",
+                      noise_handshakestate_free(pair->responder), NOISE_ERROR_NONE))
+        goto cleanup;
+    pair->responder = NULL;
+#endif
     if (!encrypt_packet(fixture, &fixture->finish, fixture->i_to_r_key, init_send) ||
         !decrypt_packet(fixture, &fixture->finish, fixture->i_to_r_key, resp_receive) ||
         !encrypt_packet(fixture, &fixture->ready, fixture->r_to_i_key, resp_send) ||
@@ -576,7 +588,11 @@ cleanup:
     return success;
 }
 
+#ifdef DMP_NOISE_FIXTURE_EMBEDDED_RUNNER
+int dmp_noise_fixture_run(void)
+#else
 int main(void)
+#endif
 {
     size_t index;
     int failed = 0;

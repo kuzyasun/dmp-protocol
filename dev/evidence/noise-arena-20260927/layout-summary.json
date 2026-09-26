@@ -1,0 +1,155 @@
+{
+  "host": {
+    "layouts": {
+      "NoiseHandshakeState": {
+        "size_bytes": 240,
+        "alignment_bytes": 8
+      },
+      "NoiseSymmetricState": {
+        "size_bytes": 256,
+        "alignment_bytes": 8
+      },
+      "NoiseCurve25519State": {
+        "size_bytes": 168,
+        "alignment_bytes": 8
+      },
+      "NoiseSHA256State": {
+        "size_bytes": 152,
+        "alignment_bytes": 8
+      },
+      "NoiseChaChaPolyState": {
+        "size_bytes": 128,
+        "alignment_bytes": 8
+      },
+      "max_align_t": {
+        "size_bytes": 32,
+        "alignment_bytes": 16
+      },
+      "void_pointer": {
+        "size_bytes": 8,
+        "alignment_bytes": 8
+      },
+      "dmp_noise_test_arena": {
+        "size_bytes": 2112,
+        "alignment_bytes": 8
+      }
+    },
+    "compiler": "gcc.exe (GCC) 15.2.0",
+    "legacy_allocator_calls": {},
+    "warning_lines_by_object": {
+      "layout-x25519": [
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:40:47: warning: unused parameter 'other' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:78:30: warning: unused parameter 'state' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:78:52: warning: unused parameter 'public_key' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:85:73: warning: unused parameter 'other' [-Wunused-parameter]"
+      ],
+      "noise-handshakestate": [
+        "C:\\projects\\gemslibe\\dmp-protocol\\third_party\\noise-c\\src\\protocol\\handshakestate.c:67:37: warning: unused parameter 'prefix_id' [-Wunused-parameter]",
+        "C:\\projects\\gemslibe\\dmp-protocol\\third_party\\noise-c\\src\\protocol\\handshakestate.c:67:52: warning: unused parameter 'role' [-Wunused-parameter]"
+      ]
+    },
+    "object_count": 7
+  },
+  "cortex-m4": {
+    "layouts": {
+      "NoiseHandshakeState": {
+        "size_bytes": 176,
+        "alignment_bytes": 4
+      },
+      "NoiseSymmetricState": {
+        "size_bytes": 244,
+        "alignment_bytes": 4
+      },
+      "NoiseCurve25519State": {
+        "size_bytes": 120,
+        "alignment_bytes": 4
+      },
+      "NoiseSHA256State": {
+        "size_bytes": 136,
+        "alignment_bytes": 8
+      },
+      "NoiseChaChaPolyState": {
+        "size_bytes": 112,
+        "alignment_bytes": 8
+      },
+      "max_align_t": {
+        "size_bytes": 16,
+        "alignment_bytes": 8
+      },
+      "void_pointer": {
+        "size_bytes": 4,
+        "alignment_bytes": 4
+      },
+      "dmp_noise_test_arena": {
+        "size_bytes": 1056,
+        "alignment_bytes": 4
+      }
+    },
+    "compiler": "arm-none-eabi-gcc.exe (GNU Tools for STM32 13.3.rel1.20250523-0900) 13.3.1 20240614",
+    "legacy_allocator_calls": {},
+    "warning_lines_by_object": {
+      "layout-x25519": [
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:40:47: warning: unused parameter 'other' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:78:30: warning: unused parameter 'state' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:78:52: warning: unused parameter 'public_key' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:85:73: warning: unused parameter 'other' [-Wunused-parameter]"
+      ],
+      "noise-handshakestate": [
+        "C:\\projects\\gemslibe\\dmp-protocol\\third_party\\noise-c\\src\\protocol\\handshakestate.c:67:37: warning: unused parameter 'prefix_id' [-Wunused-parameter]",
+        "C:\\projects\\gemslibe\\dmp-protocol\\third_party\\noise-c\\src\\protocol\\handshakestate.c:67:52: warning: unused parameter 'role' [-Wunused-parameter]"
+      ]
+    },
+    "object_count": 7
+  },
+  "esp32s3": {
+    "layouts": {
+      "NoiseHandshakeState": {
+        "size_bytes": 176,
+        "alignment_bytes": 4
+      },
+      "NoiseSymmetricState": {
+        "size_bytes": 244,
+        "alignment_bytes": 4
+      },
+      "NoiseCurve25519State": {
+        "size_bytes": 120,
+        "alignment_bytes": 4
+      },
+      "NoiseSHA256State": {
+        "size_bytes": 136,
+        "alignment_bytes": 8
+      },
+      "NoiseChaChaPolyState": {
+        "size_bytes": 112,
+        "alignment_bytes": 8
+      },
+      "max_align_t": {
+        "size_bytes": 16,
+        "alignment_bytes": 8
+      },
+      "void_pointer": {
+        "size_bytes": 4,
+        "alignment_bytes": 4
+      },
+      "dmp_noise_test_arena": {
+        "size_bytes": 1056,
+        "alignment_bytes": 4
+      }
+    },
+    "compiler": "xtensa-esp-elf-gcc.exe (crosstool-NG esp-15.2.0_20251204) 15.2.0",
+    "legacy_allocator_calls": {},
+    "warning_lines_by_object": {
+      "layout-x25519": [
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:40:47: warning: unused parameter 'other' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:78:30: warning: unused parameter 'state' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:78:52: warning: unused parameter 'public_key' [-Wunused-parameter]",
+        "C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:85:73: warning: unused parameter 'other' [-Wunused-parameter]"
+      ],
+      "noise-handshakestate": [
+        "C:\\projects\\gemslibe\\dmp-protocol\\third_party\\noise-c\\src\\protocol\\handshakestate.c:67:37: warning: unused parameter 'prefix_id' [-Wunused-parameter]",
+        "C:\\projects\\gemslibe\\dmp-protocol\\third_party\\noise-c\\src\\protocol\\handshakestate.c:67:52: warning: unused parameter 'role' [-Wunused-parameter]"
+      ]
+    },
+    "object_count": 7
+  }
+}

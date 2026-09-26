@@ -1,0 +1,72 @@
+layout-chachapoly.su
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/cipher-chachapoly.c:288:19:noise_chachapoly_new	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/cipher-chachapoly.c:84:12:noise_chachapoly_encrypt	112	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/cipher-chachapoly.c:101:12:noise_chachapoly_decrypt	128	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/cipher-chachapoly.c:77:13:noise_chachapoly_init_key	32	static
+
+layout-core.su
+
+layout-sha256.su
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/hash-sha256.c:49:13:noise_sha256_finalize	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/hash-sha256.c:43:13:noise_sha256_update	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/hash-sha256.c:37:13:noise_sha256_reset	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/hash-sha256.c:55:17:noise_sha256_new	32	static
+
+layout-x25519.su
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:77:12:noise_curve25519_validate_public_key	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:94:12:noise_curve25519_calculate	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:84:12:noise_curve25519_copy	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:68:12:noise_curve25519_set_keypair_private	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:53:12:noise_curve25519_set_keypair	64	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:39:12:noise_curve25519_generate_keypair	32	static
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/backend/sodium/dh-curve25519.c:111:15:noise_curve25519_new	32	static
+
+noise-handshakestate.su
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:1254:12:noise_handshake_mix_dh	32	dynamic
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:877:13:noise_handshakestate_mix_public_key	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:367:5:noise_handshakestate_free	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:105:12:noise_handshakestate_new	112	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:287:5:noise_handshakestate_new_by_id	48	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:333:5:noise_handshakestate_new_by_name	48	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:407:5:noise_handshakestate_get_role	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:423:5:noise_handshakestate_get_protocol_id	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:448:15:noise_handshakestate_get_local_keypair_dh	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:469:15:noise_handshakestate_get_remote_public_key_dh	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:489:15:noise_handshakestate_get_fixed_ephemeral_dh	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:547:5:noise_handshakestate_set_local_ephemeral	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:588:15:noise_handshakestate_get_fixed_hybrid_dh	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:625:5:noise_handshakestate_needs_pre_shared_key	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:644:5:noise_handshakestate_has_pre_shared_key	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:674:5:noise_handshakestate_set_pre_shared_key	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:714:5:noise_handshakestate_set_pre_shared_key_hook	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:747:5:noise_handshakestate_set_prologue	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:792:5:noise_handshakestate_needs_local_keypair	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:814:5:noise_handshakestate_has_local_keypair	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:840:5:noise_handshakestate_needs_remote_public_key	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:864:5:noise_handshakestate_has_remote_public_key	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:914:5:noise_handshakestate_start	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:1068:5:noise_handshakestate_fallback_to	528	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:1015:5:noise_handshakestate_fallback	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:1238:5:noise_handshakestate_get_action	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:1529:5:noise_handshakestate_write_message	48	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:1808:5:noise_handshakestate_read_message	64	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:1870:5:noise_handshakestate_split	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\handshakestate.c:1928:5:noise_handshakestate_get_handshake_hash	32	static
+
+noise-util.su
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\util.c:105:5:noise_init_framework	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\util.c:167:7:noise_alloc_memory	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\util.c:152:7:noise_new_object	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\util.c:208:6:noise_clean	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\util.c:186:6:noise_free	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\util.c:226:5:noise_is_equal	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\util.c:249:5:noise_is_zero	32	static
+C:\projects\gemslibe\dmp-protocol\third_party\noise-c\src\protocol\util.c:283:5:noise_format_fingerprint	192	static
+
+test-arena.su
+C:\projects\gemslibe\dmp-protocol\tests\provider\noise_test_arena.c:9:12:arena_is_valid	32	static
+C:\projects\gemslibe\dmp-protocol\tests\provider\noise_test_arena.c:17:15:live_block_count	32	static
+C:\projects\gemslibe\dmp-protocol\tests\provider\noise_test_arena.c:121:29:dmp_noise_test_arena_init	48	static
+C:\projects\gemslibe\dmp-protocol\tests\provider\noise_test_arena.c:165:29:dmp_noise_test_arena_clear	32	static
+C:\projects\gemslibe\dmp-protocol\tests\provider\noise_test_arena.c:188:7:dmp_noise_test_arena_allocate	48	static
+C:\projects\gemslibe\dmp-protocol\tests\provider\noise_test_arena.c:222:29:dmp_noise_test_arena_release	32	static

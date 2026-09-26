@@ -133,3 +133,5 @@ if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
 else()
     message(STATUS "MEM-01 allocator wrappers unavailable on this configuration; not counted as passed")
 endif()
+
+include(allocator_experiment.cmake)

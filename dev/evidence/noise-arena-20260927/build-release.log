@@ -1,0 +1,56 @@
+[1/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/openssl/cipher-aesgcm.c.obj
+[2/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/ref/cipher-aesgcm.c.obj
+[3/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/ref/cipher-chachapoly.c.obj
+[4/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/ref/dh-curve25519.c.obj
+[5/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/ref/hash-blake2b.c.obj
+[6/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/ref/hash-blake2s.c.obj
+[7/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/ref/hash-sha256.c.obj
+[8/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/sodium/cipher-aesgcm.c.obj
+[9/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/sodium/hash-blake2b.c.obj
+[10/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/aes/rijndael-alg-fst.c.obj
+[11/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/blake2/blake2b.c.obj
+[12/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/blake2/blake2s.c.obj
+[13/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/chacha/chacha.c.obj
+[14/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/donna/curve25519-donna-c64.c.obj
+[15/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/donna/curve25519-donna.c.obj
+[16/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/sodium/hash-sha256.c.obj
+[17/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/donna/poly1305-donna.c.obj
+[18/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/sodium/cipher-chachapoly.c.obj
+[19/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/sha2/sha512.c.obj
+[20/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/sha2/sha256.c.obj
+[21/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/backend/sodium/dh-curve25519.c.obj
+[22/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/crypto/x25519/x25519.c.obj
+[23/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/signstate.c.obj
+[24/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/patterns-single.c.obj
+[25/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/rand_os.c.obj
+[26/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/internal.c.obj
+[27/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/names-single.c.obj
+[28/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/rand_sodium.c.obj
+[29/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/errors.c.obj
+[30/48] Building C object tests/provider/CMakeFiles/dmp_noise_allocator_probe.dir/noise_checked_fixture_port.c.obj
+[31/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/cipherstate.c.obj
+[32/48] Building C object tests/provider/CMakeFiles/dmp_noise_allocator_probe.dir/noise_checked_no_legacy_rng.c.obj
+[33/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena_unit.dir/noise_test_arena.c.obj
+[34/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/patterns.c.obj
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/protocol/patterns.c: In function 'noise_pattern_expand':
+C:/projects/gemslibe/dmp-protocol/third_party/noise-c/src/protocol/patterns.c:691:36: warning: 'memchr' specified bound 62 exceeds source size 10 [-Wstringop-overread]
+  691 |     pattern_end = (const uint8_t *)memchr
+      |                                    ^~~~~~
+  692 |         (base_pattern + 2, NOISE_TOKEN_END,
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  693 |          NOISE_MAX_TOKENS - NOISE_PATTERN_HEADER_LEN);
+      |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[35/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena_unit.dir/noise_test_arena_probe.c.obj
+[36/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/dhstate.c.obj
+[37/48] Building C object tests/provider/CMakeFiles/dmp_noise_allocator_probe.dir/noise_test_arena.c.obj
+[38/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/symmetricstate.c.obj
+[39/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/randstate.c.obj
+[40/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/util.c.obj
+[41/48] Building C object tests/provider/CMakeFiles/dmp_noise_allocator_probe.dir/noise_allocator_probe.c.obj
+[42/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/hashstate.c.obj
+[43/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/names.c.obj
+[44/48] Linking C executable tests\provider\dmp_noise_arena_unit.exe
+[45/48] Building C object tests/provider/CMakeFiles/dmp_noise_arena.dir/__/__/third_party/noise-c/src/protocol/handshakestate.c.obj
+[46/48] Building C object tests/provider/CMakeFiles/dmp_noise_allocator_probe.dir/noise_fixture_probe.c.obj
+[47/48] Linking C static library tests\provider\libdmp_noise_arena.a
+[48/48] Linking C executable tests\provider\dmp_noise_allocator_probe.exe

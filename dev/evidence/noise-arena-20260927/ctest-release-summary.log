@@ -1,0 +1,14 @@
+Internal ctest changing into directory: C:/projects/gemslibe/dmp-protocol/build/noise-memory-release
+Test project C:/projects/gemslibe/dmp-protocol/build/noise-memory-release
+    Start 31: dmp_noise_arena_unit
+1/2 Test #31: dmp_noise_arena_unit .............   Passed    0.02 sec
+    Start 32: dmp_noise_allocator_probe
+2/2 Test #32: dmp_noise_allocator_probe ........   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Label Time Summary:
+allocator-unit                   =   0.02 sec*proc (1 test)
+provider-allocator-experiment    =   0.02 sec*proc (1 test)
+
+Total Test time (real) =   0.04 sec

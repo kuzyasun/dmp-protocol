@@ -147,3 +147,14 @@ in the Noise fork. [Evidence](../../dev/evidence/noise-memory-20260927/README.md
 separates ordinary and optimized host results, a rejected source-review claim,
 test repairs and measured two-endpoint heap bytes. No production arena, total
 MCU RAM envelope, full secret-copy erasure or endpoint cleanup gate is accepted.
+
+## Bounded allocator experiment
+
+MEM-02 adds an explicit link-time allocator port to the Noise fork and a separate
+custom-storage target. The private arena uses caller storage, aligned byte/block
+quotas and bounded metadata; no heap fallback. Tests cover exhaustion, reuse,
+owner cleanup, preserved existing traffic and transferred Split contexts.
+[Evidence](../../dev/evidence/noise-arena-20260927/README.md) separates host tests
+from actual-type compile-only layout checks on Cortex-M4 and ESP32-S3. The static
+byte arena uses an explicit GNU/Clang -fno-strict-aliasing contract. MCU backend
+linking, runtime, complete memory envelopes and full P01 remain open.

@@ -378,3 +378,40 @@ Reviewed fork source committed locally as 0a7eddb; parent pin updated afterward.
 See [MEM-01 evidence](evidence/noise-memory-20260927/README.md) for source pins,
 failure and success logs, scoped claims and remaining gates. P01 remains running.
 Next recommended: bounded setup storage/quota and both MCU configuration checks.
+
+## 2026-09-27 — MEM-02 custom allocator and target layouts
+
+Resumed clean parent b75f1a9 and Noise fork 0a7eddb. RBO was reachable, but job
+job_01M3FY09EM0CBCKG0H14G1X270 failed in repo_fetch because the fork commit is
+local and not present at origin. Used local fallback without pushing.
+
+The coordinator added a fixed allocator port for object/prologue storage and
+wipe-before-release. Two bounded workers authored a caller-backed test arena
+and actual-type compile-only layout tooling; coordinator owns integration and
+acceptance. The custom target uses explicit -fno-strict-aliasing for its static
+byte-storage policy. Existing system-allocator targets remain separate.
+
+Ordinary suite passed 34/34; Release arena unit/integration passed 2/2. Tests
+cover byte/block quota refusal, fragmentation/reuse, dirty and invalid release,
+preserved traffic after refused allocation/reset, and Split traffic after
+handshake destruction. Reserved host storage is 8192 bytes plus 2112 metadata;
+peak charged live bytes of the pair driver are 3424, not its full physical cost.
+
+All three layout/call-path compilations passed: host, Cortex-M4 and ESP32-S3.
+Their selected objects contain custom hooks without libc allocator references.
+MCU concrete state alignment fits 8 bytes; arena metadata is 1056 bytes. These
+are compile-only ABI measurements, not full backend linking or runtime budgets.
+Initial strict compilation failed on inherited unused parameters; diagnostics
+remain recorded. The tool now retains six inherited warnings per target while
+owned layout/arena units use -Werror. Host extraction uses compiler assembly
+extents because COFF nm omits sizes. Stale .su files are excluded explicitly.
+Release also retains the previously reviewed pattern-bound warning.
+
+Independent read-only final review returned scoped PASS with no actionable
+findings: 14 code hashes, 37 evidence hashes, both initial indexes, seven
+normative files and both backend digests verified. Fork source committed locally
+as c40f2dc; only its parent pin and acceptance metadata changed after review.
+See [MEM-02 evidence](evidence/noise-arena-20260927/README.md) and its review result.
+P01 remains running. Next: complete provider/backend archive compilation for
+Cortex-M4 and an isolated ESP-IDF ESP32-S3 build/link. A Cortex-M4 board/linker
+map is not selected. Runtime, stack high-water and concurrency remain later gates.
