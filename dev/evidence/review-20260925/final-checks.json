@@ -1,0 +1,26 @@
+{
+  "captured_utc": "2026-09-26T09:18:47.833883+00:00",
+  "index_sha256": "aaf2acf1e5a97dfc3b45f7a78f53cd541a3fa0074f852ca268db9bd63aa8a338",
+  "index_matches_resume": true,
+  "implementation_and_fixtures_preserved": true,
+  "work_packages": 30,
+  "dependency_graph_acyclic": true,
+  "all_packages_pending": true,
+  "diff_check_exit": 0,
+  "documentation_review": "no actionable findings; final P02/P17 delta pass",
+  "files_sha256": {
+    "README.md": "9320bd80e9a694999b241d63e2e392964130898545abdb1c7581875b3813f0ea",
+    "dev/DMP_Implementation_Plan.md": "ba25e1887efbe5e8530a5e08df11d31b424d7b2430e0bbd8a13308c5cfae750e",
+    "dev/DMP_Work_Packages.md": "5e86535537f02707d7b4273b9584841b1103a8c7c569e4b947ffa0398cae6141",
+    "dev/DMP_Review_Disposition.md": "7a18d24d2e917aed1834a01b5fd6b33db55606db67aef92a3beda70d55c4491d",
+    "dev/DMP_Execution_Log.md": "c33f8d10a5dd8c59319a7015403c1b821cbc424fb6317f7ae00317ee9a26c730",
+    "dev/DMP_Conformance_Matrix.md": "f383d1265a03fccd6d860aea8a4e328edaffd868e11043bce1596c7c2aa49725",
+    "docs/DMP_v2_Deployment_Profiles.md": "fec0f555eaead7b5e623a3731a058ad347c2328225e2dbce0aa952b80eded4bd",
+    "docs/DMP_v2_Design_Tradeoffs.md": "99bf481af8280403227e38da880216c731753e975cd6eca8e6c099f14fc52005",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "87875fda74bdf4181411cb16e4df5f310acc4e354aac24707785dd91e11acbe9",
+    "docs/DMP_v2_Reference_Application.md": "fdf2409c1e9c487f4c0ca8d88ae2fad5e0b033427777d52145acfef212ca0037",
+    "docs/DMP_v2_Security_Profile.md": "51c3064bb37aad422e56c7ae400558cbc4f55e47110bfa3c3dc239d8504ec2ed",
+    "docs/DMP_v2_Security_Test_Vectors.json": "6dbcd5b81590a0107c83985279e7bd0df5e0217709bf08e8eac15b0d754743e0",
+    "docs/DMP_v2_Selective_Recovery.md": "94b18602368f4b6cc623bb1cbfbeb759eba44966b2935c9874c3c71cccd1e9d7"
+  }
+}

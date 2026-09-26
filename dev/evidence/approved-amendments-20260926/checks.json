@@ -1,0 +1,21 @@
+{
+  "python": "3.12.8",
+  "node": "v24.11.1",
+  "fixture_check": {
+    "runtime": "Node crypto",
+    "fixtures": 4,
+    "packets": 64,
+    "mutations": 44,
+    "wrongKeyRejections": 64,
+    "structuralRejections": 164,
+    "fixturePolicyRejections": 8
+  },
+  "generator_regeneration_identical": true,
+  "relative_links_checked": 79,
+  "pending_packages": 30,
+  "index_unchanged": true,
+  "diff_check_exit": 0,
+  "rbo_discovery": "fetch failed; local fixture-only fallback",
+  "endpoint_conformance": "not run; implementation paused",
+  "target_measurements": "not run; numeric envelope not frozen"
+}

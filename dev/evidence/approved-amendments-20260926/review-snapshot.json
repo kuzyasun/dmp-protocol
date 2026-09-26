@@ -1,0 +1,65 @@
+{
+  "index_sha256": "E4D96AFA5C058AB7DC937EEE0546DC5F61BE8D2399C7A1ACEB880FC7D383ABA0",
+  "changed_files": [
+    {
+      "path": "README.md",
+      "sha256": "C7D4B6EA23CCB907B1F37C38EF9A19F487EA5718287D4DD807480065B1E801CF"
+    },
+    {
+      "path": "docs\\DMP_v2_Selective_Recovery.md",
+      "sha256": "481F033D865F210458B7E64587E23C20A9C5E682000FF9B4A1AD48BB4F99D04E"
+    },
+    {
+      "path": "docs\\DMP_v2_Security_Test_Vectors.json",
+      "sha256": "0D40EF9AD3B3B05F35DD713F992419380C3DE30CA111EAC4581E2F9BA9349ADE"
+    },
+    {
+      "path": "docs\\DMP_v2_Security_Profile.md",
+      "sha256": "0C5956CE0BCE96C32C880553E0A875D3BC8CBBD7053EDD9DDC71E79398BA2A45"
+    },
+    {
+      "path": "docs\\DMP_v2_Reference_Application.md",
+      "sha256": "FCE9060A2572F3D293673D6B6BB9708F839957586396B3F729D87662D3AB69B3"
+    },
+    {
+      "path": "docs\\DMP_v2_Device_Messaging_Protocol_Specification.md",
+      "sha256": "440842E1E268323E2B32B17952878D705B6D873E1BBC4D5496616888466BEF1F"
+    },
+    {
+      "path": "docs\\DMP_v2_Design_Tradeoffs.md",
+      "sha256": "786571FC1FCAD78E797DB113C6DB6D5447297F6AD0DFCB81D66529C702544180"
+    },
+    {
+      "path": "docs\\DMP_v2_Deployment_Profiles.md",
+      "sha256": "06A64DF5C3CB7EEF7EF78B87CC631430D85B1BB32A8D0F78924E2D41CFD04EAE"
+    },
+    {
+      "path": "dev\\DMP_Work_Packages.md",
+      "sha256": "EF3D4357371ED26D8A89564E9FCB6A96FA8E3C135E8E158194FE5CE74513EB87"
+    },
+    {
+      "path": "dev\\dmp_verify_security_vectors.cjs",
+      "sha256": "FC6CE04566C9510655987865516D2DEA14F5BBF76BD1F7E73BFDA2615C26633B"
+    },
+    {
+      "path": "dev\\DMP_Review_Disposition.md",
+      "sha256": "B9C08FAD2E6FB8EB8099CE08C446F9A498AF395E2DB6150DEB274F786AD8D6A0"
+    },
+    {
+      "path": "dev\\DMP_Implementation_Plan.md",
+      "sha256": "E2C62D1511AA45814382CD1B1CB7B318A566A6C111E21972710659FE851199C0"
+    },
+    {
+      "path": "dev\\dmp_generate_security_vectors.py",
+      "sha256": "C5180048A7E6AC95CB554EA298A90C15C251EC4FEB7324EC66DCB3F885CE0E19"
+    },
+    {
+      "path": "dev\\DMP_Execution_Log.md",
+      "sha256": "EECBC4EB2B7411AC56B9CF25CE444FF6D9A29917BAC5F3DF628A74D1008CC6F2"
+    },
+    {
+      "path": "dev\\DMP_Conformance_Matrix.md",
+      "sha256": "7D313944E083D5437F4DF6E31624124BA056E20C347DE48F010920182D178DC1"
+    }
+  ]
+}

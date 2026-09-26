@@ -1,0 +1,137 @@
+{
+  "head": "afd460c24919b58296883c3b60b497149ad4366c",
+  "branch": "feat/initial-version",
+  "index_sha256": "E4D96AFA5C058AB7DC937EEE0546DC5F61BE8D2399C7A1ACEB880FC7D383ABA0",
+  "status": [
+    "A  AGENTS.md",
+    "M  README.md",
+    "A  dev/DMP_Conformance_Matrix.md",
+    "A  dev/DMP_Execution_Log.md",
+    "A  dev/DMP_Implementation_Plan.md",
+    "A  dev/DMP_Work_Packages.md",
+    "A  dev/dmp-comparative-critique.md",
+    "A  dev/dmp-extraction-plan.md",
+    "A  dev/dmp-revision-7-review.md",
+    "A  dev/dmp-revision-8-review.md",
+    "A  dev/dmp_generate_security_vectors.py",
+    "A  dev/dmp_verify_security_vectors.cjs",
+    "A  docs/DMP_v2_Deployment_Profiles.md",
+    "A  docs/DMP_v2_Design_Tradeoffs.md",
+    "A  docs/DMP_v2_Device_Messaging_Protocol_Specification.md",
+    "A  docs/DMP_v2_Reference_Application.md",
+    "A  docs/DMP_v2_Security_Profile.md",
+    "A  docs/DMP_v2_Security_Test_Vectors.json",
+    "A  docs/DMP_v2_Selective_Recovery.md",
+    "?? .gitignore",
+    "?? CMakeLists.txt",
+    "?? dev/DMP_Review_Disposition.md",
+    "?? dev/evidence/",
+    "?? tests/"
+  ],
+  "files": [
+    {
+      "path": "tests\\provider\\README.md",
+      "sha256": "4D13433A6F7141250A74FA56172552B699840F997F3E4AD1BC351C8F077EEEF9"
+    },
+    {
+      "path": "tests\\provider\\host_environment.c",
+      "sha256": "E8BDF2EF75DB2DA3EF43BB074424458171B80B2B1566201FFDF1440404F66DCA"
+    },
+    {
+      "path": "tests\\provider\\CMakeLists.txt",
+      "sha256": "33FE5E7A77B2D28D613F87ED92E6EAB1BE8F4DDBEA9370830D06705EB489B59E"
+    },
+    {
+      "path": "README.md",
+      "sha256": "9320BD80E9A694999B241D63E2E392964130898545ABDB1C7581875B3813F0EA"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "50D659715762E6C591E5709F7312ED9D2483C94AEC7E00E9E575A997B9DAAD2E"
+    },
+    {
+      "path": "docs\\DMP_v2_Selective_Recovery.md",
+      "sha256": "94B18602368F4B6CC623BB1CBFBEB759EBA44966B2935C9874C3C71CCCD1E9D7"
+    },
+    {
+      "path": "docs\\DMP_v2_Security_Test_Vectors.json",
+      "sha256": "6DBCD5B81590A0107C83985279E7BD0DF5E0217709BF08E8EAC15B0D754743E0"
+    },
+    {
+      "path": "docs\\DMP_v2_Security_Profile.md",
+      "sha256": "51C3064BB37AAD422E56C7AE400558CBC4F55E47110BFA3C3DC239D8504EC2ED"
+    },
+    {
+      "path": "docs\\DMP_v2_Reference_Application.md",
+      "sha256": "FDF2409C1E9C487F4C0CA8D88AE2FAD5E0B033427777D52145ACFEF212CA0037"
+    },
+    {
+      "path": "docs\\DMP_v2_Device_Messaging_Protocol_Specification.md",
+      "sha256": "87875FDA74BDF4181411CB16E4DF5F310ACC4E354AAC24707785DD91E11ACBE9"
+    },
+    {
+      "path": "docs\\DMP_v2_Design_Tradeoffs.md",
+      "sha256": "99BF481AF8280403227E38DA880216C731753E975CD6ECA8E6C099F14FC52005"
+    },
+    {
+      "path": "docs\\DMP_v2_Deployment_Profiles.md",
+      "sha256": "FEC0F555EAEAD7B5E623A3731A058AD347C2328225E2DBCE0AA952B80EDED4BD"
+    },
+    {
+      "path": "dev\\DMP_Work_Packages.md",
+      "sha256": "5E86535537F02707D7B4273B9584841B1103A8C7C569E4B947FFA0398CAE6141"
+    },
+    {
+      "path": "dev\\dmp_verify_security_vectors.cjs",
+      "sha256": "ED7D3DD8B80892B1DE9567DAD0D6BEBDDAB649B661D33C530B63463CEAA5742B"
+    },
+    {
+      "path": "dev\\DMP_Review_Disposition.md",
+      "sha256": "7A18D24D2E917AED1834A01B5FD6B33DB55606DB67AEF92A3BEDA70D55C4491D"
+    },
+    {
+      "path": "dev\\DMP_Implementation_Plan.md",
+      "sha256": "BA25E1887EFBE5E8530A5E08DF11D31B424D7B2430E0BBD8A13308C5CFAE750E"
+    },
+    {
+      "path": "dev\\dmp_generate_security_vectors.py",
+      "sha256": "6BB326B635C004E4A79B01076B7B30C8CFC6A7D659EA8234604B0476C3CE6D79"
+    },
+    {
+      "path": "dev\\DMP_Execution_Log.md",
+      "sha256": "C33F8D10A5DD8C59319A7015403C1B821CBC424FB6317F7AE00317EE9A26C730"
+    },
+    {
+      "path": "dev\\DMP_Conformance_Matrix.md",
+      "sha256": "F383D1265A03FCCD6D860AEA8A4E328EDAFFD868E11043BCE1596C7C2AA49725"
+    },
+    {
+      "path": "dev\\dmp-revision-8-review.md",
+      "sha256": "777E21D14874D832C68EF205B9CFE7F92C737244215463F26556C97D87D13636"
+    },
+    {
+      "path": "dev\\dmp-revision-7-review.md",
+      "sha256": "33CF86330C8EAE93E0B898DAC5ADADE0554AB1CD843ABF650EC8F683EA529DB0"
+    },
+    {
+      "path": "dev\\dmp-extraction-plan.md",
+      "sha256": "6689BFD579813E94120FB0EA8F791DE6F6D9ADCD7399E9578C04F182DD539C4B"
+    },
+    {
+      "path": "dev\\dmp-comparative-critique.md",
+      "sha256": "2C5803C5E8119E176E29D205B0E71D7A1393CDCC757BE824F9BB5F1507805CE9"
+    },
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "806F76E127879FBBE18C81BA2C46E899D21F59558C3ED9F4542C8C72CC106199"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "8404F653247FCA84C92343DAE15B0691B9AA9DC6D14D7B858A60B9E2D7939EF3"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "4E0A7113DF7799E83FC1D68526275C83FDF6CDB8E3CF5FF9E3C4D464F160C8F7"
+    }
+  ]
+}

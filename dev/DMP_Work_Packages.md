@@ -1,0 +1,164 @@
+# DMP implementation work packages
+
+**Status:** implementation paused by the owner for documentation review. P00 has partial, unaccepted scaffold/evidence files; all packages remain pending and no package has passed acceptance.\
+**Authority:** [implementation plan](DMP_Implementation_Plan.md) and its normative references. This file adds scheduling and ownership, not protocol behavior.\
+**Baseline:** main document revision 9, SEC-1 revision 4 / BOOT_VERSION 2, SELECTIVE-32 revision 1. The first package records exact document hashes and verifies these revisions.
+
+## Operating model
+
+One coordinator accepts work; up to two workers implement disjoint packages; a reviewer checks a fixed snapshot independently. Start with one worker when dependencies do not permit useful parallelism. Security/provider decisions and acceptance stay with the coordinator. A capable specialist may implement a bounded security task, but must not also supply its independent review.
+
+Use [AGENTS.md](../AGENTS.md) for delegation, authorization and model selection. `Light` below means a bounded lightweight assignment; `Mid` means interacting local behavior, suitable for a mid-tier worker if below the coordinator; `Lead` means coordinator responsibility or a capable specialist with coordinator acceptance. These are defaults, not promises that a weaker model can safely handle every case.
+
+Package prefixes below are **proposed write areas**, not existing source files. Before dispatch, the coordinator gives an exact non-overlapping write set and registers build/test changes itself. Public headers, shared build files, dependency pins, manifests, normative documents and this board remain coordinator-owned unless ownership is explicitly transferred. A worker cannot silently extend its edit scope.
+
+## Board and dependencies
+
+`pending` = not dispatched; `ready` = dependencies accepted and scope authorized; `running` = one owner assigned; `review` = implementation handed back with evidence; `done` = coordinator accepted; `blocked` = a named missing input prevents progress. An unsupported optional feature is recorded explicitly; it is not a passed test. Do not mark a gate done with missing required evidence. Split a package further only when its scope cannot be reviewed and verified as one assignment.
+
+The table is the single status board. The coordinator fills Owner/Evidence with the current agent and a link to evidence. Milestone gates are ordinary packages with acceptance responsibility; workers finishing does not automatically complete their gate.
+
+| ID | Phase / work | Depends on | Default | Proposed write area | Status | Owner / Evidence |
+|---|---|---|---|---|---|---|
+| P00 | 0: scope, baseline and minimal scaffold | — | Lead | root build/config, `dev/`, `tests/provider/` runner | pending | Coordinator; [partial work, paused](DMP_Execution_Log.md) |
+| P01 | 0: provider feasibility experiment and gate | P00 | Lead | `tests/provider/`, provider adapter experiment, `dev/` evidence | pending | — |
+| P02 | 1: manifest representation and offline validator | P01 | Mid | `tools/validate_profile.py`, `tests/profiles/`; shared schema by explicit assignment | pending | — |
+| P03 | 1: direct/simulated-radio manifests and gate | P02 | Lead | `profiles/`, digest fixtures, traceability matrix | pending | — |
+| P04 | 2: public core/transport seams for this wave | P03 | Lead | `include/dmp/`, build registration, interface evidence | pending | — |
+| P05 | 2: structural codec and role validation | P04 | Mid | `src/core/`, `tests/core/` | pending | — |
+| P06 | 2: CRC32C and Stream L/R framing | P04 | Light | `src/integrity/`, `src/stream/`, dedicated framing tests | pending | — |
+| P07 | 2: deterministic event/transport harness | P04 | Mid | `tests/harness/`, harness self-tests | pending | — |
+| P08 | 2: core integration, CI/sanitizer/fuzz gate | P05, P06, P07 | Lead | CI/build config, `tests/fuzz/`, matrix/evidence | pending | — |
+| P09 | 3: identity, startup validation and state contracts | P08 | Lead | `src/identity/`, initialization, shared headers, profile parity tests | pending | — |
+| P10 | 3: direct reliability and result retention | P09 | Mid | `src/reliability/`, dedicated delivery tests | pending | — |
+| P11 | 3: bounded fixed-stride reassembly | P09 | Mid | `src/reassembly/`, dedicated assembly tests | pending | — |
+| P12 | 3: direct endpoint and SAMPLE-1 gate | P10, P11 | Lead | endpoint integration, `examples/`, direct scenarios, matrix | pending | — |
+| P13 | 4: bootstrap, enrollment and candidate keys | P12, P01 | Lead | `src/security/` handshake portion, dedicated security tests | pending | — |
+| P14 | 4: protected transport, activation and lifecycle | P13 | Lead | remaining `src/security/`, security scenarios | pending | — |
+| P15 | 4: authenticated integration and resource gate | P14 | Lead | integration tests, profiles/budgets, matrix/evidence | pending | — |
+| P16 | 5: SELECTIVE-32 state machine | P15 | Lead | recovery parts of `src/reliability/` and `src/reassembly/`, recovery tests | pending | — |
+| P17 | 5: relay and scheduled radio harness extension | P15 | Mid | `src/mesh/`, dedicated relay tests and harness extension | pending | — |
+| P18 | 5: independent protected feedback vectors | P15 | Mid | dedicated recovery fixture generator/verifier and vectors | pending | — |
+| P19 | 5: fragmented workloads and full recovery gate | P16, P17, P18 | Lead | `tests/scenarios/`, `tests/workloads/`, matrix/evidence | pending | — |
+| P20 | 6: independent peer contract and test interface | P19 | Lead | normative-input brief, independent peer build/interface registration | pending | — |
+| P21A | 6: independent peer codec and byte fixtures | P20 | Mid | `tests/peer/` codec and codec tests | pending | — |
+| P21B | 6: independent direct delivery/reassembly | P21A | Mid | `tests/peer/` delivery/assembly and local tests | pending | — |
+| P21C | 6: independent SEC-1 lifecycle | P21B | Lead | `tests/peer/` security and lifecycle tests | pending | — |
+| P21D | 6: independent recovery/routing integration | P21C | Mid | `tests/peer/` recovery and local scenarios | pending | — |
+| P21 | 6: independent peer acceptance gate | P21D | Lead | peer integration tests and evidence | pending | — |
+| P22 | 6: named bindings and operator tools | P20 | Mid | explicitly selected `bindings/`, mixed-path integration tests, decoder and simulator CLI, tools tests | pending | — |
+| P23 | 6: bidirectional independent interoperability gate | P21, P22 | Lead | interoperability scenarios, matrix/evidence | pending | — |
+| P24 | 7: equivalent-workload benchmark tooling | P23 | Mid | `tools/bench.py`, benchmark tests and workloads | pending | — |
+| P25 | 7: measured readiness and release assessment | P24 | Lead | reports, scope matrix, README evidence links | pending | — |
+
+Dependencies express acceptance, not merely file availability. Provider/version changes reopen P01 and affected downstream gates. A changed public contract or normative baseline pauses affected workers; update their briefs and rerun affected evidence before claiming their old results remain valid.
+
+## Package acceptance
+
+The following requirements supplement, never replace, the full milestone gates in the implementation plan. A coordinator may split an oversized package into child assignments with disjoint files while retaining the same package acceptance and dependencies. Update this board before dispatching such children; no recursive delegation by workers.
+
+Revision 9 adds mandatory acceptance rows in the [matrix](DMP_Conformance_Matrix.md): P02/P03 freeze resource envelopes and common default-service rules; P05/P10 cover canonical replies and best-effort rejection; P12/P15 cover SAMPLE-1 A2 synchronization; P14/P15 enforce cumulative failed-AEAD bounds. P21 and P23 independently verify the same behaviors. Existing package status remains pending; fixture regeneration is not implementation acceptance.
+
+### Phase 0: feasibility before commitments
+
+- **P00:** inspect actual checkout and tool availability; record source and normative hashes, authorized scope, initial host/compiler and intended embedded targets. Resolve missing material target requirements before freezing target-dependent choices. The confirmed embedded target is ESP32-S3 / ESP-IDF 6.x with a portable C core. Screen maintained provider candidates and their target/license/API constraints before dependency selection; this read-only survey does not satisfy P01. Create only the minimal portable build/test scaffold and runner for P01. Record commands that actually work. Establish an evidence/matrix file and the small interface needed by the experiment; do not freeze production handshake memory yet.
+- **P01:** record candidate provider revision/configuration/license and demonstrate all milestone-0 capabilities for selected NNpsk0/XX suites. Test invalid-then-valid expected flight with preserved state/deadline, bounded tentative state, explicit nonce, cached-flight retransmit without repeat encryption, erasure and pre-auth work bounds. Record retained and scratch resources for declared targets; host numbers cannot stand in for MCU budgets. Independent read-only review must examine provider evidence. Incompatibility blocks implementation on that provider; choose another maintained provider rather than weaken the contract. Record and resolve dependency/licensing constraints before adoption.
+
+### Phase 1: complete profile constraints offline
+
+- **P02:** define versioned representation and exact digest bytes; implement offline structural and cross-field validation, including the full selected recovery timing/retention constraints. Positive and missing/contradictory-field corpus must cover plan requirements. Publish the implementation-independent manifest contract and schema described in the plan, including exact bytes, duplicate/unknown fields, units and independently interpreted valid/invalid corpus. Check the corrected R3 response-time bound and per-relay schedule/duplicate assumptions; assess fresh-completion claims up to final new-command admission rather than impose send_horizon <= lease. Require explicit per-pair pending/active/draining limits and peer-restart admission policy under S3/S8/S9; do not silently select automatic eviction. Declare any optional relay public-descriptor filtering, including PN>=2^24, separately from mandatory endpoint rejection; matching profiles must agree on that policy. Specify how runtime validation will enforce the same rules; no running endpoint dependency here.
+- **P03:** accept complete direct Stream R and named simulated-radio packet manifests with finite budgets grounded in P01, identity/ACL/freshness and modeled MTU/return schedules. Also define the test-only `DMP-test/TEST-RADIO-RETRY-ALL/1` family and complete manifest for the benchmark baseline. It uses the same simulated packet binding, routed path, SEC-1 policy, workload ceilings, MTU, schedules and common resource/deadline limits as the RADIO-1 test instance, but fixes retry-all for the compared service. It is not a RADIO-1 instance or runtime fallback. Validate both radio manifests, record their distinct exact bytes/digests, and test rejection of retry-all under the RADIO-1 identity. Record digest fixtures and all required normative-case rows in the traceability matrix, with responsible package and expected outcome; results start as not run. Preserve SAMPLE-1. Mark simulated values as test parameters. Arrange an early independent read-only contract/vector review before P04; record findings without claiming peer implementation or security conformance. No physical binding claim.
+
+### Phase 2: independent building blocks
+
+- **P04:** freeze the minimum parse/encode/framing/event interfaces and public types needed by P05–P07, including structured outcomes, structural-only views, copy/borrow, asynchronous completion/cancel, bounds and time injection. Freeze the C harness executable and bounded subprocess control/trace contract for the later Python CLI, as described in the plan. Provide build/test seams and disjoint write sets. Shared interface changes return to the coordinator.
+- **P05:** canonical ULEB/header/extensions, role rules, lengths and bounded encoder/parser pass applicable main §22.8 positives/negatives, including malformed/truncated/overflow inputs. Parsing has no endpoint side effects; expected bytes come from the wire contract, not only encoder/decoder round trips.
+- **P06:** CRC32C and both stream formats pass independent vectors, bounds, chunking and resynchronization checks through the agreed interface. Framing events do not imply message acceptance. Escalate unexpected state complexity from Light to Mid or coordinator.
+- **P07:** virtual monotonic time, seeded loss/reorder/duplicate, bounded queues, forward/return slots and delayed completion/cancel reproduce identical event ordering and traces. Harness self-checks prove injector behavior without implementing DMP state machines.
+- **P08:** integrate P05–P07, run relevant matrix and delayed-buffer checks; enable bounded fuzz and supported sanitizer checks plus host CI for at least two OS/toolchain combinations. Add the ESP32-S3/IDF 6.x compile-only CI, map/size evidence and allocator checks defined in the plan; repeat applicable checks at P12/P15/P19/P25. Record actual results separately from configured/unrun CI jobs. Phase-2 evidence must be available before phase 3; unresolved required checks keep the gate open.
+
+### Phase 3: direct endpoint
+
+- **P09:** implement full identity/generation-safe context handling and profile startup rejection before traffic, using P02's shared valid/invalid corpus. Freeze delivery/reassembly interaction, state ownership, quotas, deadline and callback contracts for P10/P11. Exercise the secured compact-reference representation with explicit test-only authenticated contexts as well as full unprotected identities; do not validate only a plaintext design and defer the security representation to P15. Explicitly isolate any provisional authenticated-context test fixtures from production.
+- **P10:** stop-and-wait, receipt versus result, retention/correlation, duplicate handling, retry/expiry and send-buffer release satisfy main §22.8 cases using P07. No duplicate dispatch or silent renewal/eviction. P11 is not required for local unfragmented tests.
+- **P11:** fixed-stride assembly, conflict checks, admission/quotas, expiry and full-message delivery pass dedicated tests through P09's interface. No partial dispatch; test exact-stride and short tails. P10 is not required for local assembly tests.
+- **P12:** integrate real direct delivery/reassembly and SAMPLE-1 telemetry/read/status, preserving its encoding/idempotency/order rules. Run relevant main §22.8 and A1–A4 cases, startup parity and async ownership checks. Label secure-context cases provisional with required P15 reruns. Independently review interacting delivery/assembly lifetimes before acceptance.
+
+### Phase 4: security owned and reviewed explicitly
+
+- **P13:** integrate the P01 provider through production ports; implement bootstrap, peer verification, candidate traffic-key derivation and enrollment persistence/commit under exact SEC-1 rules. Accept this package using handshake, trust-transaction and pending-state tests; derived keys and committed enrollment do not activate an association. Protected FINISH/READY, confirmation-loss cases and all activation assertions belong to P14 after AEAD/AAD/PN are available. No application traffic may leave the candidate state. No test-key fallback, implicit trust or custom crypto.
+- **P14:** implement AEAD/AAD, PN allocation and replay first, then protected FINISH/READY, activation, authenticated application acceptance, ACL/freshness, rotation and state loss with injected time/entropy/persistence/policy. Verify confirmation loss/reorder/retry and enrollment-versus-activation behavior with actual protected frames before accepting this package. Test peer restart with full per-pair association capacity and the explicitly selected admission/drain policy: a new attempt alone must not evict live state, and candidate/enrollment completion is not activation. Record synchronization and buffer contracts. Applicable published byte fixtures and S10 lifecycle cases must use actual endpoint code; optional unsupported suites reject explicitly.
+- **P15:** rerun P12 protected delivery/context-isolation cases through real SEC-1, including altered replies and result/receipt loss. Complete the endpoint-local S10 coverage assigned below; leave the explicitly deferred relay/binding subcases pending with their later owners. Reconcile integrated retained/scratch memory against manifests and rerun validation. An independent reviewer examines the actual diff, threat cases and resource evidence. Address confirmed findings before proceeding. Fixture verification alone cannot close this gate.
+
+### Phase 5: recovery and routed simulation
+
+- **P16:** implement exact TYPE 8 mask/reference/order behavior, bounded repairs/probes, terminal tombstones and reliable-result interactions. Coordinator freezes feedback/scheduler interfaces before dispatch; use harness-only seams until P17 integration, without a production bypass.
+- **P17:** static route/transparent relay behavior, immutable authenticated fields, cooldown and forward/return scheduling work against the existing harness. Keep edits disjoint from P16. Relay tests prove forwarding constraints without access to endpoint plaintext/keys. Test the P02-selected public-descriptor filter policy, including PN>=2^24. Such unauthenticated filtering must not mutate protected bytes, install trusted replay/acceptance state or trigger endpoint teardown/credential judgment. P23 compares relay rejection/forwarding only as fixed by the selected common manifest.
+- **P18:** generate and independently check complete protected FRAG_STATUS header/AAD/ciphertext, golden and negative cases. Expected bytes derive from normative rules and maintained crypto, not P16's encoder. Separate generation and verification logic and record provenance; coordinator alone updates canonical fixtures if needed. Include supported-suite scope, invalid masks/references and altered authenticated fields.
+- **P19:** integrate P16–P18 with actual endpoints. Add the plan's test-only service 2 opaque reliable DATA workload, RADIO-1 N=2/intermediate/32 and >32 refusal, direct-profile limits, exact/short tails, and separate exact large REQ/result fixtures. Use actual S7 policy/grants when required. Run **every applicable R6/R7 case**, main §22.8 interactions, protected feedback checks and SAMPLE-1 regressions. Complete the primary relay-state portion of S10 case 6; keep multi-binding case 11 pending for P23. Exercise fragmented retry-all with the separately identified P03 radio baseline manifest, including loss and expiry, before using it in the benchmark. Record trace, bytes/counters, retained-memory peaks and terminal outcomes. Independently review feedback storms, result/status races, return slots, deadlines and tombstone pressure. No lifetime extension, expired-state reopening or partial dispatch.
+
+### Phase 6: independent peer and usable interfaces
+
+- **P20:** publish a narrow peer assignment with normative documents/vectors and transport interface, selected modules/manifests, exact test-service contracts and required matrix. The peer implementer must not inspect/copy primary codec/state-machine source or use libdmp. Freeze only the shared transport test interface; if test manifests must be supplied, provide their contract values as inputs rather than sharing primary runtime validation/codec code. Choose the peer host language/toolchain and freeze a complete contract for at least one specifically named executable binding in P22 (a host binding may qualify). Record its framing, MTU, completion/ownership and test setup; a simulated schedule alone is not a binding implementation. P22 cannot become ready with that choice unresolved. P21A–P21D are mandatory separate, sequential assignments, preserving independent implementation ownership.
+- **P21A:** implement the independent structural codec/framing and profile input handling from P20. Pass independent byte, malformed-input and bounds tests; no primary codec or validation code is shared.
+- **P21B:** implement independent identity, direct receipt/result, reassembly and SAMPLE-1 handling. Pass local duplicate/loss/deadline/ownership tests. Any provisional secure-context tests remain test-only and require P21C reruns.
+- **P21C:** integrate maintained crypto with the independent SEC-1 state machine, enrollment, activation, AEAD/replay, ACL/freshness and lifecycle. Pass the endpoint-local S10 coverage assigned below and rerun P21B over actual protected packets; record relay/binding subcases as pending for P21D/P23. Coordinator and independent reviewer accept the security evidence before P21D starts.
+- **P21D:** implement independent SELECTIVE-32 and the declared endpoint/relay roles; run all applicable R6/R7 local scenarios with fragmented DATA and large request/result fixtures. Complete the peer relay-state portion of S10 case 6 and verify fragmented retry-all under the P03 baseline manifest. Reuse the allowed transport interface, not the primary endpoint state machines. Escalate ambiguous integration to the coordinator.
+- **P21:** accept the second endpoint's own codec and state machines from P21A–P21D and the P20 brief. Shared maintained crypto, normative vectors and test-transport interface are allowed; shared protocol implementation is not. Run peer-local golden/hostile vectors and full enabled peer-local behavior; acceptance here does not close the P23 binding/interoperability subcases. A wrapper or scripted canned-response peer fails acceptance. Use a fresh context for the independent implementer; record inputs and the separation actually maintained, without claiming formal clean-room certification. Record the correlated-interpretation risk from a shared model and the shared-filesystem access boundary. Prefer a different implementation language and an independent reviewer/model where suitable, but neither alone proves independence; a fresh context and the recorded input set remain required.
+- **P22:** implement and test the concrete binding selected in P20, with its complete framing/MTU/ownership/completion contract; expose the existing harness as the proposed simulator CLI and add a redacted decoder. Default output excludes secrets, plaintext payloads and full handshake transcripts; identity display needs an explicit privacy setting. Provide the complete test binding/manifest contract needed by S10 case 11 before P23: a mixed Stream R/packet simulation uses a separately identified mixed-binding profile under deployment-profiles §3, with origin-supplied routed identity and SEC-1 protection. Implement and test that mixed Stream R/packet simulation path by connecting the implemented framing, both binding adapters and transparent relay from earlier packages. Verify preservation of the protected object in both directions, and inject smaller-egress-MTU and missing/wrong-context failures separately in each direction before handing it to P23; a manifest or adapter contract alone does not complete P22. Revalidate its MTU, return opportunities and budgets; do not label that mixed path DIRECT-1. Extend validator interfaces without changing P02 rules silently. Host/simulated adapters can complete this package's declared scope; physical bindings must either have separate measured manifests and authorized hardware evidence or be explicitly deferred and excluded from supported transport claims.
+- **P23:** independent peers exchange SAMPLE-1, fragmented DATA and large request/result fixtures in both directions, over direct and routed simulated paths. Compare bytes, acceptance, terminal outcomes and rejection behavior for the **full enabled-module matrix**, not only golden exchanges. Include both P03 radio recovery manifests. Close S10 case 11 using the P22 multi-binding contract and both independent endpoints, including smaller-egress-MTU and missing/wrong-context failure in each direction, and rerun relay-state case 6. Every applicable S10 subcase must now have passing evidence for the enabled scope; a previously deferred required case cannot remain pending at this gate. Resolve spec ambiguities explicitly and rerun affected tests. Record physical-binding readiness separately; deferred bindings cannot pass their own physical gate or appear as validated support.
+
+### Phase 7: measured, scoped readiness
+
+- **P24:** implement reproducible benchmark runner and basic correctness checks for its accounting. Use the separately identified P03 retry-all and RADIO-1 manifests, revalidated against integrated budgets and exercised in P19/P21D/P23. Start a fresh SEC-1 association for each configured run, binding its exact manifest digest; never toggle recovery within a live association. Retry-all versus SELECTIVE-32 must use equivalent payloads/security/provider/MTU/schedules/common limits/deadlines; record the profile/digest and recovery-specific parameter differences. If no common valid workload/envelope exists, report the comparison unsupported rather than weaken validation. Count cold establishment/re-establishment separately from warm traffic; both directions, framing/feedback/probes/results, losses, receive windows, RAM/CPU/latency/failures. Energy needs instrumentation. Reuse actual endpoints and harness, not an analytical replacement presented as measurement.
+- **P25:** run benchmark and failure corpus, complete the advertised-module/binding matrix, record source/config/provider/toolchain hashes, commands, results and limitations. Review independent interop evidence and close required findings. State host, simulation and physical readiness separately. If no named executable binding has been implemented and tested, the overall plan goal remains incomplete: report core/simulation progress only and keep P22/P23/P25 open. This package yields a scoped release assessment; publishing, version tags and product adoption remain separately authorized actions.
+
+## S10 acceptance ownership
+
+Track subcases separately when one S10 numbered case spans multiple modules. At P03 assign every S10 case 1–18 to concrete tests and the gates below. Pending later-stage coverage is not an unsupported feature or a security pass.
+
+| Gate | Required S10 evidence |
+|---|---|
+| P13 | Handshake/verification, candidate-key and enrollment-transaction portions only; protected confirmation and activation assertions remain pending for P14/P15. |
+| P15 / P21C | All applicable endpoint-local byte/lifecycle/attack/resource assertions, including authenticated reassembly in case 6 and local TTL/AAD mutation in case 7. Only the relay-state portion of case 6 and multi-binding forwarding case 11 are deferred. |
+| P19 / P21D | Actual primary/independent relay-state coverage for case 6, respectively, plus authenticated routing/recovery integration. Case 11 stays pending until its P22 binding contract is implemented. |
+| P23 | Multi-binding forwarding case 11, relay-state reruns and complete independent evidence for all applicable S10 cases in the advertised host/simulation scope. Physical-only evidence remains separately scoped and cannot be claimed from simulation. |
+
+## Dispatch waves
+
+After implementation is authorized, start P00, then P01; do not launch all milestones at once. P02–P04 follow their gates. The first useful parallel wave is P05 + P06, then P07 when a slot is free; these three all depend only on P04. P08 joins them. P10 + P11 may run together after P09. Security P13–P15 stays sequential. After P15, run at most two of P16/P17/P18 at once; P19 joins all three. The P21A → P21B → P21C → P21D → P21 sequence can run alongside P22 after P20; P23 joins accepted P21 and P22. Benchmarks follow accepted interoperability.
+
+The coordinator may implement one package locally while a disjoint worker runs, but must not simultaneously edit that worker's files. Reserve independent review capacity at gates instead of keeping every agent busy. A reviewer reads a frozen snapshot; pause writes to reviewed files until findings are collected.
+
+## Assignment template
+
+```text
+Package: <ID and bounded objective>
+Repository: <actual absolute checkout path>
+Baseline: <HEAD plus hashes/diff of relevant dirty files>
+Dependencies: <accepted package IDs and evidence links>
+Read: <specific normative sections, contracts and local files>
+Do not read: <primary implementation paths for independent peer, if applicable>
+Allowed edits: <exclusive exact files or bounded directories>
+Coordinator-owned / excluded: <shared headers/build/manifests/docs and unrelated work>
+Contract: <inputs/outputs, quotas, lifetimes, errors and injected ports>
+Implement: <concrete behaviors; no unrelated refactoring>
+Acceptance: <named requirement cases and exact existing test commands>
+Stop and report: <contract contradiction, incompatible provider, missing material input>
+Return: <diff/files, exact commands/results, matrix rows, limitations/open issues>
+No recursive delegation; no staging/commits/publishing/hardware operations.
+```
+
+If a test command does not exist yet, identify its creation as part of the package and specify the expected cases; do not fabricate a successful invocation. Workers request shared-file changes with a concrete patch proposal. The coordinator integrates and retests them after checking dependencies.
+
+## Evidence and resumption
+
+Keep one concise execution log, proposed at `dev/DMP_Execution_Log.md`, and one traceability matrix, proposed at `dev/DMP_Conformance_Matrix.md`, created by P00/P03. Store larger logs/traces as linked artifacts with hashes, redacting sensitive data. Avoid a separate report for every tiny edit.
+
+For each accepted package record: task owner and model, baseline/source hashes including dirty files, changed files, actual test commands/tool versions, expected and actual results, matrix rows, review findings/disposition, and remaining limitations. The board links to that evidence. The matrix maps each applicable normative case to a test ID, owning package, expected outcome and actual result; provisional cases record the mandatory authenticated rerun. Every enabled-module claim must have evidence.
+
+On interruption record running owners, borrowed/shared file locks, partial changes, last verified snapshot and exact next action. On resume reconcile these against live agents and the current checkout; do not overwrite partially completed work or blindly redispatch a stale running package. An implementation change after review invalidates the affected checks/review, not unrelated accepted work.
+
+Suggested implementation kickoff once authorized:
+
+> Act as coordinator under AGENTS.md. Start P00 in dev/DMP_Work_Packages.md, verify the checkout and normative baseline, and execute accepted dependencies in order with at most two bounded workers. Keep security and integration gates under coordinator review, record evidence, and stop only for material missing decisions or blockers. Do not publish, provision credentials, operate hardware or adopt the library into products.

@@ -1,0 +1,33 @@
+# DMP conformance matrix
+
+This initial P00 ledger separates scaffold/fixture evidence from provider and
+endpoint conformance. P03 expands all normative numbered cases into concrete
+test IDs, expected outcomes and ownership before any enabled-module claim.
+`pending` / `not run` never means passed or unsupported.
+
+| Requirement | Test / evidence | Owner gate | Expected outcome | Actual result |
+|---|---|---|---|---|
+| C11 host toolchain and CTest runner | `dmp_host_environment` | P00 | Compile with strict warnings; run successfully | Not run |
+| Existing public SEC-1 fixture consistency | `fixtures.sec1` / `node dev/dmp_verify_security_vectors.cjs` | P00 baseline only | Current revision fixture verifier succeeds | Passed revision 9 corpus: 4 fixtures / 64 packets / 44 mutations / 164 structural / 8 service negatives; fixture-only, [checks](evidence/approved-amendments-20260926/checks.json) |
+| Maintained provider, exact Noise suites/flights/prologue | P01 experiment (not yet implemented) | P01 | Selected suites match independent vectors | Pending |
+| S3.1 invalid then valid receive / pin verification | P01 experiment (not yet implemented) | P01 | Preserve pre-flight state/deadline, erase rejected tentative state | Pending |
+| S2.2 / S3.2 cache, erasure and finite resource work | P01 experiment (not yet implemented) | P01 | No repeated flight encryption; bounded retained/scratch/work | Pending |
+| S4 / S5 explicit nonce and authenticated header | P01 experiment (not yet implemented) | P01 | Provider permits exact PN/AAD semantics | Pending |
+| Main 22.8 structural/framing cases | Assigned case-by-case at P03 | P05–P08 | Normative positive/negative outcomes | Pending |
+| Main 22.8 delivery/context/ownership cases | Assigned case-by-case at P03 | P09–P12, authenticated rerun P15 | No duplicate dispatch/lifetime renewal or buffer misuse | Pending |
+| S10 endpoint-local assertions | Assigned case-by-case at P03 | P13–P15 / P21C | Real SEC-1 endpoint evidence; activation only after P14 | Pending |
+| S10 case 6 authenticated reassembly | Dedicated endpoint scenario | P15 / P21C | Authenticated admission; no unauthenticated state damage | Pending |
+| S10 case 6 relay-state portion | Dedicated routed scenario | P19 / P21D; rerun P23 | Bounded relay state and correct forwarding | Deferred, not passed |
+| S10 case 7 local TTL/AAD | Dedicated endpoint scenario | P15 / P21C | Only specified mutable fields excluded from AAD | Pending |
+| S10 case 11 mixed binding | Implemented P22 mixed path, independent P23 exchange | P22 prerequisite / P23 acceptance | Both directions, protected-object preservation, MTU/context rejection | Deferred, not passed |
+| Recovery R6 / R7, SAMPLE-1 A1–A4 | Assigned case-by-case at P03 | Plan gates | Exact enabled-module contract | Pending |
+| Retry-all comparison identity | Separate `DMP-test/TEST-RADIO-RETRY-ALL/1` manifest | P03 / P19 / P21D / P23 / P24 | RADIO-1 retry-all rejected; no live association toggle | Pending |
+| Physical binding / MCU memory | Separately authorized target evidence | Target-specific gates | Actual target measurement | Not run; no support claim |
+
+| Revision 9 requirement | Test / evidence | Owner gate | Expected outcome | Actual result |
+|---|---|---|---|---|
+| Best-effort protocol rejection | Loss/retry and invalid ACK_REQ/STATUS cases | P05/P10; P15/P21/P23 | Retained rejection, no execution or reliable rejection exchange; reliable terminal ERR unaffected | Pending endpoint tests |
+| Canonical same-service replies | Default/nondefault/control/HELLO and wrong-service cases | P02/P05/P09/P21/P23 | Omit application default, encode nondefault/control, reject mismatch | Pending endpoint tests |
+| SAMPLE-1 revision 2 initialization | A4 cases, including supersession races and persistence failure | P12; real SEC-1 P15/P21C/P23 | Fresh designated READ selects epoch; bounded state; no rollback | Pending |
+| Aggregate target RAM/flash envelope | Numeric manifest, conservative bounds, map/size and applicable target peaks | P00/P01/P03; P08/P12/P15/P19/P25 | Missing limits/evidence or overruns block affected acceptance | Pending; no numeric target envelope frozen |
+| Hard failed-AEAD ceiling | Boundary, successes interleaved, confirmation/draining, concurrent verification | P02/P14/P15/P21C/P23 | Cumulative actual failures plus reserved slots never exceed configured limit <=65536 | Pending |

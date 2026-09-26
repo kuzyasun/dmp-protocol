@@ -1,0 +1,33 @@
+{
+  "head": "afd460c24919b58296883c3b60b497149ad4366c",
+  "index_sha256": "930f2d356957546608ee5cee7ea4a823072195da32e6d7f0d93e43b0c654b8b7",
+  "files": {
+    ".gitignore": "4e0a7113df7799e83fc1d68526275c83fdf6cdb8e3cf5ff9e3c4d464f160c8f7",
+    "AGENTS.md": "8404f653247fca84c92343dae15b0691b9aa9dc6d14d7b858a60b9e2d7939ef3",
+    "CMakeLists.txt": "806f76e127879fbbe18c81ba2c46e899d21f59558c3ed9f4542c8c72cc106199",
+    "LICENSE": "50d659715762e6c591e5709f7312ed9d2483c94aec7e00e9e575a997b9daad2e",
+    "README.md": "78f1b8e7767dffcac391dcdb85227bc280a18f56020f218327d99dcbfbea90bd",
+    "dev/dmp-comparative-critique.md": "2c5803c5e8119e176e29d205b0e71d7a1393cdcc757be824f9bb5f1507805ce9",
+    "dev/dmp-extraction-plan.md": "6689bfd579813e94120fb0ea8f791de6f6d9adcd7399e9578c04f182dd539c4b",
+    "dev/dmp-revision-7-review.md": "33cf86330c8eae93e0b898dac5adade0554ab1cd843abf650ec8f683ea529db0",
+    "dev/dmp-revision-8-review.md": "777e21d14874d832c68ef205b9cfe7f92c737244215463f26556c97d87d13636",
+    "dev/DMP_Conformance_Matrix.md": "6ee173fdbd952b326231e1403e7214b635cfe116ac14473da1795e69fc306ec9",
+    "dev/DMP_Execution_Log.md": "4365b823a8db647ab49484387c6a1a76466858874c1f8199bef448583250c1c9",
+    "dev/dmp_generate_security_vectors.py": "6bb326b635c004e4a79b01076b7b30c8cfc6a7d659ea8234604b0476c3ce6d79",
+    "dev/DMP_Implementation_Plan.md": "75414cbcf0e595e3ec228fc198c64d53a5227f1c67c6acfde1671fbcd06acffa",
+    "dev/dmp_verify_security_vectors.cjs": "ed7d3dd8b80892b1de9567dad0d6bebddab649b661d33c530b63463ceaa5742b",
+    "dev/DMP_Work_Packages.md": "287e401fca25d0d12caee07f782ff85360302b0b0594f75cd7b6a387c17bf941",
+    "docs/DMP_v2_Deployment_Profiles.md": "fec0f555eaead7b5e623a3731a058ad347c2328225e2dbce0aa952b80eded4bd",
+    "docs/DMP_v2_Design_Tradeoffs.md": "c2c66b5ec4faa8421e4ca913f3f2ce8f542b989a4746e95b298a4fb1f6a39e40",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "7bb7fab4633a17959ba8fe178b6d830348431a6243855e1d4c6117f23b1439c7",
+    "docs/DMP_v2_Reference_Application.md": "441bfac422f62e7765e5870d92acfbcf284eb74644233aa6c869940757c9f967",
+    "docs/DMP_v2_Security_Profile.md": "30cf72afe7fc3e27bdead222accc516a4a568787788422372279290532982588",
+    "docs/DMP_v2_Security_Test_Vectors.json": "6dbcd5b81590a0107c83985279e7bd0df5e0217709bf08e8eac15b0d754743e0",
+    "docs/DMP_v2_Selective_Recovery.md": "1cf2158f00737914e27c2e733d69e11e287b1b4fc9a1834b37160c19165dee26",
+    "dev/evidence/p00/initial-baseline.json": "6a43dd57b937192224b19d3675e68b5cc7219accf0a01ca6bcc2f0266b63095d",
+    "tests/provider/CMakeLists.txt": "33fe5e7a77b2d28d613f87ed92e6eab1be8f4ddbea9370830d06705eb489b59e",
+    "tests/provider/host_environment.c": "e8bdf2ef75db2da3ef43bb074424458171b80b2b1566201ffdf1440404f66dca",
+    "tests/provider/README.md": "4d13433a6f7141250a74fa56172552b699840f997f3e4ad1bc351c8f077eeef9"
+  },
+  "review_sha256": "4393eb2d87596dde18e5af28e79326f78a81fdd075bfed3ac35799c0f2141a21"
+}

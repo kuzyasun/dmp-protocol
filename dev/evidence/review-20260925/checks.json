@@ -1,0 +1,78 @@
+{
+  "crc_check": "E3069283",
+  "crc_core": "a3d50ebd",
+  "cobs_small": "02110222",
+  "stream_r": "00094502aabb39ee4c1f00",
+  "cobs_boundaries": {
+    "254": {
+      "encoded_bytes": 256,
+      "sha256": "f91a666469e3fd63e74ebce0ccbfc049ba49f3906c33caf045bfbf6cd20df0a6"
+    },
+    "255": {
+      "encoded_bytes": 257,
+      "sha256": "183b7eedc3d167f0e59a37c644fdd73910a23bf83dbab9dd6752496d0de7ccc6"
+    },
+    "508": {
+      "encoded_bytes": 511,
+      "sha256": "15eef0bd0c9276b5032a90ea9a20b424e631a96fbda6e294a0433f93cb9cf952"
+    }
+  },
+  "timeout_counterexample": {
+    "old_minimum": 33,
+    "required_feedback_bound": 53,
+    "first_surviving_slice_arrival_after_last_completion": 20
+  },
+  "handshake_byte_totals": {
+    "psk": 274,
+    "xx": 406
+  },
+  "plan_links_and_anchors": 17,
+  "preserved_files": {
+    "CMakeLists.txt": {
+      "sha256": "806f76e127879fbbe18c81ba2c46e899d21f59558c3ed9f4542c8c72cc106199",
+      "matches_review_baseline": true
+    },
+    ".gitignore": {
+      "sha256": "4e0a7113df7799e83fc1d68526275c83fdf6cdb8e3cf5ff9e3c4d464f160c8f7",
+      "matches_review_baseline": true
+    },
+    "tests/provider/CMakeLists.txt": {
+      "sha256": "33fe5e7a77b2d28d613f87ed92e6eab1be8f4ddbea9370830d06705eb489b59e",
+      "matches_review_baseline": true
+    },
+    "tests/provider/host_environment.c": {
+      "sha256": "e8bdf2ef75db2da3ef43bb074424458171b80b2b1566201ffdf1440404f66dca",
+      "matches_review_baseline": true
+    },
+    "tests/provider/README.md": {
+      "sha256": "4d13433a6f7141250a74fa56172552b699840f997f3e4ad1bc351c8f077eeef9",
+      "matches_review_baseline": true
+    },
+    "dev/dmp_verify_security_vectors.cjs": {
+      "sha256": "ed7d3dd8b80892b1de9567dad0d6bebddab649b661d33c530b63463ceaa5742b",
+      "matches_review_baseline": true
+    },
+    "dev/dmp_generate_security_vectors.py": {
+      "sha256": "6bb326b635c004e4a79b01076b7b30c8cfc6a7d659ea8234604b0476c3ce6d79",
+      "matches_review_baseline": true
+    },
+    "docs/DMP_v2_Security_Test_Vectors.json": {
+      "sha256": "6dbcd5b81590a0107c83985279e7bd0df5e0217709bf08e8eac15b0d754743e0",
+      "matches_review_baseline": true
+    },
+    "LICENSE": {
+      "sha256": "50d659715762e6c591e5709f7312ed9d2483c94aec7e00e9e575a997b9daad2e",
+      "matches_review_baseline": true
+    }
+  },
+  "fixture_check": {
+    "rbo_job": "job_01M3CZHWR1J3873F5F8QV3QVA0",
+    "node": "v24.18.0",
+    "exit_code": 0,
+    "fixtures": 4,
+    "packets": 64,
+    "mutations": 44,
+    "wrongKeyRejections": 64,
+    "structuralRejections": 128
+  }
+}
