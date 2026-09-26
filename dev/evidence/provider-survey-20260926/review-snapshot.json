@@ -1,0 +1,11 @@
+{
+  "files": {
+    "dev/DMP_Execution_Log.md": "aecfd49888aac789a838acf08f57a0d4e413402cac91fff26b4d75d3accf0b37",
+    "dev/DMP_Implementation_Plan.md": "7c3a1d32b86b4e87ec6db0bc011ca5a9adfd0c34edc5da20c0fdde1d043c343f",
+    "dev/DMP_Work_Packages.md": "ca1eb2221b102a06650714d711dc1e50500f42288d20a3bdff67fbe30d9edd20",
+    "dev/DMP_Noise_Provider_Survey.md": "d351fd0d00d0ea5774e1c38fe272777b477438416886d7103b8a227a0e822beb",
+    "dev/evidence/provider-survey-20260926/sources.json": "53e926101051c5343b80b26ea92460712bd60d5fa6a402f9156e2d303e9324ee"
+  },
+  "index_sha256": "a09858c3431fbd271d33e1ea0af59248a26f56ccdfd15a23f1a6e3df2ad9b12a",
+  "baseline_head": "03de75750d3aafe0bb0f4cf527916b7041589474"
+}

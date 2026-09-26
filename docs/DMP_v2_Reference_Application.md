@@ -2,7 +2,7 @@
 
 **Status:** normative only for deployments explicitly selecting `DMP-reference/SAMPLE-1/2`\
 **Date:** 2026-09-26\
-**Requires:** DMP revision 9, SEC-1 profile revision 4
+**Requires:** DMP revision 10, SEC-1 profile revision 5
 
 This small contract demonstrates opaque payload interoperability across [DIRECT-1 and RADIO-1](DMP_v2_Deployment_Profiles.md). It is not a production DTrack RPC schema or an actuator/OTA interface. Products may define other profiles. Numeric values below have meaning only inside this explicitly selected profile.
 

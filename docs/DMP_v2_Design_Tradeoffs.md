@@ -1,10 +1,18 @@
 # DMP v2 — Design Trade-offs and Prior Art
 
-**Status:** informative companion to DMP v2 document revision 9\
-**Date:** 2026-09-25\
+**Status:** informative companion to DMP v2 document revision 10\
+**Date:** 2026-09-26\
 **Normative status:** explanatory only; the specification and SEC-1 annex define conformance
 
-This guide records prior art and the simplifications adopted in revision 7. It explains the reasoning behind the current design; it does not define a wire format or amend the [DMP specification](DMP_v2_Device_Messaging_Protocol_Specification.md) or [SEC-1 security annex](DMP_v2_Security_Profile.md). The current baseline is document revision 9 with SEC-1 profile revision 4. Revision 9 adds best-effort protocol rejection, canonical same-service replies, concrete SAMPLE-1 initialization and resource acceptance bounds; earlier rationale below describes its dated source revision. Earlier draft profiles are unsupported; no automatic compatibility mode is defined.
+This guide records prior art and the simplifications adopted in revision 7. It explains the reasoning behind the current design; it does not define a wire format or amend the [DMP specification](DMP_v2_Device_Messaging_Protocol_Specification.md) or [SEC-1 security annex](DMP_v2_Security_Profile.md). The current baseline is document revision 10 with SEC-1 profile revision 5. Revision 9 added best-effort protocol rejection, canonical same-service replies, concrete SAMPLE-1 initialization and resource acceptance bounds. Revision 10 adopts abort-first and permits a reviewed controlled Noise core; earlier rationale below describes its dated source revision. Earlier draft policies are unsupported; no automatic compatibility mode is defined.
+
+## Abort-first and provider choice in revision 10
+
+An admitted invalid expected Noise flight or failed mandatory post-read pin/payload check now ends only that attempt. Structural rejects and conflicting processed-flight duplicates preserve it; normal loss uses cached bytes. This removes mandatory clone/scratch costs but allows an active injector to force bounded establishment failure. It does not solve provider-specific transport nonce limitations: receive PN=2 then PN=1 and failed-high-PN isolation still apply. Handshake errors and protected-packet tag failures have separate lifecycle rules.
+
+Engine origin, primitive backend, storage/API and failure policy are separate decisions. A small maintained patch or controlled C fork can preserve more existing implementation/test provenance than translating Rust into C, but creates responsibility for every changed security-critical path. A C port loses Rust language guarantees and needs independent state-machine testing beyond its source implementation. Software primitives must work without vendor acceleration; hardware optimization is separately validated. See the dated [source survey](../dev/DMP_Noise_Provider_Survey.md) and [decision record](../dev/DMP_Noise_ADR.md).
+
+No second error policy is enabled now. Preserve-state remains a future extension at receive/post-check/accept, including pin checks and nonrollbackable work/time budgets. Evaluate completed establishment over the whole path: cached retries under loss versus fresh exchanges, backoff and remote orphan capacity under injection. Compare policies on the same provider/configuration if later implemented; C+abort versus Rust+preserve confounds policy, implementation and backend. No target RAM/time/energy advantage has been measured.
 
 ## Adopted simplifications
 

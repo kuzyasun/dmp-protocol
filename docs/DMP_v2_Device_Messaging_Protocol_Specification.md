@@ -1,13 +1,13 @@
 # DMP v2 — Device Messaging Protocol Specification
 
-**Status:** implementation draft, revision 9\
+**Status:** implementation draft, revision 10\
 **Date:** 2026-09-26\
 **Wire major version:** 2\
-**Document revision:** 9; not encoded in the VT byte\
+**Document revision:** 10; not encoded in the VT byte\
 **Payload:** opaque bytes; no required serializer\
 **Scope:** packet framing, stream bindings, message identity, optional delivery and fragmentation, transport-independent routing profiles
 
-> This unreleased draft uses document revision 9, SEC-1 profile revision 4 and BOOT_VERSION=2. Peers MUST explicitly agree on this revision and the selected modules/profile: VT=2 alone does not identify a compatible draft. Other draft encodings are unsupported and MUST NOT be autodetected. A released wire format will require a stable version/profile compatibility policy.
+> This unreleased draft uses document revision 10, SEC-1 profile revision 5 and BOOT_VERSION=2. Peers MUST explicitly agree on this revision and the selected modules/profile: VT=2 alone does not identify a compatible draft. Revision 10 changes handshake failure semantics, not bootstrap layout; old manifest digests must not be reinterpreted under the new policy. Other draft encodings/policies are unsupported and MUST NOT be autodetected. A released wire format will require a stable version/profile compatibility policy.
 
 The informative [design tradeoffs and evaluation guide](DMP_v2_Design_Tradeoffs.md) records the prior-art review, candidate extensions and measurement plan. It does not allocate additional interoperable features.
 
@@ -566,7 +566,7 @@ A completed profile MUST record the following in a machine-readable configuratio
 - Mesh roles/routes, TTL and forwarding budgets/cooldown where applicable; native receive-window and congestion/channel-access policy supplied by the binding.
 - Integrity/security requirements and scope, authenticated identity source where used, late-result handling, local cancellation, freshness and object-transfer policies where applicable.
 - Per-class queue count/byte limits, admission and overflow outcomes, control-path memory/CPU reservations, scheduling fairness, local send deadlines and adapter ownership/completion rules (§16.2 and §18.1).
-- For SEC-1, pre-authentication assembly/attempt/CPU/response budgets, trust-enrollment method, pairing timeout, credential revocation/pin-reset authority and handling of lost volatile state.
+- For SEC-1, pre-authentication assembly/attempt/CPU/response budgets, independent pending-state and crypto-operation limits, abort-first failure semantics, establishment-episode deadline/attempt/work/traffic bounds and restart backoff/rate policy, trust-enrollment method, pairing timeout, credential revocation/pin-reset authority and handling of lost volatile state.
 
 A configuration validator SHOULD reject impossible combinations before traffic starts: a header/trailer larger than the frame budget, zero payload capacity for FRAG, insufficient state quotas for admitted concurrency, retry schedules longer than retention/reassembly bounds, and required replies with no permitted return opportunity. Two endpoints sharing a codec but disagreeing on this manifest are not necessarily interoperable.
 
@@ -601,6 +601,8 @@ Cipher 1 selects Noise ChaChaPoly; cipher 2 selects Noise AESGCM. The receiver C
 Retries preserve logical identity/content but allocate fresh PN and re-encrypt. This allows packet replay rejection and message-level repeat receipts to coexist. Protected ACKs have empty plaintext and still carry a tag. SEC-1 frames on routed paths use explicit CONTEXT and TO_NODE; group/broadcast and implicit-root security are unsupported. Relays preserve protected bytes while adapting transport framing.
 
 Authentication, authorization and freshness are separate checks. FRESHNESS extension 6 and the protected control service in annex §S7 supply a receiver-timed, single-message token for services that require it. Required security/freshness policies cannot be disabled by timeout or negotiation failure. No application data is accepted through the plaintext bootstrap exception.
+
+SEC-1 revision 5 uses abort-first for failed processing of an admitted new expected Noise flight, including mandatory post-read payload/pin checks. Pre-Noise structural rejects and conflicting processed-flight duplicates preserve the pending attempt; ordinary loss uses cached retries. A failed attempt cannot destroy another active association or revoke a committed credential. Restart is separately scheduled under bounded establishment policy, never triggered automatically by failure. Protected transport tag/replay handling, including FINISH/READY, remains governed by annex S5/S6/S8 rather than this bootstrap rule. Preserve-state is deferred and no policy negotiation is defined.
 
 ### 14.1 Lifecycle and validation boundary
 
@@ -828,7 +830,7 @@ dmp_result_t dmp_encode_packet(const dmp_frame_t *frame,
                                size_t *written);
 ```
 
-These signatures are illustrative, not an ABI commitment. Views borrow input memory; document lifetime. Encoding reports errors separately from encoded length. Sessions receive caller-provided monotonic time, storage/allocator limits and send callbacks. No hidden socket ownership or mandatory global state. Reassembly may copy slices; a zero-copy core does not imply a zero-copy whole stack. Expose unknown safe extensions so a relay can preserve them. Optional security uses an injected maintained crypto provider, CSPRNG, credential/authorization callbacks and explicit secret-buffer lifetimes. A structural view of ciphertext is never an authenticated plaintext view; expose those states distinctly. Serialize PN allocation, replay marking and message acceptance across concurrent callers.
+These signatures are illustrative, not an ABI commitment. Views borrow input memory; document lifetime. Encoding reports errors separately from encoded length. Sessions receive caller-provided monotonic time, storage/allocator limits and send callbacks. No hidden socket ownership or mandatory global state. Reassembly may copy slices; a zero-copy core does not imply a zero-copy whole stack. Expose unknown safe extensions so a relay can preserve them. Optional security separates SEC-1 lifecycle/authorization, the reviewed Noise engine, existing primitive backend and platform entropy/persistence services. A controlled core is permitted under annex S1's provenance/maintenance/verification obligations. Public C headers expose no provider/SDK structs; compile-time selection is sufficient. Specify storage size/alignment, bounded scratch/concurrency, fallible RNG, explicit errors, in-place/borrowed buffer ownership, erasure and directional PN/AAD operations. No heap allocation in hot paths; bounded fallible setup allocation is allowed. Receive plus mandatory post-checks plus acceptance is one logical boundary over disposable state, not a required clone. A structural view of ciphertext is never an authenticated plaintext view; expose those states distinctly. Serialize PN allocation, replay marking and message acceptance across concurrent callers.
 
 Decode each packet's header once into a bounded view; sorted singleton extensions need no per-extension heap allocation. Cache native decoded fields or offsets needed for dispatch/AAD, not reparsed copies of the wire header. Per-peer/association contexts SHOULD own shared namespace/origin/epoch data; message records may hold a generation-safe context reference plus SEQ. Do not reuse a context slot while retained acceptance/correlation records can resolve through it. This local representation never shortens an explicit routed identity on wire.
 
@@ -836,7 +838,7 @@ Unsupported modules SHOULD be removable at build time, including routing, reasse
 
 ## 22. Wire examples and conformance vectors
 
-All examples below use revision 9 encodings. Contextual identities are explicitly stated where omitted on wire. Protected examples and all cryptographic inputs/outputs are supplied separately in §22.11 and the normative annex. SELECTIVE-32 header/plaintext examples and mandatory loss cases are in its annex §R6; complete protected feedback vectors are an implementation verification deliverable.
+All examples below use revision 10 encodings (unchanged from revision 9). Contextual identities are explicitly stated where omitted on wire. Protected examples and all cryptographic inputs/outputs are supplied separately in §22.11 and the normative annex. SELECTIVE-32 header/plaintext examples and mandatory loss cases are in its annex §R6; complete protected feedback vectors are an implementation verification deliverable.
 
 ### 22.1 Minimal telemetry
 
@@ -1029,6 +1031,8 @@ This section is informative. The [implementation plan](../dev/DMP_Implementation
 The sequence begins with target/provider feasibility and manifests, then core/framing and deterministic transport, identity/delivery/reassembly, real SEC-1, routed SELECTIVE-32 integration, independent interoperability and measured readiness. SELECTIVE-32 is already specified by the [recovery annex](DMP_v2_Selective_Recovery.md); dynamic control-plane modules remain outside this revision. Protected confirmation/activation follows AEAD/AAD/PN implementation, and provisional test-context evidence requires real-security reruns. Physical bindings require their own evidence.
 
 Freeze an interoperable release only after independent implementations agree on frames, profiles and required fault scenarios, with the resource/transport evidence described in §23.1. This specification does not certify existing DTrack firmware/client implementations. Implementations must explicitly select the draft and profile identified at the start of this document.
+
+A controlled Noise core additionally requires source/component license provenance, review of its security-critical delta and independent standard-Noise/state-machine evidence. Translation of another implementation must not use only that source implementation as the independent peer. Track protocol-engine and primitive-backend independence separately. Public byte fixtures do not prove abort-first cleanup, scheduling, resource bounds or resistance to input floods; S10.17 remains an endpoint gate.
 
 ## 25. Optional future features
 

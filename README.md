@@ -2,7 +2,7 @@
 
 DMP is a compact, transport-independent device messaging protocol under development. It carries opaque payloads over explicitly specified bindings, with optional routing, reliability, fragmentation and pairwise end-to-end encryption.
 
-**Current contract:** document revision 9, SEC-1 profile revision 4, BOOT_VERSION 2, SELECTIVE-32 recovery revision 1. Wire major version remains 2; peers must agree on exact profile/manifests. This repository currently contains specifications, development plans and public fixture helpers, **not a production endpoint library**.
+**Current contract:** document revision 10, SEC-1 profile revision 5, BOOT_VERSION 2, SELECTIVE-32 recovery revision 1. Wire major version remains 2; peers must agree on exact profile/manifests. This repository currently contains specifications, development plans and public fixture helpers, **not a production endpoint library**.
 
 ## Introduction and motivation
 
@@ -38,7 +38,7 @@ Compactness, low memory use and reduced airtime are design goals. Whether this c
 | [Agent workflow](AGENTS.md) | Coordinator, bounded worker assignments, ownership and review rules |
 | [Implementation work packages](dev/DMP_Work_Packages.md) | Dependency board, package acceptance and restartable execution |
 
-`docs/` is the normative source where a document says so. `dev/` contains planning, fixture helpers and historical reviews. [Revision 7 review](dev/dmp-revision-7-review.md) and [comparative critique](dev/dmp-comparative-critique.md) describe their dated snapshots, not a new review of revision 9. [Revision 8 review](dev/dmp-revision-8-review.md) records the historical extraction review and its limits.
+`docs/` is the normative source where a document says so. `dev/` contains planning, fixture helpers and historical reviews. [Revision 7 review](dev/dmp-revision-7-review.md) and [comparative critique](dev/dmp-comparative-critique.md) describe their dated snapshots, not a review of the current revision. [Revision 8 review](dev/dmp-revision-8-review.md) records the historical extraction review and its limits.
 
 ## Existing fixture checks
 

@@ -2,7 +2,7 @@
 
 **Status:** normative implementation draft, recovery revision 1\
 **Date:** 2026-09-26\
-**Requires:** DMP document revision 9 and SEC-1 profile revision 4
+**Requires:** DMP document revision 10 and SEC-1 profile revision 5
 
 This annex defines optional selective recovery for the [main specification](DMP_v2_Device_Messaging_Protocol_Specification.md). MUST/MUST NOT/SHOULD/MAY have their main-spec meanings. It specifies behavior, not a claim of implemented or measured interoperability. No cryptographic primitive or bootstrap encoding is changed.
 

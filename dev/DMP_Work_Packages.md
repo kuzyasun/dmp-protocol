@@ -2,7 +2,7 @@
 
 **Status:** implementation paused by the owner for documentation review. P00 has partial, unaccepted scaffold/evidence files; all packages remain pending and no package has passed acceptance.\
 **Authority:** [implementation plan](DMP_Implementation_Plan.md) and its normative references. This file adds scheduling and ownership, not protocol behavior.\
-**Baseline:** main document revision 9, SEC-1 revision 4 / BOOT_VERSION 2, SELECTIVE-32 revision 1. The first package records exact document hashes and verifies these revisions.
+**Baseline:** main document revision 10, SEC-1 revision 5 / BOOT_VERSION 2, SELECTIVE-32 revision 1. The first package records exact document hashes and verifies these revisions.
 
 ## Operating model
 
@@ -61,7 +61,7 @@ Revision 9 adds mandatory acceptance rows in the [matrix](DMP_Conformance_Matrix
 
 ### Phase 0: feasibility before commitments
 
-- **P00:** inspect actual checkout and tool availability; record source and normative hashes, authorized scope, initial host/compiler and intended embedded targets. Resolve missing material target requirements before freezing target-dependent choices. The confirmed embedded target is ESP32-S3 / ESP-IDF 6.x with a portable C core. Screen maintained provider candidates and their target/license/API constraints before dependency selection; this read-only survey does not satisfy P01. Create only the minimal portable build/test scaffold and runner for P01. Record commands that actually work. Establish an evidence/matrix file and the small interface needed by the experiment; do not freeze production handshake memory yet.
+- **P00:** inspect actual checkout and tool availability; record source and normative hashes, authorized scope, initial host/compiler and intended embedded targets. Resolve missing material target requirements before freezing target-dependent choices. ESP32-S3 / ESP-IDF 6.x is the first reference target, not the portability boundary. Select a non-Espressif freestanding compile configuration as well, with exact compiler/ABI and separate resource evidence; keep vendor/OS/entropy/persistence ports outside the C core. See the [provider survey](DMP_Noise_Provider_Survey.md). Screen maintained provider candidates and their target/license/API constraints before dependency selection; this read-only survey does not satisfy P01. Create only the minimal portable build/test scaffold and runner for P01. Record commands that actually work. Establish an evidence/matrix file and the small interface needed by the experiment; do not freeze production handshake memory yet.
 - **P01:** record candidate provider revision/configuration/license and demonstrate all milestone-0 capabilities for selected NNpsk0/XX suites. Test invalid-then-valid expected flight with preserved state/deadline, bounded tentative state, explicit nonce, cached-flight retransmit without repeat encryption, erasure and pre-auth work bounds. Record retained and scratch resources for declared targets; host numbers cannot stand in for MCU budgets. Independent read-only review must examine provider evidence. Incompatibility blocks implementation on that provider; choose another maintained provider rather than weaken the contract. Record and resolve dependency/licensing constraints before adoption.
 
 ### Phase 1: complete profile constraints offline
@@ -75,7 +75,7 @@ Revision 9 adds mandatory acceptance rows in the [matrix](DMP_Conformance_Matrix
 - **P05:** canonical ULEB/header/extensions, role rules, lengths and bounded encoder/parser pass applicable main §22.8 positives/negatives, including malformed/truncated/overflow inputs. Parsing has no endpoint side effects; expected bytes come from the wire contract, not only encoder/decoder round trips.
 - **P06:** CRC32C and both stream formats pass independent vectors, bounds, chunking and resynchronization checks through the agreed interface. Framing events do not imply message acceptance. Escalate unexpected state complexity from Light to Mid or coordinator.
 - **P07:** virtual monotonic time, seeded loss/reorder/duplicate, bounded queues, forward/return slots and delayed completion/cancel reproduce identical event ordering and traces. Harness self-checks prove injector behavior without implementing DMP state machines.
-- **P08:** integrate P05–P07, run relevant matrix and delayed-buffer checks; enable bounded fuzz and supported sanitizer checks plus host CI for at least two OS/toolchain combinations. Add the ESP32-S3/IDF 6.x compile-only CI, map/size evidence and allocator checks defined in the plan; repeat applicable checks at P12/P15/P19/P25. Record actual results separately from configured/unrun CI jobs. Phase-2 evidence must be available before phase 3; unresolved required checks keep the gate open.
+- **P08:** integrate P05–P07, run relevant matrix and delayed-buffer checks; enable bounded fuzz and supported sanitizer checks plus host CI for at least two OS/toolchain combinations. Add the initial ESP32-S3/IDF 6.x and selected non-Espressif freestanding compile-only CI, map/size evidence and allocator checks defined in the plan; repeat applicable checks at P12/P15/P19/P25. Record actual results separately from configured/unrun CI jobs. Phase-2 evidence must be available before phase 3; unresolved required checks keep the gate open.
 
 ### Phase 3: direct endpoint
 

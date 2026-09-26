@@ -1,14 +1,14 @@
 # DMP v2 — Reference deployment profiles
 
 **Date:** 2026-09-26\
-**Baseline:** DMP document revision 9, SEC-1 profile revision 4, BOOT_VERSION=2\
+**Baseline:** DMP document revision 10, SEC-1 profile revision 5, BOOT_VERSION=2\
 **Status:** normative reference-family choices for DIRECT-1 and RADIO-1. Site-specific manifests must still supply the parameters below; no implemented binding or production interoperability is claimed.
 
 The [main specification](DMP_v2_Device_Messaging_Protocol_Specification.md) and [SEC-1 annex](DMP_v2_Security_Profile.md) remain authoritative. These two families narrow existing choices; they do not change packet encoding, ACK meaning or security policy for other DMP deployments. A completed manifest must still supply every applicable main §12.3 parameter. Claiming only `DIRECT-1` or `RADIO-1` does not establish interoperability.
 
 ## 1. Fixed reference-family choices
 
-Owner namespace: `DMP-reference`; family revisions: `DIRECT-1/3` and `RADIO-1/3`. These identifiers are configuration strings, not newly allocated wire IDs. A product assigns its own deployment ID/revision and binds the exact complete manifest in SEC-1. Overrides of the fixed choices below require a differently identified family; they are not silent runtime adaptations.
+Owner namespace: `DMP-reference`; family revisions: `DIRECT-1/4` and `RADIO-1/4`. These identifiers are configuration strings, not newly allocated wire IDs. A product assigns its own deployment ID/revision and binds the exact complete manifest in SEC-1. Overrides of the fixed choices below require a differently identified family; they are not silent runtime adaptations.
 
 | Choice | DIRECT-1 | RADIO-1 |
 |---|---|---|
@@ -17,6 +17,7 @@ Owner namespace: `DMP-reference`; family revisions: `DIRECT-1/3` and `RADIO-1/3`
 | Routing | No DMP ROUTE; direct identity resolved from the authenticated association | Static unicast, explicit TO_NODE and CONTEXT from the origin, including on direct radio paths; no flooding or dynamic route discovery |
 | Security | SEC-1 required for application traffic; ChaCha20-Poly1305 selected | Same pairwise end-to-end SEC-1 policy; relays hold no endpoint traffic keys |
 | Enrollment | Deployment fixes PSK or authenticated XX for each pair; no automatic fallback | Same; small provisioned leaves can use PSK, while capable endpoints can use authenticated XX |
+| Handshake failure | SEC-1 revision 5 abort-first; separately bounded establishment/restart policy | Same; loss retains cached retries, admitted invalid expected flights can end an attempt |
 | Credentials and restart | Individual random PSK or authenticated public-key enrollment; volatile traffic associations; fresh handshake after state loss | Same; no offline restored traffic keys to avoid radio handshake cost |
 | Live telemetry | Unfragmented TELEM, ACK_REQ=0; replace unsent obsolete state | Same; missed obsolete samples are not repaired |
 | Commands/results | Main §8.1 reliable REQ/result exchange; one outstanding application operation per peer/service in this reference family | Same; return receive opportunities are required before admitting a reliable exchange |
@@ -53,7 +54,7 @@ Before enabling either family, fill and validate:
 1. **Transport:** binding ID/revision, maximum complete core/encoded frame, path MTU, actual link addresses, UART settings or BLE mapping, and disconnect/route-change behavior. RADIO-1 also needs radio PHY settings, channel access, legal/local airtime budgets, half-duplex turnaround, forward and return routes, and receive/sleep opportunities. A LoRa spreading factor or universal timeout cannot be inferred from the family name.
 2. **Identity/application:** deployment ID/revision, namespace/node IDs, service map, exact payload schema, authorization, operation IDs/lookup where needed, and per-service freshness policy. Time-sensitive actuator commands explicitly select freshness; it is not silently disabled to save bytes.
 3. **Finite timing:** transmission/queue/delivery bounds, receipt delay, processing/result deadlines, attempts/backoff/jitter, assembly lifetime, dedup/result/tombstone retention, and relay cooldown/count. Apply the inequalities in main §8.2 and §11.1; duplicates never renew absolute deadlines.
-4. **Security/resources:** selected enrollment per pair, provisioning authority, secret lifecycle, handshake limits, association limits/drain, per-peer/global quotas, aggregate RAM/flash envelopes per target role, reserved control resources and admission outcomes. Include the explicit SEC-1 failed-verification limit in [1,65536], with no reset on successful traffic.
+4. **Security/resources:** selected enrollment per pair, provisioning authority, secret lifecycle, handshake limits, association limits/drain, per-peer/global quotas, aggregate RAM/flash envelopes per target role, reserved control resources and admission outcomes. Include the explicit SEC-1 failed-verification limit in [1,65536], with no reset on successful traffic. Specify abort-first establishment episode attempt/deadline/work/traffic ceilings, restart backoff and later-episode rate/burst policy; retained pending attempts and simultaneous crypto/scratch slots are separate limits. Budget remote orphan occupancy and fresh-handshake cost across the complete scheduled path. No old manifest digest may select the new semantics implicitly.
 5. **Reference sample initialization, when selected:** SAMPLE-1 revision 2 persistent producer epoch reservation and consumer synchronization by a fresh correlated READ; finite initialization attempts, retry intervals and total deadline. No epoch adoption from unsolicited telemetry.
 
 If those facts are unavailable, the family is selected but the deployment is not ready to claim interoperability. In particular, no complete BLE binding, raw-LoRa PHY configuration or measured performance is asserted here.
@@ -70,7 +71,7 @@ Use one statically agreed recovery policy per endpoint pair/application service,
 | Eligible fragmented reliable message on RADIO-1 | SELECTIVE-32, at most 32 fragments, fixed service policy and finite feedback/repair/probe budget |
 | File/log/firmware image | Independent application blocks with object identity, digest and final commit; bounded RAM and explicit resumption policy |
 
-This is not a capability negotiation mechanism. A sender must not infer selective support from a timeout, radio type or an unrecognized response. There is no mid-transfer fallback. Revision 9 defines SELECTIVE-32 in its own normative annex. The selected mode is fixed for both directions of a service on the association. The same application service ID is used for its replies and feedback. RADIO-1 excludes non-reliable fragmented application messages; bootstrap remains separately bounded retry-all.
+This is not a capability negotiation mechanism. A sender must not infer selective support from a timeout, radio type or an unrecognized response. There is no mid-transfer fallback. The current main revision defines SELECTIVE-32 in its own normative annex. The selected mode is fixed for both directions of a service on the association. The same application service ID is used for its replies and feedback. RADIO-1 excludes non-reliable fragmented application messages; bootstrap remains separately bounded retry-all.
 
 ## 4. Recovery and application contracts
 
