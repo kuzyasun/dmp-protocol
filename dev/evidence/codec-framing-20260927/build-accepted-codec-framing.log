@@ -1,0 +1,16 @@
+[1/16] Building C object tests/core/CMakeFiles/dmp_test_headers.dir/test_headers.c.obj
+[2/16] Building C object CMakeFiles/libdmp.dir/src/stream/stream.c.obj
+[3/16] Building CXX object tests/core/CMakeFiles/dmp_test_headers_cpp.dir/test_headers.cpp.obj
+[4/16] Building C object tests/core/CMakeFiles/dmp_test_pipeline.dir/test_pipeline.c.obj
+[5/16] Building C object CMakeFiles/libdmp.dir/src/core/codec.c.obj
+[6/16] Building C object tests/core/CMakeFiles/dmp_test_codec.dir/test_codec.c.obj
+[7/16] Building C object tests/stream/CMakeFiles/dmp_test_stream.dir/test_stream.c.obj
+[8/16] Linking C static library libdmp.a
+[9/16] Building C object tests/core/CMakeFiles/dmp_test_public_packets.dir/test_public_packets.c.obj
+[10/16] Linking C executable tests\core\dmp_test_base.exe
+[11/16] Linking C executable tests\core\dmp_test_headers.exe
+[12/16] Linking C executable tests\core\dmp_test_codec.exe
+[13/16] Linking C executable tests\core\dmp_test_pipeline.exe
+[14/16] Linking CXX executable tests\core\dmp_test_headers_cpp.exe
+[15/16] Linking C executable tests\stream\dmp_test_stream.exe
+[16/16] Linking C executable tests\core\dmp_test_public_packets.exe

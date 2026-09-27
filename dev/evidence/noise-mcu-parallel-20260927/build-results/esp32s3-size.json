@@ -1,0 +1,87 @@
+{
+    "version": "1.2",
+    "total_size": 212254,
+    "layout": [
+        {
+            "name": "Flash Code",
+            "total": 0,
+            "used": 97852,
+            "free": 0,
+            "parts": {
+                ".text": {
+                    "size": 97852
+                }
+            }
+        },
+        {
+            "name": "DIRAM",
+            "total": 341760,
+            "used": 89930,
+            "free": 251830,
+            "parts": {
+                ".bss": {
+                    "size": 49232
+                },
+                ".text": {
+                    "size": 28703
+                },
+                ".data": {
+                    "size": 11995
+                }
+            }
+        },
+        {
+            "name": "Flash Data",
+            "total": 0,
+            "used": 57284,
+            "free": 0,
+            "parts": {
+                ".rodata": {
+                    "size": 57012
+                },
+                ".appdesc": {
+                    "size": 256
+                },
+                ".tdata": {
+                    "size": 16
+                }
+            }
+        },
+        {
+            "name": "IRAM",
+            "total": 16384,
+            "used": 16384,
+            "free": 0,
+            "parts": {
+                ".text": {
+                    "size": 15356
+                },
+                ".vectors": {
+                    "size": 1028
+                }
+            }
+        },
+        {
+            "name": "RTC SLOW",
+            "total": 8192,
+            "used": 36,
+            "free": 8156,
+            "parts": {
+                ".force_slow": {
+                    "size": 36
+                }
+            }
+        },
+        {
+            "name": "RTC FAST",
+            "total": 8192,
+            "used": 24,
+            "free": 8168,
+            "parts": {
+                ".rtc_reserved": {
+                    "size": 24
+                }
+            }
+        }
+    ]
+}

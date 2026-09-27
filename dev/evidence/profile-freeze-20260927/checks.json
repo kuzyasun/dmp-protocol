@@ -1,0 +1,37 @@
+{
+  "scope": "P03 accepted dirty-checkout snapshot, source and configuration bytes; runtime conformance remains pending",
+  "files": {
+    "profiles/deployments/digests.json": "a837253b83a650836ad1ae48f29efcbe417cd485be7a784bdc99f696ec8044a1",
+    "profiles/deployments/direct-nnpsk0.json": "43f93ff6052627c7293d9eca1f8b4f4d67ccf277af606decc8c39310a1f73674",
+    "profiles/deployments/direct-xx.json": "80f7610ef188fa629d1f973e3d2d232ed6a0391b2c34709843ffdbe2a87391f0",
+    "profiles/deployments/radio-nnpsk0.json": "7f2c6a30aa6f6ccb7e24e3d949958e1038e1bfe63f506978e5046f10012395c1",
+    "profiles/deployments/radio-xx.json": "08d59d07d5d7ba82e4e986379e58e09823da61b9551934e1aa96bb09a530a7e9",
+    "profiles/deployments/README.md": "1909d6515b17f69ea730df39c439522ea1522ff00a1c3a0f58344f93071ac5d8",
+    "profiles/deployments/resource-inputs.json": "184b5ad309da29edd358dc06198eecd52b40b7446d13a1b7da0c5e6e1c667f98",
+    "profiles/deployments/test-radio-retry-all-nnpsk0.json": "fe109419ebfaef6b6e98951de7638509767ae752fa5069770835ffadfffe78d3",
+    "profiles/deployments/test-radio-retry-all-xx.json": "9dbec92dfe7ddf078440dfe1e9555bb2d1f7372f4fdbb6b808cf58834ac28d78",
+    "README.md": "5015ab959f5f411d62aba714822b2243383837f924988356bafe46a55e4d386b",
+    "docs/DMP_Test_Manifest_Contract.md": "c8bd50c14582f1f4e291f4f62f22e7a08bd2a17b2f3ddc6d671ab718df7bcfdf",
+    "profiles/schema/manifest-v1.schema.json": "23aca364eebe2beabd025f5728ce54ee0cf9e818d0b17e65235e37ada36a1ddb",
+    "tools/validate_profile.py": "7813060af442d97c605e2f51f9eb62bdc840b2a801f85bc66d40a24ff35f4e0a",
+    "tests/profiles/test_contract.py": "b2ee8c0ec6cf519701e54c63c848e9ddb07410e612f165372d7af893d1afbf4c",
+    "tests/profiles/test_deployments.py": "187d10521be2a24a80f12c33264190df6b48256291a677f2f10e6f0c98657a16",
+    "tests/profiles/deployment_expected.json": "ac9ba61cb0b8e00e9254934dbab1fabb18b90e1ade304876e735d77f04ebfdbb",
+    "dev/DMP_Normative_Cases.json": "6a3ab8467cd6f11fafa1b34c5b8abf2847e33bf6270f990572b6be206b0e0f06",
+    "dev/DMP_Normative_Cases.md": "858012f8d7603de32be030a8d32eddd9f12ac895b4e53784d72842b4b76e7d91",
+    "dev/DMP_Work_Packages.md": "3246ed233c7cda777c4ac8c0254cb2968ba579a162a4e1ae702712f1562d4fd1",
+    "dev/DMP_Conformance_Matrix.md": "12085318c6f72720987079bbdff6a916dfe7b38b0c488d251a11719b7c318192",
+    "dev/DMP_Execution_Log.md": "e71f95038bc6a8b50e300596587a07293e21015dd464047d261e934fcb0513c0",
+    "dev/evidence/profile-freeze-20260927/ledger-check.json": "71e3640c446ca6df94634cf378a0d54a34164c5aa018b3abaf9625b638dfb8ca",
+    "dev/evidence/profile-freeze-20260927/early-review.md": "22d1b3c6daeda8286172275e8975c3e79928aa2ff9d0223fb168ebc37fa8c560",
+    "dev/evidence/profile-freeze-20260927/calculations.md": "1a903063aaaa3df693e9249c2888213e2ab8cd6435b9025b8e30c7524d084224",
+    "dev/evidence/profile-freeze-20260927/README.md": "823fe0d6cd4896120f9de2060904915495695c05146e9b1fdf489890838e5505"
+  },
+  "results": {
+    "ctest": "3/3",
+    "profile_methods": 23,
+    "deployment_instances": 6,
+    "planned_cases": 137,
+    "implementation_status": "not-run"
+  }
+}

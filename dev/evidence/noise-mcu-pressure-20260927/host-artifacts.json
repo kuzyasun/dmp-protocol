@@ -1,0 +1,58 @@
+{
+  "job_id": "job_01M3GAHN8GA6JNZBBPGBF26HDZ",
+  "artifacts": [
+    {
+      "id": "art_01M3GAJ8EDAGHS049VNCRT125C",
+      "attempt_id": "att_01M3GAHR42CG9Z55F67CPXP83V",
+      "logical_name": "build/pressure-host/Testing/Temporary/LastTest.log",
+      "size_bytes": 33842,
+      "sha256": "9abc5800cafab0d60944737aeeaf1f54117e1247aec28c0a4d7337bf148f9d4f"
+    },
+    {
+      "id": "art_01M3GAJ8FEAZ91AKCBTB1AZJ5P",
+      "attempt_id": "att_01M3GAHR42CG9Z55F67CPXP83V",
+      "logical_name": "build/pressure-results/backend.log",
+      "size_bytes": 533,
+      "sha256": "bc85fb37388f49b27782ba1bffbf8567f7ff9eb788c86904e48a67583e6e355f"
+    },
+    {
+      "id": "art_01M3GAJ8GCH4XYVAJJAHPM2DDR",
+      "attempt_id": "att_01M3GAHR42CG9Z55F67CPXP83V",
+      "logical_name": "build/pressure-results/build.log",
+      "size_bytes": 12533,
+      "sha256": "5cdcab6f1a3eaef88edede8c1e25ae992a1fee5b24ed0ecf0c9ccd1a8821cebf"
+    },
+    {
+      "id": "art_01M3GAJ8H77BHAYZZS6YCW2DT0",
+      "attempt_id": "att_01M3GAHR42CG9Z55F67CPXP83V",
+      "logical_name": "build/pressure-results/ctest.log",
+      "size_bytes": 572,
+      "sha256": "f632dd514d50c09cd3fb922dba87fc91a59437784dc049d47db3aeb2154f27a7"
+    },
+    {
+      "id": "art_01M3GAJET1BH0AYK8TTX4CDH8Z",
+      "attempt_id": "att_01M3GAHR42CG9Z55F67CPXP83V",
+      "logical_name": "build/pressure-results/host.jsonl",
+      "size_bytes": 8551952,
+      "sha256": "625903a36a547f255e8b6d60f458df1cb7375d84ba7b6cdf591905efeb9ee43f"
+    },
+    {
+      "id": "art_01M3GAJETQKKEY5AG5C4QG1W85",
+      "attempt_id": "att_01M3GAHR42CG9Z55F67CPXP83V",
+      "logical_name": "build/pressure-results/runner.stderr.log",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "art_01M3GAJEZH7HK1T1BK4011QWYR",
+      "attempt_id": "att_01M3GAHR42CG9Z55F67CPXP83V",
+      "logical_name": "build/pressure-results/summary.json",
+      "size_bytes": 113221,
+      "sha256": "5f7f375a36ff8fb57299bb0bbebd9fdef7aa6fa869ff96b8228211ae9a931f40"
+    }
+  ],
+  "attempts": [
+    "att_01M3GAHR42CG9Z55F67CPXP83V"
+  ],
+  "terminal_attempt_id": "att_01M3GAHR42CG9Z55F67CPXP83V"
+}

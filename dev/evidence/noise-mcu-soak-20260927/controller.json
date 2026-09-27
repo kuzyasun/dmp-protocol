@@ -1,0 +1,16 @@
+{
+  "python": "3.12.8 (tags/v3.12.8:2dc476b, Dec  3 2024, 19:30:04) [MSC v.1942 64 bit (AMD64)]",
+  "pyserial": "3.5",
+  "ports": [
+    {
+      "port": "COM23",
+      "description": "USB-SERIAL CH340 (COM23)",
+      "hwid": "USB VID:PID=1A86:7523 SER= LOCATION=1-2.2"
+    },
+    {
+      "port": "COM35",
+      "description": "USB-Enhanced-SERIAL CH343 (COM35)",
+      "hwid": "USB VID:PID=1A86:55D3 SER=5C38020005 LOCATION=1-2.1"
+    }
+  ]
+}

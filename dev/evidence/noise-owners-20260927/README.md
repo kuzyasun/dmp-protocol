@@ -2,6 +2,15 @@
 
 Status: scoped host MEM-03 accepted after independent review. P01 remains running.
 
+Cross-ABI follow-up: MCU-02's macOS arm64 run exposed an assumption in the
+original sensitivity probe: a pending handshake fitting the 8192-byte slice
+does not guarantee headroom for Split's extra CipherState. Windows results below
+remain historical measurements, not portable admission counts. The corrected
+probe records `pending_completed` and `split_refused`, verifies exact OOM,
+unchanged failed-Split ownership/accounting and surviving guards, and explicitly
+requires full completion for medium/large slices. See the
+[MCU-02 evidence](../noise-mcu-console-20260927/README.md) for actual rerun status.
+
 ## Frozen scope
 
 One serialized endpoint arena, no allocator-domain switching or peer objects.

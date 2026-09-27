@@ -101,6 +101,7 @@ static int sensitivity(const owner_case *row, const owner_budget *budget, unsign
 {
     dmp_noise_owner guards[8] = {{0}}, pending[4] = {{0}};
     size_t g = 0, p = 0, i, peak, live_at_refusal = 0;
+    size_t completed = 0, split_refused = 0;
     int refused = 0;
     CHECK(reset(budget->retained));
     for (i = 0; i < row->active + row->draining; ++i) {
@@ -138,8 +139,27 @@ static int sensitivity(const owner_case *row, const owner_budget *budget, unsign
                               role_for(mode, middle)) == NOISE_ERROR_NONE);
     }
     for (i = 0; i < p; ++i) {
+        size_t bytes, blocks, refused_before;
+        int error;
         CHECK(drive(&pending[i]) == NOISE_ERROR_NONE);
-        CHECK(dmp_owner_complete(&pending[i]) == NOISE_ERROR_NONE);
+        bytes = arena.charged_bytes;
+        blocks = arena.live_blocks;
+        refused_before = refusals;
+        error = dmp_owner_complete(&pending[i]);
+        if (error != NOISE_ERROR_NONE) {
+            /* Creation alone reserves no Split headroom. ABI-dependent charges
+               can exhaust the deliberately undersized sensitivity slice here. */
+            CHECK(error == NOISE_ERROR_NO_MEMORY && budget->retained == 8192U);
+            CHECK(refusals == refused_before + 1U && !port_error);
+            CHECK(pending[i].handshake != NULL && pending[i].send == NULL &&
+                  pending[i].receive == NULL);
+            CHECK(arena.charged_bytes == bytes && arena.live_blocks == blocks);
+            CHECK(traffic(guards, g));
+            CHECK(dmp_owner_close(&pending[i]) == NOISE_ERROR_NONE);
+            ++split_refused;
+            continue;
+        }
+        ++completed;
         CHECK(dmp_owner_send_once(&pending[i]) == NOISE_ERROR_NONE);
         CHECK(traffic(pending + i, 1) && traffic(guards, g));
         CHECK(dmp_owner_close(&pending[i]) == NOISE_ERROR_NONE);
@@ -151,11 +171,17 @@ static int sensitivity(const owner_case *row, const owner_budget *budget, unsign
         CHECK(dmp_owner_close(&guards[i - 1U]) == NOISE_ERROR_NONE);
     }
     CHECK(empty());
+    CHECK(completed + split_refused == p);
+    if (budget->retained >= 16384U)
+        CHECK(!refused && !split_refused && p == row->pending &&
+              g == row->active + row->draining);
     peak = arena.peak_charged_bytes;
     printf("MEM03_RESULT {\"row\":\"%s\",\"budget\":\"%s\",\"mode\":%u,"
            "\"retained_slice\":%zu,\"metadata\":%zu,\"peak_charged\":%zu,"
-           "\"guards\":%zu,\"pending_admitted\":%zu,\"refused\":%d,\"pending_at_refusal\":%zu}\n",
-           row->name, budget->name, mode, budget->retained, sizeof(arena), peak, g, p, refused, live_at_refusal);
+           "\"guards\":%zu,\"pending_admitted\":%zu,\"refused\":%d,\"pending_at_refusal\":%zu,"
+           "\"pending_completed\":%zu,\"split_refused\":%zu}\n",
+           row->name, budget->name, mode, budget->retained, sizeof(arena), peak,
+           g, p, refused, live_at_refusal, completed, split_refused);
     return 1;
 }
 

@@ -1,0 +1,65 @@
+[
+  {
+    "target": "esp32s3",
+    "sha256": "1bc22272fa2172a2703c17df05187b238a731b6cbb64f8672f8dc3c82a0afbea",
+    "outcome": "complete",
+    "failure": null,
+    "commands": 18,
+    "replies": 18,
+    "completed_runs": 12,
+    "accepted_epochs": 3,
+    "boots": [
+      "07c681d8",
+      "d6a140d6",
+      "1799a908"
+    ],
+    "planned_resets": 2,
+    "rom_banners": 2,
+    "reset_reasons": [
+      "rst:0x1 (POWERON),boot:0x2b (SPI_FAST_FLASH_BOOT)",
+      "rst:0x1 (POWERON),boot:0x2b (SPI_FAST_FLASH_BOOT)"
+    ],
+    "pairs": 3072,
+    "fixed_pairs": 1536,
+    "random_pairs": 1536,
+    "allocs": 58368,
+    "frees": 58368,
+    "heap_free": 347696,
+    "heap_min": 347680,
+    "worker_peak": 2704,
+    "worker_stack_used": 2316,
+    "main_stack_used": 832,
+    "max_call_us": 58256,
+    "total_run_us": 238088325,
+    "dual_core_overlap": 21496
+  },
+  {
+    "target": "esp32c3",
+    "sha256": "1d70d2b99a56fe56eb712fb2cc866cfa003bc47dee567a0ce54d04f4e311e197",
+    "outcome": "failed",
+    "failure": "RuntimeError('Missing planned-reset ROM evidence')",
+    "commands": 7,
+    "replies": 7,
+    "completed_runs": 4,
+    "accepted_epochs": 1,
+    "boots": [
+      "be1318a1"
+    ],
+    "planned_resets": 1,
+    "rom_banners": 0,
+    "reset_reasons": [],
+    "pairs": 1024,
+    "fixed_pairs": 512,
+    "random_pairs": 512,
+    "allocs": 19456,
+    "frees": 19456,
+    "heap_free": 286000,
+    "heap_min": 286000,
+    "worker_peak": 2816,
+    "worker_stack_used": 1936,
+    "main_stack_used": 328,
+    "max_call_us": 101176,
+    "total_run_us": 130564820,
+    "dual_core_overlap": 0
+  }
+]

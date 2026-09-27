@@ -1,0 +1,43 @@
+{
+  "raw_cases": 17,
+  "unit_methods": 9,
+  "limits": [
+    "offline selected simulation contract only",
+    "no endpoint/startup/physical/runtime-memory acceptance",
+    "P03 deployment freeze pending"
+  ],
+  "fixture_count": 3,
+  "invalid_mutations": 41,
+  "index_sha256_observed": "d1ddf5da42d8b4d7a504f60e72a8b29bd8e240c54df7757258bf96fc3f2e7aa9",
+  "normative_documents_unchanged": {
+    "C:\\projects\\gemslibe\\dmp-protocol\\docs\\DMP_v2_Deployment_Profiles.md": true,
+    "C:\\projects\\gemslibe\\dmp-protocol\\docs\\DMP_v2_Security_Profile.md": true,
+    "C:\\projects\\gemslibe\\dmp-protocol\\docs\\DMP_v2_Security_Test_Vectors.json": true,
+    "C:\\projects\\gemslibe\\dmp-protocol\\docs\\DMP_v2_Reference_Application.md": true,
+    "C:\\projects\\gemslibe\\dmp-protocol\\docs\\DMP_v2_Device_Messaging_Protocol_Specification.md": true,
+    "C:\\projects\\gemslibe\\dmp-protocol\\docs\\DMP_v2_Selective_Recovery.md": true,
+    "C:\\projects\\gemslibe\\dmp-protocol\\docs\\DMP_v2_Design_Tradeoffs.md": true
+  },
+  "index_note": "changed during task; current staged index preserved, see index-observation.json",
+  "execution": "Windows local fallback; no RBO agents",
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "ctest_targets_total": 3,
+  "result": "passed",
+  "source_hashes": {
+    "tests/profiles/fixtures/direct.json": "dd4183402818045f3c231c53bd8841ff1b9b10e289dbef3460109e5ab2b06914",
+    "profiles/schema/build_schema.py": "dcd3b98629fd35bbdf76599ece6b9f6fe240be24d0aa298db7bdac2cf7639e05",
+    "tests/profiles/test_contract.py": "b734d10301d31e67b3055a790a222ddf14636bed46a1a3d88e90b63eed9ea072",
+    "tests/profiles/README.md": "92f9be53d45ce3631b50e880e8cecf8453305bb66a6afd7e6e19cbe14a970796",
+    "tools/validate_profile.py": "7813060af442d97c605e2f51f9eb62bdc840b2a801f85bc66d40a24ff35f4e0a",
+    "tests/profiles/fixtures/test-radio-retry-all.json": "5034935f433891001226271640621cbe818ff277915287a190169c4720d4238c",
+    "tests/profiles/make_fixtures.py": "bd7bb29051d1b6efb6bc6c6c2b3300616a0096d231aef0acbd5839e97f0512ae",
+    "profiles/schema/manifest-v1.schema.json": "23aca364eebe2beabd025f5728ce54ee0cf9e818d0b17e65235e37ada36a1ddb",
+    "CMakeLists.txt": "be3ece294f698b588f9be09e8a58b81573168bc7f3995f0cd4665ab44c7f1e8c",
+    "tests/profiles/expected.json": "6d03f472da1959ed03307d19aef5117d48251bd90cdde93fb18d0447819bb63c",
+    "docs/DMP_Test_Manifest_Contract.md": "5e1627ff4cbd270d51ca69f3982cb07d036b3552d7c86208d3dc6f86f97f30d7",
+    ".gitattributes": "092ed1cf6a9792da5b406e32fd8c62143981fd8e1710b7f28db928992223e509",
+    "tests/profiles/invalid.json": "31d377e17cd94930328c3e52cc87c037846edc79498025e12abad1722c4270fe",
+    "tests/profiles/fixtures/radio.json": "15e6762bf8501a3bd84173a5efb31da2a2601f78f82a475a8de7a982828ba8c4"
+  },
+  "ctest_targets_passed": 3
+}

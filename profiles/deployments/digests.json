@@ -1,0 +1,12 @@
+{
+  "algorithm": "SHA-256",
+  "bytes": "original UTF-8, no BOM, LF, terminal LF; no JSON reserialization",
+  "manifests": {
+    "direct-nnpsk0.json": "43f93ff6052627c7293d9eca1f8b4f4d67ccf277af606decc8c39310a1f73674",
+    "direct-xx.json": "80f7610ef188fa629d1f973e3d2d232ed6a0391b2c34709843ffdbe2a87391f0",
+    "radio-nnpsk0.json": "7f2c6a30aa6f6ccb7e24e3d949958e1038e1bfe63f506978e5046f10012395c1",
+    "radio-xx.json": "08d59d07d5d7ba82e4e986379e58e09823da61b9551934e1aa96bb09a530a7e9",
+    "test-radio-retry-all-nnpsk0.json": "fe109419ebfaef6b6e98951de7638509767ae752fa5069770835ffadfffe78d3",
+    "test-radio-retry-all-xx.json": "9dbec92dfe7ddf078440dfe1e9555bb2d1f7372f4fdbb6b808cf58834ac28d78"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "index_sha256": "043eb9a447a2e68d270a46a726095c40532d69257270bca96acce0d7fd8f65ad",
+  "preserved_preexisting_provider_and_normative_files": true,
+  "permitted_changed_baseline_files": {
+    "tests/provider/parallel/README.md": "e2bdeba0798c7fb2c11adef88c96b0eac2d701e82342fdda6a338203d37891ba",
+    "dev/DMP_Work_Packages.md": "949f301f4961fd8ba1ec9e7d6c926f6e43428b0641428d099e70ad6180efd3df",
+    "dev/DMP_Conformance_Matrix.md": "51e241d20cbc7bc206674fdc770a5ed2f1c6e39d065a33d222a06739ca16a1b1",
+    "dev/DMP_Execution_Log.md": "45b36e2a8fc1305b26c7d0c0964c90f552c0d9b9e8c23977f2315952028f5116"
+  },
+  "source_sha256": {
+    "tests/provider/parallel/serial_soak.py": "7cb5b2da1586f7a37a3558b0308d22323007dd74366c3826d7ce166e2afeed3e",
+    "tests/provider/parallel/test_serial_soak.py": "2b7d9e0621c596b100b33773ec65f88bc0ee7bbfc83a69ec35d5f6e27d4f9e6d"
+  },
+  "documentation_sha256": {
+    "README.md": "4a96334bff039f342944a3e1b2cceb4a3f5197cba35a3e7c378d9a4f235a4d8e",
+    "dev/DMP_Implementation_Plan.md": "c8f8992873597be6a8ed5c8af9e545a83ef70e65eb54552363bd1426a668493a",
+    "dev/DMP_Work_Packages.md": "949f301f4961fd8ba1ec9e7d6c926f6e43428b0641428d099e70ad6180efd3df",
+    "dev/DMP_Conformance_Matrix.md": "51e241d20cbc7bc206674fdc770a5ed2f1c6e39d065a33d222a06739ca16a1b1",
+    "dev/DMP_Execution_Log.md": "45b36e2a8fc1305b26c7d0c0964c90f552c0d9b9e8c23977f2315952028f5116"
+  },
+  "evidence_sha256": {
+    "artifacts-final.json": "a72f0448f24bf2fc7062363208fd01cdb1cca30387b0ecba017abeffd709a902",
+    "artifacts-fixed.json": "f0bfc3f8a55c1aa7cf4bc818baad39f777df730b0066157b682e135128eea9e3",
+    "artifacts.json": "30d5eb2409ecee2c3661a3b7444104dfff033749c826bc578cfa4c474de104be",
+    "audit.py": "f6a90057ee2e36b5a88846e4399172261f70a2c71e16818ce609fa790c9daa35",
+    "baseline.json": "0deb291a8557bc36fa7e34409ef7170a6867e5fb9f22eb7cb2fa304556f4f48f",
+    "c3-post-diagnostic.jsonl": "056203e6fb80f8e89a96a199b52aa9e992c314ff521960dcf35632bca2df866b",
+    "c3-rom-controls.log": "d0e08b7efe5b0b2f93d6a9e3f2b2021699bbd0a578afc71b57d90b21b61f9d6a",
+    "controller.json": "f158a7e7723383ce0b2b63cee17bca0fa962a417f14cf9d7d72d362f3f017069",
+    "p01-reconciliation.md": "895a20ec1ea736004eaaeeb18fe5a6adf84cb847843b1c065c3b6cda560fd23e",
+    "physical-audit.json": "49a2681b13605dd5878e7f8d6de2ee127bd4238808c6aa908cab96afe6a556e4",
+    "physical-c3-stderr.log": "04d63ab3576e0ac7b45d3ad6b77dd9dc4bc45db6d40cd8655f0c916769717200",
+    "physical-c3-summary.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "physical-c3.jsonl": "1d70d2b99a56fe56eb712fb2cc866cfa003bc47dee567a0ce54d04f4e311e197",
+    "physical-s3-stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "physical-s3-summary.log": "94428cc37756bd53aac0fe1f62a95278adcd1b7e13680adca8702933ff6372b7",
+    "physical-s3.jsonl": "1bc22272fa2172a2703c17df05187b238a731b6cbb64f8672f8dc3c82a0afbea",
+    "README.md": "c767fab6a1f872845fbd3449333d9d9714aabe08d93b9bfa8204823fef24dc8f",
+    "host-results/python-optimized.log": "7c90c8c5b4219ffd5cf068b2bb1abfd5fa71d15ca77af7443d2b4647d4a255e2",
+    "host-results/python.log": "7c90c8c5b4219ffd5cf068b2bb1abfd5fa71d15ca77af7443d2b4647d4a255e2",
+    "host-results/source.sha256": "35cdd9340ee4a39b87cb27fc6cabc87f32174ec4e6270d62dd8fdae27d79c77f",
+    "host-results-final/python-optimized.log": "b4a5eb3f77a3d02595f2bfaa4c2270c375e624e2620197d6ace8a992c7127e16",
+    "host-results-final/python.log": "b4a5eb3f77a3d02595f2bfaa4c2270c375e624e2620197d6ace8a992c7127e16",
+    "host-results-final/source.sha256": "71b7646862f3d9113387782010779f3a86b93b760011919bbe90d7938f44a2a5",
+    "host-results-fixed/python-optimized.log": "885f401630e56e8f5db08d5d364f5b186d4726a93c9856511cb460f8cd948ab1",
+    "host-results-fixed/python.log": "885f401630e56e8f5db08d5d364f5b186d4726a93c9856511cb460f8cd948ab1",
+    "host-results-fixed/source.sha256": "222e31b3515197ab767a2db33da2425a7bc55d7c6ae33ad289d54a99f56daaf1"
+  },
+  "git_diff_check_exit": 0,
+  "host_tests": {
+    "ordinary": 18,
+    "optimized": 18,
+    "outcome": "passed"
+  },
+  "physical": {
+    "esp32s3": "accepted bounded 12 RUN / 3072 pairs / 2 warm resets",
+    "esp32c3": "first epoch accepted 4 RUN / 1024 pairs; full scenario not passed; ROM UART disabled by existing fuse; USB boot channel unverified"
+  },
+  "independent_reviews": {
+    "source": "soak_review accepted final source after confirmed startup reset-gap repair",
+    "physical": "soak_review accepted S3 and partial C3; raw sequences and hashes checked",
+    "diagnostic": "soak_review accepted read-only ROM controls and restored application evidence",
+    "reconciliation": "p01_reconcile confirmed substantive fixes; coordinator added final wrong-PSK matrix pointer and diagnostic evidence links"
+  },
+  "no_commit_push_flash_or_normative_change": true
+}

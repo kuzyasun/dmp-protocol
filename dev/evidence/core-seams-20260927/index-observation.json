@@ -1,0 +1,9 @@
+{
+  "observed_at": "2026-09-27T16:31:42.1882789+03:00",
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "initial_index_sha256": "d1ddf5da42d8b4d7a504f60e72a8b29bd8e240c54df7757258bf96fc3f2e7aa9",
+  "observed_index_sha256": "28381272ed306fcc0db6ba565215cb1f6152ac91c914aa1a704a38d50e4b29ee",
+  "index_last_write": "2026-09-27T16:28:33.6597367+03:00",
+  "staged_files": 293,
+  "action": "Index changed externally during work; coordinator issued no stage/reset/commit command. Preserve current index, do not restore original over external work."
+}

@@ -1,7 +1,7 @@
 # ADR: abort-first SEC-1 and a controlled Noise core
 
 **Date:** 2026-09-26  
-**Status:** owner-directed draft decision; production implementation/adoption remains unapproved.  
+**Status:** owner-directed abort-first/controlled-core direction; implementation is authorized under the plan's 2026-09-27 gate split. Production adoption/release remain unapproved.\
 **Baseline:** DMP revision 10 / SEC-1 revision 5 / BOOT_VERSION 2.
 
 ## Decision map
@@ -40,3 +40,8 @@ The public vector manifest advances from main=9/sec1=4 to main=10/sec1=5 and exp
 - Rust behind C ABI: comparison alternative if target/toolchain/FFI cost is acceptable. Rust can instead serve only as a host interoperability peer.
 
 No numeric product minimum MCU or latency/RAM promise is selected. Missing target budgets, executable behavior, primitive provenance or independent review blocks the corresponding P01/adoption gate. Source observations, compilation, runtime correctness, MCU measurement and production acceptance remain separate evidence levels.
+
+
+## Implementation scheduling clarification (2026-09-27)
+
+The owner approved the [implementation transition](evidence/implementation-transition-20260927/README.md): P01A establishes development feasibility, P01B implements/tests the real library provider adapter, P13/P15 prove actual SEC-1 behavior, and P01C qualifies integrated targets. P01 remains an open umbrella before P25. This does not select a new engine/backend, accept a failed test or change SEC-1; it removes the blanket dependency of host manifest/codec work on all future target measurements.

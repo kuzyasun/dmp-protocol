@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="3"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="0"
+	timestamp="2026-09-27T15:22:27"
+	>
+	<testcase name="profiles.contract" classname="profiles.contract" time="0.536231" status="run">
+		<properties>
+			<property name="cmake_labels" value="profile-validator"/>
+		</properties>
+		<system-out>test_cli_reports_valid_digest_and_rejects_bad_expected_digest (test_contract.ManifestContractTests.test_cli_reports_valid_digest_and_rejects_bad_expected_digest) ... ok
+test_digest_covers_exact_whitespace_and_expected_hash_format (test_contract.ManifestContractTests.test_digest_covers_exact_whitespace_and_expected_hash_format) ... ok
+test_exact_bootstrap_frame_boundary_and_reverse_selective_timing_term (test_contract.ManifestContractTests.test_exact_bootstrap_frame_boundary_and_reverse_selective_timing_term) ... ok
+test_fixture_source_and_schema_are_reproducible (test_contract.ManifestContractTests.test_fixture_source_and_schema_are_reproducible) ... ok
+test_frame_timing_freshness_and_pool_boundaries (test_contract.ManifestContractTests.test_frame_timing_freshness_and_pool_boundaries) ... ok
+test_mutation_corpus_rejects_contract_violations_at_declared_location (test_contract.ManifestContractTests.test_mutation_corpus_rejects_contract_violations_at_declared_location) ... ok
+test_raw_input_corpus (test_contract...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="fixtures.sec1" classname="fixtures.sec1" time="0.137112" status="run">
+		<properties>
+			<property name="cmake_labels" value="fixture-only"/>
+		</properties>
+		<system-out>{"runtime":"Node crypto","fixtures":4,"packets":64,"mutations":44,"wrongKeyRejections":64,"structuralRejections":164,"fixturePolicyRejections":8}
+</system-out>
+	</testcase>
+	<testcase name="dmp_host_environment" classname="dmp_host_environment" time="0.0286204" status="run">
+		<properties>
+			<property name="cmake_labels" value="scaffold-only"/>
+		</properties>
+		<system-out>host scaffold: C11, octets=8, pointer_bits=64, size_t_bits=64
+No provider, endpoint, target-memory or conformance claim.
+</system-out>
+	</testcase>
+</testsuite>

@@ -1,0 +1,11 @@
+-- The C compiler identification is GNU 15.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/develop/mingw/w64devkit/bin/gcc.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done (1.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/projects/gemslibe/dmp-protocol/build/core-seams-library
+[1/2] Building C object CMakeFiles/libdmp.dir/src/core/base.c.obj
+[2/2] Linking C static library libdmp.a

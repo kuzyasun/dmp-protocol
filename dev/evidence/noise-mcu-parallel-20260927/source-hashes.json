@@ -1,0 +1,19 @@
+{
+  "normalization": "CRLF to LF",
+  "sha256": {
+    "tests/provider/parallel/experiment.cmake": "4b92a4f5027a8df9cfb4bb284549318a848ee22eef8ea518b6f9144ceec40c14",
+    "tests/provider/parallel/host.c": "f85b471624c9c2a1458bc595bb5abaca7087b8f156a1d5cc4b3df6750f36fba3",
+    "tests/provider/parallel/parallel.c": "d6bcc72c8aa95d5625da6738e3233a43243104bc7e408b07920868ed9b7144b2",
+    "tests/provider/parallel/parallel.h": "30f6d0d6dd91d3ac544295cf5ce693246958c77e6175cb3be2864e79f2e94085",
+    "tests/provider/parallel/README.md": "c4fea110da88a8d9bb2e6ef0ad9bed77a36eecf13097a02c2b7ebdfa42b220f9",
+    "tests/provider/parallel/report.h": "ed79adb6bb2aef7c6d1fd7584ef37176d021d5111b57a8888ca2086484055f06",
+    "tests/provider/parallel/serial_parallel.py": "b076ae4452b7659176a2495a9f1aa4167ed9b32406ef750728e65e6669a38ff7",
+    "tests/provider/parallel/test_serial_parallel.py": "2f4328f97ee0eb68f8b691af248b79940b00f260b453a0a9613b44da0236a205",
+    "tests/provider/targets/esp32-parallel/CMakeLists.txt": "e2045c4b592ee66ae086a55b20e8ed8a7b06f4277ccd7ef86fdddcc7d53df23d",
+    "tests/provider/targets/esp32-parallel/sdkconfig.defaults": "47bb15fb9800e9f8309ba608d686953683e15141be80d9c0894e41ba82d49f77",
+    "tests/provider/targets/esp32-parallel/main/CMakeLists.txt": "8386cc93b9ec0c54e14bfc5932f162127be4799ae05257c511ec78027f54c4ed",
+    "tests/provider/targets/esp32-parallel/main/main.c": "2a59c2aaf4730b25c11ed6be3f30bc60b584b4d0b1998abf79dd021676cef9e8",
+    "tests/provider/targets/mcu_provider.cmake": "ab557c22488f0b8504ebb8f762dea87d3363fb4655a02fee9733fde4b7124fbd",
+    "tests/provider/allocator_experiment.cmake": "60680fbb8a602592beca072607b7113c002844aaee1ab6d8eee329def1f73585"
+  }
+}

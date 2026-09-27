@@ -1,0 +1,1064 @@
+{
+  "cases": [
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 2
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "nn",
+        "slot": 2
+      },
+      "completed": [
+        {
+          "generation": 1,
+          "mode": "nn",
+          "slot": 2
+        }
+      ],
+      "guard_survival_checks": 15,
+      "orientation": 0,
+      "peak_arena_live": {
+        "peer-1": 1944,
+        "peer-2": 1632
+      },
+      "quota": 2048,
+      "refused": {
+        "generation": 0,
+        "mode": "xx",
+        "peer": "peer-1",
+        "rc": 17665,
+        "slot": 3,
+        "stage": "NEW"
+      },
+      "split_refusals": []
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 2
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "nn",
+        "slot": 2
+      },
+      "completed": [
+        {
+          "generation": 1,
+          "mode": "nn",
+          "slot": 2
+        }
+      ],
+      "guard_survival_checks": 15,
+      "orientation": 1,
+      "peak_arena_live": {
+        "peer-1": 1944,
+        "peer-2": 1632
+      },
+      "quota": 2048,
+      "refused": {
+        "generation": 0,
+        "mode": "xx",
+        "peer": "peer-1",
+        "rc": 17665,
+        "slot": 3,
+        "stage": "NEW"
+      },
+      "split_refusals": []
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 4
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "xx",
+        "slot": 3
+      },
+      "completed": [
+        {
+          "generation": 1,
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 4
+        }
+      ],
+      "guard_survival_checks": 27,
+      "orientation": 0,
+      "peak_arena_live": {
+        "peer-1": 3800,
+        "peer-2": 3824
+      },
+      "quota": 3840,
+      "refused": {
+        "generation": 0,
+        "mode": "xx",
+        "peer": "peer-1",
+        "rc": 17665,
+        "slot": 5,
+        "stage": "NEW"
+      },
+      "split_refusals": [
+        {
+          "generation": 0,
+          "mode": "nn",
+          "peer": "peer-2",
+          "rc": 17665,
+          "slot": 2,
+          "stage": "SPLIT"
+        }
+      ]
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 4
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "xx",
+        "slot": 3
+      },
+      "completed": [
+        {
+          "generation": 1,
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 4
+        }
+      ],
+      "guard_survival_checks": 26,
+      "orientation": 1,
+      "peak_arena_live": {
+        "peer-1": 3688,
+        "peer-2": 3824
+      },
+      "quota": 3840,
+      "refused": {
+        "generation": 0,
+        "mode": "xx",
+        "peer": "peer-1",
+        "rc": 17665,
+        "slot": 5,
+        "stage": "NEW"
+      },
+      "split_refusals": [
+        {
+          "generation": 0,
+          "mode": "nn",
+          "peer": "peer-2",
+          "rc": 17665,
+          "slot": 2,
+          "stage": "SPLIT"
+        }
+      ]
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 4
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "xx",
+        "slot": 3
+      },
+      "completed": [
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 1,
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 4
+        }
+      ],
+      "guard_survival_checks": 28,
+      "orientation": 0,
+      "peak_arena_live": {
+        "peer-1": 4048,
+        "peer-2": 3936
+      },
+      "quota": 4096,
+      "refused": {
+        "generation": 0,
+        "mode": "xx",
+        "peer": "peer-1",
+        "rc": 17665,
+        "slot": 5,
+        "stage": "NEW"
+      },
+      "split_refusals": []
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 4
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "xx",
+        "slot": 3
+      },
+      "completed": [
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 1,
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 4
+        }
+      ],
+      "guard_survival_checks": 28,
+      "orientation": 1,
+      "peak_arena_live": {
+        "peer-1": 4048,
+        "peer-2": 3936
+      },
+      "quota": 4096,
+      "refused": {
+        "generation": 0,
+        "mode": "xx",
+        "peer": "peer-1",
+        "rc": 17665,
+        "slot": 5,
+        "stage": "NEW"
+      },
+      "split_refusals": []
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 4
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "xx",
+          "slot": 5
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 6
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "xx",
+          "slot": 7
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "xx",
+        "slot": 5
+      },
+      "completed": [
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 4
+        },
+        {
+          "generation": 1,
+          "mode": "xx",
+          "slot": 5
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 6
+        },
+        {
+          "generation": 0,
+          "mode": "xx",
+          "slot": 7
+        }
+      ],
+      "guard_survival_checks": 47,
+      "orientation": 0,
+      "peak_arena_live": {
+        "peer-1": 7280,
+        "peer-2": 7568
+      },
+      "quota": 8192,
+      "refused": null,
+      "split_refusals": []
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 4
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "xx",
+          "slot": 5
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 6
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "xx",
+          "slot": 7
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "xx",
+        "slot": 5
+      },
+      "completed": [
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 4
+        },
+        {
+          "generation": 1,
+          "mode": "xx",
+          "slot": 5
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 6
+        },
+        {
+          "generation": 0,
+          "mode": "xx",
+          "slot": 7
+        }
+      ],
+      "guard_survival_checks": 47,
+      "orientation": 1,
+      "peak_arena_live": {
+        "peer-1": 7280,
+        "peer-2": 7568
+      },
+      "quota": 8192,
+      "refused": null,
+      "split_refusals": []
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 4
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "xx",
+          "slot": 5
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "nn",
+          "slot": 6
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "xx",
+          "slot": 7
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "xx",
+        "slot": 5
+      },
+      "completed": [
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 4
+        },
+        {
+          "generation": 1,
+          "mode": "xx",
+          "slot": 5
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 6
+        },
+        {
+          "generation": 0,
+          "mode": "xx",
+          "slot": 7
+        }
+      ],
+      "guard_survival_checks": 47,
+      "orientation": 0,
+      "peak_arena_live": {
+        "peer-1": 7280,
+        "peer-2": 7568
+      },
+      "quota": 32768,
+      "refused": null,
+      "split_refusals": []
+    },
+    {
+      "admitted": [
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 4
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "xx",
+          "slot": 5
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-2",
+          "mode": "nn",
+          "slot": 6
+        },
+        {
+          "generation": 0,
+          "initiator_peer": "peer-1",
+          "mode": "xx",
+          "slot": 7
+        }
+      ],
+      "cancelled": {
+        "generation": 0,
+        "mode": "xx",
+        "slot": 5
+      },
+      "completed": [
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 2
+        },
+        {
+          "generation": 0,
+          "mode": "xx",
+          "slot": 3
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 4
+        },
+        {
+          "generation": 1,
+          "mode": "xx",
+          "slot": 5
+        },
+        {
+          "generation": 0,
+          "mode": "nn",
+          "slot": 6
+        },
+        {
+          "generation": 0,
+          "mode": "xx",
+          "slot": 7
+        }
+      ],
+      "guard_survival_checks": 47,
+      "orientation": 1,
+      "peak_arena_live": {
+        "peer-1": 7280,
+        "peer-2": 7568
+      },
+      "quota": 32768,
+      "refused": null,
+      "split_refusals": []
+    }
+  ],
+  "duration_seconds": 383.147,
+  "events": {
+    "candidate_progress": 138,
+    "case_checkpoint": 268,
+    "case_result": 10,
+    "case_start": 10,
+    "command": 5715,
+    "response": 5717,
+    "run_metadata": 2,
+    "summary": 2,
+    "synchronize": 2,
+    "synchronized": 2,
+    "transport_closed": 2,
+    "transport_metadata": 2
+  },
+  "expected_errors": [
+    {
+      "id": 1703,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 2048,
+      "rc": 17676
+    },
+    {
+      "id": 1694,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 2048,
+      "rc": 17676
+    },
+    {
+      "id": 1726,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 2048,
+      "rc": 17665
+    },
+    {
+      "id": 1804,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 2048,
+      "rc": 17665
+    },
+    {
+      "id": 1797,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 2048,
+      "rc": 17665
+    },
+    {
+      "id": 1847,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 2048,
+      "rc": 17676
+    },
+    {
+      "id": 1837,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 2048,
+      "rc": 17676
+    },
+    {
+      "id": 1870,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 2048,
+      "rc": 17665
+    },
+    {
+      "id": 1948,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 2048,
+      "rc": 17665
+    },
+    {
+      "id": 1940,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 2048,
+      "rc": 17665
+    },
+    {
+      "id": 1991,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 3840,
+      "rc": 17676
+    },
+    {
+      "id": 1980,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 3840,
+      "rc": 17676
+    },
+    {
+      "id": 2032,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 3840,
+      "rc": 17665
+    },
+    {
+      "id": 2107,
+      "op": "SPLIT",
+      "peer": "peer-2",
+      "quota": 3840,
+      "rc": 17665
+    },
+    {
+      "id": 2187,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 3840,
+      "rc": 17665
+    },
+    {
+      "id": 2178,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 3840,
+      "rc": 17665
+    },
+    {
+      "id": 2230,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 3840,
+      "rc": 17676
+    },
+    {
+      "id": 2218,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 3840,
+      "rc": 17676
+    },
+    {
+      "id": 2271,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 3840,
+      "rc": 17665
+    },
+    {
+      "id": 2339,
+      "op": "SPLIT",
+      "peer": "peer-2",
+      "quota": 3840,
+      "rc": 17665
+    },
+    {
+      "id": 2419,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 3840,
+      "rc": 17665
+    },
+    {
+      "id": 2410,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 3840,
+      "rc": 17665
+    },
+    {
+      "id": 2462,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 4096,
+      "rc": 17676
+    },
+    {
+      "id": 2450,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 4096,
+      "rc": 17676
+    },
+    {
+      "id": 2503,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 4096,
+      "rc": 17665
+    },
+    {
+      "id": 2668,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 4096,
+      "rc": 17665
+    },
+    {
+      "id": 2658,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 4096,
+      "rc": 17665
+    },
+    {
+      "id": 2711,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 4096,
+      "rc": 17676
+    },
+    {
+      "id": 2698,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 4096,
+      "rc": 17676
+    },
+    {
+      "id": 2752,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 4096,
+      "rc": 17665
+    },
+    {
+      "id": 2917,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 4096,
+      "rc": 17665
+    },
+    {
+      "id": 2906,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 4096,
+      "rc": 17665
+    },
+    {
+      "id": 2960,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 8192,
+      "rc": 17676
+    },
+    {
+      "id": 2946,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 8192,
+      "rc": 17676
+    },
+    {
+      "id": 3317,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 8192,
+      "rc": 17665
+    },
+    {
+      "id": 3306,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 8192,
+      "rc": 17665
+    },
+    {
+      "id": 3360,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 8192,
+      "rc": 17676
+    },
+    {
+      "id": 3346,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 8192,
+      "rc": 17676
+    },
+    {
+      "id": 3717,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 8192,
+      "rc": 17665
+    },
+    {
+      "id": 3706,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 8192,
+      "rc": 17665
+    },
+    {
+      "id": 3760,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 32768,
+      "rc": 17676
+    },
+    {
+      "id": 3746,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 32768,
+      "rc": 17676
+    },
+    {
+      "id": 4117,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 32768,
+      "rc": 17665
+    },
+    {
+      "id": 4106,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 32768,
+      "rc": 17665
+    },
+    {
+      "id": 4160,
+      "op": "RESET",
+      "peer": "peer-1",
+      "quota": 32768,
+      "rc": 17676
+    },
+    {
+      "id": 4146,
+      "op": "RESET",
+      "peer": "peer-2",
+      "quota": 32768,
+      "rc": 17676
+    },
+    {
+      "id": 4517,
+      "op": "NEW",
+      "peer": "peer-1",
+      "quota": 32768,
+      "rc": 17665
+    },
+    {
+      "id": 4506,
+      "op": "NEW",
+      "peer": "peer-2",
+      "quota": 32768,
+      "rc": 17665
+    }
+  ],
+  "forwarded_pairs": {
+    "OPEN": 1380,
+    "READ": 152
+  },
+  "identities": {
+    "peer-1": [
+      "esp32s3",
+      "v6.1",
+      "2fd98bd7d15e1414",
+      "71e3a2d6f1a77ce124ea402eded20bcb44aee34c6a23de5007bd41e67a791086"
+    ],
+    "peer-2": [
+      "esp32c3",
+      "v6.1",
+      "248c7a1b27b9a9e4",
+      "71e3a2d6f1a77ce124ea402eded20bcb44aee34c6a23de5007bd41e67a791086"
+    ]
+  },
+  "memory": {
+    "peer-1": {
+      "heap_free_values": [
+        346888
+      ],
+      "heap_largest_min": 286720,
+      "heap_min": 346872,
+      "max_arena_peak": 7280,
+      "stack_free_min": 10032
+    },
+    "peer-2": {
+      "heap_free_values": [
+        285192
+      ],
+      "heap_largest_min": 147456,
+      "heap_min": 285192,
+      "max_arena_peak": 7568,
+      "stack_free_min": 10576
+    }
+  },
+  "trace_sha256": "d47469897495e35894d079f05e8e35348e36e92792b79caffefd968242d3128f"
+}

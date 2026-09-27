@@ -1,0 +1,181 @@
+{
+  "date": "2026-09-27",
+  "scope": "P05/P06 host library only; P08, endpoint, security eligibility and target qualification remain open",
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "branch": "feat/initial-version",
+  "index_sha256": "28381272ed306fcc0db6ba565215cb1f6152ac91c914aa1a704a38d50e4b29ee",
+  "index_unchanged": true,
+  "normative_sources_unchanged": true,
+  "authority_sha256": {
+    "AGENTS.md": "5a048d94cf226bce9a988d30d8163644935c0d4f1bca6690f4e322b54bd8ceef",
+    "dev/DMP_Implementation_Plan.md": "a2a5b8cee6c45794a54b2b8aeb2cdbff19267146207afa1a36aeab2301d9d05d",
+    "docs/DMP_Test_Manifest_Contract.md": "c8bd50c14582f1f4e291f4f62f22e7a08bd2a17b2f3ddc6d671ab718df7bcfdf",
+    "docs/DMP_v2_Deployment_Profiles.md": "f1fdb79e6ca4d20f41c98e48cffeafb0ab1fd001c0128eac4bb35b4e2eb59778",
+    "docs/DMP_v2_Design_Tradeoffs.md": "f1d0737160dc6a916a1051776804790f0c6930dce0b52f24b3eb40ed6ef59e92",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "0c22f0c0381504821b71eb5defaccda40c353966363a518274625cbfacdc4d9d",
+    "docs/DMP_v2_Reference_Application.md": "ef7d78119b987200c054209c82c365043e4d95ea8b722a7dd84b3653b32a78be",
+    "docs/DMP_v2_Security_Profile.md": "8f6bf8c34ba37e33a1cbfc8f7fc062da577c5ce0a2872b321bb9f5e6b29669f3",
+    "docs/DMP_v2_Security_Test_Vectors.json": "4eb2c5b466c884d5b448b5117d32ca57c14096a8db058bea68d8b2478922ec7e",
+    "docs/DMP_v2_Selective_Recovery.md": "25d2384c9ff4ab5650ced1a3d77e0762cc1de3a74d944921c5e5c0a822ca65b7"
+  },
+  "execution": "RBO agents_list returned none; announced local Windows fallback. Unsandboxed compiler execution after sandbox probe limitation; no forced compiler checks.",
+  "tools": {
+    "cmake": "cmake version 3.28.1",
+    "ninja": "1.11.1",
+    "gcc": "gcc.exe (GCC) 15.2.0",
+    "python": "Python 3.12.8",
+    "node": "v24.11.1"
+  },
+  "configure_commands": [
+    "cmake -S . -B build/codec-framing -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=C:/develop/mingw/w64devkit/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/develop/mingw/w64devkit/bin/g++.exe -DPython3_EXECUTABLE=C:/develop/Python312/python.exe",
+    "cmake -S . -B build/codec-framing-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=C:/develop/mingw/w64devkit/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/develop/mingw/w64devkit/bin/g++.exe -DPython3_EXECUTABLE=C:/develop/Python312/python.exe",
+    "cmake -S . -B build/codec-framing-library -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=C:/develop/mingw/w64devkit/bin/gcc.exe -DDMP_BUILD_TESTS=OFF"
+  ],
+  "accepted_checks": [
+    {
+      "commands": [
+        "cmake --build build/codec-framing",
+        "ctest --test-dir build/codec-framing --output-on-failure"
+      ],
+      "exit_code": 0,
+      "tests_passed": 10,
+      "build_warnings": 0,
+      "log": "ctest-accepted-codec-framing.log"
+    },
+    {
+      "commands": [
+        "cmake --build build/codec-framing-release",
+        "ctest --test-dir build/codec-framing-release --output-on-failure"
+      ],
+      "exit_code": 0,
+      "tests_passed": 10,
+      "build_warnings": 0,
+      "log": "ctest-accepted-codec-framing-release.log"
+    },
+    {
+      "command": "cmake --build build/codec-framing-library",
+      "exit_code": 0,
+      "build_warnings": 0
+    },
+    {
+      "command": "C:/develop/mingw/w64devkit/bin/nm.exe -g build/codec-framing-library/libdmp.a",
+      "exit_code": 0,
+      "undefined_symbols": [
+        "dmp_cobs_decode_canonical",
+        "dmp_cobs_encode_parts",
+        "dmp_cobs_encoded_bound",
+        "dmp_crc32c",
+        "dmp_deadline_after",
+        "dmp_deadline_reached",
+        "memcpy"
+      ],
+      "external_non_dmp_symbols": [
+        "memcpy"
+      ]
+    }
+  ],
+  "published_packet_byte_checks": 64,
+  "ledger_primary_results": {
+    "passed": 23,
+    "partial": 10
+  },
+  "whole_rows": {
+    "partial": 33,
+    "not-run": 104
+  },
+  "peer_and_interop": "not-run",
+  "source_sha256": {
+    "CMakeLists.txt": "7fffdb0cf6842884ee8330dfa985720771d92eb1f96258054f5770c2cc0301b4",
+    "README.md": "18370d0574ac61fcd5d1f4d2f72b80b22f8e7ce96a6179bb437d0920ee6f8960",
+    "dev/DMP_Conformance_Matrix.md": "fe2004e0257ec4ec0c50be0ae36ad4df30d083ed5029e249413b81735117b97b",
+    "dev/DMP_Core_Interfaces.md": "74c63ec6d3149b28434a2a0364d3de111216663ca32fb247ab7110fdebbf82a4",
+    "dev/DMP_Execution_Log.md": "6d94a418b1072f0236a90c085dee2cb0430d4a36483003fbafba3ef9ff8d0d56",
+    "dev/DMP_Normative_Cases.json": "9f901e7523ef9455236ac36b028a010ad49a1bd6d490d743fd9247cd20620f2d",
+    "dev/DMP_Normative_Cases.md": "cecc03cb013de618cf07d1d055b091a4df722fe5d81c632d10fed1e0fdc0f589",
+    "dev/DMP_Work_Packages.md": "ef1fd1bda725a57f9403897e96776bc10c191ff53f67049933afe4d6942494f7",
+    "include/dmp/base.h": "4a9854d8ef033db1124fe6f59d985df27d0d7377bb5f18c0e59d7e45ab556a82",
+    "include/dmp/core.h": "9d77ceaee79907dce6c10eb016310a28d9945c03d8e11778d029588538e7c39a",
+    "include/dmp/integrity.h": "ffff3b0c80daa584871634d16ff9cdd0304ecfc448fd19b7442db1bb4bc4e980",
+    "include/dmp/stream.h": "23d6f55ffa1533728fc3bf224611dcb74e0c93f55f0e10d3ebdb0f914e27405f",
+    "include/dmp/transport.h": "30c61233ce181e4addb6179031338b332a2a3c9b0c734211f2cd7cb5dcd1d007",
+    "src/README.md": "daec381a6013499f5eb8b0512ca0003e56e84e4e9ddb9cb4bf3aea592ea3059b",
+    "src/core/base.c": "d9c1e6776c4a7305a21b9d44724fd5105ca17e809b2f8b0086a5c84ed6d41cfe",
+    "src/core/codec.c": "66a4de185782cb2660a12de866b79dca4a367b804f6abc41cd56ab11809783fa",
+    "src/integrity/crc32c.c": "e53242f8f98dd6a88b283e1eda27961a439caab6f62422eda4a31bbf4da33dbc",
+    "src/stream/cobs.c": "9b12e9764a5cfee9735d680c1f0bf8178459ee6c582f216857bff424e4623e86",
+    "src/stream/cobs.h": "83ff9438e49105daf151e2a44e24ef05e91248cf000fadea42bec09c81fe2a64",
+    "src/stream/stream.c": "decb576cca75b60a21513acd2bffec4a52aa18037d673e540319f202fd730d04",
+    "tests/core/CMakeLists.txt": "331b0a5d01fde408594b24c3bcd53042536a9b3456426205b0bcbabf53240648",
+    "tests/core/generate_packet_vectors.py": "fa2fe5db1abc928a97f3e667f23cb9fbc490e3e67332b501593c3b8ed8483e86",
+    "tests/core/test_base.c": "199e0550d72dc5d940e5929c65cf44938f75821ec497a8e5d175628af8a6f514",
+    "tests/core/test_codec.c": "5e34fdea722a07c5c9819dd9b721c48fe1401ecfab25267bf8726ef24f398110",
+    "tests/core/test_headers.c": "2550951dcb9920d9b1077025e9a06e8521cba2789a45064d41b7f66469f87b04",
+    "tests/core/test_headers.cpp": "48906863941160430587f644bca634d29d208b6cb8ef5f51504d6db1ec6c82b7",
+    "tests/core/test_pipeline.c": "bd99ad0e268a8b1cab44afcd836a2ac62b7881e990ebbd7602623a78c32cec04",
+    "tests/core/test_public_packets.c": "e67000ead36443437d306921db2e6960d47fe94b441352e042c62890a0db10af",
+    "tests/stream/CMakeLists.txt": "1382ab80cf10dae1f1b85ebfc9fd9383c29010373095a0dc53571160ef3f729e",
+    "tests/stream/test_stream.c": "93ba73635a7c734a149a040358daa62a8bd25d91bb8d8a5beb2143fe0d930b05"
+  },
+  "configuration_sha256": {
+    "build/codec-framing/CMakeCache.txt": "b8d268ab5a7beb81699e370ad14eb386addd64cae5c272d3a6484d45e669b4f7",
+    "build/codec-framing/build.ninja": "5851c599047bc1ce18940c545e19bee691be69dcd87c35b0a2e810ecc2cdc402",
+    "build/codec-framing-release/CMakeCache.txt": "ac44e4f238e81fd64aecf92d8f4c9965b69da2dbe4a107a4fe5a774064f053a3",
+    "build/codec-framing-release/build.ninja": "801e3152b09f5078a61f280d0b9c59f4424d0eeb904e3a28111395f0bf75aa02",
+    "build/codec-framing-library/CMakeCache.txt": "c9cc33092f83025c65ee9635a206216cdd1aefbe4c1da937a740da7f333abc88",
+    "build/codec-framing-library/build.ninja": "41ade521d37f7899bf5f0e06b58bb9af492b9fee0e4298ac89380bd70cde8148"
+  },
+  "build_artifact_sha256": {
+    "build/codec-framing/libdmp.a": "f942c88b9cfeb3c92b8953527b90729a83b250583d43783f678a665e5914b703",
+    "build/codec-framing-release/libdmp.a": "275b5c7229ebcdcde2d266d63885e26a285af7f4eee12d79b2a0485fb68368e1",
+    "build/codec-framing-library/libdmp.a": "949df43a7427e3b308790ec676931ccecf31bc7d73443c817127d7fc7685b705",
+    "build/codec-framing/tests/core/dmp_test_base.exe": "e9902dea61f347e07fc7afae1403f8f763b15a5be3838cba56d6e4188d81cd2b",
+    "build/codec-framing/tests/core/dmp_test_codec.exe": "c9d04e06a20425875fd69b1597aed2e1eb6d686f0a9919beebfadee34d3f3709",
+    "build/codec-framing/tests/core/dmp_test_headers.exe": "0583a2ac39ceda9a9ba367bc90fc1ddcf2a2e9559dcc8dac3c31b3232b7ab406",
+    "build/codec-framing/tests/core/dmp_test_headers_cpp.exe": "582c16c0cb93eadcf57dd97571c470c05993b33815c75a74eff14d6d00933ec5",
+    "build/codec-framing/tests/core/dmp_test_pipeline.exe": "3c758ba78df2fb8a68d2656795a272ce81e6e49e6e707671739e1d713ba34aa4",
+    "build/codec-framing/tests/core/dmp_test_public_packets.exe": "9630e82ce58e54279b1b6b6f046388cdc2a60422b0da583f9650a69cea217384",
+    "build/codec-framing/tests/stream/dmp_test_stream.exe": "93c11cc5ab46abee04bb9fce10fde12f693f25864dbaf664736fe45eb2b9deb7",
+    "build/codec-framing/tests/core/public_packets.h": "504bc7082e9acdebacde3e611fb3a8753e3c4a8e0dbe877681513994103df66d",
+    "build/codec-framing-release/tests/core/dmp_test_base.exe": "f0b44012bef0fdfdf4b5c7dc3ad5ccebd6b3d9b2b0d37e69df8c22cc2a95e7f9",
+    "build/codec-framing-release/tests/core/dmp_test_codec.exe": "194e84810eac014245ab342fb24b87c42dede664fd57ab6975a255d29aa81835",
+    "build/codec-framing-release/tests/core/dmp_test_headers.exe": "dae093367d7c30911844ed9139dafe3a5c37df08a4053771f722794f7257de82",
+    "build/codec-framing-release/tests/core/dmp_test_headers_cpp.exe": "e7808bdbad6e99056cc2e2ca3673b03a259e850231974362749398022b38f268",
+    "build/codec-framing-release/tests/core/dmp_test_pipeline.exe": "c2bcf9b6e4a6474062afac365d8032ec8aaa94f8d0f8c1acb70b5ec662004649",
+    "build/codec-framing-release/tests/core/dmp_test_public_packets.exe": "6d2f1642984212b17ebab87da9c3c72566bd8bd2b515267a509a67868916b5a0",
+    "build/codec-framing-release/tests/stream/dmp_test_stream.exe": "23d8d4a919ff877e240280e4e1a5e438f7109e6b53e950474cf9bea0adb060ec",
+    "build/codec-framing-release/tests/core/public_packets.h": "504bc7082e9acdebacde3e611fb3a8753e3c4a8e0dbe877681513994103df66d"
+  },
+  "log_sha256": {
+    "build-accepted-codec-framing-release.log": "1c3f9ebb29fa21d3be51c0e2d6834684f36f4a7352b4b85130e9b8d8b3a711b3",
+    "build-accepted-codec-framing.log": "97529a798192a26ba8faaa171f6aefb48a3590e720f221bf75a8c605dfc7118d",
+    "build-final.log": "8a2de143cf7f584146997f2fd867159eeacb4e50056137fa316b48cbb8762912",
+    "build-fixed.log": "18753732737ecf14482ef6cb1b69c0f43900fa68e2a4b4e6d81b42c39a662d42",
+    "build-initial.log": "f21d128d72f2065b1d8696e39ebfbf0784cf1618bad156c21524f6318ecfc1ef",
+    "build-library-accepted.log": "ab90bb34f050ab5308f539ed7548b38be32c30318c7418d1c9fea27675843aa3",
+    "build-library.log": "0369b0fb279601a9f02ca444e4eedbc0e6694d093aab1cf86d219de77ea68ce7",
+    "build-release.log": "b80423e8a991d5c793f5dbc8c889ec1301c3eee4ea55401b109e97f3ac5bf49a",
+    "configure-library.log": "86e68826c4b97c0bc6b2e415ac34da94a5fa5f31629a11d3eb433c1e1a2c0ba6",
+    "configure-release.log": "95ec90a90bb21082c1db4af8caceb2109c952e27dee8c7731d9e29d31d980770",
+    "configure.log": "28b41e62840c60e72106e40c278d2ca5571581f6bb782689f602f29109ec168b",
+    "ctest-accepted-codec-framing-release.log": "a5c942b422a3c9a6ec06bf6dc9a4db15df2e2eb3422baca490c13589e319d0be",
+    "ctest-accepted-codec-framing.log": "e9cd88e062da94f8071c7db04be9bfdf5ae75ddf725bca85bf191ae94fdba724",
+    "ctest-final.log": "525d2c8faa4ca904a7f326e7a948394d6bbae808e3aceb24b8d5c97db39c1071",
+    "ctest-fixed.log": "135196ecedc1d77b2d90ce80c6467e3633998b2f795c19d91e28c3ef721fcf7f",
+    "ctest-initial.log": "a240d56ee24b37f497bf63b1809b1d91bf4350bd040f7b7dec1465f2d2372c2c",
+    "ctest-release.log": "6eae6e46c169d2472c6d344f75b1ed720d00b55c29607bb893eff9756e8e5c4c",
+    "library-symbols.log": "a5493c0e9d085cfe1a9020403c888a9b16a03361604588daf7af1ff0e296d750",
+    "regression-before-fix.log": "c361c12e75a0e617525c3af6cdf44663b3d5c4c3032cbfd3fcbbd08e4f8ea7bf"
+  },
+  "independent_review": {
+    "agent": "/root/codec_framing_review",
+    "model": "gpt-6-astra",
+    "effort": "xhigh",
+    "source_review": "closed; no actionable findings",
+    "final_evidence_review": "closed; source/configuration/artifact/log hashes and 23+10 scoped ledger results verified",
+    "record": "review.md"
+  },
+  "evidence_document_sha256": {
+    "README.md": "601f06053d180fa37e924461bb9c2d3418abddf2ace36dd6d0f4f235f484970e",
+    "review.md": "16579998361f15c665ab8eea40a0b874c9416cf1df030edbd8e26283dcb5457e"
+  }
+}

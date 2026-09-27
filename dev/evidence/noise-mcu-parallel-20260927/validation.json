@@ -1,0 +1,48 @@
+{
+  "index_sha256": "043eb9a447a2e68d270a46a726095c40532d69257270bca96acce0d7fd8f65ad",
+  "existing_changed_files": [
+    "tests/provider/allocator_experiment.cmake",
+    "tests/provider/targets/mcu_provider.cmake"
+  ],
+  "normative_and_other_baseline_inputs_unchanged": true,
+  "fixed_snapshot_matches": {
+    "tests/provider/parallel/experiment.cmake": true,
+    "tests/provider/parallel/host.c": true,
+    "tests/provider/parallel/parallel.c": true,
+    "tests/provider/parallel/parallel.h": true,
+    "tests/provider/parallel/README.md": false,
+    "tests/provider/parallel/report.h": true,
+    "tests/provider/parallel/serial_parallel.py": true,
+    "tests/provider/parallel/test_serial_parallel.py": true,
+    "tests/provider/targets/esp32-parallel/CMakeLists.txt": true,
+    "tests/provider/targets/esp32-parallel/sdkconfig.defaults": true,
+    "tests/provider/targets/esp32-parallel/main/CMakeLists.txt": true,
+    "tests/provider/targets/esp32-parallel/main/main.c": true,
+    "tests/provider/targets/mcu_provider.cmake": true,
+    "tests/provider/allocator_experiment.cmake": true
+  },
+  "post_snapshot_changes": "README clarification of start/completion versus checkpoint timeout only",
+  "sha256": {
+    "physical-fixed-audit.json": "34d11d73d70732efe5f67552d3b2c6e87cc92da5e80e0de85d98122571d4f8ec",
+    "physical-fixed-c3-stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "physical-fixed-c3-summary.json": "d2359d454da231859fe8ff894c8fceed97d348c7f43dcee530235255e7352bd8",
+    "physical-fixed-c3.jsonl": "546c63696dbda99e3c3677db886f5f36c39b306638a195483417c115b8246e9b",
+    "physical-fixed-s3-stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "physical-fixed-s3-summary.json": "1c8ca4244c32b317beb4585f58a688caec67d5bd10e2f8f460edd8c92e43dd7a",
+    "physical-fixed-s3.jsonl": "4dfcd8636dcbe0a900b21cf0e75f3f78217a20d9cd1556e17c65d927b3da6330",
+    "flash-fixed-s3.log": "130ebbf3f30f47f034f94273330f9e51fb58e9f5dc9680f788ac6c076d54f0c2",
+    "flash-fixed-c3.log": "f1be290ff2518dfcf6462e3738fd403ec1ef167d26c6b8cdb7ab9b0fdc161d13",
+    "summarize.py": "671b794426bd1fc1fed134fd6355d990bfbd6fc060533b5c3954c359b0bcbcc5"
+  },
+  "physical_exit_codes": {
+    "s3": 0,
+    "c3": 0
+  },
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "fork_head": "c40f2dca78eee064e521233a5d884853d471028a",
+  "controller": {
+    "python": "3.12.8",
+    "pyserial": "3.5"
+  },
+  "branch": "feat/initial-version"
+}

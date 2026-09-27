@@ -29,6 +29,8 @@ elseif(NOT MSVC)
 endif()
 
 include(owner_experiment.cmake)
+include(console/experiment.cmake)
+include(parallel/experiment.cmake)
 set_tests_properties(dmp_noise_allocator_probe PROPERTIES LABELS "provider-allocator-experiment")
 if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_sources(dmp_noise_allocator_probe PRIVATE noise_checked_no_legacy_rng.c)

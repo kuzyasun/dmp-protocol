@@ -1,0 +1,24 @@
+Internal ctest changing into directory: C:/projects/gemslibe/dmp-protocol/build/core-seams
+Test project C:/projects/gemslibe/dmp-protocol/build/core-seams
+    Start 1: profiles.contract
+1/6 Test #1: profiles.contract ................   Passed    0.54 sec
+    Start 2: fixtures.sec1
+2/6 Test #2: fixtures.sec1 ....................   Passed    0.11 sec
+    Start 3: core.base
+3/6 Test #3: core.base ........................   Passed    0.02 sec
+    Start 4: core.headers
+4/6 Test #4: core.headers .....................   Passed    0.02 sec
+    Start 5: core.headers_cpp
+5/6 Test #5: core.headers_cpp .................   Passed    0.02 sec
+    Start 6: dmp_host_environment
+6/6 Test #6: dmp_host_environment .............   Passed    0.03 sec
+
+100% tests passed, 0 tests failed out of 6
+
+Label Time Summary:
+core-foundation      =   0.06 sec*proc (3 tests)
+fixture-only         =   0.11 sec*proc (1 test)
+profile-validator    =   0.54 sec*proc (1 test)
+scaffold-only        =   0.03 sec*proc (1 test)
+
+Total Test time (real) =   0.76 sec

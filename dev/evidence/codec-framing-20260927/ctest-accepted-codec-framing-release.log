@@ -1,0 +1,34 @@
+Internal ctest changing into directory: C:/projects/gemslibe/dmp-protocol/build/codec-framing-release
+Test project C:/projects/gemslibe/dmp-protocol/build/codec-framing-release
+      Start  1: profiles.contract
+ 1/10 Test  #1: profiles.contract ................   Passed    0.54 sec
+      Start  2: fixtures.sec1
+ 2/10 Test  #2: fixtures.sec1 ....................   Passed    0.11 sec
+      Start  3: core.base
+ 3/10 Test  #3: core.base ........................   Passed    0.03 sec
+      Start  4: core.headers
+ 4/10 Test  #4: core.headers .....................   Passed    0.03 sec
+      Start  5: core.public_packets
+ 5/10 Test  #5: core.public_packets ..............   Passed    0.03 sec
+      Start  6: core.codec
+ 6/10 Test  #6: core.codec .......................   Passed    0.03 sec
+      Start  7: core.pipeline
+ 7/10 Test  #7: core.pipeline ....................   Passed    0.02 sec
+      Start  8: core.headers_cpp
+ 8/10 Test  #8: core.headers_cpp .................   Passed    0.02 sec
+      Start  9: stream.framing
+ 9/10 Test  #9: stream.framing ...................   Passed    0.02 sec
+      Start 10: dmp_host_environment
+10/10 Test #10: dmp_host_environment .............   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 10
+
+Label Time Summary:
+core-codec           =   0.08 sec*proc (3 tests)
+core-foundation      =   0.08 sec*proc (3 tests)
+fixture-only         =   0.11 sec*proc (1 test)
+profile-validator    =   0.54 sec*proc (1 test)
+scaffold-only        =   0.02 sec*proc (1 test)
+stream-framing       =   0.02 sec*proc (1 test)
+
+Total Test time (real) =   0.88 sec

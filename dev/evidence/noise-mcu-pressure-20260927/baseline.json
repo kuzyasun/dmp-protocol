@@ -1,0 +1,19 @@
+{
+  "parent_head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "fork_head": "c40f2dca78eee064e521233a5d884853d471028a",
+  "git_status": " M dev/DMP_Work_Packages.md\n M dev/evidence/noise-owners-20260927/README.md\n M tests/provider/allocator_experiment.cmake\n M tests/provider/noise_owners_probe.c\n M tests/provider/targets/mcu_provider.cmake\n?? dev/evidence/noise-mcu-console-20260927/\n?? dev/evidence/noise-mcu-pressure-20260927/\n?? tests/provider/console/\n?? tests/provider/targets/esp32-console/\n",
+  "sha256": {
+    "tests/provider/console/bench.c": "53c0131ed1a48ef65c160554d116f586d7a1120f4cb939d8211225965692b21e",
+    "tests/provider/console/bench.h": "04a1a79385a7922898f54f82317be34bfa5af1892ac63da0b58e6d2c33c8d616",
+    "tests/provider/console/experiment.cmake": "7e0ab845b75d5cfdf63225f8588353124e58b60e81cba55fb2021ba91bc6714d",
+    "tests/provider/console/host_main.c": "e741283c6d42ca3c24b543a45a78ffe8711ed3eb9d2f44d993583bd66fb791f0",
+    "tests/provider/console/identity.cmake": "85a2e9669e8e607c7324361b3f6c70eee597db706fa4651b0c63f7739df6f22d",
+    "tests/provider/console/PROTOCOL.md": "2ba148fe195ab837bc732870fd795d53d0369771366a39d765abe204b19fd8c2",
+    "tests/provider/console/README.md": "1480cea94d3d8b27a4ede63aad43c7afd50fbd2c2c9bca9ba5391eabe05c68a1",
+    "tests/provider/console/run_host_check.py": "081189fd966de970ed04a3e6f41336ec6646448e9e82497523ec62adfacdcf53",
+    "tests/provider/console/serial_bench.py": "c6008d801fef990bf28117bbff814412ec29c458ec322998fe0b621a089ba0fb",
+    "tests/provider/console/test_console_core.py": "631d46cf5dad41350955eeb3489a9e3684723d0e97ddaf2ba3a246021ea84bd0",
+    "tests/provider/console/test_serial_bench.py": "deff499ea0047ffc1192a29d2f22b6d91d4727649c83604c6f2c30f3ac78bf51",
+    ".git/index": "043eb9a447a2e68d270a46a726095c40532d69257270bca96acce0d7fd8f65ad"
+  }
+}

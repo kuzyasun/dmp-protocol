@@ -453,3 +453,187 @@ RESCAN link graph and size claims verified. Sources stayed fixed after review;
 only acceptance metadata changed. See [MCU-01 evidence](evidence/noise-mcu-20260927/README.md).
 No flash, publication or DTrack integration was performed. Next: per-endpoint
 quota/ownership sensitivity with multiple live handshake and traffic contexts.
+
+## 2026-09-27 — Reconcile accepted MEM-03 / MCU-02 through MCU-04 scopes
+
+This entry brings this chronological ledger up to date with the work board;
+it does not rerun or broaden those accepted experiments. MEM-03 supplied
+serialized live-owner/quota/OOM/reuse evidence. MCU-02 added the generic serial
+provider console, 33/33 host checks and both EIM IDF6.1 builds. Owner-authorized
+physical S3 COM23 / C3 COM35 runs completed 80 pairs / 3349 replies with
+heap/stack/timing observations. MCU-03 added 10 pressure cases / 5717 replies,
+36 completed candidates, safe NEW/Split OOM, rejected live reset and surviving
+guard traffic. MCU-04 added separate worker-owned arenas/scratch and 36/36 host
+checks; each MCU completed 224 local pairs. Its first C3 run exposed idle-task
+watchdog starvation; a bounded per-cycle rendezvous/idle window fixed the
+scheduler issue, then both images and physical cases were repeated and reviewed.
+Links, source/build/physical hashes and limitations remain on the work board.
+
+## 2026-09-27 — MCU-05 longer lifetimes and planned warm resets
+
+Parent HEAD 0072f61 and fork c40f2dc retained. Independent read-only P01 audit
+identified stale status statements: scoped S3/C3 runtime/concurrency exists;
+full provider/security/resource and non-Espressif runtime gates are still open.
+Coordinator updated README, plan status wording, matrix and board, without
+changing normative requirements. The detailed remaining host boundary checks
+are in [P01 reconciliation](evidence/noise-mcu-soak-20260927/p01-reconciliation.md).
+
+Added Python orchestration only, reusing the accepted MCU-04 images. Independent
+source review found startup filtering could ignore extra/abnormal resets;
+coordinator confirmed and fixed that gap before hardware execution. Final RBO
+job job_01M3H4PC5N5QPNM8DKMC9R9V4P passed 18/18 unique tests in ordinary and
+optimized Python. Source hashes match reviewed code and collected artifacts.
+
+S3 completed 12 two-worker 128-cycle RUNs across three boots: 3072 pairs,
+58368 balanced allocations/frees, stable 347696-byte free heap and two resets
+with ROM cause/banner evidence. C3 completed four RUNs: 1024 pairs, 19456
+balanced allocations/frees and stable 286000-byte free heap. Its first EN pulse
+produced a fresh HELLO boot ID and cleared command counter, but no ROM reset
+diagnostics. The controller correctly exited failure and sent no further RUN.
+The full C3 scenario is not passed; read-only espefuse summary subsequently found UART_PRINT_CONTROL=3, which
+disables ROM UART output; USB ROM output remains enabled. No eFuse was changed.
+An additional diagnostic EN pulse restored the same application (boot d2500317,
+last_id=0), outside the scenario. Independent final review accepted S3 and
+only C3's first epoch. A usable boot-log channel is needed for the C3 reset gate.
+
+See [MCU-05 raw evidence, host gates and scoped results](evidence/noise-mcu-soak-20260927/README.md).
+No C firmware change, rebuild, flash, commit or push in this wave. Normative
+files, existing implementation changes and Git index are preserved. P01 remains
+running, P02 pending. Next: host abort-first post-check/pre-read and ownership
+gates; separately resolve C3 reset observability before repeating its full soak.
+
+## 2026-09-27 — Owner-directed transition to actual library implementation
+
+The owner identified that provider experiments had expanded without creating
+the DMP library and explicitly authorized correcting the plan. The unvalidated
+BOUNDARY-01 draft was stopped before any build and remains excluded from CMake;
+its test-only owner/scheduler is not implementation or acceptance evidence.
+
+Split P01 into P01A development feasibility, P01B actual library provider adapter
+and P01C integrated target qualification. P01 remains an open umbrella before
+P25. P02 now depends on accepted P00, P03 additionally on P01A, and P04 creates
+the real libdmp target and headers/sources. Codec/framing/security tests and MCU
+runners must link the same library implementation. P13 owns actual abort-first,
+pin/payload, generations, cached flights and bounded restart; P14 still owns
+protected FINISH/READY and activation after AEAD/AAD/PN. No normative rule or
+outstanding target/security check was waived.
+
+Independent read-only review confirmed the narrow P01A basis from existing
+reviewed capability/provenance evidence; coordinator marked P01A done, P02
+ready. No new test execution or full provider/production acceptance is implied.
+The reviewer found one broken checklist anchor after renaming; an explicit alias
+preserves existing links. Graph checks cover all 33 packages and no cycles;
+normative documents, provider code, prior dirty implementation and Git index
+remain unchanged. No build, flash, commit or push in this correction.
+
+See [transition and obligation mapping](evidence/implementation-transition-20260927/README.md).
+Next implementation: P02 contract/validator/corpus, P03 finite test manifests,
+then P04/P05/P06 actual library target and wire/framing code. MCU qualification
+continues at its named gates, rather than blocking unrelated host development.
+
+## 2026-09-27 — P02 offline manifest contract and validator accepted
+
+Implemented the versioned two-endpoint test-manifest contract, closed JSON
+Schema, stdlib Python validator and separately authored interpretation corpus.
+The validator checks original-byte PROFILE_HASH, service/identity/security policy,
+worst PN/header/bootstrap sizing, separate handshake/confirmation budgets, R3
+and retention/freshness inequalities, a finite per-relay duplicate/schedule
+envelope, and role/region/pool resource reservations. This is configuration code;
+no duplicate laboratory endpoint/state machine was introduced.
+
+Independent Astra source review found seven concrete issues across its passes;
+all were checked and fixed. Luna high completed the test corpus after an earlier
+worker's usage limit. The owner corrected a temporary Sol fallback; it was
+interrupted and the accepted worker assignment used the requested Luna route.
+Final independent acceptance review verified exact fixture hashes and derived
+bounds, then identified one non-isolating grant-buffer regression test. Corrected
+20-byte rejection / 21-byte acceptance was independently reviewed and rerun.
+
+RBO had no live agents at execution time, so the announced fallback ran locally.
+The first sandboxed Ninja ABI probe hung; only that run's processes were stopped.
+Identical unsandboxed CMake configure/build passed with GCC 15.2.0 and no emitted
+warnings. Normal-sandbox CTest passed 3/3: 10 validator methods, 41 negative
+manifest mutations, 17 raw cases, three valid manifests and explicit boundary/XX/
+CLI cases; existing SEC-1 fixtures and C11 scaffold also passed. See
+[P02 evidence and source hashes](evidence/profile-validator-20260927/README.md).
+
+P02 is done and P03 ready. P03 freezes complete development deployment manifests
+and case mappings; P04 creates libdmp; P09 supplies actual startup parity. No
+endpoint, physical schedule or measured target-memory fit is inferred here.
+Existing normative documents/vectors and HEAD remain unchanged. Git index changed
+during the task to a staged snapshot; coordinator issued no staging/reset and
+preserved that observed index. The change and hashes are recorded rather than
+claiming initial-index equality. No commit, push, flash or DTrack integration.
+
+## 2026-09-27 — P03 development manifests and traceability accepted
+
+Frozen six complete host deployments: DIRECT-1 Stream R, RADIO-1 simulated
+packet and separately named TEST-RADIO-RETRY-ALL, each NNpsk0/XX cipher 1.
+Radio comparison tests enforce identical common schedules, deadlines, workload,
+MTU and resource limits. Exact original-byte hashes are distinct. Historical
+provider measurements inform explicit finite portable reserves; unimplemented
+modules remain design allowances and physical target fit is unclaimed.
+
+Luna xhigh produced the 137-case normative ledger; Luna high supplied focused
+deployment tests and expected interpretations. Coordinator inspection caught and
+fixed shifted R7 columns, scope/ownership details and a resource-source newline
+portability issue. Every future implementation case remains not-run, including
+endpoint/relay/mixed S10 gates and real-SEC-1 reruns. Early independent Astra
+review closed one confirmed test-binding timer/reset-policy gap and found no
+COBS/full/compact-reference contradiction. Additional final review invocation
+was unavailable at the agent-thread limit; final acceptance is the coordinator's.
+
+RBO returned no live agents; local fallback CTest passed 3/3 with 23 profile
+methods, plus existing SEC-1 fixture and C11 scaffold checks. The exact Git index
+observed at turn start and HEAD were preserved. No provider/MCU rerun, staging,
+commit, push, hardware or DTrack integration. See [P03 evidence](evidence/profile-freeze-20260927/README.md).
+P03 is done; P04 is ready to create the actual portable library and interface seams.
+
+## 2026-09-27 — P04 real archive and interface acceptance
+
+Created the portable C11 libdmp archive and linked C/C++ foundation tests.
+Implemented checked byte views, deadlines, generations and local status names
+once in src/core/base.c. Froze structural codec, CRC/framing and transport
+contracts plus the bounded deterministic C-harness subprocess interface. P05/P06
+symbols are explicitly declaration-only; no success stubs or substitute protocol.
+
+Luna high implemented only the base/test files; coordinator integrated actual
+sources/builds. Independent Astra xhigh reviewed interfaces, source and logs;
+confirmed ownership, timer, error-output and harness event/trace ambiguities were
+fixed and the final scoped review accepted. Debug CTest passed 6/6, Release core
+3/3, final header core 3/3; tests-off C-only archive passed with five base exports
+and no undefined allocator/SDK references. RBO was unavailable; sandbox compiler
+probe stalled and the same local build succeeded outside sandbox without forced
+compiler checks. See [P04 evidence](evidence/core-seams-20260927/README.md).
+
+HEAD and normative authorities stayed unchanged. An external action changed
+the index during work (238 to 293 staged files); both observed index snapshots
+were preserved, with no staging/reset/commit/push by this task. No hardware or
+DTrack integration. All codec/framing/endpoint normative cases remain not-run.
+P04 is done; P05/P06/P07 and P01B are ready. Recommended next: independent P05
+codec and P06 framing implementation, coordinated shared-header/build ownership.
+
+
+## 2026-09-27 — P05 codec and P06 framing accepted
+
+Implemented actual libdmp structural parser/encoder and role checks, CRC32C,
+shared canonical COBS and caller-owned Stream L/R decoder/encoder. Two Luna high
+workers used disjoint source/test ownership; coordinator integrated headers,
+CMake, published-vector and layer tests. Independent Astra xhigh verified fixed
+source and logs. Confirmed encoder constraints, zero-default role policy,
+nested offsets and failed-decoder monotonic time defects were repaired with
+regressions; no open actionable finding remains in the reviewed scope.
+
+Strict Debug and Release CTest passed 10/10 each with zero build warnings.
+64 published packets are checked byte-for-byte through the real codec; this
+is structural evidence only. The tests-off C archive has no allocator/SDK
+references. RBO was unavailable, so execution used the announced local fallback.
+The ledger records 23 passed primary and 10 partial primary scopes; all whole
+rows retain pending independent/later obligations. P08 fuzz/sanitizer/cross-host
+and embedded checks, all endpoint acceptance and SEC-1 eligibility remain open.
+
+See [P05/P06 evidence](evidence/codec-framing-20260927/README.md) for exact hashes,
+commands, intermediate failures and review closures. HEAD, exact starting Git
+index and normative sources were preserved. No staging, commit, push, MCU flash
+or DTrack integration. Next: P07 deterministic harness, with independent P01B
+provider adapter work when its assignment is frozen. P08 awaits P07.

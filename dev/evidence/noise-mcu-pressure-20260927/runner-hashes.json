@@ -1,0 +1,7 @@
+{
+  "normalization": "CRLF to LF",
+  "sha256": {
+    "tests/provider/console/serial_pressure.py": "3902ee4c2398bb301c5c0ed58138fcf3a24dc0b5d196fe3c9a85a984d4396c0a",
+    "tests/provider/console/serial_bench.py": "c6008d801fef990bf28117bbff814412ec29c458ec322998fe0b621a089ba0fb"
+  }
+}

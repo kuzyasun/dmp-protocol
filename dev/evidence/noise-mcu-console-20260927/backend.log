@@ -1,0 +1,11 @@
+-- The C compiler identification is AppleClang 21.0.0.21000101
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- The ASM compiler identification is AppleClang
+-- Found assembler: /usr/bin/cc
+-- Configuring done (6.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/noise-upstream

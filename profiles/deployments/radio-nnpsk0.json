@@ -1,0 +1,476 @@
+{
+  "contract": "DMP-test-manifest/1",
+  "revisions": {
+    "core": 10,
+    "security": 5,
+    "bootstrap": 2,
+    "recovery": 1,
+    "application": 2
+  },
+  "profile": {
+    "owner": "DMP-reference",
+    "id": "RADIO-1",
+    "revision": 4
+  },
+  "identity": {
+    "namespace": 1,
+    "nodes": [
+      10,
+      20
+    ],
+    "default_service": 1,
+    "epoch_source": "sec1-association",
+    "restart": "fresh-handshake",
+    "sample_epoch": "persistent-never-reused-u64",
+    "sample_producer": 10
+  },
+  "binding": {
+    "id": "DMP-test/SIM-PACKET",
+    "revision": 1,
+    "kind": "packet",
+    "segmentation": "none",
+    "route_change": "fail-active-transfer",
+    "topology": "static-unicast",
+    "context": "origin-explicit",
+    "ttl": 2,
+    "forward_mtu": 256,
+    "return_mtu": 256,
+    "encoded_mtu": 256,
+    "frame_tx_ms": 1,
+    "tx_ownership": "borrow",
+    "completion": "exactly-once-generation-tagged",
+    "synchronous_completion": true,
+    "cancellation": "terminal-event-releases-buffer",
+    "disconnect": "settle-all-submissions-fail-transfers",
+    "access": "reserved-half-duplex-slots",
+    "return_opportunity": true,
+    "burst_gate": "serialize-pair-services-directions-and-bootstrap",
+    "return_slot_period_ms": 64,
+    "return_slot_width_ms": 42,
+    "bootstrap_integrity": "CRC32C"
+  },
+  "services": [
+    {
+      "id": 1,
+      "reply_service": 1,
+      "service_encoding": "omitted",
+      "schema": "DMP-reference/SAMPLE-1/2",
+      "payload_desc": "omitted",
+      "recovery": "selective-32",
+      "security": "SEC-1",
+      "freshness": false,
+      "idempotent": true,
+      "request_bytes": 1,
+      "result_bytes": 17,
+      "processing_ms": 10,
+      "acl": [
+        {
+          "node": 10,
+          "actions": [
+            "produce",
+            "result"
+          ]
+        },
+        {
+          "node": 20,
+          "actions": [
+            "read",
+            "status"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "reply_service": 2,
+      "service_encoding": "explicit",
+      "schema": "DMP-test/OPAQUE-1/1",
+      "payload_desc": "omitted",
+      "recovery": "selective-32",
+      "security": "SEC-1",
+      "freshness": true,
+      "idempotent": true,
+      "request_bytes": 1024,
+      "result_bytes": 1024,
+      "processing_ms": 10,
+      "acl": [
+        {
+          "node": 10,
+          "actions": [
+            "data",
+            "result"
+          ]
+        },
+        {
+          "node": 20,
+          "actions": [
+            "data",
+            "result"
+          ]
+        }
+      ]
+    }
+  ],
+  "limits": {
+    "message_bytes": 1024,
+    "fragments": 32,
+    "chunk_bytes": 32,
+    "bootstrap_chunk_bytes": 60,
+    "bootstrap_fragments": 2,
+    "peers": 1,
+    "assemblies_per_peer": 1,
+    "operations_per_service": 1,
+    "control_slots": 4,
+    "application_queue_slots": 2,
+    "adapter_slots": 2
+  },
+  "security": {
+    "mode": "NNpsk0",
+    "cipher": 1,
+    "credential": "provisioned-pairwise-psk",
+    "trust_change": "owner-authorized-atomic-pin-and-acl",
+    "pending_per_pair": 1,
+    "active_per_pair": 1,
+    "draining_per_pair": 1,
+    "crypto_slots": 1,
+    "full_capacity": "reject-new-until-capacity",
+    "peer_restart": "retain-live-until-explicit-retirement",
+    "failed_aead_limit": 1000,
+    "replay_window_bits": 1024,
+    "encryption_limit": 16777215,
+    "plaintext_limit": 1073741823,
+    "association_ms": 100000000,
+    "drain_ms": 10000,
+    "pairing_timeout_ms": 500,
+    "preauth_slots": 1,
+    "preauth_bytes": 120,
+    "attempt_ms": 20000,
+    "episode_attempts": 2,
+    "flight_attempts": 2,
+    "flight_retry_ms": 1856,
+    "confirmation_attempts": 2,
+    "confirmation_timeout_ms": 512,
+    "duplicate_responses_per_attempt": 1,
+    "response_window_ms": 1000,
+    "responses_per_window": 16,
+    "response_bytes_per_window": 8192,
+    "episode_ms": 41000,
+    "episode_crypto_ms": 2000,
+    "crypto_per_attempt_ms": 1000,
+    "episode_tx_bytes": 16384,
+    "attempt_tx_bytes": 8192,
+    "restart_backoff_ms": 1000,
+    "later_episodes_per_window": 2,
+    "later_window_ms": 10000000,
+    "ingress_packets_per_window": 100,
+    "ingress_window_ms": 1000,
+    "global_crypto_ms_per_window": 100000
+  },
+  "timing": {
+    "queue_ms": 64,
+    "forward_delay_ms": 20,
+    "return_delay_ms": 20,
+    "receipt_delay_ms": 110,
+    "burst_span_ms": 2048,
+    "feedback_guard_ms": 4,
+    "feedback_delay_ms": 110,
+    "response_timeout_ms": 2304,
+    "deadline_order": "available-terminal-or-feedback-first",
+    "send_horizon_ms": 10752,
+    "max_bursts": 3,
+    "max_probes": 2,
+    "max_status": 3,
+    "burst_starts_ms": [
+      0,
+      4352,
+      8704
+    ],
+    "jitter_ms": 0,
+    "record_margin_ms": 5,
+    "collect_ms": 10772,
+    "assembly_ms": 10777,
+    "inactivity_ms": 0,
+    "dedup_ms": 11000,
+    "rejection_ms": 11000,
+    "result_cache_ms": 11000,
+    "result_deadline_ms": 22000,
+    "correlation_ms": 23040,
+    "tombstone_ms": 23040,
+    "late_result_ms": 64,
+    "max_transfer_airtime_ms": 10000,
+    "receipt_limit": 3,
+    "feedback_buffers": 1
+  },
+  "freshness": {
+    "lease_ms": 12000,
+    "grant_delivery_age_ms": 100,
+    "grant_nodes": [
+      10,
+      20
+    ],
+    "grant_acl": "same-authorized-service-only",
+    "tokens_per_association": 4,
+    "tokens_per_principal": 8,
+    "grant_requests_per_pair": 2,
+    "token_record_ms": 12000,
+    "grant_result_ms": 11000
+  },
+  "sample": {
+    "init_attempts": 1,
+    "init_retry_ms": 5,
+    "init_deadline_ms": 22000,
+    "synchronization": "correlated-read-current-generation",
+    "no_sample_status": 64,
+    "telemetry_bytes": 16,
+    "read_request_bytes": 1,
+    "read_result_bytes": 17,
+    "status_request_bytes": 1,
+    "status_result_bytes": 2
+  },
+  "relays": [
+    {
+      "node": 30,
+      "public_pn_filter": "reject-ge-2pow24",
+      "cooldown_anchor": "last-forward-completion",
+      "cooldown_ms": 50,
+      "expiry_ms": 20000,
+      "max_forwards_per_key": 12,
+      "frame_tx_ms": 1,
+      "per_origin_airtime_ms": 10000,
+      "global_airtime_ms": 20000,
+      "lower_duplicates": 1,
+      "duplicate_tail_ms": 3,
+      "forward_arrival_min_ms": 1,
+      "forward_arrival_max_ms": 2,
+      "return_arrival_min_ms": 7,
+      "return_arrival_max_ms": 8
+    },
+    {
+      "node": 40,
+      "public_pn_filter": "reject-ge-2pow24",
+      "cooldown_anchor": "last-forward-completion",
+      "cooldown_ms": 50,
+      "expiry_ms": 20000,
+      "max_forwards_per_key": 12,
+      "frame_tx_ms": 1,
+      "per_origin_airtime_ms": 10000,
+      "global_airtime_ms": 20000,
+      "lower_duplicates": 1,
+      "duplicate_tail_ms": 3,
+      "forward_arrival_min_ms": 7,
+      "forward_arrival_max_ms": 8,
+      "return_arrival_min_ms": 1,
+      "return_arrival_max_ms": 2
+    }
+  ],
+  "resources": [
+    {
+      "role": "endpoint",
+      "target": "portable-host.endpoint.v1",
+      "flash_limit_bytes": 524288,
+      "flash_reserved_bytes": 262144,
+      "regions": [
+        {
+          "id": "RAM",
+          "limit_bytes": 131072
+        }
+      ],
+      "charges": [
+        {
+          "component": "provider_retained",
+          "region": "RAM",
+          "count": 3,
+          "bytes_each": 12288
+        },
+        {
+          "component": "provider_scratch",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 4096
+        },
+        {
+          "component": "association",
+          "region": "RAM",
+          "count": 3,
+          "bytes_each": 512
+        },
+        {
+          "component": "bootstrap",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 512
+        },
+        {
+          "component": "sender",
+          "region": "RAM",
+          "count": 4,
+          "bytes_each": 1536
+        },
+        {
+          "component": "assembly",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 1536
+        },
+        {
+          "component": "result",
+          "region": "RAM",
+          "count": 6,
+          "bytes_each": 1536
+        },
+        {
+          "component": "history",
+          "region": "RAM",
+          "count": 12,
+          "bytes_each": 128
+        },
+        {
+          "component": "correlation",
+          "region": "RAM",
+          "count": 6,
+          "bytes_each": 128
+        },
+        {
+          "component": "control",
+          "region": "RAM",
+          "count": 4,
+          "bytes_each": 512
+        },
+        {
+          "component": "application_queue",
+          "region": "RAM",
+          "count": 2,
+          "bytes_each": 1536
+        },
+        {
+          "component": "adapter",
+          "region": "RAM",
+          "count": 2,
+          "bytes_each": 512
+        },
+        {
+          "component": "stacks",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 12288
+        },
+        {
+          "component": "relay_cache",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 128
+        },
+        {
+          "component": "freshness_tokens",
+          "region": "RAM",
+          "count": 8,
+          "bytes_each": 64
+        }
+      ]
+    },
+    {
+      "role": "relay",
+      "target": "portable-host.relay.v1",
+      "flash_limit_bytes": 131072,
+      "flash_reserved_bytes": 65536,
+      "regions": [
+        {
+          "id": "RAM",
+          "limit_bytes": 65536
+        }
+      ],
+      "charges": [
+        {
+          "component": "provider_retained",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "provider_scratch",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "association",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "bootstrap",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "sender",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "assembly",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "result",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "history",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "correlation",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "control",
+          "region": "RAM",
+          "count": 4,
+          "bytes_each": 512
+        },
+        {
+          "component": "application_queue",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "adapter",
+          "region": "RAM",
+          "count": 4,
+          "bytes_each": 512
+        },
+        {
+          "component": "stacks",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 4096
+        },
+        {
+          "component": "relay_cache",
+          "region": "RAM",
+          "count": 192,
+          "bytes_each": 96
+        },
+        {
+          "component": "freshness_tokens",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        }
+      ]
+    }
+  ]
+}

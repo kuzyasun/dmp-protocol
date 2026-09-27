@@ -1,0 +1,35 @@
+{
+  "preservation_checks": {
+    "tests/provider/console/bench.c": true,
+    "tests/provider/console/bench.h": true,
+    "tests/provider/console/experiment.cmake": true,
+    "tests/provider/console/host_main.c": true,
+    "tests/provider/console/identity.cmake": true,
+    "tests/provider/console/PROTOCOL.md": true,
+    "tests/provider/console/run_host_check.py": true,
+    "tests/provider/console/serial_bench.py": true,
+    "tests/provider/console/test_console_core.py": true,
+    "tests/provider/console/test_serial_bench.py": true,
+    ".git/index": true,
+    "docs/DMP_v2_Deployment_Profiles.md": true,
+    "docs/DMP_v2_Design_Tradeoffs.md": true,
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": true,
+    "docs/DMP_v2_Reference_Application.md": true,
+    "docs/DMP_v2_Security_Profile.md": true,
+    "docs/DMP_v2_Security_Test_Vectors.json": true,
+    "docs/DMP_v2_Selective_Recovery.md": true
+  },
+  "sha256": {
+    "physical.jsonl": "d47469897495e35894d079f05e8e35348e36e92792b79caffefd968242d3128f",
+    "physical-summary.json": "d121a94ade8f5c12b62847047fdbb98bfc0fda635d105fdb13a6cf645ff49af4",
+    "physical-stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "physical-audit.json": "967266c552b2215ecf52522a0d58c4fb19a2c7b2d207e9ad57be11430ba6be1d",
+    "summarize.py": "2bbad3f724c904d842d18ab1638ea626a87eea19e1b1ef7cba4f09b590ca6dfd",
+    "host-final/audit.json": "8cb0330414a6cf5e82869b3423bc5615d7e3494c3714045d964a74edd25ab33c"
+  },
+  "parent_head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "fork_head": "c40f2dca78eee064e521233a5d884853d471028a",
+  "physical_exit_code": 0,
+  "source_or_firmware_changed_during_physical_run": false,
+  "committed_or_pushed": false
+}

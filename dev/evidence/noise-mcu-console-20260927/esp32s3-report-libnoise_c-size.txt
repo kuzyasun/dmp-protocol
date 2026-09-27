@@ -1,0 +1,853 @@
+cipher-aesgcm.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      639      0
+.comment         48      0
+.xtensa.info     56      0
+Total           743
+
+
+cipher-aesgcm.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      635      0
+.comment         48      0
+.xtensa.info     56      0
+Total           739
+
+
+cipher-chachapoly.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      639      0
+.comment         48      0
+.xtensa.info     56      0
+Total           743
+
+
+dh-curve25519.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      635      0
+.comment         48      0
+.xtensa.info     56      0
+Total           739
+
+
+hash-blake2b.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      634      0
+.comment         48      0
+.xtensa.info     56      0
+Total           738
+
+
+hash-blake2s.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      634      0
+.comment         48      0
+.xtensa.info     56      0
+Total           738
+
+
+hash-sha256.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      633      0
+.comment         48      0
+.xtensa.info     56      0
+Total           737
+
+
+cipher-aesgcm.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      638      0
+.comment         48      0
+.xtensa.info     56      0
+Total           742
+
+
+cipher-chachapoly.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                              size   addr
+.literal.noise_chachapoly_new          20      0
+.literal.noise_chachapoly_encrypt      12      0
+.literal.noise_chachapoly_decrypt      24      0
+.literal.noise_chachapoly_init_key      4      0
+.text                                   0      0
+.data                                   0      0
+.bss                                    0      0
+.text.noise_chachapoly_new             55      0
+.text.noise_chachapoly_encrypt         71      0
+.text.noise_chachapoly_decrypt        124      0
+.text.noise_chachapoly_init_key        16      0
+.debug_frame                          112      0
+.debug_info                          1639      0
+.debug_abbrev                         498      0
+.debug_loc                            200      0
+.debug_aranges                         56      0
+.debug_ranges                          40      0
+.debug_line                          1708      0
+.debug_str                           1391      0
+.comment                               48      0
+.xtensa.info                           56      0
+.xt.lit                                32      0
+.xt.prop                              228      0
+Total                                6334
+
+
+dh-curve25519.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                         size   addr
+.literal.noise_curve25519_calculate                4      0
+.literal.noise_curve25519_copy                     8      0
+.literal.noise_curve25519_set_keypair_private      8      0
+.literal.noise_curve25519_set_keypair             16      0
+.literal.noise_curve25519_generate_keypair         8      0
+.literal.noise_curve25519_new                     32      0
+.text                                              0      0
+.data                                              0      0
+.bss                                               0      0
+.text.noise_curve25519_validate_public_key         7      0
+.text.noise_curve25519_calculate                  26      0
+.text.noise_curve25519_copy                       35      0
+.text.noise_curve25519_set_keypair_private        33      0
+.text.noise_curve25519_set_keypair                67      0
+.text.noise_curve25519_generate_keypair           69      0
+.text.noise_curve25519_new                        88      0
+.debug_frame                                     184      0
+.debug_info                                     1947      0
+.debug_abbrev                                    463      0
+.debug_loc                                       569      0
+.debug_aranges                                    80      0
+.debug_ranges                                     64      0
+.debug_line                                     2103      0
+.debug_str                                      1531      0
+.comment                                          48      0
+.xtensa.info                                      56      0
+.xt.lit                                           48      0
+.xt.prop                                         360      0
+Total                                           7854
+
+
+hash-blake2b.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      637      0
+.comment         48      0
+.xtensa.info     56      0
+Total           741
+
+
+hash-sha256.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                          size   addr
+.literal.noise_sha256_finalize      4      0
+.literal.noise_sha256_update        4      0
+.literal.noise_sha256_reset         4      0
+.literal.noise_sha256_new          20      0
+.text                               0      0
+.data                               0      0
+.bss                                0      0
+.text.noise_sha256_finalize        16      0
+.text.noise_sha256_update          20      0
+.text.noise_sha256_reset           14      0
+.text.noise_sha256_new             45      0
+.debug_frame                      112      0
+.debug_info                      1057      0
+.debug_abbrev                     380      0
+.debug_loc                         84      0
+.debug_aranges                     56      0
+.debug_ranges                      40      0
+.debug_line                      1362      0
+.debug_str                       1212      0
+.comment                           48      0
+.xtensa.info                       56      0
+.xt.lit                            32      0
+.xt.prop                          204      0
+Total                            4770
+
+
+rijndael-alg-fst.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      637      0
+.comment         48      0
+.xtensa.info     56      0
+Total           741
+
+
+blake2b.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      631      0
+.comment         48      0
+.xtensa.info     56      0
+Total           735
+
+
+blake2s.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      631      0
+.comment         48      0
+.xtensa.info     56      0
+Total           735
+
+
+chacha.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      630      0
+.comment         48      0
+.xtensa.info     56      0
+Total           734
+
+
+curve25519-donna-c64.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      643      0
+.comment         48      0
+.xtensa.info     56      0
+Total           747
+
+
+curve25519-donna.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      639      0
+.comment         48      0
+.xtensa.info     56      0
+Total           743
+
+
+poly1305-donna.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      637      0
+.comment         48      0
+.xtensa.info     56      0
+Total           741
+
+
+sha256.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      628      0
+.comment         48      0
+.xtensa.info     56      0
+Total           732
+
+
+sha512.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      628      0
+.comment         48      0
+.xtensa.info     56      0
+Total           732
+
+
+x25519.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      630      0
+.comment         48      0
+.xtensa.info     56      0
+Total           734
+
+
+cipherstate.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                                size   addr
+.literal.noise_cipherstate_new_by_id                      4      0
+.literal.noise_cipherstate_new_by_name                   12      0
+.literal.noise_cipherstate_free                           4      0
+.literal.noise_cipherstate_encrypt_with_ad                8      0
+.literal.noise_cipherstate_decrypt_with_ad                8      0
+.literal.noise_cipherstate_decrypt_with_ad_at_nonce       4      0
+.literal.noise_cipherstate_encrypt                        4      0
+.literal.noise_cipherstate_decrypt                        4      0
+.literal.noise_cipherstate_rekey                          8      0
+.text                                                     0      0
+.data                                                     0      0
+.bss                                                      0      0
+.text.noise_cipherstate_new_by_id                        49      0
+.text.noise_cipherstate_new_by_name                      67      0
+.text.noise_cipherstate_free                             35      0
+.text.noise_cipherstate_get_cipher_id                    13      0
+.text.noise_cipherstate_get_key_length                   14      0
+.text.noise_cipherstate_get_mac_length                   14      0
+.text.noise_cipherstate_init_key                         59      0
+.text.noise_cipherstate_has_key                          14      0
+.text.noise_cipherstate_encrypt_with_ad                 150      0
+.text.noise_cipherstate_decrypt_with_ad                 140      0
+.text.noise_cipherstate_decrypt_with_ad_at_nonce         56      0
+.text.noise_cipherstate_encrypt                          21      0
+.text.noise_cipherstate_decrypt                          21      0
+.text.noise_cipherstate_set_nonce                        51      0
+.text.noise_cipherstate_get_max_key_length                7      0
+.text.noise_cipherstate_get_max_mac_length                7      0
+.text.noise_cipherstate_rekey                           124      0
+.debug_frame                                            424      0
+.debug_info                                            2360      0
+.debug_abbrev                                           702      0
+.debug_loc                                             1079      0
+.debug_aranges                                          160      0
+.debug_ranges                                           144      0
+.debug_line                                            3775      0
+.debug_str                                             1611      0
+.comment                                                 48      0
+.xtensa.info                                             56      0
+.xt.lit                                                  72      0
+.xt.prop                                               1092      0
+Total                                                 12421
+
+
+dhstate.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                              size   addr
+.literal.noise_dhstate_new_by_id                        4      0
+.literal.noise_dhstate_new_by_name                     12      0
+.literal.noise_dhstate_free                             4      0
+.literal.noise_dhstate_generate_keypair                 8      0
+.literal.noise_dhstate_generate_dependent_keypair       8      0
+.literal.noise_dhstate_set_keypair_unchecked            8      0
+.literal.noise_dhstate_get_keypair                     16      0
+.literal.noise_dhstate_set_public_key                  12      0
+.literal.noise_dhstate_get_public_key                   4      0
+.literal.noise_dhstate_set_null_public_key              8      0
+.literal.noise_dhstate_is_null_public_key               4      0
+.literal.noise_dhstate_clear_key                        8      0
+.literal.noise_dhstate_set_keypair                      4      0
+.literal.noise_dhstate_set_keypair_private              4      0
+.literal.noise_dhstate_calculate                       16      0
+.literal.noise_dhstate_format_fingerprint               4      0
+.text                                                   0      0
+.data                                                   0      0
+.bss                                                    0      0
+.text.noise_dhstate_new_by_id                          49      0
+.text.noise_dhstate_new_by_name                        67      0
+.text.noise_dhstate_free                               35      0
+.text.noise_dhstate_get_dh_id                          14      0
+.text.noise_dhstate_get_public_key_length              14      0
+.text.noise_dhstate_get_private_key_length             14      0
+.text.noise_dhstate_get_shared_key_length              14      0
+.text.noise_dhstate_is_ephemeral_only                  16      0
+.text.noise_dhstate_has_keypair                        21      0
+.text.noise_dhstate_has_public_key                     19      0
+.text.noise_dhstate_generate_keypair                   56      0
+.text.noise_dhstate_generate_dependent_keypair         67      0
+.text.noise_dhstate_set_keypair_unchecked              94      0
+.text.noise_dhstate_get_keypair                       114      0
+.text.noise_dhstate_set_public_key                    107      0
+.text.noise_dhstate_get_public_key                     53      0
+.text.noise_dhstate_set_null_public_key                53      0
+.text.noise_dhstate_is_null_public_key                 38      0
+.text.noise_dhstate_clear_key                          47      0
+.text.noise_dhstate_set_keypair                        85      0
+.text.noise_dhstate_set_keypair_private                68      0
+.text.noise_dhstate_calculate                         186      0
+.text.noise_dhstate_copy                               68      0
+.text.noise_dhstate_format_fingerprint                 63      0
+.text.noise_dhstate_get_role                           14      0
+.text.noise_dhstate_set_role                           40      0
+.debug_frame                                          640      0
+.debug_info                                          3836      0
+.debug_abbrev                                         753      0
+.debug_loc                                           2452      0
+.debug_aranges                                        232      0
+.debug_ranges                                         240      0
+.debug_line                                          5390      0
+.debug_str                                           2087      0
+.comment                                               48      0
+.xtensa.info                                           56      0
+.xt.lit                                               128      0
+.xt.prop                                             1884      0
+Total                                               19286
+
+
+errors.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                         size   addr
+.literal.noise_perror             28      0
+.literal.noise_strerror           20      0
+.text                              0      0
+.data                              0      0
+.bss                               0      0
+.rodata.noise_perror.str1.1       48      0
+.text.noise_perror                78      0
+.rodata.noise_strerror.str1.1     19      0
+.text.noise_strerror              96      0
+.rodata.str1.1                   297      0
+.rodata.error_strings             76      0
+.debug_frame                      64      0
+.debug_info                      982      0
+.debug_abbrev                    516      0
+.debug_loc                       369      0
+.debug_aranges                    40      0
+.debug_ranges                     72      0
+.debug_line                     1282      0
+.debug_str                       978      0
+.comment                          48      0
+.xtensa.info                      56      0
+.xt.lit                           16      0
+.xt.prop                         228      0
+Total                           5313
+
+
+handshakestate.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                                  size   addr
+.literal.noise_handshake_mix_dh                            12      0
+.literal.noise_handshakestate_mix_public_key                8      0
+.literal.noise_handshakestate_free                         44      0
+.literal.noise_handshakestate_new                          72      0
+.literal.noise_handshakestate_new_by_id                     8      0
+.literal.noise_handshakestate_new_by_name                   8      0
+.literal.noise_handshakestate_get_protocol_id               4      0
+.literal.noise_handshakestate_get_fixed_ephemeral_dh       12      0
+.literal.noise_handshakestate_set_local_ephemeral           4      0
+.literal.noise_handshakestate_get_fixed_hybrid_dh          12      0
+.literal.noise_handshakestate_set_pre_shared_key            4      0
+.literal.noise_handshakestate_set_prologue                 16      0
+.literal.noise_handshakestate_needs_local_keypair           4      0
+.literal.noise_handshakestate_has_local_keypair             4      0
+.literal.noise_handshakestate_needs_remote_public_key       4      0
+.literal.noise_handshakestate_has_remote_public_key         4      0
+.literal.noise_handshakestate_start                        40      0
+.literal.noise_handshakestate_fallback_to                  96      0
+.literal.noise_handshakestate_fallback                      8      0
+.literal.noise_handshakestate_write_message                72      0
+.literal.noise_handshakestate_read_message                 84      0
+.literal.noise_handshakestate_split                         4      0
+.literal.noise_handshakestate_get_handshake_hash           16      0
+.text                                                       0      0
+.data                                                       0      0
+.bss                                                        0      0
+.text.noise_handshake_mix_dh                               71      0
+.text.noise_handshakestate_mix_public_key                  29      0
+.text.noise_handshakestate_free                           138      0
+.text.noise_handshakestate_new                            541      0
+.text.noise_handshakestate_new_by_id                       63      0
+.text.noise_handshakestate_new_by_name                     63      0
+.text.noise_handshakestate_get_role                        13      0
+.text.noise_handshakestate_get_protocol_id                 46      0
+.text.noise_handshakestate_get_local_keypair_dh            10      0
+.text.noise_handshakestate_get_remote_public_key_dh        10      0
+.text.noise_handshakestate_get_fixed_ephemeral_dh          66      0
+.text.noise_handshakestate_set_local_ephemeral             85      0
+.text.noise_handshakestate_get_fixed_hybrid_dh             66      0
+.text.noise_handshakestate_needs_pre_shared_key            21      0
+.text.noise_handshakestate_has_pre_shared_key              19      0
+.text.noise_handshakestate_set_pre_shared_key              56      0
+.text.noise_handshakestate_set_pre_shared_key_hook         22      0
+.text.noise_handshakestate_set_prologue                   120      0
+.text.noise_handshakestate_needs_local_keypair             33      0
+.text.noise_handshakestate_has_local_keypair               24      0
+.text.noise_handshakestate_needs_remote_public_key         35      0
+.text.noise_handshakestate_has_remote_public_key           24      0
+.text.noise_handshakestate_start                          247      0
+.text.noise_handshakestate_fallback_to                    627      0
+.rodata.noise_handshakestate_fallback.str1.1               11      0
+.text.noise_handshakestate_fallback                        18      0
+.text.noise_handshakestate_get_action                      13      0
+.text.noise_handshakestate_write_message                  687      0
+.text.noise_handshakestate_read_message                   698      0
+.text.noise_handshakestate_split                           77      0
+.text.noise_handshakestate_get_handshake_hash             119      0
+.debug_frame                                              736      0
+.debug_info                                              8749      0
+.debug_abbrev                                            1112      0
+.debug_loc                                               4459      0
+.debug_aranges                                            264      0
+.debug_ranges                                             336      0
+.debug_line                                             12518      0
+.debug_str                                               4111      0
+.comment                                                   48      0
+.xtensa.info                                               56      0
+.xt.lit                                                   184      0
+.xt.prop                                                 4164      0
+Total                                                   41329
+
+
+hashstate.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                       size   addr
+.literal.noise_hashstate_hmac                   12      0
+.literal.noise_hashstate_new_by_id               4      0
+.literal.noise_hashstate_new_by_name            12      0
+.literal.noise_hashstate_free                    4      0
+.literal.noise_hashstate_hash_two                4      0
+.literal.noise_hashstate_hkdf                   32      0
+.literal.noise_hashstate_hkdf3                  40      0
+.literal.noise_hashstate_pbkdf2                 32      0
+.text                                            0      0
+.data                                            0      0
+.bss                                             0      0
+.text.noise_hashstate_hmac                     263      0
+.text.noise_hashstate_new_by_id                 49      0
+.text.noise_hashstate_new_by_name               67      0
+.text.noise_hashstate_free                      35      0
+.text.noise_hashstate_get_hash_id               13      0
+.text.noise_hashstate_get_hash_length           14      0
+.text.noise_hashstate_get_block_length          14      0
+.text.noise_hashstate_reset                     21      0
+.text.noise_hashstate_update                    41      0
+.text.noise_hashstate_finalize                  50      0
+.text.noise_hashstate_hash_one                  77      0
+.text.noise_hashstate_hash_two                 100      0
+.text.noise_hashstate_hkdf                     251      0
+.text.noise_hashstate_hkdf3                    317      0
+.text.noise_hashstate_pbkdf2                   321      0
+.text.noise_hashstate_get_max_hash_length        7      0
+.text.noise_hashstate_get_max_block_length       8      0
+.debug_frame                                   424      0
+.debug_info                                   4615      0
+.debug_abbrev                                  801      0
+.debug_loc                                    3111      0
+.debug_aranges                                 160      0
+.debug_ranges                                  192      0
+.debug_line                                   4703      0
+.debug_str                                    1747      0
+.comment                                        48      0
+.xtensa.info                                    56      0
+.xt.lit                                         64      0
+.xt.prop                                      1248      0
+Total                                        18957
+
+
+internal.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section          size   addr
+.text               0      0
+.data               0      0
+.bss                0      0
+.debug_info       107      0
+.debug_abbrev      38      0
+.debug_aranges     24      0
+.debug_line       156      0
+.debug_str        771      0
+.comment           48      0
+.xtensa.info       56      0
+Total            1200
+
+
+names-single.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section          size   addr
+.text               0      0
+.data               0      0
+.bss                0      0
+.debug_info       107      0
+.debug_abbrev      38      0
+.debug_aranges     24      0
+.debug_line       160      0
+.debug_str        775      0
+.comment           48      0
+.xtensa.info       56      0
+Total            1208
+
+
+patterns-single.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section          size   addr
+.text               0      0
+.data               0      0
+.bss                0      0
+.debug_info       107      0
+.debug_abbrev      38      0
+.debug_aranges     24      0
+.debug_line       163      0
+.debug_str        778      0
+.comment           48      0
+.xtensa.info       56      0
+Total            1214
+
+
+names.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                 size   addr
+.literal.noise_name_to_id                  8      0
+.literal.noise_id_to_name                  4      0
+.literal.noise_protocol_format_field      12      0
+.literal.noise_name_list_to_ids           12      0
+.literal.noise_ids_to_name_list           24      0
+.literal.noise_protocol_name_to_id        32      0
+.literal.noise_protocol_id_to_name        52      0
+.text                                      0      0
+.data                                      0      0
+.bss                                       0      0
+.text.noise_name_to_id                    65      0
+.text.noise_id_to_name                    53      0
+.text.noise_protocol_format_field         87      0
+.text.noise_name_list_to_ids             233      0
+.text.noise_ids_to_name_list             244      0
+.text.noise_protocol_name_to_id          405      0
+.text.noise_protocol_id_to_name          353      0
+.rodata.str1.1                           105      0
+.rodata.algorithm_names                  312      0
+.debug_frame                             184      0
+.debug_info                             4186      0
+.debug_abbrev                            771      0
+.debug_loc                              5649      0
+.debug_aranges                            80      0
+.debug_ranges                            344      0
+.debug_line                             5578      0
+.debug_str                              1377      0
+.comment                                  48      0
+.xtensa.info                              56      0
+.xt.lit                                   56      0
+.xt.prop                                1380      0
+Total                                  21710
+
+
+patterns.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                   size   addr
+.literal.noise_pattern_lookup               60      0
+.literal.noise_pattern_expand_fallback       4      0
+.literal.noise_pattern_expand_hfs            4      0
+.literal.noise_pattern_expand_psk            4      0
+.literal.noise_pattern_expand               36      0
+.text                                        0      0
+.data                                        0      0
+.bss                                         0      0
+.text.noise_pattern_lookup                 178      0
+.text.noise_pattern_expand_fallback        198      0
+.text.noise_pattern_expand_hfs             190      0
+.text.noise_pattern_expand_psk             161      0
+.text.noise_pattern_expand                 224      0
+.rodata.noise_pattern_IX                    11      0
+.rodata.noise_pattern_IK                    11      0
+.rodata.noise_pattern_IN                     9      0
+.rodata.noise_pattern_KX                    10      0
+.rodata.noise_pattern_KK                    10      0
+.rodata.noise_pattern_KN                     8      0
+.rodata.noise_pattern_XX                    12      0
+.rodata.noise_pattern_XK                    11      0
+.rodata.noise_pattern_XN                    10      0
+.rodata.noise_pattern_NX                     9      0
+.rodata.noise_pattern_NK                     8      0
+.rodata.noise_pattern_NN                     7      0
+.rodata.noise_pattern_X                      7      0
+.rodata.noise_pattern_K                      6      0
+.rodata.noise_pattern_N                      5      0
+.debug_frame                               136      0
+.debug_info                               3757      0
+.debug_abbrev                              631      0
+.debug_loc                                4567      0
+.debug_aranges                              64      0
+.debug_ranges                              648      0
+.debug_line                               4130      0
+.debug_str                                1435      0
+.comment                                    48      0
+.xtensa.info                                56      0
+.xt.lit                                     40      0
+.xt.prop                                   888      0
+Total                                    17593
+
+
+rand_os.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section          size   addr
+.text               0      0
+.data               0      0
+.bss                0      0
+.debug_info       107      0
+.debug_abbrev      38      0
+.debug_aranges     24      0
+.debug_line       155      0
+.debug_str        770      0
+.comment           48      0
+.xtensa.info       56      0
+Total            1198
+
+
+rand_sodium.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section          size   addr
+.text               0      0
+.data               0      0
+.bss                0      0
+.debug_info       107      0
+.debug_abbrev      38      0
+.debug_aranges     24      0
+.debug_line       159      0
+.debug_str        774      0
+.comment           48      0
+.xtensa.info       56      0
+Total            1206
+
+
+randstate.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                     size   addr
+.literal.noise_randstate_rekey                20      0
+.literal.noise_randstate_free                  4      0
+.literal.noise_randstate_reseed               52      0
+.literal.noise_randstate_new                  24      0
+.literal.noise_randstate_generate             28      0
+.literal.noise_randstate_pad                  12      0
+.literal.noise_randstate_generate_simple      32      0
+.text                                          0      0
+.data                                          0      0
+.bss                                           0      0
+.text.noise_randstate_rekey                   75      0
+.text.noise_randstate_free                    24      0
+.text.noise_randstate_reseed                 189      0
+.text.noise_randstate_new                     84      0
+.text.noise_randstate_generate               183      0
+.text.noise_randstate_pad                     76      0
+.text.noise_randstate_generate_simple        101      0
+.rodata.starting_key                          32      0
+.debug_frame                                 184      0
+.debug_info                                 2568      0
+.debug_abbrev                                639      0
+.debug_loc                                   971      0
+.debug_aranges                                80      0
+.debug_ranges                                 64      0
+.debug_line                                 2704      0
+.debug_str                                  1315      0
+.comment                                      48      0
+.xtensa.info                                  56      0
+.xt.lit                                       56      0
+.xt.prop                                     672      0
+Total                                      10293
+
+
+signstate.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section        size   addr
+.text             0      0
+.data             0      0
+.bss              0      0
+.debug_line       0      0
+.debug_str      628      0
+.comment         48      0
+.xtensa.info     56      0
+Total           732
+
+
+symmetricstate.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                                           size   addr
+.literal.noise_symmetricstate_free                  12      0
+.literal.noise_symmetricstate_new                   52      0
+.literal.noise_symmetricstate_new_by_id              8      0
+.literal.noise_symmetricstate_new_by_name           12      0
+.literal.noise_symmetricstate_get_protocol_id        4      0
+.literal.noise_symmetricstate_mix_key               20      0
+.literal.noise_symmetricstate_mix_hash               8      0
+.literal.noise_symmetricstate_mix_key_and_hash      28      0
+.literal.noise_symmetricstate_encrypt_and_hash      16      0
+.literal.noise_symmetricstate_decrypt_and_hash      32      0
+.literal.noise_symmetricstate_get_mac_length         8      0
+.literal.noise_symmetricstate_split                 40      0
+.text                                                0      0
+.data                                                0      0
+.bss                                                 0      0
+.text.noise_symmetricstate_free                     48      0
+.text.noise_symmetricstate_new                     218      0
+.text.noise_symmetricstate_new_by_id                56      0
+.text.noise_symmetricstate_new_by_name              63      0
+.text.noise_symmetricstate_get_protocol_id          43      0
+.text.noise_symmetricstate_mix_key                 135      0
+.text.noise_symmetricstate_mix_hash                 75      0
+.text.noise_symmetricstate_mix_key_and_hash        176      0
+.text.noise_symmetricstate_encrypt_and_hash         91      0
+.text.noise_symmetricstate_decrypt_and_hash        175      0
+.text.noise_symmetricstate_get_mac_length           38      0
+.text.noise_symmetricstate_split                   221      0
+.debug_frame                                       304      0
+.debug_info                                       4762      0
+.debug_abbrev                                      881      0
+.debug_loc                                        1753      0
+.debug_aranges                                     120      0
+.debug_ranges                                      104      0
+.debug_line                                       4188      0
+.debug_str                                        2204      0
+.comment                                            48      0
+.xtensa.info                                        56      0
+.xt.lit                                             96      0
+.xt.prop                                          1248      0
+Total                                            17343
+
+
+util.c.obj   (ex /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/esp-idf/main/noise/libnoise_c.a):
+section                             size   addr
+.literal.noise_init_framework          4      0
+.literal.noise_alloc_memory            4      0
+.literal.noise_new_object              8      0
+.literal.noise_free                    8      0
+.literal.noise_format_fingerprint     24      0
+.text                                  0      0
+.data                                  0      0
+.bss                                   0      0
+.text.noise_init_framework            22      0
+.text.noise_alloc_memory              19      0
+.text.noise_new_object                34      0
+.text.noise_clean                     23      0
+.text.noise_free                      27      0
+.text.noise_is_equal                  45      0
+.text.noise_is_zero                   32      0
+.text.noise_format_fingerprint       184      0
+.rodata.hexchars$0                    17      0
+.debug_frame                         208      0
+.debug_info                         1639      0
+.debug_abbrev                        604      0
+.debug_loc                          1306      0
+.debug_aranges                        88      0
+.debug_ranges                        120      0
+.debug_line                         2322      0
+.debug_str                          1298      0
+.comment                              48      0
+.xtensa.info                          56      0
+.xt.lit                               40      0
+.xt.prop                             564      0
+Total                               8744
+
+

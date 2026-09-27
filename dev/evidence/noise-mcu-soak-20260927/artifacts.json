@@ -1,0 +1,30 @@
+{
+  "job_id": "job_01M3H4GWQ3SVVEQZ7JW1AGGXE6",
+  "artifacts": [
+    {
+      "id": "art_01M3H4H7D251G4KGXZHYZWSHJ2",
+      "attempt_id": "att_01M3H4H03PVZEZ6TC87DF6H2C3",
+      "logical_name": "build/mcu05-checks/python-optimized.log",
+      "size_bytes": 1989,
+      "sha256": "7c90c8c5b4219ffd5cf068b2bb1abfd5fa71d15ca77af7443d2b4647d4a255e2"
+    },
+    {
+      "id": "art_01M3H4H7DTDBS25W0D6PVG8HPD",
+      "attempt_id": "att_01M3H4H03PVZEZ6TC87DF6H2C3",
+      "logical_name": "build/mcu05-checks/python.log",
+      "size_bytes": 1989,
+      "sha256": "7c90c8c5b4219ffd5cf068b2bb1abfd5fa71d15ca77af7443d2b4647d4a255e2"
+    },
+    {
+      "id": "art_01M3H4H7EHDHHCEFAG485SS0YJ",
+      "attempt_id": "att_01M3H4H03PVZEZ6TC87DF6H2C3",
+      "logical_name": "build/mcu05-checks/source.sha256",
+      "size_bytes": 215,
+      "sha256": "35cdd9340ee4a39b87cb27fc6cabc87f32174ec4e6270d62dd8fdae27d79c77f"
+    }
+  ],
+  "attempts": [
+    "att_01M3H4H03PVZEZ6TC87DF6H2C3"
+  ],
+  "terminal_attempt_id": "att_01M3H4H03PVZEZ6TC87DF6H2C3"
+}

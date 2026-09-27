@@ -1,0 +1,39 @@
+
+base.c.obj:
+0000000000000000 T dmp_bytes_slice
+0000000000000060 T dmp_deadline_after
+0000000000000080 T dmp_deadline_reached
+0000000000000090 T dmp_generation_next
+00000000000000c0 T dmp_status_name
+
+codec.c.obj:
+0000000000002d80 T dmp_core_check_role
+00000000000032b0 T dmp_core_encode
+0000000000003280 T dmp_core_encode_header
+00000000000019b0 T dmp_core_parse
+00000000000032e0 T dmp_extension_next
+                 U memcpy
+
+crc32c.c.obj:
+0000000000000000 T dmp_crc32c
+
+cobs.c.obj:
+00000000000008a0 T dmp_cobs_decode_canonical
+00000000000007b0 T dmp_cobs_encode
+0000000000000060 T dmp_cobs_encode_parts
+0000000000000000 T dmp_cobs_encoded_bound
+
+stream.c.obj:
+                 U dmp_cobs_decode_canonical
+                 U dmp_cobs_encode_parts
+                 U dmp_cobs_encoded_bound
+                 U dmp_crc32c
+                 U dmp_deadline_after
+                 U dmp_deadline_reached
+0000000000000090 T dmp_stream_encode
+0000000000000000 T dmp_stream_encoded_bound
+0000000000000840 T dmp_stream_feed
+00000000000004c0 T dmp_stream_init
+0000000000000f90 T dmp_stream_poll
+00000000000006d0 T dmp_stream_reset
+                 U memcpy

@@ -1,0 +1,114 @@
+{
+  "job_id": "job_01M3H3C1RGT7APKW87G7KWVDZP",
+  "artifacts": [
+    {
+      "id": "art_01M3H3E7BSBM474MQJEBGVESAW",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results.tar.gz",
+      "size_bytes": 3995746,
+      "sha256": "278d6b133c973f88ff1bd6a4a21938e2c0e18efa93b3a9b53d8b829e52d329e9"
+    },
+    {
+      "id": "art_01M3H3E7D0S6KBMAHFTQ4JZ1DF",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/artifact-hashes.json",
+      "size_bytes": 6097,
+      "sha256": "88d8762866e6cc99daf23a2a850fe6eae275f55f067219a97033e1fc2e1629a5"
+    },
+    {
+      "id": "art_01M3H3E7DXXYTM01GJRXXHMMFQ",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/backend.log",
+      "size_bytes": 533,
+      "sha256": "6fa4567ecc7c716d3eafb3a38380dc5d1d990f8eb9971c2cfff72fbe22c83517"
+    },
+    {
+      "id": "art_01M3H3E7J9WSXMX1PKTP665FEC",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/esp32c3-build.log",
+      "size_bytes": 103028,
+      "sha256": "79ef451aa15f172afd53b940db5c98303dd10ac3a6c15c88c8ab8d7a150ea9d0"
+    },
+    {
+      "id": "art_01M3H3E7K8NT7247B9QGXRR1J0",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/esp32c3-collect.log",
+      "size_bytes": 2264,
+      "sha256": "bfcc6d161dcc253e85ab346509cc4b9a843aaa320fb3489bcceb5658a0835deb"
+    },
+    {
+      "id": "art_01M3H3E89ZPN9GMDZBW8X3DC3S",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/esp32c3-report.json",
+      "size_bytes": 839638,
+      "sha256": "9a7c2e66b3a8c10854afe50030577ec7d0459d4b213d11f7ba39fb40f2b0f06e"
+    },
+    {
+      "id": "art_01M3H3E8AVGVPZJ452RAKEDXQF",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/esp32c3-size.json",
+      "size_bytes": 1551,
+      "sha256": "806f5ea8132de5d749a617945bfa0e993655a99d4b76a6ed9b51edd45e669f57"
+    },
+    {
+      "id": "art_01M3H3E8DEHFZRHF7C87JS81CR",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/esp32s3-build.log",
+      "size_bytes": 106005,
+      "sha256": "685b2c0f1cd9693d47f59fa3ecd13424285ea6d48ce9545f16bded0beca1de0c"
+    },
+    {
+      "id": "art_01M3H3E8EEDT2XBQAMJY6NG76M",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/esp32s3-collect.log",
+      "size_bytes": 2264,
+      "sha256": "bfcc6d161dcc253e85ab346509cc4b9a843aaa320fb3489bcceb5658a0835deb"
+    },
+    {
+      "id": "art_01M3H3E961Y3QW1WQRR9PSBXDS",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/esp32s3-report.json",
+      "size_bytes": 886826,
+      "sha256": "9a8e7885421d6a12ebcd3fd5c9260b6336cf0bd66c8d42345c0c696973167cbc"
+    },
+    {
+      "id": "art_01M3H3E96T8WWMGFS0DW140QT1",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/esp32s3-size.json",
+      "size_bytes": 1958,
+      "sha256": "bc4be06051f45000ed220b003c2fc5fb2632673b0c5f334369bed05b8d107e3d"
+    },
+    {
+      "id": "art_01M3H3E993RT4MBMQ26WRJQNX0",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/host-build.log",
+      "size_bytes": 40639,
+      "sha256": "a290810c00b46af6db1b0eaa1e62dd56b036dd1fe68e80ed5fd90227bd557c5d"
+    },
+    {
+      "id": "art_01M3H3E9A76HY3EV9ND1Y6PXKY",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/host-one.json",
+      "size_bytes": 315,
+      "sha256": "e1840e37b2431a7487b3635f917fb4fc9c07a74384fe55ade54268b680cda7c7"
+    },
+    {
+      "id": "art_01M3H3E9B8F0TF5VM3E6RA2253",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/host-tests.log",
+      "size_bytes": 5294,
+      "sha256": "368e72379981828a2128ce45517e04e5a3a17c226aca6be8eb66ff47d5eacae9"
+    },
+    {
+      "id": "art_01M3H3E9C13TBBCB1JZWHHF0MV",
+      "attempt_id": "att_01M3H3C4VQVPY95R56K50336PM",
+      "logical_name": "build/parallel2-results/host-two.json",
+      "size_bytes": 570,
+      "sha256": "06247736d7ee31794fb1a8edbcd72fd0ef0524ba956092d1202195acff167604"
+    }
+  ],
+  "attempts": [
+    "att_01M3H3C4VQVPY95R56K50336PM"
+  ],
+  "terminal_attempt_id": "att_01M3H3C4VQVPY95R56K50336PM"
+}

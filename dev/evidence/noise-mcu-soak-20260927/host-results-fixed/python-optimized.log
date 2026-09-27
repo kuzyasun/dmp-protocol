@@ -1,0 +1,21 @@
+test_failed_result_is_rejected_with_optimization (test_serial_parallel.AcceptanceTests.test_failed_result_is_rejected_with_optimization) ... ok
+test_unicore_s3_cannot_pass_parallel_gate (test_serial_parallel.AcceptanceTests.test_unicore_s3_cannot_pass_parallel_gate) ... ok
+test_valid (test_serial_parallel.AcceptanceTests.test_valid) ... ok
+test_boot_panic_is_not_ignored (test_serial_soak.SoakTests.test_boot_panic_is_not_ignored) ... ok
+test_duplicate_boot_sequences_are_rejected (test_serial_soak.SoakTests.test_duplicate_boot_sequences_are_rejected) ... ok
+test_epochs_reset_only_after_four_accepted_runs_and_final_hello (test_serial_soak.SoakTests.test_epochs_reset_only_after_four_accepted_runs_and_final_hello) ... ok
+test_failed_run_never_retried_or_reset (test_serial_soak.SoakTests.test_failed_run_never_retried_or_reset) ... ok
+test_heap_loss_after_reset_is_rejected (test_serial_soak.SoakTests.test_heap_loss_after_reset_is_rejected) ... ok
+test_planned_reset_without_rom_evidence_is_rejected (test_serial_soak.SoakTests.test_planned_reset_without_rom_evidence_is_rejected) ... ok
+test_reset_pulse_keeps_boot_pin_inactive (test_serial_soak.SoakTests.test_reset_pulse_keeps_boot_pin_inactive) ... ok
+test_reset_without_boot_change_stops_before_next_run (test_serial_soak.SoakTests.test_reset_without_boot_change_stops_before_next_run) ... ok
+test_reset_without_counter_clear_is_rejected (test_serial_soak.SoakTests.test_reset_without_counter_clear_is_rejected) ... ok
+test_timeout_never_retried_or_reset (test_serial_soak.SoakTests.test_timeout_never_retried_or_reset) ... ok
+test_unexpected_reboot_during_run_is_rejected (test_serial_soak.SoakTests.test_unexpected_reboot_during_run_is_rejected) ... ok
+test_watchdog_and_brownout_reset_diagnostics_are_rejected (test_serial_soak.SoakTests.test_watchdog_and_brownout_reset_diagnostics_are_rejected) ... ok
+test_wrong_image_is_rejected (test_serial_soak.SoakTests.test_wrong_image_is_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.001s
+
+OK

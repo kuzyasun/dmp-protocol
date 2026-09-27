@@ -1,0 +1,16 @@
+{
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "index_sha256": "d1ddf5da42d8b4d7a504f60e72a8b29bd8e240c54df7757258bf96fc3f2e7aa9",
+  "head_preserved": true,
+  "exact_index_preserved": true,
+  "changed_baseline_files": [
+    "dev/DMP_Work_Packages.md",
+    "dev/DMP_Execution_Log.md",
+    "docs/DMP_Test_Manifest_Contract.md",
+    "README.md",
+    "dev/DMP_Conformance_Matrix.md"
+  ],
+  "normative_wire_sources_and_vectors_preserved": true,
+  "independent_review": "Mandatory early contract/vector review passed; additional final invocation unavailable due agent thread limit",
+  "coordinator_acceptance": "P03 done; P04 ready"
+}

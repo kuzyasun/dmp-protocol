@@ -1,0 +1,12 @@
+{
+  "scope": "Original checkout byte hashes retained as provenance; not a cross-OS assertion",
+  "files": {
+    "dev/evidence/noise-arena-20260927/README.md": "74f182a5a12aa2079fd47912f23e62249f67f2d093d0f23d0b9449ed66f5823b",
+    "dev/evidence/noise-arena-20260927/layout-summary.json": "2aef9c5bee4138df3f670bb339a6dc3f566f9f22526c15b0a306fcb7c09b18b8",
+    "dev/evidence/noise-owners-20260927/README.md": "62f0996329518958ade345e9c29ef34812c1ebb912d5f1044aecc66ea3d8e2bd",
+    "dev/evidence/noise-mcu-20260927/README.md": "17b7d1cc14c14cd8e26c3041ec7f1696e71d9db2995d38716912ef25aa84ff26",
+    "dev/evidence/noise-mcu-console-20260927/physical/README.md": "9b005077195c441a966266622aca99cd0212cb05f7c16d28dc7108978655827c",
+    "tests/provider/experiment_manifest.json": "6d2ca537d1c6987a38226a11c43ff434666c89452da491c8e259529f761c919a",
+    "dev/evidence/implementation-transition-20260927/README.md": "99b309be2feda807499689fa724c875fb1c7296aeb0dbec355aecbdc74e09b0e"
+  }
+}

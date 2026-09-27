@@ -1,0 +1,8 @@
+{
+  "staged_summary": " 238 files changed, 91439 insertions(+), 63 deletions(-)",
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "index_sha256": "d1ddf5da42d8b4d7a504f60e72a8b29bd8e240c54df7757258bf96fc3f2e7aa9",
+  "observed_at": "2026-09-27T15:21:57.1473674+03:00",
+  "action": "Observed index changed during task; no staging/reset command issued by coordinator. Preserving current index. Local byte snapshot retained under ignored build/profile-gate/.",
+  "index_last_write": "2026-09-27T15:18:44.6444811+03:00"
+}

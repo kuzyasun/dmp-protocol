@@ -1,0 +1,27 @@
+{
+  "valid": true,
+  "counts": {
+    "main_reference_vectors": 26,
+    "main_22_8": 31,
+    "s10_subcases": 24,
+    "s10_distinct_cases": 18,
+    "r6": 10,
+    "r7": 16,
+    "sample1": 24,
+    "manifest_rejections": 4,
+    "stream_binding_cases": 2,
+    "total": 137
+  },
+  "all_statuses": "not-run",
+  "checks": [
+    "required nonempty fields and Pxx gates",
+    "unique case IDs",
+    "no shifted expected/gate columns",
+    "related-case references",
+    "31 source bullets",
+    "S10 cases1-18 and endpoint/relay/mixed gate splits",
+    "all six exact manifest hashes",
+    "explicit unsupported scope and rejection rows"
+  ],
+  "scope": "Structural completeness plus coordinator source comparison; no runtime tests"
+}

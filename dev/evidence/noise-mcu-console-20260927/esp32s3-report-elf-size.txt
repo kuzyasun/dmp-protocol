@@ -1,0 +1,40 @@
+/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-esp32s3/dmp_provider_console.elf  :
+section                  size         addr
+.rtc.text                   0   1611653120
+.rtc.force_fast             0   1611653120
+.rtc_noinit                 0   1342177280
+.rtc.force_slow            36   1342177280
+.rtc_reserved              24   1611661288
+.iram0.vectors           1028   1077362688
+.iram0.text             44059   1077363716
+.dram0.dummy            28928   1070104576
+.dram0.data             11979   1070133504
+.noinit                     1   1070145483
+.dram0.bss              44016   1070145488
+.flash.text             92232   1107296288
+.flash_rodata_dummy    131072   1006632992
+.flash.appdesc            256   1006764064
+.flash.rodata           56444   1006764320
+.flash.tdata               16   1006820764
+.ext_ram.dummy         196576   1006632992
+.iram0.text_end           225   1077407775
+.iram0.data                 0   1077408000
+.iram0.bss                  0   1077408000
+.dram0.heap_start           0   1070189504
+.noload                     4            0
+.debug_aranges          24528            0
+.debug_info           1586658            0
+.debug_abbrev          169383            0
+.debug_line           1046441            0
+.debug_frame            59728            0
+.debug_str             258561            0
+.debug_loc             513598            0
+.debug_ranges           65296            0
+.debug_line_str          2253            0
+.debug_loclists         10554            0
+.debug_rnglists           938            0
+.comment                   84            0
+.xtensa.info               56            0
+Total                 4344974
+
+

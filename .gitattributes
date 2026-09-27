@@ -1,3 +1,7 @@
 # Unified patch context lines contain a required leading space, even when empty.
 # git apply --whitespace=error checks the actual added C lines.
 tests/provider/backend/checked-init.patch text eol=lf whitespace=-blank-at-eol
+# Exact manifest bytes participate in SEC-1 PROFILE_HASH across host OSes.
+profiles/** text eol=lf
+tests/profiles/*.json text eol=lf
+tests/profiles/fixtures/*.json text eol=lf

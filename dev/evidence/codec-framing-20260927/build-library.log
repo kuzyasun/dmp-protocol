@@ -1,0 +1,6 @@
+[1/6] Building C object CMakeFiles/libdmp.dir/src/core/base.c.obj
+[2/6] Building C object CMakeFiles/libdmp.dir/src/integrity/crc32c.c.obj
+[3/6] Building C object CMakeFiles/libdmp.dir/src/stream/cobs.c.obj
+[4/6] Building C object CMakeFiles/libdmp.dir/src/stream/stream.c.obj
+[5/6] Building C object CMakeFiles/libdmp.dir/src/core/codec.c.obj
+[6/6] Linking C static library libdmp.a

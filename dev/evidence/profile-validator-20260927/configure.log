@@ -1,0 +1,10 @@
+-- The C compiler identification is GNU 15.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/develop/mingw/w64devkit/bin/gcc.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Found Python3: C:/develop/Python312/python.exe (found suitable version "3.12.8", minimum required is "3.10") found components: Interpreter 
+-- Configuring done (1.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/projects/gemslibe/dmp-protocol/build/profile-gate

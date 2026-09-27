@@ -65,16 +65,32 @@ function(dmp_add_mcu_provider)
             --input "${_root}/docs/DMP_v2_Security_Test_Vectors.json" --output "${_fixture}"
         DEPENDS "${_provider}/generate_noise_fixture_header.py"
             "${_root}/docs/DMP_v2_Security_Test_Vectors.json" VERBATIM)
-    add_library(dmp_mcu_fixture STATIC
-        "${_provider}/noise_allocator_probe.c" "${_provider}/noise_test_arena.c"
-        "${_provider}/noise_fixture_probe.c" "${_provider}/noise_checked_fixture_port.c"
-        "${_provider}/noise_checked_no_legacy_rng.c" "${_fixture}")
-    set_source_files_properties("${_provider}/noise_allocator_probe.c" PROPERTIES
-        COMPILE_DEFINITIONS "main=dmp_mcu_fixture_main")
+    if(DMP_MCU_PARALLEL)
+        add_library(dmp_mcu_fixture STATIC
+            "${_provider}/parallel/parallel.c" "${_provider}/noise_test_arena.c"
+            "${_provider}/noise_checked_no_legacy_rng.c" "${_fixture}")
+        target_include_directories(dmp_mcu_fixture PRIVATE "${_provider}")
+        include("${_provider}/console/identity.cmake")
+        dmp_bench_identity(dmp_mcu_fixture)
+    elseif(DMP_MCU_CONSOLE)
+        add_library(dmp_mcu_fixture STATIC
+            "${_provider}/console/bench.c" "${_provider}/noise_test_arena.c"
+            "${_provider}/noise_checked_no_legacy_rng.c" "${_fixture}")
+        target_include_directories(dmp_mcu_fixture PRIVATE "${_provider}")
+        include("${_provider}/console/identity.cmake")
+        dmp_bench_identity(dmp_mcu_fixture)
+    else()
+        add_library(dmp_mcu_fixture STATIC
+            "${_provider}/noise_allocator_probe.c" "${_provider}/noise_test_arena.c"
+            "${_provider}/noise_fixture_probe.c" "${_provider}/noise_checked_fixture_port.c"
+            "${_provider}/noise_checked_no_legacy_rng.c" "${_fixture}")
+        set_source_files_properties("${_provider}/noise_allocator_probe.c" PROPERTIES
+            COMPILE_DEFINITIONS "main=dmp_mcu_fixture_main")
+        target_compile_definitions(dmp_mcu_fixture PRIVATE
+            DMP_TEST_NOISE_ENTROPY_PORT=1 DMP_NOISE_FIXTURE_EMBEDDED_RUNNER=1)
+    endif()
     target_include_directories(dmp_mcu_fixture PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated"
         "${_provider}/backend")
-    target_compile_definitions(dmp_mcu_fixture PRIVATE
-        DMP_TEST_NOISE_ENTROPY_PORT=1 DMP_NOISE_FIXTURE_EMBEDDED_RUNNER=1)
     target_link_libraries(dmp_mcu_fixture PUBLIC noise_c)
     target_link_options(dmp_mcu_fixture INTERFACE
         "-Wl,--wrap=randombytes_stir" "-Wl,--wrap=randombytes_buf")

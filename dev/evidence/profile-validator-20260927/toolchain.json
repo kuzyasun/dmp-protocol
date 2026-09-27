@@ -1,0 +1,10 @@
+{
+  "compiler": "gcc.exe (GCC) 15.2.0",
+  "configure": "first sandbox Ninja ABI probe hung and was terminated; identical unsandboxed configure/build succeeded",
+  "node": "v24.11.1",
+  "execution": "local fallback: RBO agents_list returned no live agents",
+  "cmake": "cmake version 3.28.1",
+  "ninja": "1.11.1",
+  "os": "Microsoft Windows NT 10.0.26200.0",
+  "python": "Python 3.12.8"
+}

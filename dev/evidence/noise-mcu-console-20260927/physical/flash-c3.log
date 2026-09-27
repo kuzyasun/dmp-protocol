@@ -1,0 +1,67 @@
+IDF PowerShell Environment
+-------------------------
+Environment variables set:
+IDF_PATH: C:\esp\v6.1\esp-idf
+IDF_TOOLS_PATH: C:\Espressif\tools
+IDF_PYTHON_ENV_PATH: C:\Espressif\tools\python\v6.1\venv
+
+Custom commands available:
+idf.py - Use this to run IDF commands (e.g., idf.py build)
+esptool.py
+espefuse.py
+espsecure.py
+otatool.py
+parttool.py
+
+Python environment activated.
+You can now use IDF commands and Python tools.
+esptool v5.4.0
+Serial port COM35:
+Connecting....
+Connected to ESP32-C3 on COM35:
+Chip type:          ESP32-C3 (QFN32) (revision v0.4)
+Features:           Wi-Fi, BT 5 (LE), Single Core, 160MHz
+Crystal frequency:  40MHz
+MAC:                9c:cc:01:61:40:40
+
+Uploading stub flasher...
+Running stub flasher...
+Stub flasher running.
+Changing baud rate to 460800...
+Changed.
+
+Configuring flash size...
+
+Writing 'bootloader/bootloader.bin' at 0x00000000...
+SHA digest in image updated.
+Flash will be erased from 0x00000000 to 0x00004fff...
+Compressed 18672 bytes to 12137...
+Writing at 0x000048f0 ============================== 100.0% 11.85kB/11.85kB [0s] 
+Wrote 18672 bytes (12137 compressed) at 0x00000000 in 0.5 seconds (310.4 kbit/s).
+Verifying written data...
+Hash of data verified.
+
+Writing 'partition_table/partition-table.bin' at 0x00008000...
+Flash will be erased from 0x00008000 to 0x00008fff...
+Compressed 3072 bytes to 103...
+Writing at 0x00008c00 ============================== 100.0% 103B/103B [0s] 
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (697.1 kbit/s).
+Verifying written data...
+Hash of data verified.
+
+Writing 'dmp_provider_console.bin' at 0x00010000...
+Flash will be erased from 0x00010000 to 0x0003dfff...
+Compressed 187984 bytes to 120146...
+Writing at 0x00019ba7 ====                            13.6% 16.00kB/117.33kB [0s] 
+Writing at 0x0001eda2 ========                        27.3% 32.00kB/117.33kB [0s] 
+Writing at 0x00024aa6 ============                    40.9% 48.00kB/117.33kB [1s] 
+Writing at 0x0002a89d ================                54.5% 64.00kB/117.33kB [1s] 
+Writing at 0x0002fc1e ====================            68.2% 80.00kB/117.33kB [1s] 
+Writing at 0x00035bde ========================>       81.8% 96.00kB/117.33kB [2s] 
+Writing at 0x0003bc30 ============================>   95.5% 112.00kB/117.33kB [2s] 
+Writing at 0x0003de50 ============================== 100.0% 117.33kB/117.33kB [2s] 
+Wrote 187984 bytes (120146 compressed) at 0x00010000 in 3.2 seconds (470.6 kbit/s).
+Verifying written data...
+Hash of data verified.
+
+Hard resetting via RTS pin...

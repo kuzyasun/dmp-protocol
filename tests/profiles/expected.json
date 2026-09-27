@@ -1,0 +1,61 @@
+{
+  "fixtures": {
+    "direct.json": {
+      "sha256": "dd4183402818045f3c231c53bd8841ff1b9b10e289dbef3460109e5ab2b06914",
+      "derived": {
+        "fragment_count": 4,
+        "bootstrap_fragment_count": 2,
+        "app_frame_bytes": 70,
+        "status_frame_bytes": 48,
+        "bootstrap_frame_bytes": 86,
+        "encoded_frame_bytes": 263,
+        "response_floor_ms": 150,
+        "freshness_required_ms": 1044,
+        "transfer_frame_reserve": 14,
+        "establishment_frame_reserve": 14,
+        "establishment_wire_bytes": 3682,
+        "establishment_ms": 11420,
+        "bootstrap_flight_span_ms": 128,
+        "ram_reserved_bytes": {"endpoint": {"RAM": 3478}}
+      }
+    },
+    "radio.json": {
+      "sha256": "15e6762bf8501a3bd84173a5efb31da2a2601f78f82a475a8de7a982828ba8c4",
+      "derived": {
+        "fragment_count": 4,
+        "bootstrap_fragment_count": 2,
+        "app_frame_bytes": 102,
+        "status_frame_bytes": 62,
+        "bootstrap_frame_bytes": 86,
+        "encoded_frame_bytes": 256,
+        "response_floor_ms": 430,
+        "freshness_required_ms": 1144,
+        "transfer_frame_reserve": 16,
+        "establishment_frame_reserve": 14,
+        "establishment_wire_bytes": 3584,
+        "establishment_ms": 11420,
+        "bootstrap_flight_span_ms": 128,
+        "ram_reserved_bytes": {"endpoint": {"RAM": 4409}, "relay": {"RAM": 2316}}
+      }
+    },
+    "test-radio-retry-all.json": {
+      "sha256": "5034935f433891001226271640621cbe818ff277915287a190169c4720d4238c",
+      "derived": {
+        "fragment_count": 4,
+        "bootstrap_fragment_count": 2,
+        "app_frame_bytes": 102,
+        "status_frame_bytes": 62,
+        "bootstrap_frame_bytes": 86,
+        "encoded_frame_bytes": 256,
+        "response_floor_ms": 150,
+        "freshness_required_ms": 1144,
+        "transfer_frame_reserve": 14,
+        "establishment_frame_reserve": 14,
+        "establishment_wire_bytes": 3584,
+        "establishment_ms": 11420,
+        "bootstrap_flight_span_ms": 128,
+        "ram_reserved_bytes": {"endpoint": {"RAM": 4409}, "relay": {"RAM": 2252}}
+      }
+    }
+  }
+}

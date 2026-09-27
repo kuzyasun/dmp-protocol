@@ -1,0 +1,20 @@
+{
+  "command": [
+    "C:\\ST\\STM32CubeCLT_1.20.0\\CMake\\bin\\ctest.exe",
+    "--test-dir",
+    "build/profile-gate",
+    "-V",
+    "--output-junit",
+    "C:\\projects\\gemslibe\\dmp-protocol\\dev\\evidence\\profile-freeze-20260927\\ctest.xml"
+  ],
+  "cwd": "C:\\projects\\gemslibe\\dmp-protocol",
+  "exit_code": 0,
+  "tools": {
+    "python": "3.12.8",
+    "ctest": "3.28.1",
+    "node": "v24.11.1"
+  },
+  "route": "local fallback: RBO agents_list returned []",
+  "build": "Reused unchanged P02 build/profile-gate scaffold; no C sources/build configuration changed in P03. No new compiler or hardware run.",
+  "after": "Portable auxiliary source-text hash correction; exact manifest hashes unchanged"
+}

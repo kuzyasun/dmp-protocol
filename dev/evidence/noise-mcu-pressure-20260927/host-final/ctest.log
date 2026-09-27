@@ -1,0 +1,14 @@
+Test project /Users/smartyniuk/.rbo/agent/workspaces/att_01M3GAPNDV5XMTJBRW5A31ZX2W/project/build/pressure-host
+    Start 29: dmp_console_core
+1/3 Test #29: dmp_console_core .................   Passed    0.27 sec
+    Start 30: dmp_console_client
+2/3 Test #30: dmp_console_client ...............   Passed    0.09 sec
+    Start 31: dmp_console_live_pair
+3/3 Test #31: dmp_console_live_pair ............   Passed    0.12 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Label Time Summary:
+provider-console    =   0.48 sec*proc (3 tests)
+
+Total Test time (real) =   0.49 sec

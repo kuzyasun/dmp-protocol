@@ -1,0 +1,54 @@
+Pre-flash identification: retained verbatim excerpts from coordinator exec output.
+These calls preceded both write-flash calls. They were not repeated after the
+serial runs, to preserve the boards' boot sessions. The EIM environment banner
+is omitted; relevant esptool output below is copied from the recorded tool results.
+
+Command: cmd /d /c eim run "python -m esptool --port COM23 --chip esp32s3 flash-id" v6.1
+Exec output chunk: d6db06; exit_code: 0
+
+esptool v5.4.0
+Serial port COM23:
+Connecting....
+Connected to ESP32-S3 on COM23:
+Chip type:          ESP32-S3 (QFN56) (revision v0.2)
+Features:           Wi-Fi, BT 5 (LE), Dual Core + LP Core, 240MHz, Embedded PSRAM 8MB (AP_3v3)
+Crystal frequency:  40MHz
+MAC:                90:70:69:18:97:cc
+
+Uploading stub flasher...
+Running stub flasher...
+Stub flasher running.
+
+Flash Memory Information:
+=========================
+Manufacturer: c2
+Device: 2018
+Detected flash size: 16MB
+Flash type set in eFuse: quad (4 data lines)
+Flash voltage set by eFuse: 3.3V
+
+Hard resetting via RTS pin...
+
+Command: cmd /d /c eim run "python -m esptool --port COM35 --chip esp32c3 flash-id" v6.1
+Exec output chunk: afcc6f; exit_code: 0
+
+esptool v5.4.0
+Serial port COM35:
+Connecting....
+Connected to ESP32-C3 on COM35:
+Chip type:          ESP32-C3 (QFN32) (revision v0.4)
+Features:           Wi-Fi, BT 5 (LE), Single Core, 160MHz
+Crystal frequency:  40MHz
+MAC:                9c:cc:01:61:40:40
+
+Uploading stub flasher...
+Running stub flasher...
+Stub flasher running.
+
+Flash Memory Information:
+=========================
+Manufacturer: c4
+Device: 6016
+Detected flash size: 4MB
+
+Hard resetting via RTS pin...

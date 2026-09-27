@@ -1,0 +1,11 @@
+{
+  "scope": "source-only",
+  "result": "seven confirmed findings fixed; no remaining concrete source blockers",
+  "hashes": {
+    "profiles/schema/build_schema.py": "dcd3b98629fd35bbdf76599ece6b9f6fe240be24d0aa298db7bdac2cf7639e05",
+    "docs/DMP_Test_Manifest_Contract.md": "5e1627ff4cbd270d51ca69f3982cb07d036b3552d7c86208d3dc6f86f97f30d7",
+    "profiles/schema/manifest-v1.schema.json": "23aca364eebe2beabd025f5728ce54ee0cf9e818d0b17e65235e37ada36a1ddb",
+    "tools/validate_profile.py": "7813060af442d97c605e2f51f9eb62bdc840b2a801f85bc66d40a24ff35f4e0a"
+  },
+  "reviewer": "/root/profile_review"
+}

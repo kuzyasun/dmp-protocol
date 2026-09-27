@@ -1,0 +1,13 @@
+{
+  "scope": "Historical reviewed inputs; not whole-endpoint or current target qualification",
+  "files": {
+    "dev/evidence/noise-arena-20260927/README.md": "74f182a5a12aa2079fd47912f23e62249f67f2d093d0f23d0b9449ed66f5823b",
+    "dev/evidence/noise-arena-20260927/layout-summary.json": "551068e0e006d84e04a4b973df4afebef34294f966887c3531914dccc8a1cb13",
+    "dev/evidence/noise-owners-20260927/README.md": "36e67d8aa3fb17c812afeda310037b2ffe84c15b64ffa477cf08700505ca2ac1",
+    "dev/evidence/noise-mcu-20260927/README.md": "856e8ae960f8f794b0b366849c4035e614f1b1fbf41689b32540edd378dc671b",
+    "dev/evidence/noise-mcu-console-20260927/physical/README.md": "9b005077195c441a966266622aca99cd0212cb05f7c16d28dc7108978655827c",
+    "tests/provider/experiment_manifest.json": "7511aea844e316dc49e54666ed0e705d3caf694ee93a78cdc228d956013cb342",
+    "dev/evidence/implementation-transition-20260927/README.md": "bca16d60faa5c740f95436698d6aa6ebe4ce566dc4dabdf245fc9cb902dda5c0"
+  },
+  "hash_bytes": "Source text with CRLF replaced by LF; no other normalization. This is not PROFILE_HASH."
+}

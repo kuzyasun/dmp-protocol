@@ -1,0 +1,58 @@
+{
+  "job_id": "job_01M3GAPJMFMTAGXQVYV2KP1Q6J",
+  "artifacts": [
+    {
+      "id": "art_01M3GAQ4MHCAN8W183D6B5WX4Q",
+      "attempt_id": "att_01M3GAPNDV5XMTJBRW5A31ZX2W",
+      "logical_name": "build/pressure-host/Testing/Temporary/LastTest.log",
+      "size_bytes": 33842,
+      "sha256": "77119f278f959dc3ebadf23a71b973ace9ccb16d699e9e5898c048bf7904a423"
+    },
+    {
+      "id": "art_01M3GAQ4N8S67J0ZAKHBCQ61K7",
+      "attempt_id": "att_01M3GAPNDV5XMTJBRW5A31ZX2W",
+      "logical_name": "build/pressure-results/backend.log",
+      "size_bytes": 533,
+      "sha256": "efd30f33f252c96ceaa4b6e7f825547fe9a568e83de8a38add48c041808f6a2f"
+    },
+    {
+      "id": "art_01M3GAQ4PKZR4PETQFMCRAVG6W",
+      "attempt_id": "att_01M3GAPNDV5XMTJBRW5A31ZX2W",
+      "logical_name": "build/pressure-results/build.log",
+      "size_bytes": 12533,
+      "sha256": "e606b5759eca03aa9f62a1c97b51ea30a0828a85d6c6dce10b878b95e7ef62d7"
+    },
+    {
+      "id": "art_01M3GAQ4QBJJ2R85D07FS5QVRB",
+      "attempt_id": "att_01M3GAPNDV5XMTJBRW5A31ZX2W",
+      "logical_name": "build/pressure-results/ctest.log",
+      "size_bytes": 572,
+      "sha256": "1e0f77e484f8438b29d50237128a5f32a623707ab61df358075192cdf7eb3230"
+    },
+    {
+      "id": "art_01M3GAQC47R95EW1RAPYGR77QC",
+      "attempt_id": "att_01M3GAPNDV5XMTJBRW5A31ZX2W",
+      "logical_name": "build/pressure-results/host.jsonl",
+      "size_bytes": 8551938,
+      "sha256": "1ccf816434085be57e03c4389f288271b551a379017a2b73ea9d0081d1b2d97a"
+    },
+    {
+      "id": "art_01M3GAQC4ZFG2XYHYAS8DWJ16T",
+      "attempt_id": "att_01M3GAPNDV5XMTJBRW5A31ZX2W",
+      "logical_name": "build/pressure-results/runner.stderr.log",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "art_01M3GAQC9AE5CRR4VD8YDQ91RS",
+      "attempt_id": "att_01M3GAPNDV5XMTJBRW5A31ZX2W",
+      "logical_name": "build/pressure-results/summary.json",
+      "size_bytes": 113221,
+      "sha256": "5f7f375a36ff8fb57299bb0bbebd9fdef7aa6fa869ff96b8228211ae9a931f40"
+    }
+  ],
+  "attempts": [
+    "att_01M3GAPNDV5XMTJBRW5A31ZX2W"
+  ],
+  "terminal_attempt_id": "att_01M3GAPNDV5XMTJBRW5A31ZX2W"
+}

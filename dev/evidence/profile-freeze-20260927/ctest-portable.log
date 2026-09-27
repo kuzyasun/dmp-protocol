@@ -1,0 +1,70 @@
+Internal ctest changing into directory: C:/projects/gemslibe/dmp-protocol/build/profile-gate
+UpdateCTestConfiguration  from :C:/projects/gemslibe/dmp-protocol/build/profile-gate/DartConfiguration.tcl
+UpdateCTestConfiguration  from :C:/projects/gemslibe/dmp-protocol/build/profile-gate/DartConfiguration.tcl
+Test project C:/projects/gemslibe/dmp-protocol/build/profile-gate
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: profiles.contract
+
+1: Test command: C:\develop\Python312\python.exe "-m" "unittest" "discover" "-s" "C:/projects/gemslibe/dmp-protocol/tests/profiles" "-p" "test_*.py" "-v"
+1: Working Directory: C:/projects/gemslibe/dmp-protocol/build/profile-gate
+1: Test timeout computed to be: 30
+1: test_cli_reports_valid_digest_and_rejects_bad_expected_digest (test_contract.ManifestContractTests.test_cli_reports_valid_digest_and_rejects_bad_expected_digest) ... ok
+1: test_digest_covers_exact_whitespace_and_expected_hash_format (test_contract.ManifestContractTests.test_digest_covers_exact_whitespace_and_expected_hash_format) ... ok
+1: test_exact_bootstrap_frame_boundary_and_reverse_selective_timing_term (test_contract.ManifestContractTests.test_exact_bootstrap_frame_boundary_and_reverse_selective_timing_term) ... ok
+1: test_fixture_source_and_schema_are_reproducible (test_contract.ManifestContractTests.test_fixture_source_and_schema_are_reproducible) ... ok
+1: test_frame_timing_freshness_and_pool_boundaries (test_contract.ManifestContractTests.test_frame_timing_freshness_and_pool_boundaries) ... ok
+1: test_grant_result_pool_has_independent_21_byte_floor (test_contract.ManifestContractTests.test_grant_result_pool_has_independent_21_byte_floor) ... ok
+1: test_mutation_corpus_rejects_contract_violations_at_declared_location (test_contract.ManifestContractTests.test_mutation_corpus_rejects_contract_violations_at_declared_location) ... ok
+1: test_raw_input_corpus (test_contract.ManifestContractTests.test_raw_input_corpus) ... ok
+1: test_three_frozen_fixtures_have_independent_expected_bounds (test_contract.ManifestContractTests.test_three_frozen_fixtures_have_independent_expected_bounds) ... ok
+1: test_xx_confirmation_reserves_cached_flight_three_and_its_budget (test_contract.ManifestContractTests.test_xx_confirmation_reserves_cached_flight_three_and_its_budget) ... ok
+1: test_fragment_count_and_direct_chunk_boundaries (test_deployments.DeploymentTests.test_fragment_count_and_direct_chunk_boundaries) ... ok
+1: test_memory_per_buffer_and_aggregate_limits_reject_underfunding (test_deployments.DeploymentTests.test_memory_per_buffer_and_aggregate_limits_reject_underfunding) ... ok
+1: test_missing_required_field_and_changed_manifest_bytes_are_caught (test_deployments.DeploymentTests.test_missing_required_field_and_changed_manifest_bytes_are_caught) ... ok
+1: test_profile_identities_and_security_modes_are_explicit (test_deployments.DeploymentTests.test_profile_identities_and_security_modes_are_explicit) ... ok
+1: test_radio_freshness_lease_exact_boundary_includes_token_record (test_deployments.DeploymentTests.test_radio_freshness_lease_exact_boundary_includes_token_record) ... ok
+1: test_radio_retry_all_changes_only_the_named_contract_fields (test_deployments.DeploymentTests.test_radio_retry_all_changes_only_the_named_contract_fields) ... ok
+1: test_resource_input_hashes_match_source_bytes (test_deployments.DeploymentTests.test_resource_input_hashes_match_source_bytes) ... ok
+1: test_retry_all_cannot_be_relabelled_as_radio_1 (test_deployments.DeploymentTests.test_retry_all_cannot_be_relabelled_as_radio_1) ... ok
+1: test_return_mtu_must_fit_the_largest_admitted_frame (test_deployments.DeploymentTests.test_return_mtu_must_fit_the_largest_admitted_frame) ... ok
+1: test_sample_and_maximum_message_fragment_boundaries_stay_frozen (test_deployments.DeploymentTests.test_sample_and_maximum_message_fragment_boundaries_stay_frozen) ... ok
+1: test_selective_response_floor_exact_boundary_keeps_schedule_valid (test_deployments.DeploymentTests.test_selective_response_floor_exact_boundary_keeps_schedule_valid) ... ok
+1: test_six_manifest_inventory_digests_and_independent_derived_bounds (test_deployments.DeploymentTests.test_six_manifest_inventory_digests_and_independent_derived_bounds) ... ok
+1: 
+1: ----------------------------------------------------------------------
+1: Ran 22 tests in 0.447s
+1: 
+1: OK
+1/3 Test #1: profiles.contract ................   Passed    0.58 sec
+test 2
+    Start 2: fixtures.sec1
+
+2: Test command: C:\nvm4w\nodejs\node.exe "C:/projects/gemslibe/dmp-protocol/dev/dmp_verify_security_vectors.cjs"
+2: Working Directory: C:/projects/gemslibe/dmp-protocol/build/profile-gate
+2: Test timeout computed to be: 30
+2: {"runtime":"Node crypto","fixtures":4,"packets":64,"mutations":44,"wrongKeyRejections":64,"structuralRejections":164,"fixturePolicyRejections":8}
+2/3 Test #2: fixtures.sec1 ....................   Passed    0.11 sec
+test 3
+    Start 3: dmp_host_environment
+
+3: Test command: C:\projects\gemslibe\dmp-protocol\build\profile-gate\tests\provider\dmp_host_environment.exe
+3: Working Directory: C:/projects/gemslibe/dmp-protocol/build/profile-gate/tests/provider
+3: Test timeout computed to be: 30
+3: host scaffold: C11, octets=8, pointer_bits=64, size_t_bits=64
+3: No provider, endpoint, target-memory or conformance claim.
+3/3 Test #3: dmp_host_environment .............   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Label Time Summary:
+fixture-only         =   0.11 sec*proc (1 test)
+profile-validator    =   0.58 sec*proc (1 test)
+scaffold-only        =   0.02 sec*proc (1 test)
+
+Total Test time (real) =   1.06 sec

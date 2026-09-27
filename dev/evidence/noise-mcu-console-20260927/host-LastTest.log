@@ -1,0 +1,2888 @@
+Start testing: Sep 27 04:14 EEST
+----------------------------------------------------------
+1/33 Testing: fixtures.sec1
+1/33 Test: fixtures.sec1
+Command: "/Users/smartyniuk/.nvm/versions/node/v24.18.0/bin/node" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/dev/dmp_verify_security_vectors.cjs"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host
+"fixtures.sec1" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+{"runtime":"Node crypto","fixtures":4,"packets":64,"mutations":44,"wrongKeyRejections":64,"structuralRejections":164,"fixturePolicyRejections":8}
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"fixtures.sec1" end time: Sep 27 04:14 EEST
+"fixtures.sec1" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/33 Testing: dmp_host_environment
+2/33 Test: dmp_host_environment
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_host_environment"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_host_environment" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+host scaffold: C11, octets=8, pointer_bits=64, size_t_bits=64
+No provider, endpoint, target-memory or conformance claim.
+<end of output>
+Test time =   0.57 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_host_environment" end time: Sep 27 04:14 EEST
+"dmp_host_environment" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/33 Testing: dmp_noise_baseline_probe
+3/33 Test: dmp_noise_baseline_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_baseline_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_baseline_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: initialize Noise framework (error code 0)
+EXPECTED LEGACY-API LIMITATIONS; NOT A TEST OF THE NEW EXPLICIT-NONCE API.
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt nonce-zero packet with AAD (error code 0)
+PASS: decrypt nonce-zero packet with AAD (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt nonce-one packet with AAD (error code 0)
+PASS: decrypt nonce-one packet with AAD (error code 0)
+PASS: sequential ChaChaPoly ciphertext/AAD exchange authenticated both plaintexts
+PASS: free sequential sender state (error code 0)
+PASS: free sequential receiver state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt standalone packet (error code 0)
+PASS: free standalone sender state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt standalone packet (error code 0)
+PASS: free standalone sender state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: select PN one on independent fresh receiver (error code 0)
+PASS: independently authenticate lower packet PN one (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: select PN two on receiver (error code 0)
+PASS: authenticate packet PN two (error code 0)
+PASS: select lower PN one after authentic PN two (error code 17677)
+PASS: attempt authentic PN one while receiver nonce cannot move backward (error code 17668)
+NOT SEC-1 CONFORMANT: the public monotonic nonce setter cannot select valid lower PN one after PN two.
+PASS: free reordered-PN receiver state (error code 0)
+PASS: free independent lower-PN receiver state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt standalone packet (error code 0)
+PASS: free standalone sender state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: set sender nonce (error code 0)
+PASS: encrypt standalone packet (error code 0)
+PASS: free standalone sender state (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: select PN three on independent fresh receiver (error code 0)
+PASS: independently authenticate lower packet PN three (error code 0)
+PASS: create ChaChaPoly state (error code 0)
+PASS: initialize ChaChaPoly test key (error code 0)
+PASS: install candidate high PN 100 (error code 0)
+PASS: reject corrupted MAC at candidate PN 100 (error code 17668)
+PASS: select lower PN three after failed PN 100 authentication (error code 17677)
+PASS: attempt authentic PN three while nonce remains at high PN (error code 17668)
+PASS: authenticate original PN 100 after failed MAC without resetting nonce (error code 0)
+NOT SEC-1 CONFORMANT: after failed high-PN authentication, the monotonic setter still cannot select valid lower PN three.
+PASS: free invalid-high receiver state (error code 0)
+PASS: free independent lower-PN receiver state (error code 0)
+PASS: create X25519 private state (error code 0)
+PASS: create X25519 public state (error code 0)
+PASS: install X25519 test private key (error code 0)
+PASS: install literal-zero X25519 public key (error code 0)
+PASS: calculate with literal-zero X25519 public key (error code 17675)
+PASS: install X25519 low-order u=1 public key (error code 0)
+PASS: calculate with X25519 low-order u=1 public key (error code 17675)
+DH-01 regression: literal zero and low-order u=1 propagate sodium errors and clear output. Legacy PN setter limitations remain below the explicit receive API.
+PASS: free X25519 private state (error code 0)
+PASS: free X25519 public state (error code 0)
+Baseline characterization completed with expected results.
+<end of output>
+Test time =   0.26 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_baseline_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_baseline_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/33 Testing: dmp_noise_fixture_probe
+4/33 Test: dmp_noise_fixture_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_fixture_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_fixture_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+nnpsk0: exact Noise flights/hash/Split packets and abort-first read behavior passed
+xx: exact Noise flights/hash/Split packets and abort-first read behavior passed
+Public deterministic fixtures characterize fixed-key provider behavior; RNG fault handling, provider adoption, and P01 acceptance remain untested.
+<end of output>
+Test time =   0.48 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_fixture_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_fixture_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/33 Testing: dmp_noise_pn_probe
+5/33 Test: dmp_noise_pn_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_pn_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_pn_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+nnpsk0: 16 explicit receive fixtures passed in reverse PN order; failed-auth retry, repeated PN, and implicit PN 0 preservation passed
+xx: 16 explicit receive fixtures passed in reverse PN order; failed-auth retry, repeated PN, and implicit PN 0 preservation passed
+Public deterministic keys are test-only. Repeated explicit receives are accepted here; replay admission belongs to the caller. No RNG, lifecycle, or production claim is tested.
+<end of output>
+Test time =   0.24 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_pn_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_pn_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/33 Testing: dmp_noise_dh_probe
+6/33 Test: dmp_noise_dh_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_dh_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_dh_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+X25519 low-order/backend and authenticated XX s-rejection probes passed; valid fixture handshakes still split successfully.
+These host probes characterize the selected sodium backend only; they are not endpoint, lifecycle, interoperability, resource, or production-provider acceptance evidence.
+<end of output>
+Test time =   0.36 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_dh_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_dh_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/33 Testing: dmp_noise_rng_state_probe
+7/33 Test: dmp_noise_rng_state_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_rng_state_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_rng_state_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+Fallible entropy propagation, DH cleanup, RandState invalidation, and output clearing probes passed.
+The host probe checks API behavior; direct full-erasure verification remains a source-review gate, not an entropy-quality claim.
+<end of output>
+Test time =   0.27 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_rng_state_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_rng_state_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/33 Testing: dmp_noise_rng_handshake_probe
+8/33 Test: dmp_noise_rng_handshake_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_rng_handshake_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_rng_handshake_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+nnpsk0: partial entropy aborts both write positions; fresh fixture handshake passes
+xx: partial entropy aborts both write positions; fresh fixture handshake passes
+Separate attempt entropy failure left an established fixture handshake usable. Test hook does not establish production entropy quality or a DMP restart scheduler.
+<end of output>
+Test time =   0.34 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_rng_handshake_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_rng_handshake_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/33 Testing: dmp_noise_init_serial_probe
+9/33 Test: dmp_noise_init_serial_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_init_serial_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_init_serial_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: injected success result; wrapper result 0; real backend initialization not exercised.
+<end of output>
+Test time =   0.30 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_serial_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_init_serial_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/33 Testing: dmp_noise_init_serial_probe_already
+10/33 Test: dmp_noise_init_serial_probe_already
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_init_serial_probe" "already"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_init_serial_probe_already" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: injected already initialized result; wrapper result 0; real backend initialization not exercised.
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_serial_probe_already" end time: Sep 27 04:14 EEST
+"dmp_noise_init_serial_probe_already" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/33 Testing: dmp_noise_init_serial_probe_failure
+11/33 Test: dmp_noise_init_serial_probe_failure
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_init_serial_probe" "failure"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_init_serial_probe_failure" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: injected failure result; wrapper result 17670; real backend initialization not exercised.
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_serial_probe_failure" end time: Sep 27 04:14 EEST
+"dmp_noise_init_serial_probe_failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/33 Testing: dmp_noise_init_pthread_probe
+12/33 Test: dmp_noise_init_pthread_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_init_pthread_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_init_pthread_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: injected success result; wrapper result 0; real backend initialization not exercised.
+<end of output>
+Test time =   0.30 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_pthread_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_init_pthread_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/33 Testing: dmp_noise_init_pthread_probe_already
+13/33 Test: dmp_noise_init_pthread_probe_already
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_init_pthread_probe" "already"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_init_pthread_probe_already" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: injected already initialized result; wrapper result 0; real backend initialization not exercised.
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_pthread_probe_already" end time: Sep 27 04:14 EEST
+"dmp_noise_init_pthread_probe_already" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/33 Testing: dmp_noise_init_pthread_probe_failure
+14/33 Test: dmp_noise_init_pthread_probe_failure
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_init_pthread_probe" "failure"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_init_pthread_probe_failure" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: injected failure result; wrapper result 17670; real backend initialization not exercised.
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_init_pthread_probe_failure" end time: Sep 27 04:14 EEST
+"dmp_noise_init_pthread_probe_failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/33 Testing: dmp_checked_backend_preparation
+15/33 Test: dmp_checked_backend_preparation
+Command: "/Users/smartyniuk/.espressif/tools/python/v6.1/venv/bin/python3.14" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/tests/provider/backend/test_prepare_checked_sodium.py"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_checked_backend_preparation" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.251s
+
+OK
+<end of output>
+Test time =   0.31 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_backend_preparation" end time: Sep 27 04:14 EEST
+"dmp_checked_backend_preparation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+16/33 Testing: dmp_noise_checked_init_probe
+16/33 Test: dmp_noise_checked_init_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_checked_init_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_checked_init_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: checked startup healthy path, already-initialized result, and real SHA-256.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+<end of output>
+Test time =   0.24 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_checked_init_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+17/33 Testing: dmp_noise_checked_init_ready-failure
+17/33 Test: dmp_noise_checked_init_ready-failure
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_checked_init_probe" "ready-failure"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_checked_init_ready-failure" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: ready-failure propagated twice, cleared failed startup state, and retried successfully.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_ready-failure" end time: Sep 27 04:14 EEST
+"dmp_noise_checked_init_ready-failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+18/33 Testing: dmp_noise_checked_init_read-failure
+18/33 Test: dmp_noise_checked_init_read-failure
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_checked_init_probe" "read-failure"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_checked_init_read-failure" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+PASS: read-failure propagated twice, cleared failed startup state, and retried successfully.
+Scope: host entropy-port fault tests only; no physical entropy or hardware claim.
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_checked_init_read-failure" end time: Sep 27 04:14 EEST
+"dmp_noise_checked_init_read-failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+19/33 Testing: dmp_checked_noise_fixture_probe
+19/33 Test: dmp_checked_noise_fixture_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_checked_noise_fixture_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_checked_noise_fixture_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+nnpsk0: exact Noise flights/hash/Split packets and abort-first read behavior passed
+xx: exact Noise flights/hash/Split packets and abort-first read behavior passed
+Public deterministic fixtures characterize fixed-key provider behavior; RNG fault handling, provider adoption, and P01 acceptance remain untested.
+<end of output>
+Test time =   0.30 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_fixture_probe" end time: Sep 27 04:14 EEST
+"dmp_checked_noise_fixture_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+20/33 Testing: dmp_checked_noise_pn_probe
+20/33 Test: dmp_checked_noise_pn_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_checked_noise_pn_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_checked_noise_pn_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+nnpsk0: 16 explicit receive fixtures passed in reverse PN order; failed-auth retry, repeated PN, and implicit PN 0 preservation passed
+xx: 16 explicit receive fixtures passed in reverse PN order; failed-auth retry, repeated PN, and implicit PN 0 preservation passed
+Public deterministic keys are test-only. Repeated explicit receives are accepted here; replay admission belongs to the caller. No RNG, lifecycle, or production claim is tested.
+<end of output>
+Test time =   0.26 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_pn_probe" end time: Sep 27 04:14 EEST
+"dmp_checked_noise_pn_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+21/33 Testing: dmp_checked_noise_dh_probe
+21/33 Test: dmp_checked_noise_dh_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_checked_noise_dh_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_checked_noise_dh_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+X25519 low-order/backend and authenticated XX s-rejection probes passed; valid fixture handshakes still split successfully.
+These host probes characterize the selected sodium backend only; they are not endpoint, lifecycle, interoperability, resource, or production-provider acceptance evidence.
+<end of output>
+Test time =   0.32 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_dh_probe" end time: Sep 27 04:14 EEST
+"dmp_checked_noise_dh_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+22/33 Testing: dmp_checked_noise_rng_state_probe
+22/33 Test: dmp_checked_noise_rng_state_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_checked_noise_rng_state_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_checked_noise_rng_state_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+Fallible entropy propagation, DH cleanup, RandState invalidation, and output clearing probes passed.
+The host probe checks API behavior; direct full-erasure verification remains a source-review gate, not an entropy-quality claim.
+<end of output>
+Test time =   0.33 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_rng_state_probe" end time: Sep 27 04:14 EEST
+"dmp_checked_noise_rng_state_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+23/33 Testing: dmp_checked_noise_rng_handshake_probe
+23/33 Test: dmp_checked_noise_rng_handshake_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_checked_noise_rng_handshake_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_checked_noise_rng_handshake_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+nnpsk0: partial entropy aborts both write positions; fresh fixture handshake passes
+xx: partial entropy aborts both write positions; fresh fixture handshake passes
+Separate attempt entropy failure left an established fixture handshake usable. Test hook does not establish production entropy quality or a DMP restart scheduler.
+<end of output>
+Test time =   0.38 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_rng_handshake_probe" end time: Sep 27 04:14 EEST
+"dmp_checked_noise_rng_handshake_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+24/33 Testing: dmp_checked_noise_unit
+24/33 Test: dmp_checked_noise_unit
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_checked_noise_unit"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_checked_noise_unit" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+cipherstate ... ok
+dhstate ... ok
+errors ... ok
+handshakestate ... ok
+handshakestate_preset_ephemeral ... ok
+hashstate ... ok
+names ... ok
+patterns ... ok
+randstate ... ok
+single_protocol ... ok
+small_build ... ok
+symmetricstate ... ok
+All tests succeeded
+<end of output>
+Test time =   0.91 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_unit" end time: Sep 27 04:14 EEST
+"dmp_checked_noise_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+25/33 Testing: dmp_checked_noise_vector
+25/33 Test: dmp_checked_noise_vector
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_checked_noise_vector" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-basic.txt" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/cacophony.txt" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-fallback.txt" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-hybrid.txt"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_checked_noise_vector" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+--------------------------------------------------------------
+Processing vectors from /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-basic.txt
+Noise_N_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_25519_ChaChaPoly_SHA256 ... ok
+Noise_N_25519_ChaChaPoly_SHA512 ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_448_ChaChaPoly_SHA256 ... skipped
+Noise_N_448_ChaChaPoly_SHA512 ... skipped
+Noise_N_25519_AESGCM_BLAKE2s ... skipped
+Noise_N_25519_AESGCM_BLAKE2b ... skipped
+Noise_N_25519_AESGCM_SHA256 ... skipped
+Noise_N_25519_AESGCM_SHA512 ... skipped
+Noise_N_448_AESGCM_BLAKE2s ... skipped
+Noise_N_448_AESGCM_BLAKE2b ... skipped
+Noise_N_448_AESGCM_SHA256 ... skipped
+Noise_N_448_AESGCM_SHA512 ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_25519_ChaChaPoly_SHA256 ... ok
+Noise_X_25519_ChaChaPoly_SHA512 ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_448_ChaChaPoly_SHA256 ... skipped
+Noise_X_448_ChaChaPoly_SHA512 ... skipped
+Noise_X_25519_AESGCM_BLAKE2s ... skipped
+Noise_X_25519_AESGCM_BLAKE2b ... skipped
+Noise_X_25519_AESGCM_SHA256 ... skipped
+Noise_X_25519_AESGCM_SHA512 ... skipped
+Noise_X_448_AESGCM_BLAKE2s ... skipped
+Noise_X_448_AESGCM_BLAKE2b ... skipped
+Noise_X_448_AESGCM_SHA256 ... skipped
+Noise_X_448_AESGCM_SHA512 ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_25519_ChaChaPoly_SHA256 ... ok
+Noise_K_25519_ChaChaPoly_SHA512 ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_448_ChaChaPoly_SHA256 ... skipped
+Noise_K_448_ChaChaPoly_SHA512 ... skipped
+Noise_K_25519_AESGCM_BLAKE2s ... skipped
+Noise_K_25519_AESGCM_BLAKE2b ... skipped
+Noise_K_25519_AESGCM_SHA256 ... skipped
+Noise_K_25519_AESGCM_SHA512 ... skipped
+Noise_K_448_AESGCM_BLAKE2s ... skipped
+Noise_K_448_AESGCM_BLAKE2b ... skipped
+Noise_K_448_AESGCM_SHA256 ... skipped
+Noise_K_448_AESGCM_SHA512 ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_25519_ChaChaPoly_SHA256 ... ok
+Noise_NN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_448_ChaChaPoly_SHA256 ... skipped
+Noise_NN_448_ChaChaPoly_SHA512 ... skipped
+Noise_NN_25519_AESGCM_BLAKE2s ... skipped
+Noise_NN_25519_AESGCM_BLAKE2b ... skipped
+Noise_NN_25519_AESGCM_SHA256 ... skipped
+Noise_NN_25519_AESGCM_SHA512 ... skipped
+Noise_NN_448_AESGCM_BLAKE2s ... skipped
+Noise_NN_448_AESGCM_BLAKE2b ... skipped
+Noise_NN_448_AESGCM_SHA256 ... skipped
+Noise_NN_448_AESGCM_SHA512 ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_25519_ChaChaPoly_SHA256 ... ok
+Noise_NK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_448_ChaChaPoly_SHA256 ... skipped
+Noise_NK_448_ChaChaPoly_SHA512 ... skipped
+Noise_NK_25519_AESGCM_BLAKE2s ... skipped
+Noise_NK_25519_AESGCM_BLAKE2b ... skipped
+Noise_NK_25519_AESGCM_SHA256 ... skipped
+Noise_NK_25519_AESGCM_SHA512 ... skipped
+Noise_NK_448_AESGCM_BLAKE2s ... skipped
+Noise_NK_448_AESGCM_BLAKE2b ... skipped
+Noise_NK_448_AESGCM_SHA256 ... skipped
+Noise_NK_448_AESGCM_SHA512 ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_25519_ChaChaPoly_SHA256 ... ok
+Noise_NX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_448_ChaChaPoly_SHA256 ... skipped
+Noise_NX_448_ChaChaPoly_SHA512 ... skipped
+Noise_NX_25519_AESGCM_BLAKE2s ... skipped
+Noise_NX_25519_AESGCM_BLAKE2b ... skipped
+Noise_NX_25519_AESGCM_SHA256 ... skipped
+Noise_NX_25519_AESGCM_SHA512 ... skipped
+Noise_NX_448_AESGCM_BLAKE2s ... skipped
+Noise_NX_448_AESGCM_BLAKE2b ... skipped
+Noise_NX_448_AESGCM_SHA256 ... skipped
+Noise_NX_448_AESGCM_SHA512 ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_25519_ChaChaPoly_SHA256 ... ok
+Noise_XN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_448_ChaChaPoly_SHA256 ... skipped
+Noise_XN_448_ChaChaPoly_SHA512 ... skipped
+Noise_XN_25519_AESGCM_BLAKE2s ... skipped
+Noise_XN_25519_AESGCM_BLAKE2b ... skipped
+Noise_XN_25519_AESGCM_SHA256 ... skipped
+Noise_XN_25519_AESGCM_SHA512 ... skipped
+Noise_XN_448_AESGCM_BLAKE2s ... skipped
+Noise_XN_448_AESGCM_BLAKE2b ... skipped
+Noise_XN_448_AESGCM_SHA256 ... skipped
+Noise_XN_448_AESGCM_SHA512 ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_25519_ChaChaPoly_SHA256 ... ok
+Noise_XK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_448_ChaChaPoly_SHA256 ... skipped
+Noise_XK_448_ChaChaPoly_SHA512 ... skipped
+Noise_XK_25519_AESGCM_BLAKE2s ... skipped
+Noise_XK_25519_AESGCM_BLAKE2b ... skipped
+Noise_XK_25519_AESGCM_SHA256 ... skipped
+Noise_XK_25519_AESGCM_SHA512 ... skipped
+Noise_XK_448_AESGCM_BLAKE2s ... skipped
+Noise_XK_448_AESGCM_BLAKE2b ... skipped
+Noise_XK_448_AESGCM_SHA256 ... skipped
+Noise_XK_448_AESGCM_SHA512 ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_25519_ChaChaPoly_SHA256 ... ok
+Noise_XX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_448_ChaChaPoly_SHA256 ... skipped
+Noise_XX_448_ChaChaPoly_SHA512 ... skipped
+Noise_XX_25519_AESGCM_BLAKE2s ... skipped
+Noise_XX_25519_AESGCM_BLAKE2b ... skipped
+Noise_XX_25519_AESGCM_SHA256 ... skipped
+Noise_XX_25519_AESGCM_SHA512 ... skipped
+Noise_XX_448_AESGCM_BLAKE2s ... skipped
+Noise_XX_448_AESGCM_BLAKE2b ... skipped
+Noise_XX_448_AESGCM_SHA256 ... skipped
+Noise_XX_448_AESGCM_SHA512 ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_25519_ChaChaPoly_SHA256 ... ok
+Noise_KN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_448_ChaChaPoly_SHA256 ... skipped
+Noise_KN_448_ChaChaPoly_SHA512 ... skipped
+Noise_KN_25519_AESGCM_BLAKE2s ... skipped
+Noise_KN_25519_AESGCM_BLAKE2b ... skipped
+Noise_KN_25519_AESGCM_SHA256 ... skipped
+Noise_KN_25519_AESGCM_SHA512 ... skipped
+Noise_KN_448_AESGCM_BLAKE2s ... skipped
+Noise_KN_448_AESGCM_BLAKE2b ... skipped
+Noise_KN_448_AESGCM_SHA256 ... skipped
+Noise_KN_448_AESGCM_SHA512 ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_25519_ChaChaPoly_SHA256 ... ok
+Noise_KK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_448_ChaChaPoly_SHA256 ... skipped
+Noise_KK_448_ChaChaPoly_SHA512 ... skipped
+Noise_KK_25519_AESGCM_BLAKE2s ... skipped
+Noise_KK_25519_AESGCM_BLAKE2b ... skipped
+Noise_KK_25519_AESGCM_SHA256 ... skipped
+Noise_KK_25519_AESGCM_SHA512 ... skipped
+Noise_KK_448_AESGCM_BLAKE2s ... skipped
+Noise_KK_448_AESGCM_BLAKE2b ... skipped
+Noise_KK_448_AESGCM_SHA256 ... skipped
+Noise_KK_448_AESGCM_SHA512 ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_25519_ChaChaPoly_SHA256 ... ok
+Noise_KX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_448_ChaChaPoly_SHA256 ... skipped
+Noise_KX_448_ChaChaPoly_SHA512 ... skipped
+Noise_KX_25519_AESGCM_BLAKE2s ... skipped
+Noise_KX_25519_AESGCM_BLAKE2b ... skipped
+Noise_KX_25519_AESGCM_SHA256 ... skipped
+Noise_KX_25519_AESGCM_SHA512 ... skipped
+Noise_KX_448_AESGCM_BLAKE2s ... skipped
+Noise_KX_448_AESGCM_BLAKE2b ... skipped
+Noise_KX_448_AESGCM_SHA256 ... skipped
+Noise_KX_448_AESGCM_SHA512 ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_25519_ChaChaPoly_SHA256 ... ok
+Noise_IN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_448_ChaChaPoly_SHA256 ... skipped
+Noise_IN_448_ChaChaPoly_SHA512 ... skipped
+Noise_IN_25519_AESGCM_BLAKE2s ... skipped
+Noise_IN_25519_AESGCM_BLAKE2b ... skipped
+Noise_IN_25519_AESGCM_SHA256 ... skipped
+Noise_IN_25519_AESGCM_SHA512 ... skipped
+Noise_IN_448_AESGCM_BLAKE2s ... skipped
+Noise_IN_448_AESGCM_BLAKE2b ... skipped
+Noise_IN_448_AESGCM_SHA256 ... skipped
+Noise_IN_448_AESGCM_SHA512 ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_25519_ChaChaPoly_SHA256 ... ok
+Noise_IK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_448_ChaChaPoly_SHA256 ... skipped
+Noise_IK_448_ChaChaPoly_SHA512 ... skipped
+Noise_IK_25519_AESGCM_BLAKE2s ... skipped
+Noise_IK_25519_AESGCM_BLAKE2b ... skipped
+Noise_IK_25519_AESGCM_SHA256 ... skipped
+Noise_IK_25519_AESGCM_SHA512 ... skipped
+Noise_IK_448_AESGCM_BLAKE2s ... skipped
+Noise_IK_448_AESGCM_BLAKE2b ... skipped
+Noise_IK_448_AESGCM_SHA256 ... skipped
+Noise_IK_448_AESGCM_SHA512 ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_25519_ChaChaPoly_SHA256 ... ok
+Noise_IX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_448_ChaChaPoly_SHA256 ... skipped
+Noise_IX_448_ChaChaPoly_SHA512 ... skipped
+Noise_IX_25519_AESGCM_BLAKE2s ... skipped
+Noise_IX_25519_AESGCM_BLAKE2b ... skipped
+Noise_IX_25519_AESGCM_SHA256 ... skipped
+Noise_IX_25519_AESGCM_SHA512 ... skipped
+Noise_IX_448_AESGCM_BLAKE2s ... skipped
+Noise_IX_448_AESGCM_BLAKE2b ... skipped
+Noise_IX_448_AESGCM_SHA256 ... skipped
+Noise_IX_448_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+15 vectors run, 225 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/cacophony.txt
+Noise_NN_25519_AESGCM_BLAKE2b ... skipped
+Noise_NN_25519_AESGCM_BLAKE2s ... skipped
+Noise_NN_25519_AESGCM_SHA256 ... skipped
+Noise_NN_25519_AESGCM_SHA512 ... skipped
+Noise_NN_448_AESGCM_BLAKE2b ... skipped
+Noise_NN_448_AESGCM_BLAKE2s ... skipped
+Noise_NN_448_AESGCM_SHA256 ... skipped
+Noise_NN_448_AESGCM_SHA512 ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_25519_ChaChaPoly_SHA256 ... ok
+Noise_NN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_448_ChaChaPoly_SHA256 ... skipped
+Noise_NN_448_ChaChaPoly_SHA512 ... skipped
+Noise_KN_25519_AESGCM_BLAKE2b ... skipped
+Noise_KN_25519_AESGCM_BLAKE2s ... skipped
+Noise_KN_25519_AESGCM_SHA256 ... skipped
+Noise_KN_25519_AESGCM_SHA512 ... skipped
+Noise_KN_448_AESGCM_BLAKE2b ... skipped
+Noise_KN_448_AESGCM_BLAKE2s ... skipped
+Noise_KN_448_AESGCM_SHA256 ... skipped
+Noise_KN_448_AESGCM_SHA512 ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_25519_ChaChaPoly_SHA256 ... ok
+Noise_KN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_448_ChaChaPoly_SHA256 ... skipped
+Noise_KN_448_ChaChaPoly_SHA512 ... skipped
+Noise_NK_25519_AESGCM_BLAKE2b ... skipped
+Noise_NK_25519_AESGCM_BLAKE2s ... skipped
+Noise_NK_25519_AESGCM_SHA256 ... skipped
+Noise_NK_25519_AESGCM_SHA512 ... skipped
+Noise_NK_448_AESGCM_BLAKE2b ... skipped
+Noise_NK_448_AESGCM_BLAKE2s ... skipped
+Noise_NK_448_AESGCM_SHA256 ... skipped
+Noise_NK_448_AESGCM_SHA512 ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_25519_ChaChaPoly_SHA256 ... ok
+Noise_NK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_448_ChaChaPoly_SHA256 ... skipped
+Noise_NK_448_ChaChaPoly_SHA512 ... skipped
+Noise_KK_25519_AESGCM_BLAKE2b ... skipped
+Noise_KK_25519_AESGCM_BLAKE2s ... skipped
+Noise_KK_25519_AESGCM_SHA256 ... skipped
+Noise_KK_25519_AESGCM_SHA512 ... skipped
+Noise_KK_448_AESGCM_BLAKE2b ... skipped
+Noise_KK_448_AESGCM_BLAKE2s ... skipped
+Noise_KK_448_AESGCM_SHA256 ... skipped
+Noise_KK_448_AESGCM_SHA512 ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_25519_ChaChaPoly_SHA256 ... ok
+Noise_KK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_448_ChaChaPoly_SHA256 ... skipped
+Noise_KK_448_ChaChaPoly_SHA512 ... skipped
+Noise_NX_25519_AESGCM_BLAKE2b ... skipped
+Noise_NX_25519_AESGCM_BLAKE2s ... skipped
+Noise_NX_25519_AESGCM_SHA256 ... skipped
+Noise_NX_25519_AESGCM_SHA512 ... skipped
+Noise_NX_448_AESGCM_BLAKE2b ... skipped
+Noise_NX_448_AESGCM_BLAKE2s ... skipped
+Noise_NX_448_AESGCM_SHA256 ... skipped
+Noise_NX_448_AESGCM_SHA512 ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_25519_ChaChaPoly_SHA256 ... ok
+Noise_NX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_448_ChaChaPoly_SHA256 ... skipped
+Noise_NX_448_ChaChaPoly_SHA512 ... skipped
+Noise_KX_25519_AESGCM_BLAKE2b ... skipped
+Noise_KX_25519_AESGCM_BLAKE2s ... skipped
+Noise_KX_25519_AESGCM_SHA256 ... skipped
+Noise_KX_25519_AESGCM_SHA512 ... skipped
+Noise_KX_448_AESGCM_BLAKE2b ... skipped
+Noise_KX_448_AESGCM_BLAKE2s ... skipped
+Noise_KX_448_AESGCM_SHA256 ... skipped
+Noise_KX_448_AESGCM_SHA512 ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_25519_ChaChaPoly_SHA256 ... ok
+Noise_KX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_448_ChaChaPoly_SHA256 ... skipped
+Noise_KX_448_ChaChaPoly_SHA512 ... skipped
+Noise_XN_25519_AESGCM_BLAKE2b ... skipped
+Noise_XN_25519_AESGCM_BLAKE2s ... skipped
+Noise_XN_25519_AESGCM_SHA256 ... skipped
+Noise_XN_25519_AESGCM_SHA512 ... skipped
+Noise_XN_448_AESGCM_BLAKE2b ... skipped
+Noise_XN_448_AESGCM_BLAKE2s ... skipped
+Noise_XN_448_AESGCM_SHA256 ... skipped
+Noise_XN_448_AESGCM_SHA512 ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_25519_ChaChaPoly_SHA256 ... ok
+Noise_XN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_448_ChaChaPoly_SHA256 ... skipped
+Noise_XN_448_ChaChaPoly_SHA512 ... skipped
+Noise_IN_25519_AESGCM_BLAKE2b ... skipped
+Noise_IN_25519_AESGCM_BLAKE2s ... skipped
+Noise_IN_25519_AESGCM_SHA256 ... skipped
+Noise_IN_25519_AESGCM_SHA512 ... skipped
+Noise_IN_448_AESGCM_BLAKE2b ... skipped
+Noise_IN_448_AESGCM_BLAKE2s ... skipped
+Noise_IN_448_AESGCM_SHA256 ... skipped
+Noise_IN_448_AESGCM_SHA512 ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_25519_ChaChaPoly_SHA256 ... ok
+Noise_IN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_448_ChaChaPoly_SHA256 ... skipped
+Noise_IN_448_ChaChaPoly_SHA512 ... skipped
+Noise_XK_25519_AESGCM_BLAKE2b ... skipped
+Noise_XK_25519_AESGCM_BLAKE2s ... skipped
+Noise_XK_25519_AESGCM_SHA256 ... skipped
+Noise_XK_25519_AESGCM_SHA512 ... skipped
+Noise_XK_448_AESGCM_BLAKE2b ... skipped
+Noise_XK_448_AESGCM_BLAKE2s ... skipped
+Noise_XK_448_AESGCM_SHA256 ... skipped
+Noise_XK_448_AESGCM_SHA512 ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_25519_ChaChaPoly_SHA256 ... ok
+Noise_XK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_448_ChaChaPoly_SHA256 ... skipped
+Noise_XK_448_ChaChaPoly_SHA512 ... skipped
+Noise_IK_25519_AESGCM_BLAKE2b ... skipped
+Noise_IK_25519_AESGCM_BLAKE2s ... skipped
+Noise_IK_25519_AESGCM_SHA256 ... skipped
+Noise_IK_25519_AESGCM_SHA512 ... skipped
+Noise_IK_448_AESGCM_BLAKE2b ... skipped
+Noise_IK_448_AESGCM_BLAKE2s ... skipped
+Noise_IK_448_AESGCM_SHA256 ... skipped
+Noise_IK_448_AESGCM_SHA512 ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_25519_ChaChaPoly_SHA256 ... ok
+Noise_IK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_448_ChaChaPoly_SHA256 ... skipped
+Noise_IK_448_ChaChaPoly_SHA512 ... skipped
+Noise_XX_25519_AESGCM_BLAKE2b ... skipped
+Noise_XX_25519_AESGCM_BLAKE2s ... skipped
+Noise_XX_25519_AESGCM_SHA256 ... skipped
+Noise_XX_25519_AESGCM_SHA512 ... skipped
+Noise_XX_448_AESGCM_BLAKE2b ... skipped
+Noise_XX_448_AESGCM_BLAKE2s ... skipped
+Noise_XX_448_AESGCM_SHA256 ... skipped
+Noise_XX_448_AESGCM_SHA512 ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_25519_ChaChaPoly_SHA256 ... ok
+Noise_XX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_448_ChaChaPoly_SHA256 ... skipped
+Noise_XX_448_ChaChaPoly_SHA512 ... skipped
+Noise_IX_25519_AESGCM_BLAKE2b ... skipped
+Noise_IX_25519_AESGCM_BLAKE2s ... skipped
+Noise_IX_25519_AESGCM_SHA256 ... skipped
+Noise_IX_25519_AESGCM_SHA512 ... skipped
+Noise_IX_448_AESGCM_BLAKE2b ... skipped
+Noise_IX_448_AESGCM_BLAKE2s ... skipped
+Noise_IX_448_AESGCM_SHA256 ... skipped
+Noise_IX_448_AESGCM_SHA512 ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_25519_ChaChaPoly_SHA256 ... ok
+Noise_IX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_448_ChaChaPoly_SHA256 ... skipped
+Noise_IX_448_ChaChaPoly_SHA512 ... skipped
+Noise_N_25519_AESGCM_BLAKE2b ... skipped
+Noise_N_25519_AESGCM_BLAKE2s ... skipped
+Noise_N_25519_AESGCM_SHA256 ... skipped
+Noise_N_25519_AESGCM_SHA512 ... skipped
+Noise_N_448_AESGCM_BLAKE2b ... skipped
+Noise_N_448_AESGCM_BLAKE2s ... skipped
+Noise_N_448_AESGCM_SHA256 ... skipped
+Noise_N_448_AESGCM_SHA512 ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_25519_ChaChaPoly_SHA256 ... ok
+Noise_N_25519_ChaChaPoly_SHA512 ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_448_ChaChaPoly_SHA256 ... skipped
+Noise_N_448_ChaChaPoly_SHA512 ... skipped
+Noise_K_25519_AESGCM_BLAKE2b ... skipped
+Noise_K_25519_AESGCM_BLAKE2s ... skipped
+Noise_K_25519_AESGCM_SHA256 ... skipped
+Noise_K_25519_AESGCM_SHA512 ... skipped
+Noise_K_448_AESGCM_BLAKE2b ... skipped
+Noise_K_448_AESGCM_BLAKE2s ... skipped
+Noise_K_448_AESGCM_SHA256 ... skipped
+Noise_K_448_AESGCM_SHA512 ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_25519_ChaChaPoly_SHA256 ... ok
+Noise_K_25519_ChaChaPoly_SHA512 ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_448_ChaChaPoly_SHA256 ... skipped
+Noise_K_448_ChaChaPoly_SHA512 ... skipped
+Noise_X_25519_AESGCM_BLAKE2b ... skipped
+Noise_X_25519_AESGCM_BLAKE2s ... skipped
+Noise_X_25519_AESGCM_SHA256 ... skipped
+Noise_X_25519_AESGCM_SHA512 ... skipped
+Noise_X_448_AESGCM_BLAKE2b ... skipped
+Noise_X_448_AESGCM_BLAKE2s ... skipped
+Noise_X_448_AESGCM_SHA256 ... skipped
+Noise_X_448_AESGCM_SHA512 ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_25519_ChaChaPoly_SHA256 ... ok
+Noise_X_25519_ChaChaPoly_SHA512 ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_448_ChaChaPoly_SHA256 ... skipped
+Noise_X_448_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_NNpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_NNpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk0_448_AESGCM_SHA256 ... skipped
+Noise_NNpsk0_448_AESGCM_SHA512 ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_NNpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_NNpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NNpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NNpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NNpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NNpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NNpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_NKpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_NKpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk0_448_AESGCM_SHA256 ... skipped
+Noise_NKpsk0_448_AESGCM_SHA512 ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_NKpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_NKpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_NXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_XNpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XNpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XNpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XNpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XNpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XNpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XNpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XNpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XNpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XNpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XNpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_XKpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XKpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XKpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XKpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XKpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XKpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XKpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XKpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XKpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XKpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XKpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_XXpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XXpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XXpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XXpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XXpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XXpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XXpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XXpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XXpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XXpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XXpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_KNpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_KNpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk0_448_AESGCM_SHA256 ... skipped
+Noise_KNpsk0_448_AESGCM_SHA512 ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_KNpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_KNpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KNpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KNpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KNpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KNpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KNpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_KKpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_KKpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk0_448_AESGCM_SHA256 ... skipped
+Noise_KKpsk0_448_AESGCM_SHA512 ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_KKpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_KKpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_KXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_INpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_INpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_INpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_INpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_INpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_INpsk1_448_AESGCM_SHA256 ... skipped
+Noise_INpsk1_448_AESGCM_SHA512 ... skipped
+Noise_INpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_INpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_INpsk1_448_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_INpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_INpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_INpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_INpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_INpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_INpsk2_448_AESGCM_SHA256 ... skipped
+Noise_INpsk2_448_AESGCM_SHA512 ... skipped
+Noise_INpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_INpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_INpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_IKpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_IKpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk1_448_AESGCM_SHA256 ... skipped
+Noise_IKpsk1_448_AESGCM_SHA512 ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_IKpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_IKpsk1_448_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_IKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_IKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_IKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_IKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_IKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_IXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_IXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_IXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_IXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_IXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_IXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_IXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_IXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_IXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_IXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_Npsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_Npsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_Npsk0_25519_AESGCM_SHA256 ... skipped
+Noise_Npsk0_25519_AESGCM_SHA512 ... skipped
+Noise_Npsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_Npsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_Npsk0_448_AESGCM_SHA256 ... skipped
+Noise_Npsk0_448_AESGCM_SHA512 ... skipped
+Noise_Npsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Npsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Npsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_Npsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Npsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Npsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Npsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_Npsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_Kpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_Kpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_Kpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_Kpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_Kpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_Kpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_Kpsk0_448_AESGCM_SHA256 ... skipped
+Noise_Kpsk0_448_AESGCM_SHA512 ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_Kpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Kpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Kpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Kpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_Kpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_Xpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_Xpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_Xpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_Xpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_Xpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_Xpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_Xpsk1_448_AESGCM_SHA256 ... skipped
+Noise_Xpsk1_448_AESGCM_SHA512 ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_Xpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Xpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Xpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Xpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_Xpsk1_448_ChaChaPoly_SHA512 ... skipped
+--------------------------------------------------------------
+36 vectors run, 540 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-fallback.txt
+Noise_XXfallback_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback_25519_ChaChaPoly_SHA256 ... ok
+Noise_XXfallback_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback_448_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback_448_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback_25519_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback_25519_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback_25519_AESGCM_SHA256 ... skipped
+Noise_XXfallback_25519_AESGCM_SHA512 ... skipped
+Noise_XXfallback_448_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback_448_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback_448_AESGCM_SHA256 ... skipped
+Noise_XXfallback_448_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+1 vectors run, 15 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-hybrid.txt
+Noise_NNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_INhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_INhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_INhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_INhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_IKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_IKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_IKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_IKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_IXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_IXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_IXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_IXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+0 vectors run, 208 skipped as not in this build
+<end of output>
+Test time =   0.42 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_checked_noise_vector" end time: Sep 27 04:14 EEST
+"dmp_checked_noise_vector" time elapsed: 00:00:00
+----------------------------------------------------------
+
+26/33 Testing: dmp_noise_arena_unit
+26/33 Test: dmp_noise_arena_unit
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_arena_unit"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_arena_unit" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+noise test arena probe passed
+<end of output>
+Test time =   0.29 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_arena_unit" end time: Sep 27 04:14 EEST
+"dmp_noise_arena_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+27/33 Testing: dmp_noise_allocator_probe
+27/33 Test: dmp_noise_allocator_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_allocator_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_allocator_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+Noise_NNpsk0_25519_ChaChaPoly_SHA256 role=20993: constructor blocks=6 charged=1112; block sweep, byte boundary and prologue refusal passed
+Noise_NNpsk0_25519_ChaChaPoly_SHA256 role=20994: constructor blocks=6 charged=1112; block sweep, byte boundary and prologue refusal passed
+Noise_XX_25519_ChaChaPoly_SHA256 role=20993: constructor blocks=8 charged=1448; block sweep, byte boundary and prologue refusal passed
+Noise_XX_25519_ChaChaPoly_SHA256 role=20994: constructor blocks=8 charged=1448; block sweep, byte boundary and prologue refusal passed
+Existing traffic context preserved across quota refusal and rejected live reset
+nnpsk0: exact Noise flights/hash/Split packets and abort-first read behavior passed
+xx: exact Noise flights/hash/Split packets and abort-first read behavior passed
+Public deterministic fixtures characterize fixed-key provider behavior; RNG fault handling, provider adoption, and P01 acceptance remain untested.
+Both fixtures/abort-first checks via arena: allocations=76 peak_charged=3328 storage=8192 metadata=2112 alignment=8
+Test-only serialized fixed storage; excludes stack, backend globals, DMP buffers and MCU runtime acceptance
+<end of output>
+Test time =   0.31 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_allocator_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_allocator_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+28/33 Testing: dmp_noise_owners_probe
+28/33 Test: dmp_noise_owners_probe
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_owners_probe"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_noise_owners_probe" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_split returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_split returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_dhstate_new_by_id returned Out of memory (17665)
+nnpsk0: noise_handshakestate_set_prologue returned Out of memory (17665)
+nnpsk0: noise_handshakestate_split returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_handshakestate_new_by_name returned Out of memory (17665)
+nnpsk0: noise_dhstate_new_by_id returned Out of memory (17665)
+nnpsk0: noise_handshakestate_set_prologue returned Out of memory (17665)
+nnpsk0: noise_handshakestate_split returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_dhstate_new_by_id returned Out of memory (17665)
+xx: noise_handshakestate_set_prologue returned Out of memory (17665)
+xx: noise_handshakestate_split returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_handshakestate_new_by_name returned Out of memory (17665)
+xx: noise_dhstate_new_by_id returned Out of memory (17665)
+xx: noise_handshakestate_set_prologue returned Out of memory (17665)
+xx: noise_handshakestate_split returned Out of memory (17665)
+xx: local Noise endpoint is not ready to read this flight
+MEM03_RESULT {"row":"single","budget":"small","mode":0,"retained_slice":8192,"metadata":2112,"peak_charged":1840,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"small","mode":1,"retained_slice":8192,"metadata":2112,"peak_charged":1840,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"small","mode":2,"retained_slice":8192,"metadata":2112,"peak_charged":2176,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"small","mode":3,"retained_slice":8192,"metadata":2112,"peak_charged":2176,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"small","mode":4,"retained_slice":8192,"metadata":2112,"peak_charged":1920,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"small","mode":5,"retained_slice":8192,"metadata":2112,"peak_charged":1920,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"medium","mode":0,"retained_slice":16384,"metadata":2112,"peak_charged":1840,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"medium","mode":1,"retained_slice":16384,"metadata":2112,"peak_charged":1840,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"medium","mode":2,"retained_slice":16384,"metadata":2112,"peak_charged":2176,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"medium","mode":3,"retained_slice":16384,"metadata":2112,"peak_charged":2176,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"medium","mode":4,"retained_slice":16384,"metadata":2112,"peak_charged":1920,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"medium","mode":5,"retained_slice":16384,"metadata":2112,"peak_charged":1920,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"large","mode":0,"retained_slice":32768,"metadata":2112,"peak_charged":1840,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"large","mode":1,"retained_slice":32768,"metadata":2112,"peak_charged":1840,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"large","mode":2,"retained_slice":32768,"metadata":2112,"peak_charged":2176,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"large","mode":3,"retained_slice":32768,"metadata":2112,"peak_charged":2176,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"large","mode":4,"retained_slice":32768,"metadata":2112,"peak_charged":1920,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"single","budget":"large","mode":5,"retained_slice":32768,"metadata":2112,"peak_charged":1920,"guards":2,"pending_admitted":1,"refused":0,"pending_at_refusal":0,"pending_completed":1,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"small","mode":0,"retained_slice":8192,"metadata":2112,"peak_charged":6032,"guards":8,"pending_admitted":3,"refused":1,"pending_at_refusal":3,"pending_completed":3,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"small","mode":1,"retained_slice":8192,"metadata":2112,"peak_charged":6032,"guards":8,"pending_admitted":3,"refused":1,"pending_at_refusal":3,"pending_completed":3,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"small","mode":2,"retained_slice":8192,"metadata":2112,"peak_charged":6064,"guards":8,"pending_admitted":2,"refused":1,"pending_at_refusal":2,"pending_completed":2,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"small","mode":3,"retained_slice":8192,"metadata":2112,"peak_charged":6064,"guards":8,"pending_admitted":2,"refused":1,"pending_at_refusal":2,"pending_completed":2,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"small","mode":4,"retained_slice":8192,"metadata":2112,"peak_charged":6064,"guards":8,"pending_admitted":3,"refused":1,"pending_at_refusal":3,"pending_completed":2,"split_refused":1}
+MEM03_RESULT {"row":"four_serial","budget":"small","mode":5,"retained_slice":8192,"metadata":2112,"peak_charged":6064,"guards":8,"pending_admitted":3,"refused":1,"pending_at_refusal":3,"pending_completed":2,"split_refused":1}
+MEM03_RESULT {"row":"four_serial","budget":"medium","mode":0,"retained_slice":16384,"metadata":2112,"peak_charged":6976,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"medium","mode":1,"retained_slice":16384,"metadata":2112,"peak_charged":6976,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"medium","mode":2,"retained_slice":16384,"metadata":2112,"peak_charged":8320,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"medium","mode":3,"retained_slice":16384,"metadata":2112,"peak_charged":8320,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"medium","mode":4,"retained_slice":16384,"metadata":2112,"peak_charged":7648,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"medium","mode":5,"retained_slice":16384,"metadata":2112,"peak_charged":7648,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"large","mode":0,"retained_slice":32768,"metadata":2112,"peak_charged":6976,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"large","mode":1,"retained_slice":32768,"metadata":2112,"peak_charged":6976,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"large","mode":2,"retained_slice":32768,"metadata":2112,"peak_charged":8320,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"large","mode":3,"retained_slice":32768,"metadata":2112,"peak_charged":8320,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"large","mode":4,"retained_slice":32768,"metadata":2112,"peak_charged":7648,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_RESULT {"row":"four_serial","budget":"large","mode":5,"retained_slice":32768,"metadata":2112,"peak_charged":7648,"guards":8,"pending_admitted":4,"refused":0,"pending_at_refusal":0,"pending_completed":4,"split_refused":0}
+MEM03_DEFERRED row=four_parallel crypto_slots=2: simultaneous calls not exercised
+MEM03_OOM mode=0 ordinals=9 (includes Split), neighboring owners preserved
+MEM03_OOM mode=1 ordinals=9 (includes Split), neighboring owners preserved
+MEM03_OOM mode=2 ordinals=11 (includes Split), neighboring owners preserved
+MEM03_OOM mode=3 ordinals=11 (includes Split), neighboring owners preserved
+MEM03_REUSE cycles=32 peak_charged=6112 no residual growth; cleanup wipes checked
+MEM03_SCOPE host serialized provider only; fixed driver backing=32768 metadata=2112; owner records/scratch/stacks/backend/DMP/binding buffers excluded from slice; no MCU runtime
+<end of output>
+Test time =   0.50 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_noise_owners_probe" end time: Sep 27 04:14 EEST
+"dmp_noise_owners_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+29/33 Testing: dmp_console_core
+29/33 Test: dmp_console_core
+Command: "/Users/smartyniuk/.espressif/tools/python/v6.1/venv/bin/python3.14" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/tests/provider/console/test_console_core.py" "--exe" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_console"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_console_core" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+console core: 37 real-process parser/lifetime/fault checks PASS
+<end of output>
+Test time =   0.43 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_console_core" end time: Sep 27 04:14 EEST
+"dmp_console_core" time elapsed: 00:00:00
+----------------------------------------------------------
+
+30/33 Testing: dmp_console_client
+30/33 Test: dmp_console_client
+Command: "/Users/smartyniuk/.espressif/tools/python/v6.1/venv/bin/python3.14" "-m" "unittest" "discover" "-s" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/tests/provider/console" "-p" "test_serial_bench.py"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_console_client" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+....................
+----------------------------------------------------------------------
+Ran 20 tests in 0.004s
+
+OK
+<end of output>
+Test time =   0.09 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_console_client" end time: Sep 27 04:14 EEST
+"dmp_console_client" time elapsed: 00:00:00
+----------------------------------------------------------
+
+31/33 Testing: dmp_console_live_pair
+31/33 Test: dmp_console_live_pair
+Command: "/Users/smartyniuk/.espressif/tools/python/v6.1/venv/bin/python3.14" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/tests/provider/console/run_host_check.py" "--exe" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/dmp_noise_console" "--output-dir" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/console-traces"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider
+"dmp_console_live_pair" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+{"cycles": 2, "mode": "both", "output": "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/console-traces/console-1790471686911411000.jsonl", "scenarios": [{"active": [{"allocs": 9, "arena_live": 256, "arena_peak": 1328, "attempts": 9, "backing": 32768, "blocks": 2, "frees": 7, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 9, "arena_live": 256, "arena_peak": 1328, "attempts": 9, "backing": 32768, "blocks": 2, "frees": 7, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 0, "arena_live": 0, "arena_peak": 0, "attempts": 0, "backing": 32768, "blocks": 0, "frees": 0, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 0, "arena_live": 0, "arena_peak": 0, "attempts": 0, "backing": 32768, "blocks": 0, "frees": 0, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 9, "arena_live": 0, "arena_peak": 1328, "attempts": 9, "backing": 32768, "blocks": 0, "frees": 9, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 9, "arena_live": 0, "arena_peak": 1328, "attempts": 9, "backing": 32768, "blocks": 0, "frees": 9, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 0, "kind": "fixed", "mode": "nn", "orientation": 0}, {"active": [{"allocs": 18, "arena_live": 256, "arena_peak": 1328, "attempts": 18, "backing": 32768, "blocks": 2, "frees": 16, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 18, "arena_live": 256, "arena_peak": 1328, "attempts": 18, "backing": 32768, "blocks": 2, "frees": 16, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 9, "arena_live": 0, "arena_peak": 1328, "attempts": 9, "backing": 32768, "blocks": 0, "frees": 9, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 9, "arena_live": 0, "arena_peak": 1328, "attempts": 9, "backing": 32768, "blocks": 0, "frees": 9, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 18, "arena_live": 0, "arena_peak": 1328, "attempts": 18, "backing": 32768, "blocks": 0, "frees": 18, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 18, "arena_live": 0, "arena_peak": 1328, "attempts": 18, "backing": 32768, "blocks": 0, "frees": 18, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 0, "kind": "fixed", "mode": "nn", "orientation": 1}, {"active": [{"allocs": 26, "arena_live": 256, "arena_peak": 1328, "attempts": 26, "backing": 32768, "blocks": 2, "frees": 24, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 2, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 26, "arena_live": 256, "arena_peak": 1328, "attempts": 26, "backing": 32768, "blocks": 2, "frees": 24, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 2, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 18, "arena_live": 0, "arena_peak": 1328, "attempts": 18, "backing": 32768, "blocks": 0, "frees": 18, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 18, "arena_live": 0, "arena_peak": 1328, "attempts": 18, "backing": 32768, "blocks": 0, "frees": 18, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 1, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 26, "arena_live": 0, "arena_peak": 1328, "attempts": 26, "backing": 32768, "blocks": 0, "frees": 26, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 2, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 26, "arena_live": 0, "arena_peak": 1328, "attempts": 26, "backing": 32768, "blocks": 0, "frees": 26, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 2, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 0, "kind": "random", "mode": "nn", "orientation": 0}, {"active": [{"allocs": 34, "arena_live": 256, "arena_peak": 1328, "attempts": 34, "backing": 32768, "blocks": 2, "frees": 32, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 34, "arena_live": 256, "arena_peak": 1328, "attempts": 34, "backing": 32768, "blocks": 2, "frees": 32, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 26, "arena_live": 0, "arena_peak": 1328, "attempts": 26, "backing": 32768, "blocks": 0, "frees": 26, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 2, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 26, "arena_live": 0, "arena_peak": 1328, "attempts": 26, "backing": 32768, "blocks": 0, "frees": 26, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 2, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 34, "arena_live": 0, "arena_peak": 1328, "attempts": 34, "backing": 32768, "blocks": 0, "frees": 34, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 34, "arena_live": 0, "arena_peak": 1328, "attempts": 34, "backing": 32768, "blocks": 0, "frees": 34, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 0, "kind": "random", "mode": "nn", "orientation": 1}, {"active": [{"allocs": 45, "arena_live": 256, "arena_peak": 1664, "attempts": 45, "backing": 32768, "blocks": 2, "frees": 43, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 45, "arena_live": 256, "arena_peak": 1664, "attempts": 45, "backing": 32768, "blocks": 2, "frees": 43, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 34, "arena_live": 0, "arena_peak": 1328, "attempts": 34, "backing": 32768, "blocks": 0, "frees": 34, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 34, "arena_live": 0, "arena_peak": 1328, "attempts": 34, "backing": 32768, "blocks": 0, "frees": 34, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 45, "arena_live": 0, "arena_peak": 1664, "attempts": 45, "backing": 32768, "blocks": 0, "frees": 45, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 45, "arena_live": 0, "arena_peak": 1664, "attempts": 45, "backing": 32768, "blocks": 0, "frees": 45, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 0, "kind": "fixed", "mode": "xx", "orientation": 0}, {"active": [{"allocs": 56, "arena_live": 256, "arena_peak": 1664, "attempts": 56, "backing": 32768, "blocks": 2, "frees": 54, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 56, "arena_live": 256, "arena_peak": 1664, "attempts": 56, "backing": 32768, "blocks": 2, "frees": 54, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 45, "arena_live": 0, "arena_peak": 1664, "attempts": 45, "backing": 32768, "blocks": 0, "frees": 45, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 45, "arena_live": 0, "arena_peak": 1664, "attempts": 45, "backing": 32768, "blocks": 0, "frees": 45, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 56, "arena_live": 0, "arena_peak": 1664, "attempts": 56, "backing": 32768, "blocks": 0, "frees": 56, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 56, "arena_live": 0, "arena_peak": 1664, "attempts": 56, "backing": 32768, "blocks": 0, "frees": 56, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 0, "kind": "fixed", "mode": "xx", "orientation": 1}, {"active": [{"allocs": 66, "arena_live": 256, "arena_peak": 1664, "attempts": 66, "backing": 32768, "blocks": 2, "frees": 64, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 4, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 66, "arena_live": 256, "arena_peak": 1664, "attempts": 66, "backing": 32768, "blocks": 2, "frees": 64, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 4, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 56, "arena_live": 0, "arena_peak": 1664, "attempts": 56, "backing": 32768, "blocks": 0, "frees": 56, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 56, "arena_live": 0, "arena_peak": 1664, "attempts": 56, "backing": 32768, "blocks": 0, "frees": 56, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 3, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 66, "arena_live": 0, "arena_peak": 1664, "attempts": 66, "backing": 32768, "blocks": 0, "frees": 66, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 4, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 66, "arena_live": 0, "arena_peak": 1664, "attempts": 66, "backing": 32768, "blocks": 0, "frees": 66, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 4, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 0, "kind": "random", "mode": "xx", "orientation": 0}, {"active": [{"allocs": 76, "arena_live": 256, "arena_peak": 1664, "attempts": 76, "backing": 32768, "blocks": 2, "frees": 74, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 76, "arena_live": 256, "arena_peak": 1664, "attempts": 76, "backing": 32768, "blocks": 2, "frees": 74, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 66, "arena_live": 0, "arena_peak": 1664, "attempts": 66, "backing": 32768, "blocks": 0, "frees": 66, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 4, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 66, "arena_live": 0, "arena_peak": 1664, "attempts": 66, "backing": 32768, "blocks": 0, "frees": 66, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 4, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 76, "arena_live": 0, "arena_peak": 1664, "attempts": 76, "backing": 32768, "blocks": 0, "frees": 76, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 76, "arena_live": 0, "arena_peak": 1664, "attempts": 76, "backing": 32768, "blocks": 0, "frees": 76, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 0, "kind": "random", "mode": "xx", "orientation": 1}, {"active": [{"allocs": 85, "arena_live": 256, "arena_peak": 1664, "attempts": 85, "backing": 32768, "blocks": 2, "frees": 83, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 85, "arena_live": 256, "arena_peak": 1664, "attempts": 85, "backing": 32768, "blocks": 2, "frees": 83, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 76, "arena_live": 0, "arena_peak": 1664, "attempts": 76, "backing": 32768, "blocks": 0, "frees": 76, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 76, "arena_live": 0, "arena_peak": 1664, "attempts": 76, "backing": 32768, "blocks": 0, "frees": 76, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 85, "arena_live": 0, "arena_peak": 1664, "attempts": 85, "backing": 32768, "blocks": 0, "frees": 85, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 85, "arena_live": 0, "arena_peak": 1664, "attempts": 85, "backing": 32768, "blocks": 0, "frees": 85, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 1, "kind": "fixed", "mode": "nn", "orientation": 0}, {"active": [{"allocs": 94, "arena_live": 256, "arena_peak": 1664, "attempts": 94, "backing": 32768, "blocks": 2, "frees": 92, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 94, "arena_live": 256, "arena_peak": 1664, "attempts": 94, "backing": 32768, "blocks": 2, "frees": 92, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 85, "arena_live": 0, "arena_peak": 1664, "attempts": 85, "backing": 32768, "blocks": 0, "frees": 85, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 85, "arena_live": 0, "arena_peak": 1664, "attempts": 85, "backing": 32768, "blocks": 0, "frees": 85, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 94, "arena_live": 0, "arena_peak": 1664, "attempts": 94, "backing": 32768, "blocks": 0, "frees": 94, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 94, "arena_live": 0, "arena_peak": 1664, "attempts": 94, "backing": 32768, "blocks": 0, "frees": 94, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 1, "kind": "fixed", "mode": "nn", "orientation": 1}, {"active": [{"allocs": 102, "arena_live": 256, "arena_peak": 1664, "attempts": 102, "backing": 32768, "blocks": 2, "frees": 100, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 6, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 102, "arena_live": 256, "arena_peak": 1664, "attempts": 102, "backing": 32768, "blocks": 2, "frees": 100, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 6, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 94, "arena_live": 0, "arena_peak": 1664, "attempts": 94, "backing": 32768, "blocks": 0, "frees": 94, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 94, "arena_live": 0, "arena_peak": 1664, "attempts": 94, "backing": 32768, "blocks": 0, "frees": 94, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 5, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 102, "arena_live": 0, "arena_peak": 1664, "attempts": 102, "backing": 32768, "blocks": 0, "frees": 102, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 6, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 102, "arena_live": 0, "arena_peak": 1664, "attempts": 102, "backing": 32768, "blocks": 0, "frees": 102, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 6, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 1, "kind": "random", "mode": "nn", "orientation": 0}, {"active": [{"allocs": 110, "arena_live": 256, "arena_peak": 1664, "attempts": 110, "backing": 32768, "blocks": 2, "frees": 108, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 110, "arena_live": 256, "arena_peak": 1664, "attempts": 110, "backing": 32768, "blocks": 2, "frees": 108, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 102, "arena_live": 0, "arena_peak": 1664, "attempts": 102, "backing": 32768, "blocks": 0, "frees": 102, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 6, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 102, "arena_live": 0, "arena_peak": 1664, "attempts": 102, "backing": 32768, "blocks": 0, "frees": 102, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 6, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 110, "arena_live": 0, "arena_peak": 1664, "attempts": 110, "backing": 32768, "blocks": 0, "frees": 110, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 110, "arena_live": 0, "arena_peak": 1664, "attempts": 110, "backing": 32768, "blocks": 0, "frees": 110, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 1, "kind": "random", "mode": "nn", "orientation": 1}, {"active": [{"allocs": 121, "arena_live": 256, "arena_peak": 1664, "attempts": 121, "backing": 32768, "blocks": 2, "frees": 119, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 121, "arena_live": 256, "arena_peak": 1664, "attempts": 121, "backing": 32768, "blocks": 2, "frees": 119, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 110, "arena_live": 0, "arena_peak": 1664, "attempts": 110, "backing": 32768, "blocks": 0, "frees": 110, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 110, "arena_live": 0, "arena_peak": 1664, "attempts": 110, "backing": 32768, "blocks": 0, "frees": 110, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 121, "arena_live": 0, "arena_peak": 1664, "attempts": 121, "backing": 32768, "blocks": 0, "frees": 121, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 121, "arena_live": 0, "arena_peak": 1664, "attempts": 121, "backing": 32768, "blocks": 0, "frees": 121, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 1, "kind": "fixed", "mode": "xx", "orientation": 0}, {"active": [{"allocs": 132, "arena_live": 256, "arena_peak": 1664, "attempts": 132, "backing": 32768, "blocks": 2, "frees": 130, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 132, "arena_live": 256, "arena_peak": 1664, "attempts": 132, "backing": 32768, "blocks": 2, "frees": 130, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 121, "arena_live": 0, "arena_peak": 1664, "attempts": 121, "backing": 32768, "blocks": 0, "frees": 121, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 121, "arena_live": 0, "arena_peak": 1664, "attempts": 121, "backing": 32768, "blocks": 0, "frees": 121, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 132, "arena_live": 0, "arena_peak": 1664, "attempts": 132, "backing": 32768, "blocks": 0, "frees": 132, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 132, "arena_live": 0, "arena_peak": 1664, "attempts": 132, "backing": 32768, "blocks": 0, "frees": 132, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 1, "kind": "fixed", "mode": "xx", "orientation": 1}, {"active": [{"allocs": 142, "arena_live": 256, "arena_peak": 1664, "attempts": 142, "backing": 32768, "blocks": 2, "frees": 140, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 8, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 142, "arena_live": 256, "arena_peak": 1664, "attempts": 142, "backing": 32768, "blocks": 2, "frees": 140, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 8, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 132, "arena_live": 0, "arena_peak": 1664, "attempts": 132, "backing": 32768, "blocks": 0, "frees": 132, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 132, "arena_live": 0, "arena_peak": 1664, "attempts": 132, "backing": 32768, "blocks": 0, "frees": 132, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 7, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 142, "arena_live": 0, "arena_peak": 1664, "attempts": 142, "backing": 32768, "blocks": 0, "frees": 142, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 8, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 142, "arena_live": 0, "arena_peak": 1664, "attempts": 142, "backing": 32768, "blocks": 0, "frees": 142, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 8, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 1, "kind": "random", "mode": "xx", "orientation": 0}, {"active": [{"allocs": 152, "arena_live": 256, "arena_peak": 1664, "attempts": 152, "backing": 32768, "blocks": 2, "frees": 150, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 9, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 152, "arena_live": 256, "arena_peak": 1664, "attempts": 152, "backing": 32768, "blocks": 2, "frees": 150, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 9, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "before": [{"allocs": 142, "arena_live": 0, "arena_peak": 1664, "attempts": 142, "backing": 32768, "blocks": 0, "frees": 142, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 8, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 142, "arena_live": 0, "arena_peak": 1664, "attempts": 142, "backing": 32768, "blocks": 0, "frees": 142, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 8, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "closed": [{"allocs": 152, "arena_live": 0, "arena_peak": 1664, "attempts": 152, "backing": 32768, "blocks": 0, "frees": 152, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 9, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}, {"allocs": 152, "arena_live": 0, "arena_peak": 1664, "attempts": 152, "backing": 32768, "blocks": 0, "frees": 152, "heap_free": 0, "heap_largest": 0, "heap_min": 0, "metadata": 2112, "owners": 256, "quota": 32768, "refusals": 0, "rng_calls": 9, "scratch": 2177, "stack_free_min": 0, "wipe_errors": 0}], "cycle": 1, "kind": "random", "mode": "xx", "orientation": 1}], "schema": "dmpbench-summary-v1", "success": true}
+<end of output>
+Test time =   0.12 sec
+----------------------------------------------------------
+Test Passed.
+"dmp_console_live_pair" end time: Sep 27 04:14 EEST
+"dmp_console_live_pair" time elapsed: 00:00:00
+----------------------------------------------------------
+
+32/33 Testing: unit
+32/33 Test: unit
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/experiment-noise/noise-c-test-unit"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/../../experiment-noise
+"unit" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+cipherstate ... ok
+dhstate ... ok
+errors ... ok
+handshakestate ... ok
+handshakestate_preset_ephemeral ... ok
+hashstate ... ok
+names ... ok
+patterns ... ok
+randstate ... ok
+single_protocol ... ok
+small_build ... ok
+symmetricstate ... ok
+All tests succeeded
+<end of output>
+Test time =   0.91 sec
+----------------------------------------------------------
+Test Passed.
+"unit" end time: Sep 27 04:14 EEST
+"unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+33/33 Testing: vectors
+33/33 Test: vectors
+Command: "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/experiment-noise/noise-c-test-vector" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/cacophony.txt" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-basic.txt" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-fallback.txt" "/Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-hybrid.txt"
+Directory: /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/build/bench-host/tests/provider/../../experiment-noise
+"vectors" start time: Sep 27 04:14 EEST
+Output:
+----------------------------------------------------------
+--------------------------------------------------------------
+Processing vectors from /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/cacophony.txt
+Noise_NN_25519_AESGCM_BLAKE2b ... skipped
+Noise_NN_25519_AESGCM_BLAKE2s ... skipped
+Noise_NN_25519_AESGCM_SHA256 ... skipped
+Noise_NN_25519_AESGCM_SHA512 ... skipped
+Noise_NN_448_AESGCM_BLAKE2b ... skipped
+Noise_NN_448_AESGCM_BLAKE2s ... skipped
+Noise_NN_448_AESGCM_SHA256 ... skipped
+Noise_NN_448_AESGCM_SHA512 ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_25519_ChaChaPoly_SHA256 ... ok
+Noise_NN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_448_ChaChaPoly_SHA256 ... skipped
+Noise_NN_448_ChaChaPoly_SHA512 ... skipped
+Noise_KN_25519_AESGCM_BLAKE2b ... skipped
+Noise_KN_25519_AESGCM_BLAKE2s ... skipped
+Noise_KN_25519_AESGCM_SHA256 ... skipped
+Noise_KN_25519_AESGCM_SHA512 ... skipped
+Noise_KN_448_AESGCM_BLAKE2b ... skipped
+Noise_KN_448_AESGCM_BLAKE2s ... skipped
+Noise_KN_448_AESGCM_SHA256 ... skipped
+Noise_KN_448_AESGCM_SHA512 ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_25519_ChaChaPoly_SHA256 ... ok
+Noise_KN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_448_ChaChaPoly_SHA256 ... skipped
+Noise_KN_448_ChaChaPoly_SHA512 ... skipped
+Noise_NK_25519_AESGCM_BLAKE2b ... skipped
+Noise_NK_25519_AESGCM_BLAKE2s ... skipped
+Noise_NK_25519_AESGCM_SHA256 ... skipped
+Noise_NK_25519_AESGCM_SHA512 ... skipped
+Noise_NK_448_AESGCM_BLAKE2b ... skipped
+Noise_NK_448_AESGCM_BLAKE2s ... skipped
+Noise_NK_448_AESGCM_SHA256 ... skipped
+Noise_NK_448_AESGCM_SHA512 ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_25519_ChaChaPoly_SHA256 ... ok
+Noise_NK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_448_ChaChaPoly_SHA256 ... skipped
+Noise_NK_448_ChaChaPoly_SHA512 ... skipped
+Noise_KK_25519_AESGCM_BLAKE2b ... skipped
+Noise_KK_25519_AESGCM_BLAKE2s ... skipped
+Noise_KK_25519_AESGCM_SHA256 ... skipped
+Noise_KK_25519_AESGCM_SHA512 ... skipped
+Noise_KK_448_AESGCM_BLAKE2b ... skipped
+Noise_KK_448_AESGCM_BLAKE2s ... skipped
+Noise_KK_448_AESGCM_SHA256 ... skipped
+Noise_KK_448_AESGCM_SHA512 ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_25519_ChaChaPoly_SHA256 ... ok
+Noise_KK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_448_ChaChaPoly_SHA256 ... skipped
+Noise_KK_448_ChaChaPoly_SHA512 ... skipped
+Noise_NX_25519_AESGCM_BLAKE2b ... skipped
+Noise_NX_25519_AESGCM_BLAKE2s ... skipped
+Noise_NX_25519_AESGCM_SHA256 ... skipped
+Noise_NX_25519_AESGCM_SHA512 ... skipped
+Noise_NX_448_AESGCM_BLAKE2b ... skipped
+Noise_NX_448_AESGCM_BLAKE2s ... skipped
+Noise_NX_448_AESGCM_SHA256 ... skipped
+Noise_NX_448_AESGCM_SHA512 ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_25519_ChaChaPoly_SHA256 ... ok
+Noise_NX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_448_ChaChaPoly_SHA256 ... skipped
+Noise_NX_448_ChaChaPoly_SHA512 ... skipped
+Noise_KX_25519_AESGCM_BLAKE2b ... skipped
+Noise_KX_25519_AESGCM_BLAKE2s ... skipped
+Noise_KX_25519_AESGCM_SHA256 ... skipped
+Noise_KX_25519_AESGCM_SHA512 ... skipped
+Noise_KX_448_AESGCM_BLAKE2b ... skipped
+Noise_KX_448_AESGCM_BLAKE2s ... skipped
+Noise_KX_448_AESGCM_SHA256 ... skipped
+Noise_KX_448_AESGCM_SHA512 ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_25519_ChaChaPoly_SHA256 ... ok
+Noise_KX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_448_ChaChaPoly_SHA256 ... skipped
+Noise_KX_448_ChaChaPoly_SHA512 ... skipped
+Noise_XN_25519_AESGCM_BLAKE2b ... skipped
+Noise_XN_25519_AESGCM_BLAKE2s ... skipped
+Noise_XN_25519_AESGCM_SHA256 ... skipped
+Noise_XN_25519_AESGCM_SHA512 ... skipped
+Noise_XN_448_AESGCM_BLAKE2b ... skipped
+Noise_XN_448_AESGCM_BLAKE2s ... skipped
+Noise_XN_448_AESGCM_SHA256 ... skipped
+Noise_XN_448_AESGCM_SHA512 ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_25519_ChaChaPoly_SHA256 ... ok
+Noise_XN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_448_ChaChaPoly_SHA256 ... skipped
+Noise_XN_448_ChaChaPoly_SHA512 ... skipped
+Noise_IN_25519_AESGCM_BLAKE2b ... skipped
+Noise_IN_25519_AESGCM_BLAKE2s ... skipped
+Noise_IN_25519_AESGCM_SHA256 ... skipped
+Noise_IN_25519_AESGCM_SHA512 ... skipped
+Noise_IN_448_AESGCM_BLAKE2b ... skipped
+Noise_IN_448_AESGCM_BLAKE2s ... skipped
+Noise_IN_448_AESGCM_SHA256 ... skipped
+Noise_IN_448_AESGCM_SHA512 ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_25519_ChaChaPoly_SHA256 ... ok
+Noise_IN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_448_ChaChaPoly_SHA256 ... skipped
+Noise_IN_448_ChaChaPoly_SHA512 ... skipped
+Noise_XK_25519_AESGCM_BLAKE2b ... skipped
+Noise_XK_25519_AESGCM_BLAKE2s ... skipped
+Noise_XK_25519_AESGCM_SHA256 ... skipped
+Noise_XK_25519_AESGCM_SHA512 ... skipped
+Noise_XK_448_AESGCM_BLAKE2b ... skipped
+Noise_XK_448_AESGCM_BLAKE2s ... skipped
+Noise_XK_448_AESGCM_SHA256 ... skipped
+Noise_XK_448_AESGCM_SHA512 ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_25519_ChaChaPoly_SHA256 ... ok
+Noise_XK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_448_ChaChaPoly_SHA256 ... skipped
+Noise_XK_448_ChaChaPoly_SHA512 ... skipped
+Noise_IK_25519_AESGCM_BLAKE2b ... skipped
+Noise_IK_25519_AESGCM_BLAKE2s ... skipped
+Noise_IK_25519_AESGCM_SHA256 ... skipped
+Noise_IK_25519_AESGCM_SHA512 ... skipped
+Noise_IK_448_AESGCM_BLAKE2b ... skipped
+Noise_IK_448_AESGCM_BLAKE2s ... skipped
+Noise_IK_448_AESGCM_SHA256 ... skipped
+Noise_IK_448_AESGCM_SHA512 ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_25519_ChaChaPoly_SHA256 ... ok
+Noise_IK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_448_ChaChaPoly_SHA256 ... skipped
+Noise_IK_448_ChaChaPoly_SHA512 ... skipped
+Noise_XX_25519_AESGCM_BLAKE2b ... skipped
+Noise_XX_25519_AESGCM_BLAKE2s ... skipped
+Noise_XX_25519_AESGCM_SHA256 ... skipped
+Noise_XX_25519_AESGCM_SHA512 ... skipped
+Noise_XX_448_AESGCM_BLAKE2b ... skipped
+Noise_XX_448_AESGCM_BLAKE2s ... skipped
+Noise_XX_448_AESGCM_SHA256 ... skipped
+Noise_XX_448_AESGCM_SHA512 ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_25519_ChaChaPoly_SHA256 ... ok
+Noise_XX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_448_ChaChaPoly_SHA256 ... skipped
+Noise_XX_448_ChaChaPoly_SHA512 ... skipped
+Noise_IX_25519_AESGCM_BLAKE2b ... skipped
+Noise_IX_25519_AESGCM_BLAKE2s ... skipped
+Noise_IX_25519_AESGCM_SHA256 ... skipped
+Noise_IX_25519_AESGCM_SHA512 ... skipped
+Noise_IX_448_AESGCM_BLAKE2b ... skipped
+Noise_IX_448_AESGCM_BLAKE2s ... skipped
+Noise_IX_448_AESGCM_SHA256 ... skipped
+Noise_IX_448_AESGCM_SHA512 ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_25519_ChaChaPoly_SHA256 ... ok
+Noise_IX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_448_ChaChaPoly_SHA256 ... skipped
+Noise_IX_448_ChaChaPoly_SHA512 ... skipped
+Noise_N_25519_AESGCM_BLAKE2b ... skipped
+Noise_N_25519_AESGCM_BLAKE2s ... skipped
+Noise_N_25519_AESGCM_SHA256 ... skipped
+Noise_N_25519_AESGCM_SHA512 ... skipped
+Noise_N_448_AESGCM_BLAKE2b ... skipped
+Noise_N_448_AESGCM_BLAKE2s ... skipped
+Noise_N_448_AESGCM_SHA256 ... skipped
+Noise_N_448_AESGCM_SHA512 ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_25519_ChaChaPoly_SHA256 ... ok
+Noise_N_25519_ChaChaPoly_SHA512 ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_448_ChaChaPoly_SHA256 ... skipped
+Noise_N_448_ChaChaPoly_SHA512 ... skipped
+Noise_K_25519_AESGCM_BLAKE2b ... skipped
+Noise_K_25519_AESGCM_BLAKE2s ... skipped
+Noise_K_25519_AESGCM_SHA256 ... skipped
+Noise_K_25519_AESGCM_SHA512 ... skipped
+Noise_K_448_AESGCM_BLAKE2b ... skipped
+Noise_K_448_AESGCM_BLAKE2s ... skipped
+Noise_K_448_AESGCM_SHA256 ... skipped
+Noise_K_448_AESGCM_SHA512 ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_25519_ChaChaPoly_SHA256 ... ok
+Noise_K_25519_ChaChaPoly_SHA512 ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_448_ChaChaPoly_SHA256 ... skipped
+Noise_K_448_ChaChaPoly_SHA512 ... skipped
+Noise_X_25519_AESGCM_BLAKE2b ... skipped
+Noise_X_25519_AESGCM_BLAKE2s ... skipped
+Noise_X_25519_AESGCM_SHA256 ... skipped
+Noise_X_25519_AESGCM_SHA512 ... skipped
+Noise_X_448_AESGCM_BLAKE2b ... skipped
+Noise_X_448_AESGCM_BLAKE2s ... skipped
+Noise_X_448_AESGCM_SHA256 ... skipped
+Noise_X_448_AESGCM_SHA512 ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_25519_ChaChaPoly_SHA256 ... ok
+Noise_X_25519_ChaChaPoly_SHA512 ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_448_ChaChaPoly_SHA256 ... skipped
+Noise_X_448_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_NNpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_NNpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk0_448_AESGCM_SHA256 ... skipped
+Noise_NNpsk0_448_AESGCM_SHA512 ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_NNpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_NNpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NNpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NNpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NNpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NNpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NNpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NNpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NNpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NNpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_NKpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_NKpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk0_448_AESGCM_SHA256 ... skipped
+Noise_NKpsk0_448_AESGCM_SHA512 ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_NKpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_NKpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_NXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_NXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_NXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_NXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_NXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_NXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_NXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_NXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_NXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_NXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_XNpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XNpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XNpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XNpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XNpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XNpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XNpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XNpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XNpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XNpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XNpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_XKpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XKpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XKpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XKpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XKpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XKpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XKpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XKpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XKpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XKpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XKpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_XXpsk3_25519_AESGCM_BLAKE2b ... skipped
+Noise_XXpsk3_25519_AESGCM_BLAKE2s ... skipped
+Noise_XXpsk3_25519_AESGCM_SHA256 ... skipped
+Noise_XXpsk3_25519_AESGCM_SHA512 ... skipped
+Noise_XXpsk3_448_AESGCM_BLAKE2b ... skipped
+Noise_XXpsk3_448_AESGCM_BLAKE2s ... skipped
+Noise_XXpsk3_448_AESGCM_SHA256 ... skipped
+Noise_XXpsk3_448_AESGCM_SHA512 ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXpsk3_25519_ChaChaPoly_SHA256 ... ok
+Noise_XXpsk3_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XXpsk3_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXpsk3_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXpsk3_448_ChaChaPoly_SHA256 ... skipped
+Noise_XXpsk3_448_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_KNpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_KNpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk0_448_AESGCM_SHA256 ... skipped
+Noise_KNpsk0_448_AESGCM_SHA512 ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_KNpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_KNpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KNpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KNpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KNpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KNpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KNpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KNpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KNpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KNpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_KKpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_KKpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk0_448_AESGCM_SHA256 ... skipped
+Noise_KKpsk0_448_AESGCM_SHA512 ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_KKpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_KKpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_KXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_KXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_KXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_KXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_KXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_KXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_KXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_KXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_KXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_KXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_INpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_INpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_INpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_INpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_INpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_INpsk1_448_AESGCM_SHA256 ... skipped
+Noise_INpsk1_448_AESGCM_SHA512 ... skipped
+Noise_INpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_INpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_INpsk1_448_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_INpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_INpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_INpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_INpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_INpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_INpsk2_448_AESGCM_SHA256 ... skipped
+Noise_INpsk2_448_AESGCM_SHA512 ... skipped
+Noise_INpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_INpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_INpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_INpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_IKpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_IKpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk1_448_AESGCM_SHA256 ... skipped
+Noise_IKpsk1_448_AESGCM_SHA512 ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_IKpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_IKpsk1_448_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_IKpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_IKpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_IKpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_IKpsk2_448_AESGCM_SHA256 ... skipped
+Noise_IKpsk2_448_AESGCM_SHA512 ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_IKpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IKpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_IKpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_IXpsk2_25519_AESGCM_BLAKE2b ... skipped
+Noise_IXpsk2_25519_AESGCM_BLAKE2s ... skipped
+Noise_IXpsk2_25519_AESGCM_SHA256 ... skipped
+Noise_IXpsk2_25519_AESGCM_SHA512 ... skipped
+Noise_IXpsk2_448_AESGCM_BLAKE2b ... skipped
+Noise_IXpsk2_448_AESGCM_BLAKE2s ... skipped
+Noise_IXpsk2_448_AESGCM_SHA256 ... skipped
+Noise_IXpsk2_448_AESGCM_SHA512 ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXpsk2_25519_ChaChaPoly_SHA256 ... ok
+Noise_IXpsk2_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IXpsk2_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXpsk2_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXpsk2_448_ChaChaPoly_SHA256 ... skipped
+Noise_IXpsk2_448_ChaChaPoly_SHA512 ... skipped
+Noise_Npsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_Npsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_Npsk0_25519_AESGCM_SHA256 ... skipped
+Noise_Npsk0_25519_AESGCM_SHA512 ... skipped
+Noise_Npsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_Npsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_Npsk0_448_AESGCM_SHA256 ... skipped
+Noise_Npsk0_448_AESGCM_SHA512 ... skipped
+Noise_Npsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Npsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Npsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_Npsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Npsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Npsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Npsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_Npsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_Kpsk0_25519_AESGCM_BLAKE2b ... skipped
+Noise_Kpsk0_25519_AESGCM_BLAKE2s ... skipped
+Noise_Kpsk0_25519_AESGCM_SHA256 ... skipped
+Noise_Kpsk0_25519_AESGCM_SHA512 ... skipped
+Noise_Kpsk0_448_AESGCM_BLAKE2b ... skipped
+Noise_Kpsk0_448_AESGCM_BLAKE2s ... skipped
+Noise_Kpsk0_448_AESGCM_SHA256 ... skipped
+Noise_Kpsk0_448_AESGCM_SHA512 ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Kpsk0_25519_ChaChaPoly_SHA256 ... ok
+Noise_Kpsk0_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Kpsk0_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Kpsk0_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Kpsk0_448_ChaChaPoly_SHA256 ... skipped
+Noise_Kpsk0_448_ChaChaPoly_SHA512 ... skipped
+Noise_Xpsk1_25519_AESGCM_BLAKE2b ... skipped
+Noise_Xpsk1_25519_AESGCM_BLAKE2s ... skipped
+Noise_Xpsk1_25519_AESGCM_SHA256 ... skipped
+Noise_Xpsk1_25519_AESGCM_SHA512 ... skipped
+Noise_Xpsk1_448_AESGCM_BLAKE2b ... skipped
+Noise_Xpsk1_448_AESGCM_BLAKE2s ... skipped
+Noise_Xpsk1_448_AESGCM_SHA256 ... skipped
+Noise_Xpsk1_448_AESGCM_SHA512 ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_Xpsk1_25519_ChaChaPoly_SHA256 ... ok
+Noise_Xpsk1_25519_ChaChaPoly_SHA512 ... skipped
+Noise_Xpsk1_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_Xpsk1_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_Xpsk1_448_ChaChaPoly_SHA256 ... skipped
+Noise_Xpsk1_448_ChaChaPoly_SHA512 ... skipped
+--------------------------------------------------------------
+36 vectors run, 540 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-basic.txt
+Noise_N_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_25519_ChaChaPoly_SHA256 ... ok
+Noise_N_25519_ChaChaPoly_SHA512 ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_N_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_N_448_ChaChaPoly_SHA256 ... skipped
+Noise_N_448_ChaChaPoly_SHA512 ... skipped
+Noise_N_25519_AESGCM_BLAKE2s ... skipped
+Noise_N_25519_AESGCM_BLAKE2b ... skipped
+Noise_N_25519_AESGCM_SHA256 ... skipped
+Noise_N_25519_AESGCM_SHA512 ... skipped
+Noise_N_448_AESGCM_BLAKE2s ... skipped
+Noise_N_448_AESGCM_BLAKE2b ... skipped
+Noise_N_448_AESGCM_SHA256 ... skipped
+Noise_N_448_AESGCM_SHA512 ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_25519_ChaChaPoly_SHA256 ... ok
+Noise_X_25519_ChaChaPoly_SHA512 ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_X_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_X_448_ChaChaPoly_SHA256 ... skipped
+Noise_X_448_ChaChaPoly_SHA512 ... skipped
+Noise_X_25519_AESGCM_BLAKE2s ... skipped
+Noise_X_25519_AESGCM_BLAKE2b ... skipped
+Noise_X_25519_AESGCM_SHA256 ... skipped
+Noise_X_25519_AESGCM_SHA512 ... skipped
+Noise_X_448_AESGCM_BLAKE2s ... skipped
+Noise_X_448_AESGCM_BLAKE2b ... skipped
+Noise_X_448_AESGCM_SHA256 ... skipped
+Noise_X_448_AESGCM_SHA512 ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_25519_ChaChaPoly_SHA256 ... ok
+Noise_K_25519_ChaChaPoly_SHA512 ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_K_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_K_448_ChaChaPoly_SHA256 ... skipped
+Noise_K_448_ChaChaPoly_SHA512 ... skipped
+Noise_K_25519_AESGCM_BLAKE2s ... skipped
+Noise_K_25519_AESGCM_BLAKE2b ... skipped
+Noise_K_25519_AESGCM_SHA256 ... skipped
+Noise_K_25519_AESGCM_SHA512 ... skipped
+Noise_K_448_AESGCM_BLAKE2s ... skipped
+Noise_K_448_AESGCM_BLAKE2b ... skipped
+Noise_K_448_AESGCM_SHA256 ... skipped
+Noise_K_448_AESGCM_SHA512 ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_25519_ChaChaPoly_SHA256 ... ok
+Noise_NN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NN_448_ChaChaPoly_SHA256 ... skipped
+Noise_NN_448_ChaChaPoly_SHA512 ... skipped
+Noise_NN_25519_AESGCM_BLAKE2s ... skipped
+Noise_NN_25519_AESGCM_BLAKE2b ... skipped
+Noise_NN_25519_AESGCM_SHA256 ... skipped
+Noise_NN_25519_AESGCM_SHA512 ... skipped
+Noise_NN_448_AESGCM_BLAKE2s ... skipped
+Noise_NN_448_AESGCM_BLAKE2b ... skipped
+Noise_NN_448_AESGCM_SHA256 ... skipped
+Noise_NN_448_AESGCM_SHA512 ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_25519_ChaChaPoly_SHA256 ... ok
+Noise_NK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NK_448_ChaChaPoly_SHA256 ... skipped
+Noise_NK_448_ChaChaPoly_SHA512 ... skipped
+Noise_NK_25519_AESGCM_BLAKE2s ... skipped
+Noise_NK_25519_AESGCM_BLAKE2b ... skipped
+Noise_NK_25519_AESGCM_SHA256 ... skipped
+Noise_NK_25519_AESGCM_SHA512 ... skipped
+Noise_NK_448_AESGCM_BLAKE2s ... skipped
+Noise_NK_448_AESGCM_BLAKE2b ... skipped
+Noise_NK_448_AESGCM_SHA256 ... skipped
+Noise_NK_448_AESGCM_SHA512 ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_25519_ChaChaPoly_SHA256 ... ok
+Noise_NX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NX_448_ChaChaPoly_SHA256 ... skipped
+Noise_NX_448_ChaChaPoly_SHA512 ... skipped
+Noise_NX_25519_AESGCM_BLAKE2s ... skipped
+Noise_NX_25519_AESGCM_BLAKE2b ... skipped
+Noise_NX_25519_AESGCM_SHA256 ... skipped
+Noise_NX_25519_AESGCM_SHA512 ... skipped
+Noise_NX_448_AESGCM_BLAKE2s ... skipped
+Noise_NX_448_AESGCM_BLAKE2b ... skipped
+Noise_NX_448_AESGCM_SHA256 ... skipped
+Noise_NX_448_AESGCM_SHA512 ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_25519_ChaChaPoly_SHA256 ... ok
+Noise_XN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XN_448_ChaChaPoly_SHA256 ... skipped
+Noise_XN_448_ChaChaPoly_SHA512 ... skipped
+Noise_XN_25519_AESGCM_BLAKE2s ... skipped
+Noise_XN_25519_AESGCM_BLAKE2b ... skipped
+Noise_XN_25519_AESGCM_SHA256 ... skipped
+Noise_XN_25519_AESGCM_SHA512 ... skipped
+Noise_XN_448_AESGCM_BLAKE2s ... skipped
+Noise_XN_448_AESGCM_BLAKE2b ... skipped
+Noise_XN_448_AESGCM_SHA256 ... skipped
+Noise_XN_448_AESGCM_SHA512 ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_25519_ChaChaPoly_SHA256 ... ok
+Noise_XK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XK_448_ChaChaPoly_SHA256 ... skipped
+Noise_XK_448_ChaChaPoly_SHA512 ... skipped
+Noise_XK_25519_AESGCM_BLAKE2s ... skipped
+Noise_XK_25519_AESGCM_BLAKE2b ... skipped
+Noise_XK_25519_AESGCM_SHA256 ... skipped
+Noise_XK_25519_AESGCM_SHA512 ... skipped
+Noise_XK_448_AESGCM_BLAKE2s ... skipped
+Noise_XK_448_AESGCM_BLAKE2b ... skipped
+Noise_XK_448_AESGCM_SHA256 ... skipped
+Noise_XK_448_AESGCM_SHA512 ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_25519_ChaChaPoly_SHA256 ... ok
+Noise_XX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XX_448_ChaChaPoly_SHA256 ... skipped
+Noise_XX_448_ChaChaPoly_SHA512 ... skipped
+Noise_XX_25519_AESGCM_BLAKE2s ... skipped
+Noise_XX_25519_AESGCM_BLAKE2b ... skipped
+Noise_XX_25519_AESGCM_SHA256 ... skipped
+Noise_XX_25519_AESGCM_SHA512 ... skipped
+Noise_XX_448_AESGCM_BLAKE2s ... skipped
+Noise_XX_448_AESGCM_BLAKE2b ... skipped
+Noise_XX_448_AESGCM_SHA256 ... skipped
+Noise_XX_448_AESGCM_SHA512 ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_25519_ChaChaPoly_SHA256 ... ok
+Noise_KN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KN_448_ChaChaPoly_SHA256 ... skipped
+Noise_KN_448_ChaChaPoly_SHA512 ... skipped
+Noise_KN_25519_AESGCM_BLAKE2s ... skipped
+Noise_KN_25519_AESGCM_BLAKE2b ... skipped
+Noise_KN_25519_AESGCM_SHA256 ... skipped
+Noise_KN_25519_AESGCM_SHA512 ... skipped
+Noise_KN_448_AESGCM_BLAKE2s ... skipped
+Noise_KN_448_AESGCM_BLAKE2b ... skipped
+Noise_KN_448_AESGCM_SHA256 ... skipped
+Noise_KN_448_AESGCM_SHA512 ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_25519_ChaChaPoly_SHA256 ... ok
+Noise_KK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KK_448_ChaChaPoly_SHA256 ... skipped
+Noise_KK_448_ChaChaPoly_SHA512 ... skipped
+Noise_KK_25519_AESGCM_BLAKE2s ... skipped
+Noise_KK_25519_AESGCM_BLAKE2b ... skipped
+Noise_KK_25519_AESGCM_SHA256 ... skipped
+Noise_KK_25519_AESGCM_SHA512 ... skipped
+Noise_KK_448_AESGCM_BLAKE2s ... skipped
+Noise_KK_448_AESGCM_BLAKE2b ... skipped
+Noise_KK_448_AESGCM_SHA256 ... skipped
+Noise_KK_448_AESGCM_SHA512 ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_25519_ChaChaPoly_SHA256 ... ok
+Noise_KX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KX_448_ChaChaPoly_SHA256 ... skipped
+Noise_KX_448_ChaChaPoly_SHA512 ... skipped
+Noise_KX_25519_AESGCM_BLAKE2s ... skipped
+Noise_KX_25519_AESGCM_BLAKE2b ... skipped
+Noise_KX_25519_AESGCM_SHA256 ... skipped
+Noise_KX_25519_AESGCM_SHA512 ... skipped
+Noise_KX_448_AESGCM_BLAKE2s ... skipped
+Noise_KX_448_AESGCM_BLAKE2b ... skipped
+Noise_KX_448_AESGCM_SHA256 ... skipped
+Noise_KX_448_AESGCM_SHA512 ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_25519_ChaChaPoly_SHA256 ... ok
+Noise_IN_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IN_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IN_448_ChaChaPoly_SHA256 ... skipped
+Noise_IN_448_ChaChaPoly_SHA512 ... skipped
+Noise_IN_25519_AESGCM_BLAKE2s ... skipped
+Noise_IN_25519_AESGCM_BLAKE2b ... skipped
+Noise_IN_25519_AESGCM_SHA256 ... skipped
+Noise_IN_25519_AESGCM_SHA512 ... skipped
+Noise_IN_448_AESGCM_BLAKE2s ... skipped
+Noise_IN_448_AESGCM_BLAKE2b ... skipped
+Noise_IN_448_AESGCM_SHA256 ... skipped
+Noise_IN_448_AESGCM_SHA512 ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_25519_ChaChaPoly_SHA256 ... ok
+Noise_IK_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IK_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IK_448_ChaChaPoly_SHA256 ... skipped
+Noise_IK_448_ChaChaPoly_SHA512 ... skipped
+Noise_IK_25519_AESGCM_BLAKE2s ... skipped
+Noise_IK_25519_AESGCM_BLAKE2b ... skipped
+Noise_IK_25519_AESGCM_SHA256 ... skipped
+Noise_IK_25519_AESGCM_SHA512 ... skipped
+Noise_IK_448_AESGCM_BLAKE2s ... skipped
+Noise_IK_448_AESGCM_BLAKE2b ... skipped
+Noise_IK_448_AESGCM_SHA256 ... skipped
+Noise_IK_448_AESGCM_SHA512 ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_25519_ChaChaPoly_SHA256 ... ok
+Noise_IX_25519_ChaChaPoly_SHA512 ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IX_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IX_448_ChaChaPoly_SHA256 ... skipped
+Noise_IX_448_ChaChaPoly_SHA512 ... skipped
+Noise_IX_25519_AESGCM_BLAKE2s ... skipped
+Noise_IX_25519_AESGCM_BLAKE2b ... skipped
+Noise_IX_25519_AESGCM_SHA256 ... skipped
+Noise_IX_25519_AESGCM_SHA512 ... skipped
+Noise_IX_448_AESGCM_BLAKE2s ... skipped
+Noise_IX_448_AESGCM_BLAKE2b ... skipped
+Noise_IX_448_AESGCM_SHA256 ... skipped
+Noise_IX_448_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+15 vectors run, 225 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-fallback.txt
+Noise_XXfallback_25519_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback_25519_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback_25519_ChaChaPoly_SHA256 ... ok
+Noise_XXfallback_25519_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback_448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback_448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback_448_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback_448_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback_25519_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback_25519_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback_25519_AESGCM_SHA256 ... skipped
+Noise_XXfallback_25519_AESGCM_SHA512 ... skipped
+Noise_XXfallback_448_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback_448_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback_448_AESGCM_SHA256 ... skipped
+Noise_XXfallback_448_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+1 vectors run, 15 skipped as not in this build
+--------------------------------------------------------------
+Processing vectors from /Users/smartyniuk/.rbo/agent/workspaces/att_01M3G6TSJ2RCCJFP3GD9SEXVVJ/project/third_party/noise-c/tests/vector/noise-c-hybrid.txt
+Noise_NNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_NXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_NXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_NXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_NXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_NXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_NXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_NXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KNhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KNhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KNhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KNhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KNhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KNhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KNhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_KXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_KXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_KXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_KXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_KXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_KXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_KXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_INhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_INhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_INhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_INhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_INhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_INhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_INhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_IKhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_IKhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_IKhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_IKhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_IKhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_IKhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_IKhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_IXhfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_IXhfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_IXhfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_IXhfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_IXhfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_IXhfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_IXhfs_25519+NewHope_AESGCM_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+448_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_ChaChaPoly_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+448_AESGCM_SHA512 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_BLAKE2s ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_BLAKE2b ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_SHA256 ... skipped
+Noise_XXfallback+hfs_25519+NewHope_AESGCM_SHA512 ... skipped
+--------------------------------------------------------------
+0 vectors run, 208 skipped as not in this build
+<end of output>
+Test time =   0.39 sec
+----------------------------------------------------------
+Test Passed.
+"vectors" end time: Sep 27 04:14 EEST
+"vectors" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 27 04:14 EEST
+
+allocator-unit =   0.29 sec*proc
+
+build-input-validation =   0.31 sec*proc
+
+expected-limitations =   0.26 sec*proc
+
+fixture-only =   0.15 sec*proc
+
+inherited-regression =   1.33 sec*proc
+
+init-wrapper-fault-injection =   0.62 sec*proc
+
+provider-allocator-experiment =   0.31 sec*proc
+
+provider-console =   0.63 sec*proc
+
+provider-experiment =   3.53 sec*proc
+
+provider-live-owner-experiment =   0.50 sec*proc
+
+scaffold-only =   0.57 sec*proc
+

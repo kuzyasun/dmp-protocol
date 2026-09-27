@@ -1,0 +1,272 @@
+{
+  "nodes": {
+    "P00": {
+      "dependencies": [],
+      "status": "done"
+    },
+    "P01": {
+      "dependencies": [
+        "P01A",
+        "P01B",
+        "P01C",
+        "P13",
+        "P15"
+      ],
+      "status": "running"
+    },
+    "P01A": {
+      "dependencies": [
+        "P00"
+      ],
+      "status": "done"
+    },
+    "P01B": {
+      "dependencies": [
+        "P04",
+        "P01A"
+      ],
+      "status": "pending"
+    },
+    "P01C": {
+      "dependencies": [
+        "P15"
+      ],
+      "status": "pending"
+    },
+    "P02": {
+      "dependencies": [
+        "P00"
+      ],
+      "status": "ready"
+    },
+    "P03": {
+      "dependencies": [
+        "P02",
+        "P01A"
+      ],
+      "status": "pending"
+    },
+    "P04": {
+      "dependencies": [
+        "P03"
+      ],
+      "status": "pending"
+    },
+    "P05": {
+      "dependencies": [
+        "P04"
+      ],
+      "status": "pending"
+    },
+    "P06": {
+      "dependencies": [
+        "P04"
+      ],
+      "status": "pending"
+    },
+    "P07": {
+      "dependencies": [
+        "P04"
+      ],
+      "status": "pending"
+    },
+    "P08": {
+      "dependencies": [
+        "P05",
+        "P06",
+        "P07"
+      ],
+      "status": "pending"
+    },
+    "P09": {
+      "dependencies": [
+        "P08"
+      ],
+      "status": "pending"
+    },
+    "P10": {
+      "dependencies": [
+        "P09"
+      ],
+      "status": "pending"
+    },
+    "P11": {
+      "dependencies": [
+        "P09"
+      ],
+      "status": "pending"
+    },
+    "P12": {
+      "dependencies": [
+        "P10",
+        "P11"
+      ],
+      "status": "pending"
+    },
+    "P13": {
+      "dependencies": [
+        "P12",
+        "P01B"
+      ],
+      "status": "pending"
+    },
+    "P14": {
+      "dependencies": [
+        "P13"
+      ],
+      "status": "pending"
+    },
+    "P15": {
+      "dependencies": [
+        "P14"
+      ],
+      "status": "pending"
+    },
+    "P16": {
+      "dependencies": [
+        "P15"
+      ],
+      "status": "pending"
+    },
+    "P17": {
+      "dependencies": [
+        "P15"
+      ],
+      "status": "pending"
+    },
+    "P18": {
+      "dependencies": [
+        "P15"
+      ],
+      "status": "pending"
+    },
+    "P19": {
+      "dependencies": [
+        "P16",
+        "P17",
+        "P18"
+      ],
+      "status": "pending"
+    },
+    "P20": {
+      "dependencies": [
+        "P19"
+      ],
+      "status": "pending"
+    },
+    "P21A": {
+      "dependencies": [
+        "P20"
+      ],
+      "status": "pending"
+    },
+    "P21B": {
+      "dependencies": [
+        "P21A"
+      ],
+      "status": "pending"
+    },
+    "P21C": {
+      "dependencies": [
+        "P21B"
+      ],
+      "status": "pending"
+    },
+    "P21D": {
+      "dependencies": [
+        "P21C"
+      ],
+      "status": "pending"
+    },
+    "P21": {
+      "dependencies": [
+        "P21D"
+      ],
+      "status": "pending"
+    },
+    "P22": {
+      "dependencies": [
+        "P20"
+      ],
+      "status": "pending"
+    },
+    "P23": {
+      "dependencies": [
+        "P21",
+        "P22"
+      ],
+      "status": "pending"
+    },
+    "P24": {
+      "dependencies": [
+        "P23"
+      ],
+      "status": "pending"
+    },
+    "P25": {
+      "dependencies": [
+        "P24",
+        "P01"
+      ],
+      "status": "pending"
+    }
+  },
+  "topological_order": [
+    "P00",
+    "P01A",
+    "P02",
+    "P03",
+    "P04",
+    "P01B",
+    "P05",
+    "P06",
+    "P07",
+    "P08",
+    "P09",
+    "P10",
+    "P11",
+    "P12",
+    "P13",
+    "P14",
+    "P15",
+    "P01C",
+    "P01",
+    "P16",
+    "P17",
+    "P18",
+    "P19",
+    "P20",
+    "P21A",
+    "P21B",
+    "P21C",
+    "P21D",
+    "P21",
+    "P22",
+    "P23",
+    "P24",
+    "P25"
+  ],
+  "cycles": false,
+  "ready_done_dependencies_verified": true,
+  "local_links_verified": true,
+  "legacy_checklist_anchor_verified": true,
+  "baseline_changed_files": {
+    "AGENTS.md": "d266eef2276e99d0780316a8784f566222f8f0eaae44cb5001d239cd64da584c",
+    "README.md": "704f1780d4db2a9e19a8b9a53ce1e2092392fef1741a58ec9682eb3a14ace7f5",
+    "dev/DMP_Conformance_Matrix.md": "1f3851fe78ec3a194dc0a2dba32f167954b42eab5686f9b8bf5a5bc0d694b31c",
+    "dev/DMP_Execution_Log.md": "60cb92e4072c3cc83360a7303e607305e010262925d610580d2015a500b27c05",
+    "dev/DMP_Implementation_Plan.md": "a2a5b8cee6c45794a54b2b8aeb2cdbff19267146207afa1a36aeab2301d9d05d",
+    "dev/DMP_Noise_ADR.md": "36fd5f35451b5fee60a084f1728c719df514154871abfe69e1b9734eb250b985",
+    "dev/DMP_Work_Packages.md": "e8f11acd683003a480670c0bff8e5bdadd5ad4d386034a36e9e011bf764e6299"
+  },
+  "normative_and_provider_code_unchanged": true,
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "index_sha256": "043eb9a447a2e68d270a46a726095c40532d69257270bca96acce0d7fd8f65ad",
+  "git_diff_check_exit": 0,
+  "test_claim": "documentation checks only; no runtime build/tests",
+  "transition_sha256": "99b309be2feda807499689fa724c875fb1c7296aeb0dbec355aecbdc74e09b0e",
+  "historical_status_supersession_sha256": {
+    "dev/evidence/noise-boundary-20260927/README.md": "d50b40fd5bd6a698eda6b212e824574442ab7e52fa80c68961a555aeb76220c4",
+    "dev/evidence/noise-mcu-soak-20260927/p01-reconciliation.md": "76c4341afa2b875db3886eff02d0621cb7f600821d80867f74566e6688a1ff5a"
+  }
+}

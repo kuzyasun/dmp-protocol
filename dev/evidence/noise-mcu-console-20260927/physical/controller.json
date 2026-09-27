@@ -1,0 +1,14 @@
+{
+  "python": "3.12.8 (tags/v3.12.8:2dc476b, Dec  3 2024, 19:30:04) [MSC v.1942 64 bit (AMD64)]",
+  "python_executable": "C:\\develop\\Python312\\python.exe",
+  "pyserial": "3.5",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "ports": {
+    "COM23": "esp32s3",
+    "COM35": "esp32c3"
+  },
+  "sdk_invocation": "eim run <command> v6.1",
+  "serial_baud": 115200,
+  "command_timeout_seconds": 10,
+  "permission": "Owner explicitly authorized repeated bench-board flashing before this run."
+}

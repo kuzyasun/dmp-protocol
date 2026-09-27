@@ -1,0 +1,7 @@
+
+base.c.obj:
+0000000000000000 T dmp_bytes_slice
+0000000000000060 T dmp_deadline_after
+0000000000000080 T dmp_deadline_reached
+0000000000000090 T dmp_generation_next
+00000000000000c0 T dmp_status_name

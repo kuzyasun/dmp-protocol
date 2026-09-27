@@ -1,0 +1,7 @@
+{
+  "index": "d1ddf5da42d8b4d7a504f60e72a8b29bd8e240c54df7757258bf96fc3f2e7aa9",
+  "source_and_review_hashes": "match",
+  "head": "0072f61e0fe925d3e8d275225ed69dd108890331",
+  "whitespace_check": "source/docs pass; raw configure.log retains original CMake-emitted trailing space without normalization",
+  "final_observed_index_preserved": true
+}
