@@ -1,0 +1,17 @@
+{
+  "parent_head": "b7678e05d8fa1d16d63e8500a2e0b73ab40c132a",
+  "fork_head": "c40f2dca78eee064e521233a5d884853d471028a",
+  "initial_status": "both clean",
+  "parent_index": "f12498fd68092ff349979869f8d34e8dc84883f5fce114c6341eed61c6f832c8",
+  "fork_index": "a3108e78d09a6491f2cc7fd8db3df022348e5d00c0d285d3bea1565f408baf13",
+  "normative_sha256": {
+    "docs/DMP_v2_Deployment_Profiles.md": "f1fdb79e6ca4d20f41c98e48cffeafb0ab1fd001c0128eac4bb35b4e2eb59778",
+    "docs/DMP_v2_Design_Tradeoffs.md": "f1d0737160dc6a916a1051776804790f0c6930dce0b52f24b3eb40ed6ef59e92",
+    "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "0c22f0c0381504821b71eb5defaccda40c353966363a518274625cbfacdc4d9d",
+    "docs/DMP_v2_Reference_Application.md": "ef7d78119b987200c054209c82c365043e4d95ea8b722a7dd84b3653b32a78be",
+    "docs/DMP_v2_Security_Profile.md": "8f6bf8c34ba37e33a1cbfc8f7fc062da577c5ce0a2872b321bb9f5e6b29669f3",
+    "docs/DMP_v2_Security_Test_Vectors.json": "4eb2c5b466c884d5b448b5117d32ca57c14096a8db058bea68d8b2478922ec7e",
+    "docs/DMP_v2_Selective_Recovery.md": "25d2384c9ff4ab5650ced1a3d77e0762cc1de3a74d944921c5e5c0a822ca65b7"
+  },
+  "rbo_failure": "job_01M3G1BY07QSQE24X71WV30H3S repo_fetch: unpublished c40f2dc; local fallback without push"
+}

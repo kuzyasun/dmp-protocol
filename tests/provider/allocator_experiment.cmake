@@ -27,6 +27,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
 elseif(NOT MSVC)
     message(FATAL_ERROR "MEM-02 static arena needs an explicit compiler aliasing contract")
 endif()
+
+include(owner_experiment.cmake)
 set_tests_properties(dmp_noise_allocator_probe PROPERTIES LABELS "provider-allocator-experiment")
 if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_sources(dmp_noise_allocator_probe PRIVATE noise_checked_no_legacy_rng.c)

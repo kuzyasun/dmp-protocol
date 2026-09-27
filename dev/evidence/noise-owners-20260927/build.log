@@ -1,0 +1,6 @@
+[1/6] Building C object tests/provider/CMakeFiles/dmp_noise_owners_probe.dir/noise_checked_fixture_port.c.obj
+[2/6] Building C object tests/provider/CMakeFiles/dmp_noise_owners_probe.dir/noise_test_arena.c.obj
+[3/6] Building C object tests/provider/CMakeFiles/dmp_noise_owners_probe.dir/noise_checked_no_legacy_rng.c.obj
+[4/6] Building C object tests/provider/CMakeFiles/dmp_noise_owners_probe.dir/noise_owners_probe.c.obj
+[5/6] Building C object tests/provider/CMakeFiles/dmp_noise_owners_probe.dir/noise_owner_fixture.c.obj
+[6/6] Linking C executable tests\provider\dmp_noise_owners_probe.exe

@@ -181,3 +181,14 @@ in the ELF, requires expected symbols and preserves compiler stack estimates.
 Write its output outside the source/build inputs and check its exit status.
 Map contributions and archive totals have different meanings; compiler stack
 reports do not establish runtime high-water or per-endpoint budgets.
+
+## Multiple live owner experiment
+
+MEM-03 adds `dmp_noise_owners_probe`, a host-only test with one stable arena
+and serialized calls. Actual local NNpsk0/XX states replay prerecorded remote
+flights, transfer Split contexts and retain neighboring traffic while another
+owner is created, fails, is destroyed or reuses freed storage. Manifest-derived
+single/four_serial rows exercise logical provider quotas; four_parallel is
+explicitly deferred. Fixed driver backing, metadata and excluded costs are
+reported separately. Deterministic repeated receive is not replay protection.
+See [results and reproduction](../../dev/evidence/noise-owners-20260927/README.md).
