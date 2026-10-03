@@ -839,3 +839,43 @@ used the existing approved read-only session
 `grok-4.7-xhigh` session binding; current saved/live route discovery reports
 `dmp_cursor_reviewer` as `grok-4.7-high` with no effort override. No reviewer
 modified repository files.
+
+## 2026-10-03 — P09 admitted resource slot counts for P10/P11
+
+After P09 was accepted and pushed at `3814bab6481f32c9dce502670a0bf37fa9756efb`,
+the P10 design pass showed that `dmp_admitted_profile` did not expose the
+validated endpoint charge counts needed to size caller-owned sender, assembly,
+result, history, correlation and adapter pools. Added those six fields, sourced
+only from the endpoint resource row. `control_slots` and
+`application_queue_slots` remain operational limits from `limits`; cross-pool
+validation confirms endpoint charges fund those limits, while larger charges
+do not raise the runtime limits. P11 remains separate.
+
+The first read-only review (turn `turn-fd3f7117e320e63c94bb60b8`, findings
+artifact `art-b92bba9248f9f1a666292c91`) raised two points: ensure the
+operational limits remain distinct from resource charges, and make all six
+component mappings observable in tests. The coordinator verified the P02
+`cross_resources` floors, clarified the API and handoff documentation, and
+added an in-memory valid-manifest case with distinct component counts plus
+resource charges larger than the control/application limits. Closure review
+from baseline `snap-1949cd04e8adb8c6157a49b3` to target
+`snap-819d91f45f794569db865312` (turn
+`turn-9814b1edbddee06106819ead`, artifact
+`art-18d1c4c8dc2e6c71e2b7bfcb`) found no remaining issues. The first review
+had two denied grep calls (`unknown_inputshape`) and one unsupported tool-call
+receipt; it recovered through allowed reads and successful searches and
+completed the review. No broker operation was replayed.
+
+Coordinator checks on the final source:
+
+- Direct GCC C11 compilation with `-Wall -Wextra -Wpedantic -Werror`, updating
+  the host archive and profile-admission test executable.
+- Targeted CTest: 4/4 passed (`profiles.contract`, `identity.context`,
+  `identity.profile_admit`, `identity.profile_parity`).
+- Profile Python suite: 23/23 passed; the core archive check found no allocator
+  references; `git diff --check` passed.
+
+The review used `dmp_cursor_reviewer` (Cursor, `grok-4.7-high`, configured
+default effort) in the read-only `dmp-review-project`; the worker was not used
+for this coordinator-owned API change. P09 remains host/profile evidence only;
+no SEC-1, MCU, endpoint, interoperability or physical transport claim follows.

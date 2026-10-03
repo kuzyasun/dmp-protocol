@@ -245,6 +245,47 @@ static int admit_file(const char *path, dmp_admitted_profile *out, dmp_profile_f
     return dmp_profile_admit(raw, expected, sha256_of, NULL, scratch, out, failure) == DMP_OK ? 0 : 1;
 }
 
+static int set_charge_count(char *json, const char *component, const char *replacement)
+{
+    char component_field[96];
+    char *component_at;
+    char *object_end;
+    char *count_at;
+    char *digits;
+    char *digits_end;
+    int written = snprintf(component_field, sizeof component_field, "\"component\": \"%s\"", component);
+    size_t replacement_size = strlen(replacement);
+    if (written < 0 || (size_t)written >= sizeof component_field || replacement_size == 0U) {
+        return 0;
+    }
+    component_at = strstr(json, component_field);
+    if (component_at == NULL) {
+        return 0;
+    }
+    object_end = strchr(component_at, '}');
+    count_at = strstr(component_at, "\"count\"");
+    if (object_end == NULL || count_at == NULL || count_at > object_end) {
+        return 0;
+    }
+    digits = strchr(count_at, ':');
+    if (digits == NULL || digits > object_end) {
+        return 0;
+    }
+    digits++;
+    while (*digits == ' ' || *digits == '\t') {
+        digits++;
+    }
+    digits_end = digits;
+    while (*digits_end >= '0' && *digits_end <= '9') {
+        digits_end++;
+    }
+    if (digits_end == digits || (size_t)(digits_end - digits) != replacement_size) {
+        return 0;
+    }
+    memcpy(digits, replacement, replacement_size);
+    return 1;
+}
+
 static int test_edges(void)
 {
     static uint8_t scratch_mem[DMP_PROFILE_ADMIT_SCRATCH_BYTES];
@@ -305,10 +346,57 @@ static int test_edges(void)
     CHECK(profile.message_bytes == 64U);
     CHECK(profile.fragments == 4U);
     CHECK(profile.encoded_mtu == 263U);
+    CHECK(profile.sender_slots == 4U);
+    CHECK(profile.assembly_slots == 1U);
+    CHECK(profile.result_slots == 4U);
+    CHECK(profile.history_slots == 8U);
+    CHECK(profile.correlation_slots == 4U);
+    CHECK(profile.adapter_slots == 2U);
+    CHECK(profile.control_slots == 2U);
+    CHECK(profile.application_queue_slots == 2U);
     CHECK(profile.tx_borrow);
     CHECK(profile.synchronous_completion);
     CHECK(profile.recovery[0] == DMP_PROFILE_RECOVERY_RETRY_ALL);
     CHECK(profile.recovery[1] == DMP_PROFILE_RECOVERY_RETRY_ALL);
+    (void)snprintf(path, sizeof path, "%s/profiles/deployments/direct-nnpsk0.json", DMP_SOURCE_DIR);
+    {
+        FILE *in = fopen(path, "rb");
+        static char raw_mem[DMP_PROFILE_MAX_BYTES + 1U];
+        size_t n;
+        CHECK(in != NULL);
+        n = fread(raw_mem, 1U, sizeof raw_mem - 1U, in);
+        CHECK(ferror(in) == 0);
+        CHECK(feof(in) != 0);
+        (void)fclose(in);
+        raw_mem[n] = '\0';
+        /* Distinct in-memory charges make every exposed component mapping observable. */
+        CHECK(set_charge_count(raw_mem, "sender", "5"));
+        CHECK(set_charge_count(raw_mem, "correlation", "6"));
+        CHECK(set_charge_count(raw_mem, "application_queue", "3"));
+        raw.data = (const uint8_t *)raw_mem;
+        raw.size = n;
+        memset(&profile, 0, sizeof profile);
+        memset(&failure, 0, sizeof failure);
+        CHECK(dmp_profile_admit(raw, NULL, sha256_of, NULL, scratch, &profile, &failure) == DMP_OK);
+        CHECK(profile.sender_slots == 5U);
+        CHECK(profile.assembly_slots == 1U);
+        CHECK(profile.result_slots == 4U);
+        CHECK(profile.history_slots == 8U);
+        CHECK(profile.correlation_slots == 6U);
+        CHECK(profile.adapter_slots == 2U);
+        CHECK(profile.control_slots == 2U);
+        CHECK(profile.application_queue_slots == 2U);
+    }
+    (void)snprintf(path, sizeof path, "%s/profiles/deployments/radio-nnpsk0.json", DMP_SOURCE_DIR);
+    memset(&profile, 0, sizeof profile);
+    memset(&failure, 0xa5, sizeof failure);
+    CHECK(admit_file(path, &profile, &failure, NULL) == 0);
+    CHECK(profile.sender_slots == 4U);
+    CHECK(profile.assembly_slots == 1U);
+    CHECK(profile.result_slots == 6U);
+    CHECK(profile.history_slots == 12U);
+    CHECK(profile.correlation_slots == 6U);
+    CHECK(profile.adapter_slots == 2U);
     memset(wrong, 0x11, sizeof wrong);
     memset(&profile, 0xa5, sizeof profile);
     {

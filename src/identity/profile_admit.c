@@ -1482,6 +1482,34 @@ static const char *const COMPONENT_NAMES[] = {
     "result", "history", "correlation", "control", "application_queue", "adapter", "stacks",
     "relay_cache", "freshness_tokens"
 };
+enum {
+    COMPONENT_SENDER = 4,
+    COMPONENT_ASSEMBLY = 5,
+    COMPONENT_RESULT = 6,
+    COMPONENT_HISTORY = 7,
+    COMPONENT_CORRELATION = 8,
+    COMPONENT_ADAPTER = 11
+};
+
+static uint32_t endpoint_charge_count(const manifest *m, int component)
+{
+    int resource;
+    int charge;
+
+    for (resource = 0; resource < m->nresources; resource++) {
+        const resource_rec *r = &m->resources[resource];
+        if (!r->relay) {
+            for (charge = 0; charge < r->ncharges; charge++) {
+                if (r->charges[charge].component == component) {
+                    return r->charges[charge].count;
+                }
+            }
+            break;
+        }
+    }
+    return 0U;
+}
+
 static int take_component(ps *p, void *o)
 {
     int v = 0;
@@ -2804,6 +2832,12 @@ static void fill_profile(dmp_admitted_profile *out, const manifest *m, const uin
     out->peers = m->peers;
     out->operations_per_service = m->operations;
     out->assemblies_per_peer = m->assemblies;
+    out->sender_slots = endpoint_charge_count(m, COMPONENT_SENDER);
+    out->assembly_slots = endpoint_charge_count(m, COMPONENT_ASSEMBLY);
+    out->result_slots = endpoint_charge_count(m, COMPONENT_RESULT);
+    out->history_slots = endpoint_charge_count(m, COMPONENT_HISTORY);
+    out->correlation_slots = endpoint_charge_count(m, COMPONENT_CORRELATION);
+    out->adapter_slots = endpoint_charge_count(m, COMPONENT_ADAPTER);
     out->application_queue_slots = m->app_queue;
     out->control_slots = m->control_slots;
     out->message_bytes = m->message_bytes;

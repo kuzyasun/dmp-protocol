@@ -13,15 +13,22 @@ deployment limits.
   with `dmp_identity_context_retain` while records or callbacks can refer to
   it, then release exactly once after terminal cleanup. A draining context is
   not reusable until its deadline has passed and all retained owners settle.
-- P02 admission supplies the validated capacities and duration bounds through
+- P02 admission supplies validated capacities and duration bounds through
   `dmp_admitted_profile`. P10 uses `peers`, `operations_per_service`,
-  `application_queue_slots`, `control_slots`, `queue_ms`,
+  `sender_slots`, `result_slots`, `history_slots`, `correlation_slots`,
+  `application_queue_slots`, `control_slots`, `adapter_slots`, `queue_ms`,
   `response_timeout_ms`, `jitter_ms`, `send_horizon_ms`, `max_bursts`,
   `receipt_delay_ms`, `receipt_limit`, `dedup_ms`, `rejection_ms`,
   `result_cache_ms`, `result_deadline_ms`, `correlation_ms`, `tombstone_ms`,
   and `late_result_ms`. P11 uses `peers`, `assemblies_per_peer`,
-  `encoded_mtu`, `message_bytes`, `fragments`, `chunk_bytes`, `collect_ms`,
-  and `assembly_ms`. Admission uses `record_margin_ms` to validate that the
+  `assembly_slots`, `encoded_mtu`, `message_bytes`, `fragments`, `chunk_bytes`,
+  `collect_ms`, and `assembly_ms`. `sender_slots`, `assembly_slots`,
+  `result_slots`, `history_slots`, `correlation_slots`, and `adapter_slots`
+  expose the validated endpoint resource charge counts, excluding the separate
+  relay row. `control_slots` and `application_queue_slots` remain the operational
+  limits from `limits`; admission verifies that endpoint charges cover them, but
+  a larger memory charge does not raise the runtime limit. Admission uses
+  `record_margin_ms` to validate that the
   absolute assembly lifetime covers the collection bound and margin; runtime
   P11 consumes the admitted `collect_ms` and `assembly_ms` bounds. The current
   schema fixes `inactivity_ms` at zero, so no optional inactivity timer is

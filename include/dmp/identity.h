@@ -113,7 +113,11 @@ typedef enum {
 
 /* The admitted view is copied from validated manifest bytes. It contains only
  * identity, operation/reassembly bounds and deadlines consumed by P10/P11; all
- * other manifest fields are still validated before admission. */
+ * other manifest fields are still validated before admission. The sender,
+ * assembly, result, history, correlation and adapter slot counts come from the
+ * endpoint resource row. control_slots and application_queue_slots remain the
+ * operational limits; admission verifies the endpoint charges fund those
+ * limits. */
 typedef struct {
     uint8_t sha256[DMP_PROFILE_SHA256_BYTES];
     uint32_t namespace_id;
@@ -124,6 +128,12 @@ typedef struct {
     uint32_t peers;
     uint32_t operations_per_service;
     uint32_t assemblies_per_peer;
+    uint32_t sender_slots;
+    uint32_t assembly_slots;
+    uint32_t result_slots;
+    uint32_t history_slots;
+    uint32_t correlation_slots;
+    uint32_t adapter_slots;
     uint32_t application_queue_slots;
     uint32_t control_slots;
     uint32_t message_bytes;
