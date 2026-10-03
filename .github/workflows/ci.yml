@@ -143,15 +143,22 @@ jobs:
             set -euo pipefail
             idf.py build
             mkdir -p build/dmp-evidence
+            echo "Collecting ESP-IDF size reports"
             idf.py size > build/dmp-evidence/idf-size.txt
             idf.py size-components > build/dmp-evidence/idf-size-components.txt
             compiler="$(grep '^CMAKE_C_COMPILER:' build/CMakeCache.txt | head -n 1 | cut -d= -f2-)"
             nm_tool="$(grep '^CMAKE_NM:' build/CMakeCache.txt | head -n 1 | cut -d= -f2-)"
+            test -x "$compiler" || { echo "C compiler is missing or not executable: $compiler" >&2; exit 1; }
+            test -x "$nm_tool" || { echo "nm tool is missing or not executable: $nm_tool" >&2; exit 1; }
+            echo "Recording ESP-IDF compiler and build inputs"
             "$compiler" --version > build/dmp-evidence/compiler-version.txt
             sha256sum "$compiler" build/CMakeCache.txt build/sdkconfig > build/dmp-evidence/build-inputs.sha256
             git rev-parse HEAD > build/dmp-evidence/source-revision.txt
-            python ../../../tools/check_core_allocators.py build --nm "$nm_tool" > build/dmp-evidence/allocator-check.txt
-            test -n "$(find build -name '*.map' -print -quit)"
+            echo "Checking ESP-IDF core archive for allocator references"
+            python3 ../../../tools/check_core_allocators.py build --nm "$nm_tool" > build/dmp-evidence/allocator-check.txt
+            map_file="$(find build -name '*.map' -print -quit)"
+            test -n "$map_file" || { echo "ESP-IDF link map was not generated under build/" >&2; exit 1; }
+            echo "ESP-IDF link map: $map_file"
       - uses: actions/upload-artifact@v4
         if: success()
         with:
