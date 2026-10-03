@@ -758,3 +758,22 @@ confirmed the duplicate fuzz-target block is removed and found no additional
 actionable P0-P2 issues. The review was read-only and did not run builds. P08
 remains open until host CI, ASan/UBSan/libFuzzer, ESP32-S3 link/map/size, and
 hosted Cortex-M4 evidence are available. No staging, commit, or push.
+
+## 2026-10-03 — P08 hosted acceptance; P09 eligible
+
+GitHub Actions run [37118205823](https://github.com/kuzyasun/dmp-protocol/actions/runs/37118205823)
+passed all five jobs on commit `2bccf6bf7f8fac3e84eeeadfb8f570cdee5b0bb4`:
+Linux GCC host (13/13 CTest), Windows MSVC host (12/12), Clang sanitizer/fuzz
+(14/14 CTest and 1,000 seeded runs each for core and stream), Cortex-M4 Arm GNU
+13.3.1 archive with no allocator references, and ESP32-S3 ESP-IDF 6.0.2 link
+with map, total/component size reports and no allocator references. Both
+embedded artifacts' source revisions match the workflow commit. Their measured
+outputs and artifact references are recorded in
+[P08 hosted CI evidence](evidence/fuzz-p08-20261003/ci-results.md).
+
+The coordinator inspected the ESP32-S3 and Cortex-M4 artifacts. This closes
+P08's host, fuzz/sanitizer, embedded compile/link, map/size and core allocator
+checks. It does not claim P01C target qualification, MCU runtime, whole-device
+memory-budget acceptance, or physical transport behavior. P08 is accepted;
+P09 is the next eligible package. The pushed branch was clean at the accepted
+source revision before recording this status.
