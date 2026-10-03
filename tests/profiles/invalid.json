@@ -307,6 +307,13 @@
       "mutations": [{"op": "set", "path": "/relays/0/global_airtime_ms", "value": 367}],
       "expected_code": "relay",
       "expected_path": "$.relays[node=30]"
+    },
+    {
+      "name": "endpoint-bootstrap-buffer-meets-120-byte-floor",
+      "fixture": "direct.json",
+      "mutations": [{"op": "set", "path": "/resources/0/charges/3/bytes_each", "value": 119}],
+      "expected_code": "resources",
+      "expected_path": "$.resources[endpoint].bootstrap"
     }
   ],
   "raw_cases": [

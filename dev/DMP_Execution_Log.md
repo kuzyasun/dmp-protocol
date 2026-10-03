@@ -777,3 +777,65 @@ checks. It does not claim P01C target qualification, MCU runtime, whole-device
 memory-budget acceptance, or physical transport behavior. P08 is accepted;
 P09 is the next eligible package. The pushed branch was clean at the accepted
 source revision before recording this status.
+
+## 2026-10-03 — P09 identity and startup profile admission accepted
+
+P09 adds full-identity context handling with generation-safe caller-owned slots,
+context retention/draining, sequence allocation, compact authenticated
+references, and C-side startup profile admission checked against the shared P02
+corpus. The P09 handoff records the frozen ownership, capacity, deadline and
+transport-callback boundary for P10/P11 without adding protocol behavior.
+
+The first independent source review (turn
+`turn-dcfec9429532c4e2b068d61b`, artifact
+`art-4936b23e7d2719b9c7a949d1`) found two defects. The endpoint bootstrap
+component now has the required 120-byte per-slot floor, with a 119-byte corpus
+mutation. Context opening now skips an exhausted unused generation and can use
+a later free slot; a dedicated regression test covers this while retaining the
+single-slot exhaustion result. Final source review of baseline
+`snap-f5ec99a220ae02cd7c8512b8` to target
+`snap-7ba380c7fbecb1a404ea3ff8` (turn
+`turn-0477a66d2eb9474b90c88cc0`, artifact
+`art-76f02fecd0bd2d5cfce3971d`) confirmed both fixes and reported no other
+actionable P0-P2 findings. A separate review of the P09 handoff found and
+closed two documentation mismatches: stop-and-wait is keyed by destination
+endpoint and service, and the P10/P11 profile timing fields and §11 references
+are now complete. The corrected handoff closure review (turn
+`turn-dba14e273d3ca21e93a6dd34`, artifact
+`art-c3d486d6859b16dc8a27e05c`) found no remaining discrepancy.
+
+Coordinator acceptance checks:
+
+- Direct GCC 15.2.0 compilation of the changed identity/profile C sources and
+  identity regression test with C11 `-Wall -Wextra -Wpedantic -Werror`; the
+  configured host archive and P09 test executables were relinked.
+- Targeted host CTest: 4/4 passed (`profiles.contract`, `identity.context`,
+  `identity.profile_admit`, `identity.profile_parity`).
+- Profile Python suite: 23/23 passed; core archive check found no allocator
+  references; `git diff --check` passed.
+
+Full Ninja/CMake build and clean compiler-detection attempts hung during
+command launch/ABI detection and were stopped. These attempts are not counted
+as acceptance evidence. P09 remains host/profile validation only; SEC-1,
+reliability/reassembly, endpoint integration, MCU, interoperability and
+physical transport evidence remain open.
+
+Broker observations: the worker used route `dmp_cursor_large` (Cursor,
+`grok-4.7-high/high`), session
+`session-ef443b35e17c1c499f8851ce`, turn
+`turn-393326bf1b270db7374b4bb0`. Several read/edit tool receipts returned
+errors without diagnostics and three shell receipts were `UNKNOWN`; no lost
+operation was replayed. Coordinator compilation and the acceptance checks
+above independently verified the affected paths. The first reviewer attempt
+(turn `turn-1c97b82bb908f6be0f424cef`) stopped before inference with
+`INPUT_UNSUPPORTED` because the sealed snapshot included generated Python
+cache files; removing those exact cache files and sealing a fresh snapshot
+allowed the review to proceed. The earlier successful findings review had one
+optional grep call rejected as `unknown_inputshape`; the reviewer recovered
+using bounded reads and searches. The handoff review had one read denied with
+`path_resolution_failed` and recovered through other allowed reads. Reviews
+used the existing approved read-only session
+`session-0d68e81ab43e2a092cca438c` on `dmp-review-project`, retaining its
+`grok-4.7-xhigh` session binding; current saved/live route discovery reports
+`dmp_cursor_reviewer` as `grok-4.7-high` with no effort override. No reviewer
+modified repository files.
