@@ -1,0 +1,81 @@
+src_core_base.c.o   (ex build\p08-cortex-manual\libdmp.a):
+section                          size   addr
+.text                               0      0
+.data                               0      0
+.bss                                0      0
+.text.dmp_bytes_slice              48      0
+.text.dmp_deadline_after           44      0
+.text.dmp_deadline_reached         12      0
+.text.dmp_generation_next          36      0
+.rodata.dmp_status_name.str1.1      8      0
+.text.dmp_status_name              24      0
+.rodata.str1.1                    198      0
+.rodata.STATUS_NAMES               60      0
+.comment                           68      0
+.ARM.attributes                    46      0
+Total                             544
+
+
+src_core_codec.c.o   (ex build\p08-cortex-manual\libdmp.a):
+section                                 size   addr
+.text                                      0      0
+.data                                      0      0
+.bss                                       0      0
+.text.put_uleb                            52      0
+.text.read_u32                           164      0
+.text.overlap                             44      0
+.text.validate_extensions.constprop.0    602      0
+.text.encode_common                     1736      0
+.text.dmp_core_parse                    1544      0
+.text.dmp_core_check_role                528      0
+.text.dmp_core_encode_header              28      0
+.text.dmp_core_encode                     28      0
+.text.dmp_extension_next                 138      0
+.comment                                  68      0
+.ARM.attributes                           46      0
+Total                                   4978
+
+
+src_integrity_crc32c.c.o   (ex build\p08-cortex-manual\libdmp.a):
+section            size   addr
+.text                 0      0
+.data                 0      0
+.bss                  0      0
+.text.dmp_crc32c     76      0
+.comment             68      0
+.ARM.attributes      46      0
+Total               190
+
+
+src_stream_cobs.c.o   (ex build\p08-cortex-manual\libdmp.a):
+section                           size   addr
+.text                                0      0
+.data                                0      0
+.bss                                 0      0
+.text.ranges_overlap                48      0
+.text.dmp_cobs_encoded_bound        36      0
+.text.dmp_cobs_encode_parts        310      0
+.text.dmp_cobs_encode               84      0
+.text.dmp_cobs_decode_canonical    140      0
+.comment                            68      0
+.ARM.attributes                     46      0
+Total                              732
+
+
+src_stream_stream.c.o   (ex build\p08-cortex-manual\libdmp.a):
+section                          size   addr
+.text                               0      0
+.data                               0      0
+.bss                                0      0
+.text.ranges_overlap               48      0
+.text.decoder_initialized          62      0
+.text.dmp_stream_encoded_bound     64      0
+.text.dmp_stream_encode           352      0
+.text.dmp_stream_init             190      0
+.text.dmp_stream_reset            162      0
+.text.dmp_stream_feed             852      0
+.text.dmp_stream_poll             140      0
+.rodata.magic.0                     3      0
+.comment                           68      0
+.ARM.attributes                    46      0
+Total                            1987

@@ -1,4 +1,5 @@
 /build/
+/tests/embedded/esp32s3/build/
 __pycache__/
 *.pyc
 # Local preservation copies; hashes and initial index entries are recorded in JSON.

@@ -1,0 +1,1 @@
+no allocator references in build\p08-cortex-manual\libdmp.a

@@ -22,6 +22,8 @@ ctest --test-dir build/host --output-on-failure
 
 Tests require Python 3.10+ and Node; C++ header tests run when a C++ compiler is
 available. Use `-DDMP_BUILD_TESTS=OFF` for the C-only archive without those tools.
+Use `-DDMP_FUZZ=ON` with Clang's GNU-style driver for the bounded ASan/UBSan and
+libFuzzer checks described in [the fuzz workflow](tests/fuzz/README.md).
 
 ## Introduction and motivation
 

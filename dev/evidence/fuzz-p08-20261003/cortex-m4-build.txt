@@ -1,0 +1,4 @@
+Compiler: C:\ST\STM32CubeCLT_1.20.0\GNU-tools-for-STM32\bin\arm-none-eabi-gcc.exe
+arm-none-eabi-gcc.exe (GNU Tools for STM32 13.3.rel1.20250523-0900) 13.3.1 20240614
+Flags: -std=c11 -Wall -Wextra -Wpedantic -Werror -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -ffreestanding -ffunction-sections -fdata-sections -Os -Iinclude
+Scope: static archive only; no board link, runtime, or total memory claim

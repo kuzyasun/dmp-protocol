@@ -637,3 +637,124 @@ commands, intermediate failures and review closures. HEAD, exact starting Git
 index and normative sources were preserved. No staging, commit, push, MCU flash
 or DTrack integration. Next: P07 deterministic harness, with independent P01B
 provider adapter work when its assignment is frozen. P08 awaits P07.
+
+## 2026-10-02 — P07 preparation; broker Cursor dispatch blocked
+
+Owner authorized resuming implementation through Agent Broker. Live MCP is
+READY, DMP discovery is fully paginated (24 entries, revision 3), and all eight
+route bindings match saved configuration. Checkout and Noise submodule are
+clean at ae7e06e133b92dcec818bd2006875bbf43d39956 and
+c40f2dca78eee064e521233a5d884853d471028a. The original checkout was sealed;
+[assignment and baseline](evidence/harness-20261002/assignment.md) preserve the
+P07 contract and exclusive write boundaries.
+
+Spawn of dmp_cursor_worker / Cursor / grok-4.7-high / high failed before
+inference with PROVIDER_INCOMPATIBLE: Wrapper shell identity unavailable.
+No turn ID or session exists; no paid launch. See [blocker evidence](evidence/harness-20261002/broker-blocker.md).
+No workaround, daemon restart, quarantine change or model substitution.
+P07 remains ready until successful dispatch; no implementation or checks claimed.
+
+The owner selected dmp_cursor_reviewer / grok-4.7-xhigh / no effort override
+and dmp_cursor_large / grok-4.7-high / high for reviewer and complex work,
+respectively, with no silent escalation. RBO was initially offline; the owner
+started it and allowed local host builds when RBO fails or fuller logs are needed.
+
+## 2026-10-03 — P07 first implementation turn timed out
+
+Live broker READY/project/routes and RBO were rechecked after Cursor recovery.
+DMP discovery revision 8 is fully paginated, all configured routes/workspaces
+match, the previous worker session is idle with no changed source snapshot, and
+an RBO macOS/arm64 agent is idle. `dmp_cursor_worker` turn
+`turn-ed50161de3bedec44b3255e9` was accepted/execution started, then TIMED_OUT
+at its 900000 ms deadline. Broker returned no report, artifacts or final
+snapshot; usage/billing is unknown. Checkout has no P07 source diff. No
+replacement turn was sent to that session. The owner-approved retry uses the
+exact `dmp_cursor_large` route/model/effort with a fresh isolated session and
+current broker hard deadline. Build checks remain RBO-first; local host fallback
+is owner-authorized.
+
+## 2026-10-03 — P07 review fixes accepted
+
+The recovered Cursor worker completed two bounded turns in a new
+`dmp-current-project` workspace session. The coordinator reviewed the actual
+source diff and addressed one adjacent `--interface-version` flush check in a
+follow-up. A sealed read-only review compared `snap-a3d7f17808bf7ff6d7e81bb6`
+to `snap-df6c5b35177fcbf91789a599` and reported no confirmed defects; it
+verified all five identified correctness fixes. The first review attempt
+`turn-8d21362e3a2f395e0502c243` failed before review because a worker-generated
+Python bytecode cache prevented diff generation. The coordinator removed only
+that generated cache, recaptured the sealed target, and retried successfully
+with `turn-9dac5890dca0e2c9ea14e11d`. See [P07 review-fix evidence](evidence/harness-review-fixes-20261003/README.md).
+
+RBO job `job_01M3ZSGFBW4VT46F8VP7EZM4RX` passed Debug and Release builds and
+`harness.port` / `harness.subprocess` CTest checks (2/2 in each configuration).
+The tests-off Release archive also built, with the harness target and CTest
+entries verified absent. P07 is accepted for its host deterministic harness
+scope; endpoint, SEC-1, provider, MCU runtime/resource, and physical transport
+gates remain open. P08 is now eligible. No staging, commit, or push.
+
+## 2026-10-03 — P08 fuzz component checkpoint; paused for broker restart
+
+After P07 acceptance, live `broker_status` was READY and fully paginated
+`agents_list` revision 10 showed the configured Cursor worker/reviewer models,
+efforts, policies, and new `dmp-current-project` / `dmp-review-project`
+workspaces matching saved configuration. The bounded P08 fuzz worker ran as
+`dmp_cursor_large` / Cursor / `grok-4.7-high` / high in session
+`session-786c164cb9f05015191e9613`; turn
+`turn-b38e6c1420c78485ab8fc779` SUCCEEDED with final snapshot
+`snap-d6edf6137ed89a61951c2a07` from baseline
+`snap-1f59469d30b556c798c9ecdf`. The session status still exposed its initial
+snapshot as `latest_snapshot_id`; reconcile this with the turn final snapshot
+and actual checkout after restart.
+
+Worker-reported fuzz targets and self-check are limited to `tests/fuzz/**`.
+They are not yet reviewed or integrated. The worker reported the bounded GCC
+self-check passed but could not link libFuzzer in its Windows environment; no
+other host was checked. Twelve shell tool receipts in the same turn had
+`status=unknown` / `decision=unknown` with no diagnostic payload, so their
+command outcomes cannot be independently established from broker events. No
+receipt was replayed and no replacement session was created. See [P08 partial
+checkpoint](evidence/fuzz-p08-20261003/README.md).
+
+The owner requested a pause for a broker restart after the current agent work.
+The worker is IDLE and a fully paginated session listing showed no active DMP
+turns. P08 remains running: coordinator integration, independent review, host
+CI, ESP-IDF 6.x, Cortex-M4, map/size, and allocator checks remain. No build,
+review session, staging, commit, or push was started after the worker completed.
+
+## 2026-10-03 — P08 coordinator integration; independent review submitted
+
+After the broker restart, `broker_status` returned READY and DMP `agents_list`
+was fully paginated at configuration revision 11. The P08 worker turn
+`turn-b38e6c1420c78485ab8fc779` is SUCCEEDED and its session is IDLE. Coordinator
+integration adds the opt-in fuzz build, allocator probes/checks, and hosted
+Linux/Windows, Cortex-M4, and ESP32-S3 CI jobs. Focused local checks are recorded
+in [P08 coordinator integration evidence](evidence/fuzz-p08-20261003/coordinator-integration.md).
+
+A sealed current-workspace snapshot has been submitted to the existing
+read-only Cursor reviewer session using the original worker baseline and this
+final target. No files are being changed while review is active. Hosted CI,
+libFuzzer/ASan/UBSan execution, ESP32-S3 link/map, and hosted Cortex-M4 evidence
+remain unrun; package acceptance is still open. No staging, commit, or push.
+
+## 2026-10-03 — P08 review finding repaired; final review pending
+
+The independent read-only review in turn `turn-0d69e2a08f701033fd67f4ef`
+reported one P1: `tests/fuzz/CMakeLists.txt` declared the same self-check and
+seed-generator targets twice, causing the `DMP_FUZZ=ON` CMake configure to
+fail before any fuzz target could be built. Removed the duplicate second block;
+the original definitions and single `fuzz.selfcheck` registration remain.
+
+The targeted Clang 21.1.0 CMake configure retry again stopped at compiler ABI
+detection and was canceled. Hosted fuzz CI is still required to establish the
+actual Clang/libFuzzer build and run. Final read-only review uses the same
+original worker baseline and a newly sealed target after this repair. No
+staging, commit, or push.
+
+## 2026-10-03 — P08 final source review
+
+The final independent review in turn `turn-122bc0d3f9d9a40cd1f094fc`
+confirmed the duplicate fuzz-target block is removed and found no additional
+actionable P0-P2 issues. The review was read-only and did not run builds. P08
+remains open until host CI, ASan/UBSan/libFuzzer, ESP32-S3 link/map/size, and
+hosted Cortex-M4 evidence are available. No staging, commit, or push.

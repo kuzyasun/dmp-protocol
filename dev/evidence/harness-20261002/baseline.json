@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-02",
+  "original_snapshot_id": "snap-cf9ec66130257c9804abbaab",
+  "rbo_discovery": "fetch failed",
+  "hashes": {
+    "include/dmp/transport.h": "30c61233ce181e4addb6179031338b332a2a3c9b0c734211f2cd7cb5dcd1d007",
+    "tools/validate_profile.py": "7813060af442d97c605e2f51f9eb62bdc840b2a801f85bc66d40a24ff35f4e0a",
+    ".git/index": "2a11c7d6a7590c74ffbe2f36f6636bece5dd10312f10cb418c53ef5cb84dd472",
+    "profiles/schema/manifest-v1.schema.json": "23aca364eebe2beabd025f5728ce54ee0cf9e818d0b17e65235e37ada36a1ddb",
+    "AGENTS.md": "5a048d94cf226bce9a988d30d8163644935c0d4f1bca6690f4e322b54bd8ceef",
+    "dev/DMP_Core_Interfaces.md": "74c63ec6d3149b28434a2a0364d3de111216663ca32fb247ab7110fdebbf82a4",
+    "CMakeLists.txt": "7fffdb0cf6842884ee8330dfa985720771d92eb1f96258054f5770c2cc0301b4",
+    "tests/harness/PROTOCOL.md": "eceff5252ced1425e42201a16379314bd7abe4fbe2958ddf85cff443a1a1de8f"
+  },
+  "local_host_checks": "awaiting owner authorization",
+  "branch": "feat/initial-version",
+  "configuration_revision": 3,
+  "head": "ae7e06e133b92dcec818bd2006875bbf43d39956"
+}

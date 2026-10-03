@@ -73,7 +73,7 @@ dmp_status dmp_generation_next(uint64_t current, uint64_t *out)
 
 const char *dmp_status_name(dmp_status status)
 {
-    if ((int)status < 0 || (size_t)status >= sizeof STATUS_NAMES / sizeof STATUS_NAMES[0]) {
+    if ((unsigned)status >= sizeof STATUS_NAMES / sizeof STATUS_NAMES[0]) {
         return "unknown";
     }
     return STATUS_NAMES[(size_t)status];

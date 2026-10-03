@@ -1,0 +1,163 @@
+name: DMP portability and host checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-linux-gcc:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Record host tools
+        run: |
+          cmake --version
+          gcc --version
+          python --version
+          node --version
+      - name: Configure
+        run: cmake -S . -B build/host -DCMAKE_BUILD_TYPE=Release -DDMP_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build/host --parallel
+      - name: Test
+        run: ctest --test-dir build/host --output-on-failure
+      - name: Check core allocator symbols
+        run: python tools/check_core_allocators.py build/host/libdmp.a --nm nm
+
+  host-windows-msvc:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Record host tools
+        run: |
+          cmake --version
+          where.exe cl
+          python --version
+          node --version
+      - name: Configure
+        run: cmake -S . -B build/host -G "Visual Studio 17 2022" -A x64 -DDMP_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build/host --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build/host -C Release --output-on-failure
+
+  fuzz-linux-clang:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Record compiler
+        run: clang --version
+      - name: Configure instrumented build
+        run: >-
+          cmake -S . -B build/fuzz -G Ninja
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo -DDMP_BUILD_TESTS=ON -DDMP_FUZZ=ON
+      - name: Build
+        run: cmake --build build/fuzz --parallel
+      - name: Test
+        run: ctest --test-dir build/fuzz --output-on-failure
+      - name: Run seeded libFuzzer smoke tests
+        run: |
+          mkdir -p build/fuzz/corpus/core build/fuzz/corpus/stream build/fuzz/artifacts
+          build/fuzz/tests/fuzz/dmp_fuzz_seed_corpus \
+            build/fuzz/corpus/core/core.bin \
+            build/fuzz/corpus/stream/stream-l.bin \
+            build/fuzz/corpus/stream/stream-r.bin
+          build/fuzz/tests/fuzz/dmp_fuzz_core build/fuzz/corpus/core \
+            -max_len=256 -runs=1000 -max_total_time=5 -timeout=2 \
+            -artifact_prefix=build/fuzz/artifacts/core-
+          build/fuzz/tests/fuzz/dmp_fuzz_stream build/fuzz/corpus/stream \
+            -max_len=256 -runs=1000 -max_total_time=5 -timeout=2 \
+            -artifact_prefix=build/fuzz/artifacts/stream-
+
+  cortex-m4-archive:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Arm GNU Toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz"
+          toolchain="$RUNNER_TEMP/arm-gnu-toolchain-13.3.rel1"
+          mkdir -p "$toolchain"
+          curl --fail --location --retry 3 \
+            "https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz" \
+            --output "$archive"
+          tar -xJf "$archive" --strip-components=1 -C "$toolchain"
+          echo "$toolchain/bin" >> "$GITHUB_PATH"
+          test "$("$toolchain/bin/arm-none-eabi-gcc" -dumpfullversion)" = "13.3.1"
+      - name: Record compiler
+        run: arm-none-eabi-gcc --version
+      - name: Configure freestanding archive
+        run: cmake -S . -B build/cortex-m4 -G Ninja -DCMAKE_TOOLCHAIN_FILE=tests/provider/targets/cortex-m4.cmake -DDMP_BUILD_TESTS=OFF
+      - name: Build and inspect archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build/cortex-m4 --target libdmp --parallel
+          mkdir -p build/cortex-m4/evidence
+          arm-none-eabi-size -A build/cortex-m4/libdmp.a > build/cortex-m4/evidence/libdmp-size.txt
+          python3 tools/check_core_allocators.py build/cortex-m4/libdmp.a --nm arm-none-eabi-nm > build/cortex-m4/evidence/allocator-check.txt
+          sha256sum "$(command -v arm-none-eabi-gcc)" build/cortex-m4/CMakeCache.txt > build/cortex-m4/evidence/build-inputs.sha256
+          git rev-parse HEAD > build/cortex-m4/evidence/source-revision.txt
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: dmp-cortex-m4-archive
+          path: build/cortex-m4/evidence/
+
+  esp32s3-idf:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated ESP32-S3 compile/link probe
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0.2
+          target: esp32s3
+          path: tests/embedded/esp32s3
+          command: |
+            set -euo pipefail
+            idf.py build
+            mkdir -p build/dmp-evidence
+            idf.py size > build/dmp-evidence/idf-size.txt
+            idf.py size-components > build/dmp-evidence/idf-size-components.txt
+            compiler="$(grep '^CMAKE_C_COMPILER:' build/CMakeCache.txt | head -n 1 | cut -d= -f2-)"
+            nm_tool="$(grep '^CMAKE_NM:' build/CMakeCache.txt | head -n 1 | cut -d= -f2-)"
+            "$compiler" --version > build/dmp-evidence/compiler-version.txt
+            sha256sum "$compiler" build/CMakeCache.txt build/sdkconfig > build/dmp-evidence/build-inputs.sha256
+            git rev-parse HEAD > build/dmp-evidence/source-revision.txt
+            python ../../../tools/check_core_allocators.py build --nm "$nm_tool" > build/dmp-evidence/allocator-check.txt
+            test -n "$(find build -name '*.map' -print -quit)"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: dmp-esp32s3-idf-6.0.2
+          path: |
+            tests/embedded/esp32s3/build/**/*.map
+            tests/embedded/esp32s3/build/dmp-evidence/
+            tests/embedded/esp32s3/build/sdkconfig
+          if-no-files-found: error
