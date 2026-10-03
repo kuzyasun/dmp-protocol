@@ -148,8 +148,16 @@ jobs:
             idf.py size 2>&1 | tee build/dmp-evidence/idf-size.txt
             echo "Collecting ESP-IDF component size report"
             idf.py size-components 2>&1 | tee build/dmp-evidence/idf-size-components.txt
-            compiler="$(command -v xtensa-esp32s3-elf-gcc)"
-            nm_tool="$(command -v xtensa-esp32s3-elf-nm)"
+            compiler="$(python3 - <<'PY'
+            import re
+            from pathlib import Path
+
+            text = Path("build/build.ninja").read_text(encoding="utf-8")
+            match = re.search(r"(?m)(/[^\s;]*xtensa-esp32s3-elf-gcc)(?=\s)", text)
+            print(match.group(1) if match else "")
+            PY
+            )"
+            nm_tool="${compiler%/*}/xtensa-esp32s3-elf-nm"
             test -x "$compiler" || { echo "C compiler is missing or not executable: $compiler" >&2; exit 1; }
             test -x "$nm_tool" || { echo "nm tool is missing or not executable: $nm_tool" >&2; exit 1; }
             echo "Recording ESP-IDF compiler and build inputs"
