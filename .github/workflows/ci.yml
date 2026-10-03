@@ -141,22 +141,13 @@ jobs:
           path: tests/embedded/esp32s3
           command: |
             set -euo pipefail
-            trap 'echo "ESP-IDF evidence command failed at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
             idf.py build
             mkdir -p build/dmp-evidence
             echo "Collecting ESP-IDF total size report"
             idf.py size 2>&1 | tee build/dmp-evidence/idf-size.txt
             echo "Collecting ESP-IDF component size report"
             idf.py size-components 2>&1 | tee build/dmp-evidence/idf-size-components.txt
-            compiler="$(python3 - <<'PY'
-            import re
-            from pathlib import Path
-
-            text = Path("build/build.ninja").read_text(encoding="utf-8")
-            match = re.search(r"(?m)(/[^\s;]*xtensa-esp32s3-elf-gcc)(?=\s)", text)
-            print(match.group(1) if match else "")
-            PY
-            )"
+            compiler="$(find /opt/esp/tools/xtensa-esp-elf -type f -name "xtensa-esp32s3-elf-gcc" -print -quit)"
             nm_tool="${compiler%/*}/xtensa-esp32s3-elf-nm"
             test -x "$compiler" || { echo "C compiler is missing or not executable: $compiler" >&2; exit 1; }
             test -x "$nm_tool" || { echo "nm tool is missing or not executable: $nm_tool" >&2; exit 1; }
@@ -166,7 +157,7 @@ jobs:
             git rev-parse HEAD > build/dmp-evidence/source-revision.txt
             echo "Checking ESP-IDF core archive for allocator references"
             python3 ../../../tools/check_core_allocators.py build --nm "$nm_tool" > build/dmp-evidence/allocator-check.txt
-            map_file="$(find build -name '*.map' -print -quit)"
+            map_file="$(find build -name "*.map" -print -quit)"
             test -n "$map_file" || { echo "ESP-IDF link map was not generated under build/" >&2; exit 1; }
             echo "ESP-IDF link map: $map_file"
       - uses: actions/upload-artifact@v4
