@@ -879,3 +879,178 @@ The review used `dmp_cursor_reviewer` (Cursor, `grok-4.7-high`, configured
 default effort) in the read-only `dmp-review-project`; the worker was not used
 for this coordinator-owned API change. P09 remains host/profile evidence only;
 no SEC-1, MCU, endpoint, interoperability or physical transport claim follows.
+
+## 2026-10-03 — P10 API review checkpoint
+
+The coordinator froze an initial `include/dmp/reliability.h`, root CMake
+registration and package plan against Git baseline
+`4db90acf626b5ee855f95fac80d8dee588ae8d97` and sealed target
+`snap-b43c630fb07b9f26fd2f147f`. An independent read-only review used
+`dmp_cursor_reviewer` (Cursor, `grok-4.7-high`, broker-default effort), turn
+`turn-45bda806099c454bdd0bc591`, baseline `snap-9261f786fd5144306a8e7daf`,
+target `snap-b43c630fb07b9f26fd2f147f`, findings artifact
+`art-54a7917a0724ed24ce18417f`. It found P1 gaps for cached rejection versus
+later acceptance and ERR status classification, notice plaintext/lifetime and
+late-result payload semantics, canonical immutable metadata, pool byte-capacity
+checks and operational queue/control limits; plus a P2 cancel/transport-pin
+contract gap. It confirmed the one-context ABI is scoped to current profiles,
+which all declare `peers == 1`, and the input separates structural frame from
+plaintext. The coordinator is revising the ABI before implementation.
+
+The first implementation send to `dmp_cursor_large` (Cursor,
+`grok-4.7-high/high`), turn `turn-783da37df58e3ddf4bf85df2`, was cancelled before
+source changes after the API review. Its final workspace check shows no worker
+edits; the repository diff contains only coordinator-owned API, build, plan,
+board and execution-log files. One
+shell tool receipt returned `UNKNOWN` (call `898dd66f55ecded1592b3063c3cc8aa0`)
+with no diagnostic; no response was replayed. The coordinator checked actual
+Git status/diff and found no worker source or test files, which resolved the
+uncertain workspace effect.
+
+Broker read-only review observations: the reviewer turn above received two
+`grep` tool receipts with `status=error` (calls
+`4b67943b78b617484f4ae2c837af3179` and
+`2ebf54d1db9bcdc7f9714934c688f73d`) and two `read` receipts with
+`status=error` (calls `69ab9727ab3c27c7fd7b018dff205a8d` and
+`72cdd29b479b7c25054129135cd6b527`); the event stream supplied no error code
+or diagnostic. The reviewer recovered through later successful reads/searches
+and completed the review. Impact was review delay; workaround was to use the
+later successful bounded reads/searches. No provider output or credentials
+were retained.
+
+The closure review from `snap-b43c630fb07b9f26fd2f147f` to
+`snap-8fc58c3446abfb2811605b0d` (reviewer turn
+`turn-33a18b697fcaf4a6cbb123e6`, artifact
+`art-6fff6367daf4cc6d5395812c`) confirmed all five prior findings were fixed,
+then found two additional P2 contract gaps: `complete` needed to reject
+mismatched `application_err`/STATUS pairs, and TX outcome mapping needed to
+include `DMP_TX_FAILED_UNSENT`. Both have been added to the public API contract;
+the updated target awaits closure review before implementation dispatch.
+
+A narrow closure review from `snap-8fc58c3446abfb2811605b0d` to
+`snap-fe9c6287b491dd6e6674c07a` (turn
+`turn-4df75ba6d7b8c0895973f81b`, artifact
+`art-ce3f47b6fa2afd33d47980dc`) confirmed both fixes and found one further P2
+wording gap: a current-attempt `TRANSMITTED` / `POSSIBLY_TRANSMITTED` outcome
+also requires `UNKNOWN`. The contract now says either outcome on any attempt
+makes the exchange unknown; `LOCAL_UNSENT` requires the current/last attempt to
+be proven unsent and no current or prior attempt to have possibly transmitted.
+The final closure review is pending.
+
+That narrow review (turn `turn-a2215700a9d12445ffa97c1f`, artifact
+`art-8ae70d58ef1ead130c071266`) confirmed the current-attempt mapping and found
+one further P2 edge: cancellation while still queued, before any transport
+submission, needed an explicit `LOCAL_UNSENT` outcome. The API now states that
+pre-submission cancellation settles locally unsent; a final closure review is
+pending.
+
+That review (turn `turn-d4b1862138088d29011ca213`, artifact
+`art-db27edd6694d6c5fc09ff1d0`) found the new pre-submission rule contradicted
+the following attempt-outcome condition. The cancellation comment is now a
+four-case classification: no accepted submission gives `LOCAL_UNSENT`; each
+accepted attempt is individually proven unsent or potentially transmitted;
+any `TRANSMITTED`/`POSSIBLY_TRANSMITTED` yields `UNKNOWN`; and after all
+accepted attempts settle, all-unsent yields `LOCAL_UNSENT`. A rejected submit
+has no callback and did not reach transport. Another narrow closure review is
+pending.
+
+The final API closure review (reviewer turn `turn-74a13665074a409ea9627221`,
+artifact `art-0a8dff0138592b11c34d20cb`) used baseline
+`snap-0a0dbbbc54fb3284f0cbfd25` and target `snap-1c7684daa52c8a2cce3ff09d`.
+It confirmed the cancellation classification is exhaustive and reported no
+residual or new P0-P2 findings. This supersedes the preceding pending-review
+notes; implementation is authorized against a new sealed snapshot. Live
+Broker recheck at configuration revision 11 reports READY, permits
+`dmp-protocol`, and confirms the approved Cursor worker and reviewer routes,
+policies, and `dmp-current-project` / `dmp-review-project` workspaces. The
+worker and reviewer sessions are IDLE and available.
+
+P10 implementation worker route `dmp_cursor_large` (Cursor,
+`grok-4.7-high/high`), turn `turn-bb0852cb9f8cfe5cd4bdb226`, reached its
+deadline with `TIMED_OUT`; no final snapshot or agent report was produced.
+Three worker `shell` receipts were `UNKNOWN` without diagnostics (calls
+`f3188bef45c80c9b8716614193604de4`,
+`0902173119390fbe599dd2047253148e`, and
+`bab67caffaad103a188896e81938a89b`). Impact: worker-side build/test outcomes
+are unverified. Workaround: after Broker confirmed quiescence, coordinator will
+inspect the retained workspace and run the authorized local host checks once;
+the UNKNOWN calls were not replayed. No provider output or credentials were
+retained.
+
+Coordinator validation of the retained P10 worker files: `cmake -S . -B
+build/host -DDMP_BUILD_TESTS=ON` passed. The targeted build command
+`cmake --build build/host --target dmp_test_reliability` reported “no work to
+do” (so it did not independently establish that the current sources compiled).
+`ctest --test-dir build/host --output-on-failure -R reliability.direct` failed
+with four assertions at `tests/reliability/test_reliability.c` lines 784, 997,
+530 and 1312 (ACK count, result SEQ expectation, held-frame parsing, and
+delivery setup respectively). P10 remains unaccepted pending a clean targeted
+rebuild, diagnosis, and test correction/fix.
+
+Independent read-only review of target `snap-60c0836524ecb93646c05cb1` against
+the author's baseline `snap-9261f786fd5144306a8e7daf` completed on reviewer
+route `dmp_cursor_reviewer` (Cursor, `grok-4.7-high`, configured default
+effort), turn `turn-01c7b2b9eb234ba76984364f`, findings artifact
+`art-602846c469b5ebc8d801c629`. It found two implementation defects: P0, the
+first poll frees the inbound result sender because `accept_request` leaves its
+`send_deadline` at zero, suppressing the receipt ACK and preventing later
+completion; P1, completion after the receipt deadline allocates the terminal
+result SEQ before the due receipt ACK, so both transmitted identities are out
+of allocation order. Review determined the four observed reliability test
+assertions are valid and stem from these two defects; other checked contract
+areas had no additional P0-P2 findings. One reviewer read receipt returned
+`error` without a diagnostic (call `063d62113830f9077732f29d03f1ab33`); impact
+was review delay, and the reviewer recovered through later successful bounded
+reads/searches. No provider output or credentials were retained. The target
+remains unaccepted while the coordinator fixes these findings.
+
+Coordinator corrected both reviewed defects. Inbound result senders now carry
+the request result deadline, and a completed result defers SEQ allocation when
+a due receipt ACK must be sent first. Storage validation now enforces
+overflow-safe minimum byte capacities and accepts over-provisioned arrays while
+clamping operational slot counts to admitted profile quotas. It rejects
+multi-peer profiles; P10 RX and rejection paths reject ROUTE and FRAG shapes.
+Regression tests cover over-provisioned caller storage, single-peer validation,
+and unsupported routed input.
+
+Using the explicit GCC/MinGW host build at `build/p10-host-gcc`, the reliability
+target rebuilt successfully and `reliability.direct` passed. The complete host
+build passed; full CTest passed 14/15 tests. Only `harness.subprocess` failed,
+with 62 Windows `PermissionError` errors while Python temporary directories
+were being created/written/cleaned under `%TEMP%`; all other suites, including
+the P10 reliability test, passed. This is an environment limitation already
+observed on this host, unrelated to P10. Final independent closure review of a
+fresh sealed target is still required before acceptance.
+
+The first final-closure review submission on `dmp_cursor_reviewer` (Cursor,
+`grok-4.7-high`, turn `turn-31d75adf3ed3ee0db64410b6`) failed before review
+inference because broker diff generation encountered the ignored generated
+Python bytecode `profiles/schema/__pycache__/build_schema.cpython-312.pyc` and
+reported “file is binary or invalid UTF-8.” Impact: no review findings were
+produced. Workaround: verified all five repository `.pyc` files were ignored
+Python caches and removed only those generated files; the review was
+resubmitted against a fresh sealed target with the original author baseline.
+
+Final P10 closure review used baseline `snap-9261f786fd5144306a8e7daf` and
+sealed target `snap-720d3be8d6c007aac6523d67`. Reviewer route
+`dmp_cursor_reviewer` (Cursor, `grok-4.7-high`, configured default effort),
+turn `turn-d9f0485de21f19c997310b33`, completed with `SUCCEEDED`; findings
+artifact `art-07485688a0ee086119fec258` reports no remaining actionable
+P0-P2 findings and confirms both earlier fixes. The review was read-only and
+did not rerun tests. Coordinator acceptance follows independent source review,
+targeted `reliability.direct` PASS and full CTest results (14/15; only the
+unrelated Python `harness.subprocess` temporary-file permissions failed).
+
+Acceptance toolchain: GCC 15.2.0, CMake/CTest 3.28.1, Python 3.12.8 on Windows.
+SHA-256 for the accepted source/configuration inputs:
+
+| File | SHA-256 |
+|---|---|
+| `CMakeLists.txt` | `6db2c91ca4bdd40f357518af4da45a97577d499bd3c2ef3ab15780c6351aa48e` |
+| `include/dmp/reliability.h` | `c47bec37d4ea5b1e61417e0de67d3a7d00514e1fecd26f73d389e3f9bab5146e` |
+| `src/reliability/reliability.c` | `611e39047bbb601ef2c182e8da60f22e1ff29debcd76284b8cbbc7cd9dbe65a0` |
+| `tests/reliability/CMakeLists.txt` | `9b8ecab6e5a8c20224eddb895615cc6b877274a0cd90806759603f2c522e0823` |
+| `tests/reliability/test_reliability.c` | `dc22c98169a842dd48612f29f6af1b7fa68dc5f288aa63cbb35ad4ef94f78066` |
+
+P10 is accepted as host reliability behavior only. It does not establish SEC-1,
+endpoint integration, MCU, independent-peer or physical transport conformance.

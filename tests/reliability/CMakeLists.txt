@@ -1,0 +1,10 @@
+add_executable(dmp_test_reliability test_reliability.c ../identity/auth_context_stub.c)
+target_link_libraries(dmp_test_reliability PRIVATE dmp::dmp)
+set_target_properties(dmp_test_reliability PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+dmp_strict_target(dmp_test_reliability)
+if(MSVC)
+    target_compile_definitions(dmp_test_reliability PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+add_test(NAME reliability.direct COMMAND dmp_test_reliability)
+set_tests_properties(reliability.direct PROPERTIES TIMEOUT 60 LABELS "reliability")
