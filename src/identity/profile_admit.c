@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Two-pass manifest-v1 admission. Pass A matches validate_bytes through the
+/* Two-pass manifest-v2 admission. Pass A matches validate_bytes through the
  * surrogate scan: length, BOM, strict UTF-8, bracket depth, JSON syntax,
  * decoded duplicate keys, then unpaired surrogates. Pass B applies the closed
  * schema in document order and the same cross-field checks. The digest callback
@@ -680,7 +680,7 @@ typedef struct {
     int tx_borrow, sync_completion, context_assoc, kind_stream, topo_p2p, bind_stream;
     service_rec services[2];
     uint32_t message_bytes, fragments, chunk_bytes, boot_chunk, boot_frags;
-    uint32_t peers, assemblies, operations, control_slots, app_queue, adapter_slots;
+    uint32_t peers, assemblies, assembly_tombstones, operations, control_slots, app_queue, adapter_slots;
     int mode_xx;
     int credential_oob;
     uint32_t pending, active, draining, crypto_slots, failed_aead, replay_bits;
@@ -1480,7 +1480,7 @@ static int parse_region(ps *p, void *obj)
 static const char *const COMPONENT_NAMES[] = {
     "provider_retained", "provider_scratch", "association", "bootstrap", "sender", "assembly",
     "result", "history", "correlation", "control", "application_queue", "adapter", "stacks",
-    "relay_cache", "freshness_tokens"
+    "relay_cache", "freshness_tokens", "assembly_tombstone"
 };
 enum {
     COMPONENT_SENDER = 4,
@@ -1488,7 +1488,8 @@ enum {
     COMPONENT_RESULT = 6,
     COMPONENT_HISTORY = 7,
     COMPONENT_CORRELATION = 8,
-    COMPONENT_ADAPTER = 11
+    COMPONENT_ADAPTER = 11,
+    COMPONENT_ASSEMBLY_TOMBSTONE = 15
 };
 
 static uint32_t endpoint_charge_count(const manifest *m, int component)
@@ -1513,7 +1514,7 @@ static uint32_t endpoint_charge_count(const manifest *m, int component)
 static int take_component(ps *p, void *o)
 {
     int v = 0;
-    if (!take_enum(p, COMPONENT_NAMES, 15, &v)) {
+    if (!take_enum(p, COMPONENT_NAMES, 16, &v)) {
         return 0;
     }
     ((charge_rec *)o)->component = v;
@@ -1766,6 +1767,7 @@ TAKE_U32(take_boot_chunk, manifest, boot_chunk, 1U, 119U)
 TAKE_U32(take_boot_frags, manifest, boot_frags, 2U, 120U)
 TAKE_U32(take_peers, manifest, peers, 1U, 1U)
 TAKE_U32(take_assemblies, manifest, assemblies, 1U, 1U)
+TAKE_U32(take_assembly_tombstones, manifest, assembly_tombstones, 1U, 64U)
 TAKE_U32(take_operations, manifest, operations, 1U, 1U)
 TAKE_U32(take_control_slots, manifest, control_slots, 2U, 64U)
 TAKE_U32(take_app_queue, manifest, app_queue, 1U, 2147483647U)
@@ -1776,10 +1778,11 @@ static int parse_limits(ps *p, void *obj)
         {"message_bytes", take_message}, {"fragments", take_fragments}, {"chunk_bytes", take_chunk},
         {"bootstrap_chunk_bytes", take_boot_chunk}, {"bootstrap_fragments", take_boot_frags},
         {"peers", take_peers}, {"assemblies_per_peer", take_assemblies},
+        {"assembly_tombstones_per_peer", take_assembly_tombstones},
         {"operations_per_service", take_operations}, {"control_slots", take_control_slots},
         {"application_queue_slots", take_app_queue}, {"adapter_slots", take_adapter}
     };
-    return closed_object(p, obj, fields, 11);
+    return closed_object(p, obj, fields, 12);
 }
 
 static int take_mode(ps *p, void *o)
@@ -1974,7 +1977,7 @@ static int parse_sample(ps *p, void *obj)
     return closed_object(p, obj, fields, (int)(sizeof fields / sizeof fields[0]));
 }
 
-TAKE_LIT(take_contract, "DMP-test-manifest/1")
+TAKE_LIT(take_contract, "DMP-test-manifest/2")
 static int take_revisions(ps *p, void *o) { (void)o; return parse_revisions(p, o); }
 static int take_profile_obj(ps *p, void *o) { return parse_profile(p, o); }
 static int take_identity_obj(ps *p, void *o) { return parse_identity(p, o); }
@@ -2627,7 +2630,9 @@ static int component_floor(const manifest *m, const derived *d, int relay_role, 
         break;
     case 5:
         c = m->assemblies;
-        s = m->message_bytes;
+        if (!uadd(m->message_bytes, 512U, &s)) {
+            return 0;
+        }
         break;
     case 6:
         c = operations + grants;
@@ -2658,6 +2663,12 @@ static int component_floor(const manifest *m, const derived *d, int relay_role, 
     case 14:
         c = m->tokens_principal == 0U ? 1U : m->tokens_principal;
         s = grants != 0U ? 16U : 1U;
+        break;
+    case COMPONENT_ASSEMBLY_TOMBSTONE:
+        if (!umul(m->peers, m->assembly_tombstones, &c)) {
+            return 0;
+        }
+        s = 48U;
         break;
     default:
         return 0;
@@ -2707,11 +2718,15 @@ static int cross_resources(ps *p, const manifest *m, const derived *d)
               "resources", "$.limits.control_slots")) {
         return 0;
     }
+    if (!reqp(p, m->assembly_tombstones >= m->assemblies,
+              "resources", "$.limits.assembly_tombstones_per_peer")) {
+        return 0;
+    }
     for (i = 0; i < m->nresources; i++) {
         const resource_rec *r = &m->resources[i];
         char path[80];
         char cpath[96];
-        int seen_comp[15];
+        int seen_comp[16];
         uint64_t used[8];
         int overflow[8];
         int region;
@@ -2731,15 +2746,15 @@ static int cross_resources(ps *p, const manifest *m, const derived *d)
                 }
             }
         }
-        if (r->ncharges != 15) {
+        if (r->ncharges != 16) {
             return reqp(p, 0, "resources", path);
         }
-        for (bit = 0; bit < 15; bit++) {
+        for (bit = 0; bit < 16; bit++) {
             seen_comp[bit] = 0;
         }
         for (charge = 0; charge < r->ncharges; charge++) {
             int component = r->charges[charge].component;
-            if (component < 0 || component >= 15 || seen_comp[component]) {
+            if (component < 0 || component >= 16 || seen_comp[component]) {
                 return reqp(p, 0, "resources", path);
             }
             seen_comp[component] = 1;
@@ -2832,8 +2847,10 @@ static void fill_profile(dmp_admitted_profile *out, const manifest *m, const uin
     out->peers = m->peers;
     out->operations_per_service = m->operations;
     out->assemblies_per_peer = m->assemblies;
+    out->assembly_tombstones_per_peer = m->assembly_tombstones;
     out->sender_slots = endpoint_charge_count(m, COMPONENT_SENDER);
     out->assembly_slots = endpoint_charge_count(m, COMPONENT_ASSEMBLY);
+    out->assembly_tombstone_slots = endpoint_charge_count(m, COMPONENT_ASSEMBLY_TOMBSTONE);
     out->result_slots = endpoint_charge_count(m, COMPONENT_RESULT);
     out->history_slots = endpoint_charge_count(m, COMPONENT_HISTORY);
     out->correlation_slots = endpoint_charge_count(m, COMPONENT_CORRELATION);

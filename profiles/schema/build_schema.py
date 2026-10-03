@@ -26,11 +26,11 @@ TEXT = {"type": "string", "minLength": 1, "maxLength": 96,
         "pattern": "^[A-Za-z0-9_.:/+-]+$"}
 BOOL = {"type": "boolean"}
 COMPONENTS = ("provider_retained", "provider_scratch", "association", "bootstrap",
-              "sender", "assembly", "result", "history", "correlation", "control",
+              "sender", "assembly", "assembly_tombstone", "result", "history", "correlation", "control",
               "application_queue", "adapter", "stacks", "relay_cache", "freshness_tokens")
 
 SCHEMA = obj(
-    contract=enum("DMP-test-manifest/1"),
+    contract=enum("DMP-test-manifest/2"),
     revisions=obj(core=enum(10), security=enum(5), bootstrap=enum(2),
                   recovery=enum(1), application=enum(2)),
     profile=obj(owner=enum("DMP-reference", "DMP-test"),
@@ -61,7 +61,8 @@ SCHEMA = obj(
         acl=array(obj(node=U32, actions=array(enum("produce", "read", "status", "data", "result"), 1, 5)), 2, 2)), 2, 2),
     limits=obj(message_bytes=integer(17, 1024), fragments=integer(2, 32), chunk_bytes=integer(1, 1023),
                bootstrap_chunk_bytes=integer(1, 119), bootstrap_fragments=integer(2, 120),
-               peers=enum(1), assemblies_per_peer=enum(1), operations_per_service=enum(1),
+               peers=enum(1), assemblies_per_peer=enum(1),
+               assembly_tombstones_per_peer=integer(1, 64), operations_per_service=enum(1),
                control_slots=integer(2, 64), application_queue_slots=POS, adapter_slots=POS),
     security=obj(mode=enum("NNpsk0", "XX"), cipher=enum(1),
                  credential=enum("provisioned-pairwise-psk", "authenticated-oob-xx"),
@@ -116,8 +117,8 @@ SCHEMA = obj(
                                           count=POS, bytes_each=POS), 1, 112)), 1, 2),
 )
 SCHEMA = {"$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "urn:dmp:test-manifest:1", **SCHEMA}
+          "$id": "urn:dmp:test-manifest:2", **SCHEMA}
 
 if __name__ == "__main__":
-    Path(__file__).with_name("manifest-v1.schema.json").write_text(
+    Path(__file__).with_name("manifest-v2.schema.json").write_text(
         json.dumps(SCHEMA, indent=2) + "\n", encoding="utf-8", newline="\n")

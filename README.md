@@ -94,7 +94,7 @@ python -m unittest discover -s tests/profiles -p "test_*.py" -v
 
 The CLI returns the SHA256 of the exact original manifest bytes and conservative
 derived bounds. `--expect-sha256 HEX` additionally checks provisioning agreement.
-The [schema](profiles/schema/manifest-v1.schema.json) and
+The [schema](profiles/schema/manifest-v2.schema.json) and
 [written contract](docs/DMP_Test_Manifest_Contract.md) define the selected
 two-endpoint simulation scope. Corpus files are not physical/product profiles.
 [P03 deployment instances](profiles/deployments/README.md) are frozen, including a

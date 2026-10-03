@@ -339,7 +339,7 @@ static dmp_status read_extensions(const dmp_frame_view *frame, int secured, id_e
                 !read_uleb32(view.value, &at, &ext->service) || at != view.value.size) {
                 return DMP_MALFORMED;
             }
-            /* Manifest-v1 fixes the omitted application default at service 1. */
+            /* The manifest contract fixes the omitted default at service 1. */
             if (ext->service == 1U) {
                 return DMP_MALFORMED;
             }

@@ -1413,8 +1413,9 @@ static void check_relays(vstate *st, const json_value *m, derived *d)
 }
 
 static uint64_t count_for(const char *key, int endpoint, uint64_t associations, uint64_t crypto,
-                          uint64_t preauth, uint64_t operations, uint64_t assemblies, uint64_t grants,
-                          uint64_t control, uint64_t app_queue, uint64_t adapter, uint64_t tokens)
+                          uint64_t preauth, uint64_t operations, uint64_t assemblies,
+                          uint64_t assembly_tombstones, uint64_t grants, uint64_t control,
+                          uint64_t app_queue, uint64_t adapter, uint64_t tokens)
 {
     if (!endpoint && strcmp(key, "relay_cache") != 0) {
         return 1U;
@@ -1433,6 +1434,9 @@ static uint64_t count_for(const char *key, int endpoint, uint64_t associations, 
     }
     if (strcmp(key, "assembly") == 0) {
         return assemblies;
+    }
+    if (strcmp(key, "assembly_tombstone") == 0) {
+        return assembly_tombstones;
     }
     if (strcmp(key, "result") == 0 || strcmp(key, "correlation") == 0) {
         return operations + grants;
@@ -1463,7 +1467,7 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
     static const char *components[] = {
         "provider_retained", "provider_scratch", "association", "bootstrap", "sender", "assembly",
         "result", "history", "correlation", "control", "application_queue", "adapter", "stacks",
-        "relay_cache", "freshness_tokens"
+        "relay_cache", "freshness_tokens", "assembly_tombstone"
     };
     const json_value *resources = fo(st, m, "resources");
     const json_value *security = fo(st, m, "security");
@@ -1511,6 +1515,11 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
               "resources", "$.limits.control_slots")) {
         return;
     }
+    if (!need(st, fu(st, limits, "assembly_tombstones_per_peer") >=
+                     fu(st, limits, "assemblies_per_peer"),
+              "resources", "$.limits.assembly_tombstones_per_peer")) {
+        return;
+    }
     for (i = 0; i < resources->count; i++) {
         const json_value *resource = resources->items[i];
         const json_value *regions;
@@ -1518,7 +1527,7 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
         const char *role = fs(st, resource, "role");
         char path[80];
         int endpoint = strcmp(role, "endpoint") == 0;
-        int seen[15];
+        int seen[16];
         char region_ids[8][97];
         uint64_t region_limit[8];
         num region_used[8];
@@ -1557,7 +1566,7 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
                 }
             }
         }
-        if (charges->count != 15U) {
+        if (charges->count != 16U) {
             fail(st, "resources", path);
             return;
         }
@@ -1573,7 +1582,7 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
             size_t region_index = nregions;
             int component_index = -1;
             char cpath[128];
-            for (k = 0; k < 15U; k++) {
+            for (k = 0; k < 16U; k++) {
                 if (strcmp(key, components[k]) == 0) {
                     component_index = (int)k;
                 }
@@ -1585,7 +1594,9 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
             seen[component_index] = 1;
             need_count = count_for(key, endpoint, associations, fu(st, security, "crypto_slots"),
                                    fu(st, security, "preauth_slots"), operations,
-                                   fu(st, limits, "assemblies_per_peer"), grants,
+                                   fu(st, limits, "assemblies_per_peer"),
+                                   fu(st, limits, "peers") *
+                                       fu(st, limits, "assembly_tombstones_per_peer"), grants,
                                    fu(st, limits, "control_slots"), fu(st, limits, "application_queue_slots"),
                                    fu(st, limits, "adapter_slots"), fu(st, fresh, "tokens_per_principal"));
             if (!endpoint && strcmp(key, "relay_cache") == 0) {
@@ -1597,6 +1608,9 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
                 strcmp(key, "application_queue") == 0) {
                 need_bytes = endpoint ? message : 1U;
             }
+            if (strcmp(key, "assembly") == 0 && endpoint) {
+                need_bytes += 512U;
+            }
             if (strcmp(key, "result") == 0) {
                 uint64_t floor = grants != 0U ? 21U : 1U;
                 need_bytes = endpoint ? (message > floor ? message : floor) : 1U;
@@ -1606,6 +1620,9 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
             }
             if (strcmp(key, "freshness_tokens") == 0) {
                 need_bytes = endpoint ? (grants != 0U ? 16U : 1U) : 1U;
+            }
+            if (strcmp(key, "assembly_tombstone") == 0) {
+                need_bytes = endpoint ? 48U : 1U;
             }
             if (strcmp(key, "control") == 0 || strcmp(key, "adapter") == 0) {
                 need_bytes = encoded;

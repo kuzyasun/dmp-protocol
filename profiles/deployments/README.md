@@ -1,6 +1,6 @@
 # Frozen host development deployments
 
-P03 instances of [test manifest contract 1](../../docs/DMP_Test_Manifest_Contract.md).
+P03 instances of [test manifest contract 2](../../docs/DMP_Test_Manifest_Contract.md).
 These are complete configuration inputs for the future real library and its
 independent peer, not endpoint implementations or physical bindings. The six JSON
 manifests are authoritative files; changes require review and an explicit update
@@ -80,9 +80,9 @@ explicit profile revision rather than silently dropping charges.
 
 | Per-device template | RAM reserved / limit | Linked flash reserved / limit |
 |---|---:|---:|
-| Direct endpoint | 77440 / 131072 | 262144 / 524288 |
-| Radio endpoint (either recovery) | 81280 / 131072 | 262144 / 524288 |
-| Each relay | 29440 / 65536 | 65536 / 131072 |
+| Direct endpoint | 78208 / 131072 | 262144 / 524288 |
+| Radio endpoint (either recovery) | 82048 / 131072 | 262144 / 524288 |
+| Each relay | 29441 / 65536 | 65536 / 131072 |
 
 Endpoint reserves apply to each endpoint separately; relay reserves to each of
 the two relays. They are not pooled across devices. The `RAM` region promises no
@@ -126,15 +126,21 @@ All non-provider module sizes are unmeasured implementation reservations:
 - 1536-byte sender/assembly/result/application-queue slots include a complete
   1024-byte message and 512 bytes for metadata; counts are simultaneous, with
   extra result/correlation/history slots for two radio freshness grants.
+  Endpoint assembly admission validators enforce the assembly slot's full
+  message plus 512-byte metadata reserve.
 - Bootstrap reserves 512 bytes; control and adapter slots reserve 512 bytes
   each, including encoded frame storage and future ownership metadata.
 - History/correlation records reserve 128 bytes each, freshness records 64.
   Admission refuses new work when protected retained records fill these pools.
+- Each endpoint reserves 16 expiry-tombstone records of 48 bytes per peer;
+  exhausted pools refuse new fragmented message identities until the context
+  is retired. Tombstones contain no payload or application data.
 - Relay cache is 192 x 96 bytes, exceeding the common worst XX selective
   requirement `4*(32+2)+3+3+22*2 = 186` records. Each relay also reserves four
   512-byte control and adapter slots, 4096 stack bytes and 256 bytes for each
-  remaining module. Endpoint-only relay charges are explicit unused reserves,
-  not a claim that a transparent relay owns end-to-end traffic keys.
+  remaining module. The one-byte assembly-tombstone charge is an explicit
+  unused relay reserve; relay charges do not claim end-to-end reassembly state
+  or traffic keys.
 
 No reserve is a measurement or a guarantee of a sufficient C layout. P04/P08/
 P12/P15/P19 must compare actual layouts, queues, retained owners and linked size

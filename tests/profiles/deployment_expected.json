@@ -10,7 +10,11 @@
     "establishment_wire_bytes": 3682,
     "fragment_count": 16,
     "freshness_required_ms": 5716,
-    "ram_reserved_bytes": {"endpoint": {"RAM": 77440}},
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 78208
+      }
+    },
     "response_floor_ms": 150,
     "status_frame_bytes": 48,
     "transfer_frame_reserve": 57
@@ -26,7 +30,11 @@
     "establishment_wire_bytes": 5786,
     "fragment_count": 16,
     "freshness_required_ms": 5716,
-    "ram_reserved_bytes": {"endpoint": {"RAM": 77440}},
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 78208
+      }
+    },
     "response_floor_ms": 150,
     "status_frame_bytes": 48,
     "transfer_frame_reserve": 57
@@ -42,7 +50,14 @@
     "establishment_wire_bytes": 3584,
     "fragment_count": 32,
     "freshness_required_ms": 10936,
-    "ram_reserved_bytes": {"endpoint": {"RAM": 81280}, "relay": {"RAM": 29440}},
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 82048
+      },
+      "relay": {
+        "RAM": 29441
+      }
+    },
     "response_floor_ms": 2222,
     "status_frame_bytes": 62,
     "transfer_frame_reserve": 108
@@ -58,7 +73,14 @@
     "establishment_wire_bytes": 5632,
     "fragment_count": 32,
     "freshness_required_ms": 10936,
-    "ram_reserved_bytes": {"endpoint": {"RAM": 81280}, "relay": {"RAM": 29440}},
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 82048
+      },
+      "relay": {
+        "RAM": 29441
+      }
+    },
     "response_floor_ms": 2222,
     "status_frame_bytes": 62,
     "transfer_frame_reserve": 108
@@ -74,7 +96,14 @@
     "establishment_wire_bytes": 3584,
     "fragment_count": 32,
     "freshness_required_ms": 10936,
-    "ram_reserved_bytes": {"endpoint": {"RAM": 81280}, "relay": {"RAM": 29440}},
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 82048
+      },
+      "relay": {
+        "RAM": 29441
+      }
+    },
     "response_floor_ms": 150,
     "status_frame_bytes": 62,
     "transfer_frame_reserve": 105
@@ -90,7 +119,14 @@
     "establishment_wire_bytes": 5632,
     "fragment_count": 32,
     "freshness_required_ms": 10936,
-    "ram_reserved_bytes": {"endpoint": {"RAM": 81280}, "relay": {"RAM": 29440}},
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 82048
+      },
+      "relay": {
+        "RAM": 29441
+      }
+    },
     "response_floor_ms": 150,
     "status_frame_bytes": 62,
     "transfer_frame_reserve": 105

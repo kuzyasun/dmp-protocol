@@ -79,6 +79,12 @@ class DeploymentTests(unittest.TestCase):
                 self.assertEqual((1024, 1024), (services[2]["request_bytes"], services[2]["result_bytes"]))
                 expected_fragments = 16 if manifest["profile"]["id"] == "DIRECT-1" else 32
                 self.assertEqual(expected_fragments, manifest["limits"]["fragments"])
+                self.assertEqual(16, manifest["limits"]["assembly_tombstones_per_peer"])
+                endpoint = next(resource for resource in manifest["resources"]
+                                if resource["role"] == "endpoint")
+                tombstones = next(charge for charge in endpoint["charges"]
+                                  if charge["component"] == "assembly_tombstone")
+                self.assertEqual((16, 48), (tombstones["count"], tombstones["bytes_each"]))
 
     @staticmethod
     def differing_paths(left, right, prefix=""):
@@ -129,6 +135,12 @@ class DeploymentTests(unittest.TestCase):
         sender = next(charge for charge in endpoint["charges"] if charge["component"] == "sender")
         sender["bytes_each"] = 1023
         self.assert_rejected(small_buffer, "resources", "$.resources[endpoint].sender")
+
+        small_assembly = copy.deepcopy(radio)
+        endpoint = next(resource for resource in small_assembly["resources"] if resource["role"] == "endpoint")
+        assembly = next(charge for charge in endpoint["charges"] if charge["component"] == "assembly")
+        assembly["bytes_each"] = small_assembly["limits"]["message_bytes"] + 511
+        self.assert_rejected(small_assembly, "resources", "$.resources[endpoint].assembly")
 
         small_region = copy.deepcopy(radio)
         endpoint = next(resource for resource in small_region["resources"] if resource["role"] == "endpoint")

@@ -89,7 +89,7 @@ class ManifestContractTests(unittest.TestCase):
         schema_generator = importlib.util.module_from_spec(schema_module)
         schema_module.loader.exec_module(schema_generator)
         generated = json.dumps(schema_generator.SCHEMA, indent=2) + "\n"
-        self.assertEqual(generated, (ROOT / "profiles/schema/manifest-v1.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(generated, (ROOT / "profiles/schema/manifest-v2.schema.json").read_text(encoding="utf-8"))
 
     def test_mutation_corpus_rejects_contract_violations_at_declared_location(self):
         self.assertGreaterEqual(len(self.corpus["mutation_cases"]), 31)
@@ -119,8 +119,8 @@ class ManifestContractTests(unittest.TestCase):
         self.assertEqual(263, direct["encoded_frame_bytes"])
         self.assertEqual(430, radio["response_floor_ms"])
         self.assertEqual(1144, radio["freshness_required_ms"])
-        self.assertEqual(4409, radio["ram_reserved_bytes"]["endpoint"]["RAM"])
-        self.assertEqual(2316, radio["ram_reserved_bytes"]["relay"]["RAM"])
+        self.assertEqual(5689, radio["ram_reserved_bytes"]["endpoint"]["RAM"])
+        self.assertEqual(2317, radio["ram_reserved_bytes"]["relay"]["RAM"])
 
     def test_grant_result_pool_has_independent_21_byte_floor(self):
         radio = json.loads(_read_fixture("radio.json"))
@@ -128,16 +128,33 @@ class ManifestContractTests(unittest.TestCase):
             {"op": "set", "path": "/limits/message_bytes", "value": 17},
             {"op": "set", "path": "/services/1/request_bytes", "value": 17},
             {"op": "set", "path": "/services/1/result_bytes", "value": 17},
-            {"op": "set", "path": "/resources/0/charges/6/bytes_each", "value": 20},
+            {"op": "set", "path": "/resources/0/charges/7/bytes_each", "value": 20},
         ])
         with self.assertRaises(validator.ProfileError) as raised:
             validator.validate_bytes(json.dumps(small_message, separators=(",", ":")).encode())
         self.assertEqual("resources", raised.exception.code)
         self.assertEqual("$.resources[endpoint].result", raised.exception.path)
 
-        small_message["resources"][0]["charges"][6]["bytes_each"] = 21
+        small_message["resources"][0]["charges"][7]["bytes_each"] = 21
         self.assertTrue(validator.validate_bytes(
             json.dumps(small_message, separators=(",", ":")).encode())["valid"])
+
+    def test_assembly_expiry_tombstones_are_reserved_and_funded(self):
+        direct = json.loads(_read_fixture("direct.json"))
+        under_reserved = _mutate(direct, [
+            {"op": "set", "path": "/limits/assembly_tombstones_per_peer", "value": 0},
+        ])
+        with self.assertRaises(validator.ProfileError) as raised:
+            validator.validate_bytes(json.dumps(under_reserved, separators=(",", ":")).encode())
+        self.assertEqual("schema", raised.exception.code)
+
+        underfunded = _mutate(direct, [
+            {"op": "set", "path": "/resources/0/charges/6/count", "value": 15},
+        ])
+        with self.assertRaises(validator.ProfileError) as raised:
+            validator.validate_bytes(json.dumps(underfunded, separators=(",", ":")).encode())
+        self.assertEqual("resources", raised.exception.code)
+        self.assertEqual("$.resources[endpoint].assembly_tombstone", raised.exception.path)
 
     def test_exact_bootstrap_frame_boundary_and_reverse_selective_timing_term(self):
         direct = json.loads(_read_fixture("direct.json"))

@@ -13,7 +13,7 @@ import sys
 
 MAX_BYTES = 262144
 MAX_DEPTH = 24
-SCHEMA_PATH = Path(__file__).resolve().parents[1] / "profiles/schema/manifest-v1.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "profiles/schema/manifest-v2.schema.json"
 
 
 class ProfileError(ValueError):
@@ -362,14 +362,20 @@ def _resources(m, derived):
     operations = 2 * len(m["services"])
     fresh = m["freshness"]
     grants = fresh["grant_requests_per_pair"]
+    require(l["assembly_tombstones_per_peer"] >= l["assemblies_per_peer"],
+            "resources", "$.limits.assembly_tombstones_per_peer",
+            "each active assembly must reserve its future expiry tombstone")
     minimum_counts = {"provider_retained": associations, "provider_scratch": s["crypto_slots"],
                       "association": associations, "bootstrap": s["preauth_slots"],
                       "sender": operations, "assembly": l["assemblies_per_peer"],
+                      "assembly_tombstone": l["peers"] * l["assembly_tombstones_per_peer"],
                       "result": operations + grants, "history": 2*(operations + grants), "correlation": operations + grants,
                       "control": l["control_slots"], "application_queue": l["application_queue_slots"],
                       "adapter": l["adapter_slots"], "stacks": 1, "relay_cache": 1,
                       "freshness_tokens": max(1, fresh["tokens_per_principal"])}
     minimum_bytes = {key: l["message_bytes"] for key in ("sender", "assembly", "result", "application_queue")}
+    minimum_bytes["assembly"] += 512
+    minimum_bytes["assembly_tombstone"] = 48
     minimum_bytes.update(bootstrap=120, control=derived["encoded_frame_bytes"], adapter=derived["encoded_frame_bytes"])
     minimum_bytes["result"] = max(l["message_bytes"], 21 if grants else 1)
     minimum_bytes["freshness_tokens"] = 16 if grants else 1

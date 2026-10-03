@@ -1054,3 +1054,50 @@ SHA-256 for the accepted source/configuration inputs:
 
 P10 is accepted as host reliability behavior only. It does not establish SEC-1,
 endpoint integration, MCU, independent-peer or physical transport conformance.
+
+P11 broker observation (2026-10-03): the live `dmp_cursor_large` route
+(Cursor, `grok-4.7-high`, configured `high` effort) emitted a shell tool receipt
+with `status=unknown` and `decision=unknown` at event cursor 10458, call ID
+`bbe372f2568f6e94af21639fa824f059`, turn `turn-40b707c9750f6ac5b3c2917a`.
+The same turn also emitted `status=unknown` / `decision=unknown` shell receipts
+at cursors 10461 (`f770c89ddedd84cbbf6af4bbb324f77a`), 10467
+(`221006e80849c4fa20cc4a34031d5105`), 10473
+(`e378442fa06b5e60283b7198359b46cc`), 10476
+(`5aed3317cb4797150854398b87518ae1`) and 10479
+(`eab11c7dd8d8d865c44e86ec6fb37957`). These receipts contained no command,
+diagnostic or turn error code; the turn later completed `SUCCEEDED` with no
+broker-observed turn error. Impact: the individual shell-command outcomes are
+ambiguous, so worker-reported build/test results require coordinator replay.
+Workaround/status: no shell command or turn was replayed while its result was
+unknown and no replacement session was launched; after terminal completion,
+inspect the sealed target and run coordinator-owned acceptance checks.
+
+P11 reviewer event-poll observation (2026-10-03): coordinator event polling on
+`dmp_cursor_reviewer` (Cursor, `grok-4.7-high`), turn
+`turn-276782d7a7221bbc1182f3cc`, was rejected with `INVALID_REQUEST` because
+`wait_ms=30000` exceeded the broker's accepted `[0, 20000]` range. Impact: no
+turn or inference state changed; the reviewer remained `RUNNING`. Workaround:
+continue with bounded event waits of at most 20000 ms. This was a coordinator
+request-parameter error, not a provider or route failure.
+
+P11 final-review preflight observation (2026-10-03): the live
+`dmp_cursor_reviewer` route (Cursor, `grok-4.7-high`) turn
+`turn-d2fe134f77941f05c97f42bc` terminated `FAILED` with `INPUT_UNSUPPORTED`
+before inference because the sealed diff contained the generated binary
+`tests/profiles/__pycache__/make_fixtures.cpython-312.pyc`. Impact: the final
+review did not start and no inference ran. Workaround: remove only Python
+bytecode outputs produced by the profile tests, capture a fresh sealed target,
+and retry the review with a new idempotency key. No turn or response was
+replayed.
+
+P11 final-review preflight retry observation (2026-10-03): the live
+`dmp_cursor_reviewer` route (Cursor, `grok-4.7-high`) turn
+`turn-6a872955e23e19ef598fe183` terminated `FAILED` with `INPUT_UNSUPPORTED`
+before inference because review diff generation encountered
+`profiles/schema/__pycache__/build_schema.cpython-312.pyc` as binary/invalid
+UTF-8. Impact: the final review again did not start; no inference ran. The file
+was absent from the current workspace, so removing local bytecode alone did not
+clear the binary path from the baseline-to-target diff. Workaround required:
+exclude `**/__pycache__/**` from the registered DMP snapshot coverage (or make
+the baseline and target cache bytes identical) before capturing a new review
+target. No turn or response was replayed.

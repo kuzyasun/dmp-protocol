@@ -17,7 +17,7 @@ dmp-harness --manifest FILE < scenario.json > trace.jsonl
 The first prints `1` plus LF and exits zero. The second reads one UTF-8 JSON object
 to EOF, at most 1,048,576 bytes; no BOM, duplicate keys, unknown fields, floats,
 non-finite values or trailing content. CLI rejects unknown/repeated options.
-Manifest bytes are bounded/validated against manifest-v1, including cross-field
+Manifest bytes are bounded/validated against manifest-v2, including cross-field
 constraints, by the executable's configuration boundary (a separately invoked
 offline validator cannot be the only check). The input digest must match SHA-256
 of the exact manifest bytes. Original bytes and manifest identity remain evidence.

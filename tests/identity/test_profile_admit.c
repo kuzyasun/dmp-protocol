@@ -348,6 +348,9 @@ static int test_edges(void)
     CHECK(profile.encoded_mtu == 263U);
     CHECK(profile.sender_slots == 4U);
     CHECK(profile.assembly_slots == 1U);
+    CHECK(profile.assemblies_per_peer == 1U);
+    CHECK(profile.assembly_tombstones_per_peer == 16U);
+    CHECK(profile.assembly_tombstone_slots == 16U);
     CHECK(profile.result_slots == 4U);
     CHECK(profile.history_slots == 8U);
     CHECK(profile.correlation_slots == 4U);
@@ -380,6 +383,8 @@ static int test_edges(void)
         CHECK(dmp_profile_admit(raw, NULL, sha256_of, NULL, scratch, &profile, &failure) == DMP_OK);
         CHECK(profile.sender_slots == 5U);
         CHECK(profile.assembly_slots == 1U);
+        CHECK(profile.assembly_tombstones_per_peer == 16U);
+        CHECK(profile.assembly_tombstone_slots == 16U);
         CHECK(profile.result_slots == 4U);
         CHECK(profile.history_slots == 8U);
         CHECK(profile.correlation_slots == 6U);
@@ -393,6 +398,8 @@ static int test_edges(void)
     CHECK(admit_file(path, &profile, &failure, NULL) == 0);
     CHECK(profile.sender_slots == 4U);
     CHECK(profile.assembly_slots == 1U);
+    CHECK(profile.assembly_tombstones_per_peer == 16U);
+    CHECK(profile.assembly_tombstone_slots == 16U);
     CHECK(profile.result_slots == 6U);
     CHECK(profile.history_slots == 12U);
     CHECK(profile.correlation_slots == 6U);

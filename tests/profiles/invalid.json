@@ -3,249 +3,484 @@
     {
       "name": "unknown-root-member",
       "fixture": "radio.json",
-      "mutations": [{"op": "add", "path": "/unexpected", "value": 1}],
+      "mutations": [
+        {
+          "op": "add",
+          "path": "/unexpected",
+          "value": 1
+        }
+      ],
       "expected_code": "schema",
       "expected_path": "$"
     },
     {
       "name": "unknown-nested-member",
       "fixture": "radio.json",
-      "mutations": [{"op": "add", "path": "/services/0/unexpected", "value": 1}],
+      "mutations": [
+        {
+          "op": "add",
+          "path": "/services/0/unexpected",
+          "value": 1
+        }
+      ],
       "expected_code": "schema",
       "expected_path": "$.services[0]"
     },
     {
       "name": "missing-profile-revision",
       "fixture": "radio.json",
-      "mutations": [{"op": "remove", "path": "/profile/revision"}],
+      "mutations": [
+        {
+          "op": "remove",
+          "path": "/profile/revision"
+        }
+      ],
       "expected_code": "schema",
       "expected_path": "$.profile"
     },
     {
       "name": "boolean-is-not-an-integer",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/identity/namespace", "value": true}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/identity/namespace",
+          "value": true
+        }
+      ],
       "expected_code": "schema",
       "expected_path": "$.identity.namespace"
     },
     {
       "name": "family-binding-mismatch",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/profile/id", "value": "DIRECT-1"}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/profile/id",
+          "value": "DIRECT-1"
+        }
+      ],
       "expected_code": "profile",
       "expected_path": "$.binding"
     },
     {
       "name": "retry-all-is-not-radio-1",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/services/0/recovery", "value": "retry-all"}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/services/0/recovery",
+          "value": "retry-all"
+        }
+      ],
       "expected_code": "profile",
       "expected_path": "$.services[0].recovery"
     },
     {
       "name": "test-retry-all-family-owner-mismatch",
       "fixture": "test-radio-retry-all.json",
-      "mutations": [{"op": "set", "path": "/profile/owner", "value": "DMP-reference"}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/profile/owner",
+          "value": "DMP-reference"
+        }
+      ],
       "expected_code": "profile",
       "expected_path": "$.profile"
     },
     {
       "name": "duplicate-node-identity",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/identity/nodes/1", "value": 10}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/identity/nodes/1",
+          "value": 10
+        }
+      ],
       "expected_code": "identity",
       "expected_path": "$.identity"
     },
     {
       "name": "sample-producer-is-not-an-endpoint",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/identity/sample_producer", "value": 30}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/identity/sample_producer",
+          "value": 30
+        }
+      ],
       "expected_code": "identity",
       "expected_path": "$.identity"
     },
     {
       "name": "asymmetric-reply-service",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/services/0/reply_service", "value": 2}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/services/0/reply_service",
+          "value": 2
+        }
+      ],
       "expected_code": "service",
       "expected_path": "$.services[0]"
     },
     {
       "name": "default-service-must-be-omitted",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/services/0/service_encoding", "value": "explicit"}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/services/0/service_encoding",
+          "value": "explicit"
+        }
+      ],
       "expected_code": "service",
       "expected_path": "$.services[0]"
     },
     {
       "name": "sample-acl-is-fixed",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/services/0/acl/1/actions", "value": ["read"]}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/services/0/acl/1/actions",
+          "value": [
+            "read"
+          ]
+        }
+      ],
       "expected_code": "service",
       "expected_path": "$.services[0].acl"
     },
     {
       "name": "sample-cannot-require-freshness",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/services/0/freshness", "value": true}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/services/0/freshness",
+          "value": true
+        }
+      ],
       "expected_code": "service",
       "expected_path": "$.services[0]"
     },
     {
       "name": "chunk-must-be-smaller-than-message",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/limits/chunk_bytes", "value": 64}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/limits/chunk_bytes",
+          "value": 64
+        }
+      ],
       "expected_code": "geometry",
       "expected_path": "$.limits.chunk_bytes"
     },
     {
       "name": "fragment-count-must-cover-geometry",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/limits/fragments", "value": 3}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/limits/fragments",
+          "value": 3
+        }
+      ],
       "expected_code": "geometry",
       "expected_path": "$.limits.fragments"
     },
     {
       "name": "reserve-four-byte-pn-and-largest-fragment-header",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/binding/forward_mtu", "value": 101}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/binding/forward_mtu",
+          "value": 101
+        }
+      ],
       "expected_code": "mtu",
       "expected_path": "$.binding",
-      "expected_math": {"app_frame_bytes": 102, "forward_mtu": 101}
+      "expected_math": {
+        "app_frame_bytes": 102,
+        "forward_mtu": 101
+      }
     },
     {
       "name": "bootstrap-crc-descriptor-and-payload-at-mtu-boundary",
       "fixture": "direct.json",
       "mutations": [
-        {"op": "set", "path": "/limits/bootstrap_chunk_bytes", "value": 119},
-        {"op": "set", "path": "/binding/forward_mtu", "value": 144},
-        {"op": "set", "path": "/binding/return_mtu", "value": 144},
-        {"op": "set", "path": "/binding/encoded_mtu", "value": 150}
+        {
+          "op": "set",
+          "path": "/limits/bootstrap_chunk_bytes",
+          "value": 119
+        },
+        {
+          "op": "set",
+          "path": "/binding/forward_mtu",
+          "value": 144
+        },
+        {
+          "op": "set",
+          "path": "/binding/return_mtu",
+          "value": 144
+        },
+        {
+          "op": "set",
+          "path": "/binding/encoded_mtu",
+          "value": 150
+        }
       ],
       "expected_code": "mtu",
       "expected_path": "$.binding",
-      "expected_math": {"bootstrap_header_bytes": 22, "bootstrap_chunk_bytes": 119, "crc32c_trailer_bytes": 4, "bootstrap_frame_bytes": 145, "path_mtu": 144}
+      "expected_math": {
+        "bootstrap_header_bytes": 22,
+        "bootstrap_chunk_bytes": 119,
+        "crc32c_trailer_bytes": 4,
+        "bootstrap_frame_bytes": 145,
+        "path_mtu": 144
+      }
     },
     {
       "name": "stream-r-encoded-boundary",
       "fixture": "direct.json",
-      "mutations": [{"op": "set", "path": "/binding/encoded_mtu", "value": 262}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/binding/encoded_mtu",
+          "value": 262
+        }
+      ],
       "expected_code": "mtu",
       "expected_path": "$.binding.encoded_mtu",
-      "expected_math": {"encoded_frame_bytes": 263}
+      "expected_math": {
+        "encoded_frame_bytes": 263
+      }
     },
     {
       "name": "reverse-delay-term-is-in-response-floor",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/timing/response_timeout_ms", "value": 50}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/timing/response_timeout_ms",
+          "value": 50
+        }
+      ],
       "expected_code": "timing",
       "expected_path": "$.timing.response_timeout_ms",
-      "expected_math": {"response_floor_ms": 430}
+      "expected_math": {
+        "response_floor_ms": 430
+      }
     },
     {
       "name": "freshness-covers-final-admission",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/freshness/lease_ms", "value": 235}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/freshness/lease_ms",
+          "value": 235
+        }
+      ],
       "expected_code": "timing",
       "expected_path": "$.freshness",
-      "expected_math": {"freshness_required_ms": 1144}
+      "expected_math": {
+        "freshness_required_ms": 1144
+      }
     },
     {
       "name": "relay-arrival-intervals-are-hop-ordered",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/relays/1/forward_arrival_min_ms", "value": 2}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/relays/1/forward_arrival_min_ms",
+          "value": 2
+        }
+      ],
       "expected_code": "relay",
       "expected_path": "$.relays[node=40]"
     },
     {
       "name": "relay-cooldown-is-checked-at-arrival",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/relays/0/cooldown_ms", "value": 500}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/relays/0/cooldown_ms",
+          "value": 500
+        }
+      ],
       "expected_code": "relay",
       "expected_path": "$.relays[node=30]"
     },
     {
       "name": "relay-duplicate-forward-count",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/relays/0/max_forwards_per_key", "value": 5}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/relays/0/max_forwards_per_key",
+          "value": 5
+        }
+      ],
       "expected_code": "relay",
       "expected_path": "$.relays[node=30]"
     },
     {
       "name": "relay-record-expiry-covers-last-duplicate",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/relays/0/expiry_ms", "value": 266}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/relays/0/expiry_ms",
+          "value": 266
+        }
+      ],
       "expected_code": "relay",
       "expected_path": "$.relays[node=30]"
     },
     {
       "name": "relay-airtime-covers-both-directions-and-services",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/relays/0/per_origin_airtime_ms", "value": 183}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/relays/0/per_origin_airtime_ms",
+          "value": 183
+        }
+      ],
       "expected_code": "relay",
       "expected_path": "$.relays[node=30]"
     },
     {
       "name": "security-crypto-work-fits-pending-capacity",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/security/crypto_slots", "value": 2}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/security/crypto_slots",
+          "value": 2
+        }
+      ],
       "expected_code": "security",
       "expected_path": "$.security"
     },
     {
       "name": "failed-aead-limit-hard-ceiling",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/security/failed_aead_limit", "value": 65537}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/security/failed_aead_limit",
+          "value": 65537
+        }
+      ],
       "expected_code": "schema",
       "expected_path": "$.security.failed_aead_limit"
     },
     {
       "name": "endpoint-region-total-covers-simultaneous-charges",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/resources/0/regions/0/limit_bytes", "value": 4408}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/resources/0/regions/0/limit_bytes",
+          "value": 5176
+        }
+      ],
       "expected_code": "resources",
       "expected_path": "$.resources[endpoint]",
-      "expected_math": {"ram_reserved_bytes": 4409}
+      "expected_math": {
+        "ram_reserved_bytes": 5177
+      }
     },
     {
       "name": "flash-reservation-within-role-limit",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/resources/0/flash_reserved_bytes", "value": 1000001}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/resources/0/flash_reserved_bytes",
+          "value": 1000001
+        }
+      ],
       "expected_code": "resources",
       "expected_path": "$.resources[endpoint]"
     },
     {
       "name": "association-pool-covers-pending-active-and-draining",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/resources/0/charges/0/count", "value": 2}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/resources/0/charges/0/count",
+          "value": 2
+        }
+      ],
       "expected_code": "resources",
       "expected_path": "$.resources[endpoint].provider_retained"
     },
     {
       "name": "history-capacity-covers-retention-admissions",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/resources/0/charges/7/count", "value": 7}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/resources/0/charges/8/count",
+          "value": 7
+        }
+      ],
       "expected_code": "resources",
       "expected_path": "$.resources[endpoint].history"
     },
     {
       "name": "duplicate-service-id",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/services/1/id", "value": 1}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/services/1/id",
+          "value": 1
+        }
+      ],
       "expected_code": "service",
       "expected_path": "$.services"
     },
     {
       "name": "duplicate-acl-action",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/services/1/acl/0/actions", "value": ["data", "data"]}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/services/1/acl/0/actions",
+          "value": [
+            "data",
+            "data"
+          ]
+        }
+      ],
       "expected_code": "service",
       "expected_path": "$.services[1].acl"
     },
     {
       "name": "grant-control-budget-is-independent",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/limits/control_slots", "value": 3}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/limits/control_slots",
+          "value": 3
+        }
+      ],
       "expected_code": "resources",
       "expected_path": "$.limits.control_slots"
     },
@@ -253,10 +488,26 @@
       "name": "xx-confirmation-budget-includes-flight-three",
       "fixture": "direct.json",
       "mutations": [
-        {"op": "set", "path": "/security/mode", "value": "XX"},
-        {"op": "set", "path": "/security/credential", "value": "authenticated-oob-xx"},
-        {"op": "set", "path": "/security/confirmation_timeout_ms", "value": 448},
-        {"op": "set", "path": "/security/attempt_tx_bytes", "value": 5631}
+        {
+          "op": "set",
+          "path": "/security/mode",
+          "value": "XX"
+        },
+        {
+          "op": "set",
+          "path": "/security/credential",
+          "value": "authenticated-oob-xx"
+        },
+        {
+          "op": "set",
+          "path": "/security/confirmation_timeout_ms",
+          "value": 448
+        },
+        {
+          "op": "set",
+          "path": "/security/attempt_tx_bytes",
+          "value": 5631
+        }
       ],
       "expected_code": "security",
       "expected_path": "$.security"
@@ -264,28 +515,52 @@
     {
       "name": "attempt-wire-budget-covers-reserved-flights",
       "fixture": "direct.json",
-      "mutations": [{"op": "set", "path": "/security/attempt_tx_bytes", "value": 3681}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/security/attempt_tx_bytes",
+          "value": 3681
+        }
+      ],
       "expected_code": "security",
       "expected_path": "$.security"
     },
     {
       "name": "response-window-byte-cap-covers-attempt",
       "fixture": "direct.json",
-      "mutations": [{"op": "set", "path": "/security/response_bytes_per_window", "value": 3681}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/security/response_bytes_per_window",
+          "value": 3681
+        }
+      ],
       "expected_code": "security",
       "expected_path": "$.security"
     },
     {
       "name": "ingress-cap-covers-finite-frame-schedule",
       "fixture": "direct.json",
-      "mutations": [{"op": "set", "path": "/security/ingress_packets_per_window", "value": 13}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/security/ingress_packets_per_window",
+          "value": 13
+        }
+      ],
       "expected_code": "security",
       "expected_path": "$.security.ingress_packets_per_window"
     },
     {
       "name": "episode-traffic-covers-each-attempt",
       "fixture": "direct.json",
-      "mutations": [{"op": "set", "path": "/security/episode_tx_bytes", "value": 19999}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/security/episode_tx_bytes",
+          "value": 19999
+        }
+      ],
       "expected_code": "security",
       "expected_path": "$.security.episode_tx_bytes"
     },
@@ -293,10 +568,26 @@
       "name": "grant-result-pool-enforces-21-byte-result-floor",
       "fixture": "radio.json",
       "mutations": [
-        {"op": "set", "path": "/limits/message_bytes", "value": 17},
-        {"op": "set", "path": "/services/1/request_bytes", "value": 17},
-        {"op": "set", "path": "/services/1/result_bytes", "value": 17},
-        {"op": "set", "path": "/resources/0/charges/6/bytes_each", "value": 20}
+        {
+          "op": "set",
+          "path": "/limits/message_bytes",
+          "value": 17
+        },
+        {
+          "op": "set",
+          "path": "/services/1/request_bytes",
+          "value": 17
+        },
+        {
+          "op": "set",
+          "path": "/services/1/result_bytes",
+          "value": 17
+        },
+        {
+          "op": "set",
+          "path": "/resources/0/charges/7/bytes_each",
+          "value": 20
+        }
       ],
       "expected_code": "resources",
       "expected_path": "$.resources[endpoint].result"
@@ -304,35 +595,152 @@
     {
       "name": "relay-global-airtime-covers-both-origins",
       "fixture": "radio.json",
-      "mutations": [{"op": "set", "path": "/relays/0/global_airtime_ms", "value": 367}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/relays/0/global_airtime_ms",
+          "value": 367
+        }
+      ],
       "expected_code": "relay",
       "expected_path": "$.relays[node=30]"
     },
     {
       "name": "endpoint-bootstrap-buffer-meets-120-byte-floor",
       "fixture": "direct.json",
-      "mutations": [{"op": "set", "path": "/resources/0/charges/3/bytes_each", "value": 119}],
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/resources/0/charges/3/bytes_each",
+          "value": 119
+        }
+      ],
       "expected_code": "resources",
       "expected_path": "$.resources[endpoint].bootstrap"
+    },
+    {
+      "name": "endpoint-assembly-reserves-metadata-and-slot",
+      "fixture": "direct.json",
+      "mutations": [
+        {
+          "op": "set",
+          "path": "/resources/0/charges/5/bytes_each",
+          "value": 575
+        }
+      ],
+      "expected_code": "resources",
+      "expected_path": "$.resources[endpoint].assembly"
     }
   ],
   "raw_cases": [
-    {"name": "invalid-utf8", "hex": "ff", "expected_code": "encoding", "expected_path": "$"},
-    {"name": "bom", "hex": "efbbbf7b7d", "expected_code": "encoding", "expected_path": "$"},
-    {"name": "duplicate-member", "ascii": "{\"x\":1,\"x\":2}", "expected_code": "json", "expected_path": "$"},
-    {"name": "escape-equivalent-duplicate-member", "ascii": "{\"x\":1,\"\\u0078\":2}", "expected_code": "json", "expected_path": "$"},
-    {"name": "unpaired-surrogate", "ascii": "{\"x\":\"\\ud800\"}", "expected_code": "encoding", "expected_path": "$"},
-    {"name": "floating-point-number", "ascii": "{\"x\":1.0}", "expected_code": "json", "expected_path": "$"},
-    {"name": "exponent-number", "ascii": "{\"x\":1e0}", "expected_code": "json", "expected_path": "$"},
-    {"name": "nan-number", "ascii": "{\"x\":NaN}", "expected_code": "json", "expected_path": "$"},
-    {"name": "infinity-number", "ascii": "{\"x\":Infinity}", "expected_code": "json", "expected_path": "$"},
-    {"name": "trailing-json-value", "ascii": "{}{}", "expected_code": "json", "expected_path": "$"},
-    {"name": "comment-syntax", "ascii": "{/*comment*/}", "expected_code": "json", "expected_path": "$"},
-    {"name": "nesting-over-24-containers", "repeat_prefix_hex": "5b", "repeat": 25, "middle_ascii": "0", "repeat_suffix_hex": "5d", "expected_code": "json", "expected_path": "$"},
-    {"name": "nesting-at-24-container-limit-is-valid-json", "repeat_prefix_hex": "5b", "repeat": 24, "middle_ascii": "0", "repeat_suffix_hex": "5d", "expected_code": "schema", "expected_path": "$"},
-    {"name": "integer-over-20-digits", "ascii": "{\"x\":100000000000000000000}", "expected_code": "json", "expected_path": "$"},
-    {"name": "input-over-byte-limit", "repeat_hex": "20", "repeat": 262145, "expected_code": "encoding", "expected_path": "$"},
-    {"name": "empty-input", "hex": "", "expected_code": "encoding", "expected_path": "$"},
-    {"name": "negative-number-syntax", "ascii": "{\"x\":-}", "expected_code": "json", "expected_path": "$"}
+    {
+      "name": "invalid-utf8",
+      "hex": "ff",
+      "expected_code": "encoding",
+      "expected_path": "$"
+    },
+    {
+      "name": "bom",
+      "hex": "efbbbf7b7d",
+      "expected_code": "encoding",
+      "expected_path": "$"
+    },
+    {
+      "name": "duplicate-member",
+      "ascii": "{\"x\":1,\"x\":2}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "escape-equivalent-duplicate-member",
+      "ascii": "{\"x\":1,\"\\u0078\":2}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "unpaired-surrogate",
+      "ascii": "{\"x\":\"\\ud800\"}",
+      "expected_code": "encoding",
+      "expected_path": "$"
+    },
+    {
+      "name": "floating-point-number",
+      "ascii": "{\"x\":1.0}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "exponent-number",
+      "ascii": "{\"x\":1e0}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "nan-number",
+      "ascii": "{\"x\":NaN}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "infinity-number",
+      "ascii": "{\"x\":Infinity}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "trailing-json-value",
+      "ascii": "{}{}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "comment-syntax",
+      "ascii": "{/*comment*/}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "nesting-over-24-containers",
+      "repeat_prefix_hex": "5b",
+      "repeat": 25,
+      "middle_ascii": "0",
+      "repeat_suffix_hex": "5d",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "nesting-at-24-container-limit-is-valid-json",
+      "repeat_prefix_hex": "5b",
+      "repeat": 24,
+      "middle_ascii": "0",
+      "repeat_suffix_hex": "5d",
+      "expected_code": "schema",
+      "expected_path": "$"
+    },
+    {
+      "name": "integer-over-20-digits",
+      "ascii": "{\"x\":100000000000000000000}",
+      "expected_code": "json",
+      "expected_path": "$"
+    },
+    {
+      "name": "input-over-byte-limit",
+      "repeat_hex": "20",
+      "repeat": 262145,
+      "expected_code": "encoding",
+      "expected_path": "$"
+    },
+    {
+      "name": "empty-input",
+      "hex": "",
+      "expected_code": "encoding",
+      "expected_path": "$"
+    },
+    {
+      "name": "negative-number-syntax",
+      "ascii": "{\"x\":-}",
+      "expected_code": "json",
+      "expected_path": "$"
+    }
   ]
 }

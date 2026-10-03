@@ -1,5 +1,5 @@
 {
-  "contract": "DMP-test-manifest/1",
+  "contract": "DMP-test-manifest/2",
   "revisions": {
     "core": 10,
     "security": 5,
@@ -119,6 +119,7 @@
     "bootstrap_fragments": 2,
     "peers": 1,
     "assemblies_per_peer": 1,
+    "assembly_tombstones_per_peer": 16,
     "operations_per_service": 1,
     "control_slots": 2,
     "application_queue_slots": 2,
@@ -271,7 +272,13 @@
           "component": "assembly",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 64
+          "bytes_each": 576
+        },
+        {
+          "component": "assembly_tombstone",
+          "region": "RAM",
+          "count": 16,
+          "bytes_each": 48
         },
         {
           "component": "result",

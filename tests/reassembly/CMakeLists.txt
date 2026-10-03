@@ -1,0 +1,10 @@
+add_executable(dmp_test_reassembly test_reassembly.c ../identity/auth_context_stub.c)
+target_link_libraries(dmp_test_reassembly PRIVATE dmp::dmp)
+set_target_properties(dmp_test_reassembly PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+dmp_strict_target(dmp_test_reassembly)
+if(MSVC)
+    target_compile_definitions(dmp_test_reassembly PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+add_test(NAME reassembly.direct COMMAND dmp_test_reassembly)
+set_tests_properties(reassembly.direct PROPERTIES TIMEOUT 30 LABELS "reassembly")

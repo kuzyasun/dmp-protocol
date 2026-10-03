@@ -10,23 +10,23 @@
       "sample": "revision 2"
     },
     "source_sha256": {
-      "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "0c22f0c0381504821b71eb5defaccda40c353966363a518274625cbfacdc4d9d",
+      "docs/DMP_v2_Device_Messaging_Protocol_Specification.md": "6221833b80c82183b015aad56459e89d19c32c0fad6847c51d63da4babf74535",
       "docs/DMP_v2_Security_Profile.md": "8f6bf8c34ba37e33a1cbfc8f7fc062da577c5ce0a2872b321bb9f5e6b29669f3",
       "docs/DMP_v2_Selective_Recovery.md": "25d2384c9ff4ab5650ced1a3d77e0762cc1de3a74d944921c5e5c0a822ca65b7",
       "docs/DMP_v2_Reference_Application.md": "ef7d78119b987200c054209c82c365043e4d95ea8b722a7dd84b3653b32a78be",
       "docs/DMP_v2_Deployment_Profiles.md": "f1fdb79e6ca4d20f41c98e48cffeafb0ab1fd001c0128eac4bb35b4e2eb59778",
-      "docs/DMP_Test_Manifest_Contract.md": "c8bd50c14582f1f4e291f4f62f22e7a08bd2a17b2f3ddc6d671ab718df7bcfdf",
+      "docs/DMP_Test_Manifest_Contract.md": "4f3ac8f2b7d9c356c0395c5010ec112359cea2d74f84348a263f00302e301b0a",
       "dev/DMP_Implementation_Plan.md": "a2a5b8cee6c45794a54b2b8aeb2cdbff19267146207afa1a36aeab2301d9d05d",
-      "dev/DMP_Work_Packages.md": "3246ed233c7cda777c4ac8c0254cb2968ba579a162a4e1ae702712f1562d4fd1",
-      "AGENTS.md": "d266eef2276e99d0780316a8784f566222f8f0eaae44cb5001d239cd64da584c"
+      "dev/DMP_Work_Packages.md": "31368891cff951ad2451f820e54cb6d62eef459452ab17db46c09b590b47152d",
+      "AGENTS.md": "5a048d94cf226bce9a988d30d8163644935c0d4f1bca6690f4e322b54bd8ceef"
     },
     "manifest_sha256": {
-      "profiles/deployments/direct-nnpsk0.json": "43F93FF6052627C7293D9ECA1F8B4F4D67CCF277AF606DECC8C39310A1F73674",
-      "profiles/deployments/direct-xx.json": "80F7610EF188FA629D1F973E3D2D232ED6A0391B2C34709843FFDBE2A87391F0",
-      "profiles/deployments/radio-nnpsk0.json": "7F2C6A30AA6F6CCB7E24E3D949958E1038E1BFE63F506978E5046F10012395C1",
-      "profiles/deployments/radio-xx.json": "08D59D07D5D7BA82E4E986379E58E09823DA61B9551934E1AA96BB09A530A7E9",
-      "profiles/deployments/test-radio-retry-all-nnpsk0.json": "FE109419EBFAEF6B6E98951DE7638509767AE752FA5069770835FFADFFFE78D3",
-      "profiles/deployments/test-radio-retry-all-xx.json": "9DBEC92DFE7DDF078440DFE1E9555BB2D1F7372F4FDBB6B808CF58834AC28D78"
+      "profiles/deployments/direct-nnpsk0.json": "3D0229EFAFA5D15C1FCFE19265D81C70E7B004976D28303FB92FC27E4A357E2A",
+      "profiles/deployments/direct-xx.json": "376BE22059BC75504277A290F19CA0713633464440D59734C629F34A49C82647",
+      "profiles/deployments/radio-nnpsk0.json": "064922471EC796E38AC391EEF37454F35BE53C2F87E1643F067B482CDB22713E",
+      "profiles/deployments/radio-xx.json": "FD3A50FC9CE9F02AE2B435D448044383547221E6C02B80F0A56B798C2B78DE22",
+      "profiles/deployments/test-radio-retry-all-nnpsk0.json": "B6E33C5CB7E42FCF8B068FF068E2D4540A65BDB3F1F9731A8FE500A7E3E77B11",
+      "profiles/deployments/test-radio-retry-all-xx.json": "CDCC7118BDAEE47BC8003AD6686DA12A5757FCE85D24FB47B5005CE01AEE496C"
     },
     "ownership": "Coordinator owns resource choices, profile values and overall matrix; this ledger references six existing profiles only.",
     "evidence_boundary": "P02/P03 offline checks and fixtures do not pass behavior rows. P05/P06 now record linked primary codec/framing checks. Overall rows remain partial until all listed primary/peer/interop gates pass.",
@@ -50,7 +50,7 @@
     {
       "instance_id": "direct-nnpsk0",
       "manifest_path": "profiles/deployments/direct-nnpsk0.json",
-      "sha256": "43F93FF6052627C7293D9ECA1F8B4F4D67CCF277AF606DECC8C39310A1F73674",
+      "sha256": "3D0229EFAFA5D15C1FCFE19265D81C70E7B004976D28303FB92FC27E4A357E2A",
       "profile_id": "DIRECT-1",
       "binding": "DMP-test/SIM-STREAM-R/1",
       "recovery": "retry-all",
@@ -81,7 +81,7 @@
     {
       "instance_id": "direct-xx",
       "manifest_path": "profiles/deployments/direct-xx.json",
-      "sha256": "80F7610EF188FA629D1F973E3D2D232ED6A0391B2C34709843FFDBE2A87391F0",
+      "sha256": "376BE22059BC75504277A290F19CA0713633464440D59734C629F34A49C82647",
       "profile_id": "DIRECT-1",
       "binding": "DMP-test/SIM-STREAM-R/1",
       "recovery": "retry-all",
@@ -112,7 +112,7 @@
     {
       "instance_id": "radio-nnpsk0",
       "manifest_path": "profiles/deployments/radio-nnpsk0.json",
-      "sha256": "7F2C6A30AA6F6CCB7E24E3D949958E1038E1BFE63F506978E5046F10012395C1",
+      "sha256": "064922471EC796E38AC391EEF37454F35BE53C2F87E1643F067B482CDB22713E",
       "profile_id": "RADIO-1",
       "binding": "DMP-test/SIM-PACKET/1",
       "recovery": "selective-32",
@@ -143,7 +143,7 @@
     {
       "instance_id": "radio-xx",
       "manifest_path": "profiles/deployments/radio-xx.json",
-      "sha256": "08D59D07D5D7BA82E4E986379E58E09823DA61B9551934E1AA96BB09A530A7E9",
+      "sha256": "FD3A50FC9CE9F02AE2B435D448044383547221E6C02B80F0A56B798C2B78DE22",
       "profile_id": "RADIO-1",
       "binding": "DMP-test/SIM-PACKET/1",
       "recovery": "selective-32",
@@ -174,7 +174,7 @@
     {
       "instance_id": "test-radio-retry-all-nnpsk0",
       "manifest_path": "profiles/deployments/test-radio-retry-all-nnpsk0.json",
-      "sha256": "FE109419EBFAEF6B6E98951DE7638509767AE752FA5069770835FFADFFFE78D3",
+      "sha256": "B6E33C5CB7E42FCF8B068FF068E2D4540A65BDB3F1F9731A8FE500A7E3E77B11",
       "profile_id": "DMP-test/TEST-RADIO-RETRY-ALL/1",
       "binding": "DMP-test/SIM-PACKET/1",
       "recovery": "retry-all",
@@ -205,7 +205,7 @@
     {
       "instance_id": "test-radio-retry-all-xx",
       "manifest_path": "profiles/deployments/test-radio-retry-all-xx.json",
-      "sha256": "9DBEC92DFE7DDF078440DFE1E9555BB2D1F7372F4FDBB6B808CF58834AC28D78",
+      "sha256": "CDCC7118BDAEE47BC8003AD6686DA12A5757FCE85D24FB47B5005CE01AEE496C",
       "profile_id": "DMP-test/TEST-RADIO-RETRY-ALL/1",
       "binding": "DMP-test/SIM-PACKET/1",
       "recovery": "retry-all",
@@ -239,7 +239,7 @@
       "feature_id": "aesgcm",
       "feature": "AESGCM / cipher 2",
       "scope_status": "excluded from six fixed manifest identities",
-      "normative_ref": "SEC-1 §S2 and §S10 preamble; test manifest Services and security",
+      "normative_ref": "SEC-1 \u00a7S2 and \u00a7S10 preamble; test manifest Services and security",
       "statement": "All six planned identities select cipher 1. Cipher-2 vectors do not establish build support; cipher change requires separate identity and manifest.",
       "required_rejection_case_ids": [
         "manifest-reject-aesgcm"
@@ -250,7 +250,7 @@
       "feature_id": "group-security",
       "feature": "Group delivery/security",
       "scope_status": "unsupported by current contract",
-      "normative_ref": "Main §25; SEC-1 §S1",
+      "normative_ref": "Main \u00a725; SEC-1 \u00a7S1",
       "statement": "Group security is not enabled; configuration must be rejected.",
       "required_rejection_case_ids": [
         "manifest-reject-group"
@@ -261,7 +261,7 @@
       "feature_id": "dynamic-routing",
       "feature": "Dynamic routing control",
       "scope_status": "unsupported by current contract",
-      "normative_ref": "Main §10.6/§25; test manifest Selected model",
+      "normative_ref": "Main \u00a710.6/\u00a725; test manifest Selected model",
       "statement": "Static routes only; dynamic control configuration must be rejected.",
       "required_rejection_case_ids": [
         "manifest-reject-dynamic-routing"
@@ -272,7 +272,7 @@
       "feature_id": "physical-bindings",
       "feature": "Physical UART/BLE/raw-radio bindings",
       "scope_status": "deferred from host simulation",
-      "normative_ref": "Main §15–§16/§24; manifest Selected model; deployment profiles §5",
+      "normative_ref": "Main \u00a715\u2013\u00a716/\u00a724; manifest Selected model; deployment profiles \u00a75",
       "statement": "No physical claim. Physical binding under these simulation identities rejects; physical path requires separate manifest/evidence.",
       "required_rejection_case_ids": [
         "manifest-reject-physical"
@@ -283,7 +283,7 @@
   "cases": [
     {
       "id": "v221",
-      "normative_ref": "Main §22.1",
+      "normative_ref": "Main \u00a722.1",
       "scenario": "Minimal TELEM 45 02 AA BB",
       "expected": "Exact bytes; opaque AA BB; two-byte header",
       "primary_test_id": "planned/p05/v221",
@@ -304,7 +304,7 @@
     },
     {
       "id": "v222-req",
-      "normative_ref": "Main §22.2",
+      "normative_ref": "Main \u00a722.2",
       "scenario": "REQ 40 04 03 2A AA",
       "expected": "Exact bytes; identity (1,10,7,42)",
       "primary_test_id": "planned/p05-p09/v222-req",
@@ -325,7 +325,7 @@
     },
     {
       "id": "v222-ack",
-      "normative_ref": "Main §22.2",
+      "normative_ref": "Main \u00a722.2",
       "scenario": "Canonical ACK with own SEQ 8 and full REPLY_TO (1,10,7,42)",
       "expected": "Exact bytes; own identity (1,20,9,8); empty payload",
       "primary_test_id": "planned/p05-p09/v222-ack",
@@ -347,7 +347,7 @@
     },
     {
       "id": "v223-explicit",
-      "normative_ref": "Main §22.3",
+      "normative_ref": "Main \u00a722.3",
       "scenario": "Routed telemetry with explicit CONTEXT",
       "expected": "Exact bytes; identity (1,27,7,81)",
       "primary_test_id": "planned/p05-p09/v223-explicit",
@@ -368,7 +368,7 @@
     },
     {
       "id": "v223-implicit",
-      "normative_ref": "Main §22.3",
+      "normative_ref": "Main \u00a722.3",
       "scenario": "Same preconfigured CONTEXT omitted",
       "expected": "Identity remains unambiguous; six-byte header",
       "primary_test_id": "planned/p05-p09/v223-implicit",
@@ -381,7 +381,7 @@
     },
     {
       "id": "v224-fragments",
-      "normative_ref": "Main §22.4",
+      "normative_ref": "Main \u00a722.4",
       "scenario": "Two fragments arrive in reverse order",
       "expected": "Reassemble AA BB CC once; correct offsets and short tail",
       "primary_test_id": "planned/p11-p12/v224-fragments",
@@ -394,7 +394,7 @@
     },
     {
       "id": "v225-desc",
-      "normative_ref": "Main §22.5",
+      "normative_ref": "Main \u00a722.5",
       "scenario": "RAW descriptor schema 42/version 1, payload DE AD",
       "expected": "Exact descriptor bytes; semantics profile-defined",
       "primary_test_id": "planned/p05/v225-desc",
@@ -414,7 +414,7 @@
     },
     {
       "id": "v226-endpoint",
-      "normative_ref": "Main §22.6",
+      "normative_ref": "Main \u00a722.6",
       "scenario": "Unknown critical extension at endpoint",
       "expected": "Reject local delivery",
       "primary_test_id": "planned/p05/v226-endpoint",
@@ -434,7 +434,7 @@
     },
     {
       "id": "v226-relay",
-      "normative_ref": "Main §22.6",
+      "normative_ref": "Main \u00a722.6",
       "scenario": "Unknown extension at otherwise valid relay",
       "expected": "Preserve only if forwarding rules permit; isolated vector has no ROUTE",
       "primary_test_id": "planned/p17/v226-relay",
@@ -447,7 +447,7 @@
     },
     {
       "id": "v227-crc32c",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "CRC32C ASCII 123456789",
       "expected": "E3069283; wire 83 92 06 E3",
       "primary_test_id": "planned/p06/v227-crc32c",
@@ -468,7 +468,7 @@
     },
     {
       "id": "v227-cobs-zero",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "COBS 11 00 22",
       "expected": "02 11 02 22 excluding delimiter",
       "primary_test_id": "planned/p06/v227-cobs-zero",
@@ -488,7 +488,7 @@
     },
     {
       "id": "v227-cobs-254",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "COBS 254 repeated 11 bytes",
       "expected": "Canonical 256 bytes incl final 01",
       "primary_test_id": "planned/p06/v227-cobs-254",
@@ -508,7 +508,7 @@
     },
     {
       "id": "v227-cobs-255",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "COBS 255 repeated 11 bytes",
       "expected": "Canonical 257 bytes: FF + 254x11 + 02 11",
       "primary_test_id": "planned/p06/v227-cobs-255",
@@ -528,7 +528,7 @@
     },
     {
       "id": "v227-cobs-508",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "COBS 508 repeated 11 bytes",
       "expected": "Canonical 511 bytes with two full blocks and final 01",
       "primary_test_id": "planned/p06/v227-cobs-508",
@@ -548,7 +548,7 @@
     },
     {
       "id": "v227-cobs-short-254",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "254-run encoding without final 01",
       "expected": "Reject noncanonical shortened encoding",
       "primary_test_id": "planned/p06/v227-cobs-short-254",
@@ -568,7 +568,7 @@
     },
     {
       "id": "v227-cobs-short-508",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "508-run encoding without final 01",
       "expected": "Reject noncanonical shortened encoding",
       "primary_test_id": "planned/p06/v227-cobs-short-508",
@@ -588,7 +588,7 @@
     },
     {
       "id": "v227-stream-l",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "Stream L minimal telemetry",
       "expected": "Exact 44 4D 50 04 45 02 AA BB",
       "primary_test_id": "planned/p06/v227-stream-l",
@@ -609,7 +609,7 @@
     },
     {
       "id": "v227-core-crc",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "Core telemetry plus CRC32C",
       "expected": "Exact 45 04 10 01 AA BB A3 D5 0E BD",
       "primary_test_id": "planned/p06/v227-core-crc",
@@ -629,7 +629,7 @@
     },
     {
       "id": "v227-stream-r",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "Stream R minimal telemetry + initial sync + envelope CRC",
       "expected": "Exact 00 09 45 02 AA BB 39 EE 4C 1F 00",
       "primary_test_id": "planned/p06/v227-stream-r",
@@ -650,7 +650,7 @@
     },
     {
       "id": "v227-stream-r-crc",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "Corrupt Stream R envelope CRC",
       "expected": "Reject and boundedly resynchronize",
       "primary_test_id": "planned/p06/v227-stream-r-crc",
@@ -670,7 +670,7 @@
     },
     {
       "id": "v227-stream-r-zero-block",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "Zero adjacent to full COBS block",
       "expected": "Canonical boundaries preserve both bytes",
       "primary_test_id": "planned/p06/v227-stream-r-zero-block",
@@ -690,7 +690,7 @@
     },
     {
       "id": "v227-stream-r-oversize",
-      "normative_ref": "Main §22.7",
+      "normative_ref": "Main \u00a722.7",
       "scenario": "Oversized candidate followed by good frame",
       "expected": "Discard through delimiter then recover good frame",
       "primary_test_id": "planned/p06/v227-stream-r-oversize",
@@ -711,7 +711,7 @@
     },
     {
       "id": "v229-immediate-rsp",
-      "normative_ref": "Main §22.9",
+      "normative_ref": "Main \u00a722.9",
       "scenario": "Immediate reliable RSP, no separate REQ ACK",
       "expected": "Exact bytes/full REPLY_TO; valid RSP ends request retry",
       "primary_test_id": "planned/p10-p12/v229-immediate-rsp",
@@ -724,7 +724,7 @@
     },
     {
       "id": "v229-result-ack",
-      "normative_ref": "Main §22.9",
+      "normative_ref": "Main \u00a722.9",
       "scenario": "Lose result ACK then retry cached RSP",
       "expected": "One result callback; duplicate REQ no new execution/SEQ",
       "primary_test_id": "planned/p10-p12/v229-result-ack",
@@ -737,7 +737,7 @@
     },
     {
       "id": "v2210-empty-ext",
-      "normative_ref": "Main §22.10",
+      "normative_ref": "Main \u00a722.10",
       "scenario": "Unknown safe empty extension and known REPLY_TO len 0",
       "expected": "Ignore safe unknown empty; reject malformed known extension",
       "primary_test_id": "planned/p05/v2210-empty-ext",
@@ -757,7 +757,7 @@
     },
     {
       "id": "v2211-sec-vectors",
-      "normative_ref": "Main §22.11; SEC-1 §S10 preamble",
+      "normative_ref": "Main \u00a722.11; SEC-1 \u00a7S10 preamble",
       "scenario": "Use published handshake/protection fixtures independently",
       "expected": "Match selected supported suites only; fixtures do not prove lifecycle or optional suite support",
       "primary_test_id": "planned/p14-p18/v2211-sec-vectors",
@@ -770,7 +770,7 @@
     },
     {
       "id": "main228-hdr-len",
-      "normative_ref": "Main spec §22.8 — HDR_LEN below 2, above frame or unexplained bytes",
+      "normative_ref": "Main spec \u00a722.8 \u2014 HDR_LEN below 2, above frame or unexplained bytes",
       "scenario": "HDR_LEN below 2, above frame or unexplained bytes",
       "expected": "Reject malformed header before state/dispatch",
       "primary_test_id": "planned/p05/main228-hdr-len",
@@ -791,7 +791,7 @@
     },
     {
       "id": "main228-uleb-options",
-      "normative_ref": "Main spec §22.8 — Truncated/overflow/nonminimal ULEB; OPTIONS=0 with HDR_LEN>2",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Truncated/overflow/nonminimal ULEB; OPTIONS=0 with HDR_LEN>2",
       "scenario": "Truncated/overflow/nonminimal ULEB; OPTIONS=0 with HDR_LEN>2",
       "expected": "Reject canonical/bounds violations without side effects",
       "primary_test_id": "planned/p05/main228-uleb-options",
@@ -813,7 +813,7 @@
     },
     {
       "id": "main228-ext-order",
-      "normative_ref": "Main spec §22.8 — Duplicate/out-of-order extensions or length crossing HDR_LEN",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Duplicate/out-of-order extensions or length crossing HDR_LEN",
       "scenario": "Duplicate/out-of-order extensions or length crossing HDR_LEN",
       "expected": "Reject before state change",
       "primary_test_id": "planned/p05/main228-ext-order",
@@ -833,7 +833,7 @@
     },
     {
       "id": "main228-unknown-role",
-      "normative_ref": "Main spec §22.8 — Unknown critical vs unsafe extension by node role",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Unknown critical vs unsafe extension by node role",
       "scenario": "Unknown critical vs unsafe extension by node role",
       "expected": "Apply endpoint/relay role rules; forwarding needs valid context",
       "primary_test_id": "planned/p05-p17/main228-unknown-role",
@@ -854,7 +854,7 @@
     },
     {
       "id": "main228-desc-integrity",
-      "normative_ref": "Main spec §22.8 — Invalid descriptor flags, schema version without schema, unsupported CRC/security",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Invalid descriptor flags, schema version without schema, unsupported CRC/security",
       "scenario": "Invalid descriptor flags, schema version without schema, unsupported CRC/security",
       "expected": "Reject invalid/unsupported forms; no fallback/dispatch",
       "primary_test_id": "planned/p05-p14/main228-desc-integrity",
@@ -876,7 +876,7 @@
     },
     {
       "id": "main228-seq-identity",
-      "normative_ref": "Main spec §22.8 — Same SEQ across origins/epochs; ACK own SEQ differs from REPLY_TO",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Same SEQ across origins/epochs; ACK own SEQ differs from REPLY_TO",
       "scenario": "Same SEQ across origins/epochs; ACK own SEQ differs from REPLY_TO",
       "expected": "Keep identities distinct; ACK allocates own SEQ",
       "primary_test_id": "planned/p09-p10/main228-seq-identity",
@@ -889,7 +889,7 @@
     },
     {
       "id": "main228-lost-ack",
-      "normative_ref": "Main spec §22.8 — Lost ACK then retry",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Lost ACK then retry",
       "scenario": "Lost ACK then retry",
       "expected": "Repeat receipt without second operation",
       "primary_test_id": "planned/p10/main228-lost-ack",
@@ -902,7 +902,7 @@
     },
     {
       "id": "main228-fragment-conflict",
-      "normative_ref": "Main spec §22.8 — Same SEQ fragments, reordering and conflicting duplicates",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Same SEQ fragments, reordering and conflicting duplicates",
       "scenario": "Same SEQ fragments, reordering and conflicting duplicates",
       "expected": "Assemble valid once; conflict rejects; never partial dispatch",
       "primary_test_id": "planned/p11-p12-p15/main228-fragment-conflict",
@@ -915,7 +915,7 @@
     },
     {
       "id": "main228-relay-cooldown",
-      "normative_ref": "Main spec §22.8 — Cooldown permits later retry, bounds duplicate bursts/forwards",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Cooldown permits later retry, bounds duplicate bursts/forwards",
       "scenario": "Cooldown permits later retry, bounds duplicate bursts/forwards",
       "expected": "Forward eligible retry within limits; suppress excess",
       "primary_test_id": "planned/p17-p19/main228-relay-cooldown",
@@ -928,7 +928,7 @@
     },
     {
       "id": "main228-ttl-zero-one",
-      "normative_ref": "Main spec §22.8 — TTL 0 local/no forward; TTL 1 permits one relay to TTL 0",
+      "normative_ref": "Main spec \u00a722.8 \u2014 TTL 0 local/no forward; TTL 1 permits one relay to TTL 0",
       "scenario": "TTL 0 local/no forward; TTL 1 permits one relay to TTL 0",
       "expected": "At TTL=0 only eligible local consumption is allowed, never forwarding; TTL=1 allows one relay decrement/send at zero.",
       "primary_test_id": "planned/p17/main228-ttl-zero-one",
@@ -941,7 +941,7 @@
     },
     {
       "id": "main228-crc-ttl",
-      "normative_ref": "Main spec §22.8 — Corrupted core CRC after TTL mutation",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Corrupted core CRC after TTL mutation",
       "scenario": "Corrupted core CRC after TTL mutation",
       "expected": "Reject invalid CRC; relay changes no protected field",
       "primary_test_id": "planned/p06-p17/main228-crc-ttl",
@@ -954,7 +954,7 @@
     },
     {
       "id": "main228-stream-read-recovery",
-      "normative_ref": "Main spec §22.8 — Partial/concatenated reads, bad length/delimiter/CRC",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Partial/concatenated reads, bad length/delimiter/CRC",
       "scenario": "Partial/concatenated reads, bad length/delimiter/CRC",
       "expected": "Only complete valid frames; bounded resync",
       "primary_test_id": "planned/p06/main228-stream-read-recovery",
@@ -977,7 +977,7 @@
     },
     {
       "id": "main228-quota-reset-expiry-late",
-      "normative_ref": "Main spec §22.8 — Quota, reboot/epoch change, expiry, late reply",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Quota, reboot/epoch change, expiry, late reply",
       "scenario": "Quota, reboot/epoch change, expiry, late reply",
       "expected": "Bound admission; invalidate volatile context; stale reply cannot reopen",
       "primary_test_id": "planned/p09-p10-p14/main228-quota-reset-expiry-late",
@@ -990,7 +990,7 @@
     },
     {
       "id": "main228-req-result-loss",
-      "normative_ref": "Main spec §22.8 — Immediate RSP; lost ACK/RSP/result ACK; duplicate REQ processing/after release",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Immediate RSP; lost ACK/RSP/result ACK; duplicate REQ processing/after release",
       "scenario": "Immediate RSP; lost ACK/RSP/result ACK; duplicate REQ processing/after release",
       "expected": "Honor receipt/result retention; no duplicate execution",
       "primary_test_id": "planned/p10-p12-p15/main228-req-result-loss",
@@ -1003,7 +1003,7 @@
     },
     {
       "id": "main228-reject-err-timeout",
-      "normative_ref": "Main spec §22.8 — Cached rejection, terminal ERR, timeouts, cancel, late result, correlation exhaustion",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Cached rejection, terminal ERR, timeouts, cancel, late result, correlation exhaustion",
       "scenario": "Cached rejection, terminal ERR, timeouts, cancel, late result, correlation exhaustion",
       "expected": "Retain/repeat correct outcome; no renewal/miscorrelation",
       "primary_test_id": "planned/p10-p12-p15/main228-reject-err-timeout",
@@ -1016,7 +1016,7 @@
     },
     {
       "id": "main228-stopwait",
-      "normative_ref": "Main spec §22.8 — One stop-wait gate per peer/service; ACK bypass; deadline-feasible result queue",
+      "normative_ref": "Main spec \u00a722.8 \u2014 One stop-wait gate per peer/service; ACK bypass; deadline-feasible result queue",
       "scenario": "One stop-wait gate per peer/service; ACK bypass; deadline-feasible result queue",
       "expected": "Serialize app exchange while preserving receipt progress",
       "primary_test_id": "planned/p10/main228-stopwait",
@@ -1029,7 +1029,7 @@
     },
     {
       "id": "main228-empty-ext",
-      "normative_ref": "Main spec §22.8 — Unknown safe zero extension vs known invalid zero extension",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Unknown safe zero extension vs known invalid zero extension",
       "scenario": "Unknown safe zero extension vs known invalid zero extension",
       "expected": "Ignore only permitted unknown; reject known invalid",
       "primary_test_id": "planned/p05/main228-empty-ext",
@@ -1049,7 +1049,7 @@
     },
     {
       "id": "main228-stream-startup",
-      "normative_ref": "Main spec §22.8 — Stream R coordinated startup, absent prefix, RX restart, optional per-frame delimiter",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Stream R coordinated startup, absent prefix, RX restart, optional per-frame delimiter",
       "scenario": "Stream R coordinated startup, absent prefix, RX restart, optional per-frame delimiter",
       "expected": "Honor sync contract and exact optional delimiter rules",
       "primary_test_id": "planned/p06/main228-stream-startup",
@@ -1069,7 +1069,7 @@
     },
     {
       "id": "main228-fragment-timers",
-      "normative_ref": "Main spec §22.8 — Loss-free fragments across gaps, timer consistency, quota exhaustion mid-transfer",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Loss-free fragments across gaps, timer consistency, quota exhaustion mid-transfer",
       "scenario": "Loss-free fragments across gaps, timer consistency, quota exhaustion mid-transfer",
       "expected": "No premature expiry/renewal/partial dispatch",
       "primary_test_id": "planned/p07-p11-p19/main228-fragment-timers",
@@ -1082,7 +1082,7 @@
     },
     {
       "id": "main228-mtu-context",
-      "normative_ref": "Main spec §22.8 — Small egress MTU, no transparent refragment, binding segmentation/context",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Small egress MTU, no transparent refragment, binding segmentation/context",
       "scenario": "Small egress MTU, no transparent refragment, binding segmentation/context",
       "expected": "Fail transfer/config explicitly; no transparent refragmentation",
       "primary_test_id": "planned/p17-p22/main228-mtu-context",
@@ -1095,7 +1095,7 @@
     },
     {
       "id": "main228-sample-stale",
-      "normative_ref": "Main spec §22.8 — Stale samples after higher index/epoch; new identity vs app idempotency",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Stale samples after higher index/epoch; new identity vs app idempotency",
       "scenario": "Stale samples after higher index/epoch; new identity vs app idempotency",
       "expected": "No rollback or duplicate app side effect",
       "primary_test_id": "planned/p12-p15/main228-sample-stale",
@@ -1108,7 +1108,7 @@
     },
     {
       "id": "main228-control-reserve",
-      "normative_ref": "Main spec §22.8 — Full app queues permit admitted ACK; HELLO flood cannot consume reserves",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Full app queues permit admitted ACK; HELLO flood cannot consume reserves",
       "scenario": "Full app queues permit admitted ACK; HELLO flood cannot consume reserves",
       "expected": "Bound flood; preserve admitted control progress",
       "primary_test_id": "planned/p14-p19/main228-control-reserve",
@@ -1121,7 +1121,7 @@
     },
     {
       "id": "main228-borrowed-buffer",
-      "normative_ref": "Main spec §22.8 — Delayed DMA, disconnect, failed cancel, late callback after slot reuse",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Delayed DMA, disconnect, failed cancel, late callback after slot reuse",
       "scenario": "Delayed DMA, disconnect, failed cancel, late callback after slot reuse",
       "expected": "Immutable until terminal gen-tagged callback; stale callback cannot free slot",
       "primary_test_id": "planned/p07-p10-p14/main228-borrowed-buffer",
@@ -1134,7 +1134,7 @@
     },
     {
       "id": "main228-deadline-outcome",
-      "normative_ref": "Main spec §22.8 — Deadline before send vs possibly-sent fragment",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Deadline before send vs possibly-sent fragment",
       "scenario": "Deadline before send vs possibly-sent fragment",
       "expected": "Distinct local outcomes; no remote cancellation claim",
       "primary_test_id": "planned/p07-p10-p19/main228-deadline-outcome",
@@ -1147,7 +1147,7 @@
     },
     {
       "id": "main228-quota-fairness",
-      "normative_ref": "Main spec §22.8 — Byte/count/cache quotas under per-peer contention and protected retry",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Byte/count/cache quotas under per-peer contention and protected retry",
       "scenario": "Byte/count/cache quotas under per-peer contention and protected retry",
       "expected": "Finite quotas and fair control/retry progress",
       "primary_test_id": "planned/p14-p19/main228-quota-fairness",
@@ -1160,7 +1160,7 @@
     },
     {
       "id": "main228-fixed-geometry",
-      "normative_ref": "Main spec §22.8 — Bad stride/total/index/final size/quota; final-first; index-varint headroom",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Bad stride/total/index/final size/quota; final-first; index-varint headroom",
       "scenario": "Bad stride/total/index/final size/quota; final-first; index-varint headroom",
       "expected": "Reject invalid geometry; permit valid final-first; reserve header headroom",
       "primary_test_id": "planned/p11-p12-p19/main228-fixed-geometry",
@@ -1173,7 +1173,7 @@
     },
     {
       "id": "main228-full-compact-ref",
-      "normative_ref": "Main spec §22.8 — Fixed 8-byte epoch, full/compact refs, trailing bytes/stale slot/cross association",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Fixed 8-byte epoch, full/compact refs, trailing bytes/stale slot/cross association",
       "scenario": "Fixed 8-byte epoch, full/compact refs, trailing bytes/stale slot/cross association",
       "expected": "Exact lengths/local resolution; reject stale/cross-context",
       "primary_test_id": "planned/p09-p10-p15/main228-full-compact-ref",
@@ -1186,7 +1186,7 @@
     },
     {
       "id": "main228-accepted-changed-payload",
-      "normative_ref": "Main spec §22.8 — Accepted duplicate same metadata/different payload; incomplete conflicting slice",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Accepted duplicate same metadata/different payload; incomplete conflicting slice",
       "scenario": "Accepted duplicate same metadata/different payload; incomplete conflicting slice",
       "expected": "No redispatch/new accept; receipt original identity; conflict rejects",
       "primary_test_id": "planned/p10-p11-p15/main228-accepted-changed-payload",
@@ -1199,7 +1199,7 @@
     },
     {
       "id": "main228-immediate-rule",
-      "normative_ref": "Main spec §22.8 — Immediate result on every enabled service; unsupported exchange",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Immediate result on every enabled service; unsupported exchange",
       "scenario": "Immediate result on every enabled service; unsupported exchange",
       "expected": "Rule holds; unsupported request rejected before execution",
       "primary_test_id": "planned/p10-p12/main228-immediate-rule",
@@ -1212,7 +1212,7 @@
     },
     {
       "id": "main228-protocol-status",
-      "normative_ref": "Main spec §22.8 — Lost retained rejection; STATUS 1-7+ACK_REQ and 8-63; terminal app ERR",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Lost retained rejection; STATUS 1-7+ACK_REQ and 8-63; terminal app ERR",
       "scenario": "Lost retained rejection; STATUS 1-7+ACK_REQ and 8-63; terminal app ERR",
       "expected": "No execution/ACK/app ERR for rejection; reject status; reliable terminal app ERR",
       "primary_test_id": "planned/p05-p10-p12/main228-protocol-status",
@@ -1234,7 +1234,7 @@
     },
     {
       "id": "main228-service-canon",
-      "normative_ref": "Main spec §22.8 — Default omitted, explicit nondefault replies, service0/HELLO; explicit default or wrong service",
+      "normative_ref": "Main spec \u00a722.8 \u2014 Default omitted, explicit nondefault replies, service0/HELLO; explicit default or wrong service",
       "scenario": "Default omitted, explicit nondefault replies, service0/HELLO; explicit default or wrong service",
       "expected": "Canonical service/correlation; invalid service reply rejects",
       "primary_test_id": "planned/p05-p09-p10-p14/main228-service-canon",
@@ -1256,7 +1256,7 @@
     },
     {
       "id": "stream-r-timeout-boundary",
-      "normative_ref": "Main spec §15.2; Test Manifest Contract, SIM-STREAM-R partial-candidate timeout",
+      "normative_ref": "Main spec \u00a715.2; Test Manifest Contract, SIM-STREAM-R partial-candidate timeout",
       "scenario": "Before/at/after deadline; later byte must not renew timer.",
       "expected": "Timer = frame_tx_ms + max(forward_delay_ms,return_delay_ms) + record_margin_ms from first nonzero byte; process already-available bytes incl delimiter at equal time; expiry discards through next delimiter.",
       "primary_test_id": "planned/p06/stream-r-timeout-boundary",
@@ -1278,7 +1278,7 @@
     },
     {
       "id": "stream-r-open-reset",
-      "normative_ref": "Main spec §15.2; Test Manifest Contract, SIM-STREAM-R startup/reset",
+      "normative_ref": "Main spec \u00a715.2; Test Manifest Contract, SIM-STREAM-R startup/reset",
       "scenario": "Coordinated open, initial delimiter, independent RX reset and next frame.",
       "expected": "Receiver ready before one initial delimiter; no periodic prefix/reset signal; reset may drop a frame; reliable recovery only within original finite retry/deadline.",
       "primary_test_id": "planned/p06-p10/stream-r-open-reset",
@@ -1299,7 +1299,7 @@
     },
     {
       "id": "s10-01-p13",
-      "normative_ref": "SEC-1 §S10 case 1 — P13 verification/enrollment",
+      "normative_ref": "SEC-1 \u00a7S10 case 1 \u2014 P13 verification/enrollment",
       "scenario": "Wrong PSK/pin, manifest, peer IDs/mode/cipher/CID/prologue or incomplete OOB verification.",
       "expected": "Reject trust/commit; no active association.",
       "primary_test_id": "planned/p13/s10-01-p13",
@@ -1313,7 +1313,7 @@
     },
     {
       "id": "s10-01-p14",
-      "normative_ref": "SEC-1 §S10 case 1 — P14 protected activation",
+      "normative_ref": "SEC-1 \u00a7S10 case 1 \u2014 P14 protected activation",
       "scenario": "App traffic attempted from candidate state before protected confirmation.",
       "expected": "Candidate/enrollment never activates; valid protected confirmation gates traffic.",
       "primary_test_id": "planned/p14/s10-01-p14",
@@ -1327,7 +1327,7 @@
     },
     {
       "id": "s10-02-p13",
-      "normative_ref": "SEC-1 §S10 case 2 — P13 attempts",
+      "normative_ref": "SEC-1 \u00a7S10 case 2 \u2014 P13 attempts",
       "scenario": "Lost/duplicate/reordered flights, simultaneous attempts, full quota and pairing expiry.",
       "expected": "Bound attempts; preserve existing live associations.",
       "primary_test_id": "planned/p13/s10-02-p13",
@@ -1341,7 +1341,7 @@
     },
     {
       "id": "s10-02-p14",
-      "normative_ref": "SEC-1 §S10 case 2 — P14 confirmation",
+      "normative_ref": "SEC-1 \u00a7S10 case 2 \u2014 P14 confirmation",
       "scenario": "Lost/reordered FINISH/READY and retry.",
       "expected": "Only valid protected confirmation activates; bounded failure.",
       "primary_test_id": "planned/p14/s10-02-p14",
@@ -1355,7 +1355,7 @@
     },
     {
       "id": "s10-03",
-      "normative_ref": "SEC-1 §S10 case 3",
+      "normative_ref": "SEC-1 \u00a7S10 case 3",
       "scenario": "Plaintext downgrade; forged ACK/RSP/ERR; control permission without actuator permission.",
       "expected": "No forged completion or privilege escalation.",
       "primary_test_id": "planned/p14/s10-03",
@@ -1369,7 +1369,7 @@
     },
     {
       "id": "s10-04",
-      "normative_ref": "SEC-1 §S10 case 4",
+      "normative_ref": "SEC-1 \u00a7S10 case 4",
       "scenario": "Exact protected duplicate; fresh-PN retry after lost ACK.",
       "expected": "Drop duplicate; retry dedups and fresh-PN receipt without reexecution.",
       "primary_test_id": "planned/p14-p15/s10-04",
@@ -1383,7 +1383,7 @@
     },
     {
       "id": "s10-05",
-      "normative_ref": "SEC-1 §S10 case 5",
+      "normative_ref": "SEC-1 \u00a7S10 case 5",
       "scenario": "Invalid-tag high PN; reordered in-window, same-PN concurrent and below-window.",
       "expected": "Bad tag no advance; valid reorder; concurrent accepts once; old drops.",
       "primary_test_id": "planned/p14-p15/s10-05",
@@ -1397,7 +1397,7 @@
     },
     {
       "id": "s10-06-endpoint",
-      "normative_ref": "SEC-1 §S10 case 6 — endpoint authenticated reassembly",
+      "normative_ref": "SEC-1 \u00a7S10 case 6 \u2014 endpoint authenticated reassembly",
       "scenario": "Reordered/retried authenticated fragments; cross-association or conflicting slices.",
       "expected": "Only complete same-association authenticated nonconflicting message accepts.",
       "primary_test_id": "planned/p15/s10-06-endpoint",
@@ -1411,7 +1411,7 @@
     },
     {
       "id": "s10-06-relay",
-      "normative_ref": "SEC-1 §S10 case 6 — relay provisional state",
+      "normative_ref": "SEC-1 \u00a7S10 case 6 \u2014 relay provisional state",
       "scenario": "Rate-limited provisional relay state vs endpoint acceptance.",
       "expected": "Relay state is not authenticated endpoint state.",
       "primary_test_id": "planned/p19/s10-06-relay",
@@ -1425,7 +1425,7 @@
     },
     {
       "id": "s10-07",
-      "normative_ref": "SEC-1 §S10 case 7",
+      "normative_ref": "SEC-1 \u00a7S10 case 7",
       "scenario": "TTL-only change vs mutation of destination, SEQ, service, descriptor, extension, CID, PN, payload/tag.",
       "expected": "TTL-only preserves AEAD; other mutations fail/bind-reject.",
       "primary_test_id": "planned/p15/s10-07",
@@ -1439,7 +1439,7 @@
     },
     {
       "id": "s10-08",
-      "normative_ref": "SEC-1 §S10 case 8",
+      "normative_ref": "SEC-1 \u00a7S10 case 8",
       "scenario": "Reboot, old bootstrap, CID reuse, old data or sleeping-state loss.",
       "expected": "Destroy volatile state; old keys/data cannot return; rehandshake required.",
       "primary_test_id": "planned/p14-p15/s10-08",
@@ -1453,7 +1453,7 @@
     },
     {
       "id": "s10-09",
-      "normative_ref": "SEC-1 §S10 case 9",
+      "normative_ref": "SEC-1 \u00a7S10 case 9",
       "scenario": "Rotation with old work; key exhaustion/revoke.",
       "expected": "Drain only within bounds; stop new encrypt; atomic counters.",
       "primary_test_id": "planned/p14-p15/s10-09",
@@ -1471,7 +1471,7 @@
     },
     {
       "id": "s10-10",
-      "normative_ref": "SEC-1 §S10 case 10",
+      "normative_ref": "SEC-1 \u00a7S10 case 10",
       "scenario": "Grant duplicate/release/retry; expired/unexpired token at completion and across associations.",
       "expected": "No extension/reconstruction/cross-use; expired rejects.",
       "primary_test_id": "planned/p14-p15/s10-10",
@@ -1490,7 +1490,7 @@
     },
     {
       "id": "s10-11-p22",
-      "normative_ref": "SEC-1 §S10 case 11 — P22 mixed-binding primary path",
+      "normative_ref": "SEC-1 \u00a7S10 case 11 \u2014 P22 mixed-binding primary path",
       "scenario": "Stream R/packet transparent relay both ways; inject small-egress-MTU and missing/wrong context each direction.",
       "expected": "Preserve protected object or explicit failure; no terminating gateway.",
       "primary_test_id": "planned/p22/s10-11-p22",
@@ -1504,7 +1504,7 @@
     },
     {
       "id": "s10-11-p23",
-      "normative_ref": "SEC-1 §S10 case 11 — P23 independent mixed-binding rerun",
+      "normative_ref": "SEC-1 \u00a7S10 case 11 \u2014 P23 independent mixed-binding rerun",
       "scenario": "Repeat object preservation and MTU/context failures with two independent peers.",
       "expected": "Agree on bytes/outcomes; closes only advertised host scope.",
       "primary_test_id": "planned/p23/s10-11-p23",
@@ -1518,7 +1518,7 @@
     },
     {
       "id": "s10-12",
-      "normative_ref": "SEC-1 §S10 case 12",
+      "normative_ref": "SEC-1 \u00a7S10 case 12",
       "scenario": "PN varint boundaries with fixed slices/worst header.",
       "expected": "Only allowed header/protection changes; reject overflow before transfer.",
       "primary_test_id": "planned/p05-p14-p19/s10-12",
@@ -1541,7 +1541,7 @@
     },
     {
       "id": "s10-13",
-      "normative_ref": "SEC-1 §S10 case 13",
+      "normative_ref": "SEC-1 \u00a7S10 case 13",
       "scenario": "Forged origin/attempt/hint; tiny/bootstrap floods; duplicate valid flights.",
       "expected": "Bound memory/CPU/responses; admitted associations progress.",
       "primary_test_id": "planned/p13-p14-p19/s10-13",
@@ -1555,7 +1555,7 @@
     },
     {
       "id": "s10-14-p13",
-      "normative_ref": "SEC-1 §S10 case 14 — P13 enrollment",
+      "normative_ref": "SEC-1 \u00a7S10 case 14 \u2014 P13 enrollment",
       "scenario": "One-sided QR verify; swapped/expired approval; wrong device key; uncommitted credentials.",
       "expected": "Each endpoint commits own authorized pin; one commit does not imply peer commit.",
       "primary_test_id": "planned/p13/s10-14-p13",
@@ -1569,7 +1569,7 @@
     },
     {
       "id": "s10-14-p14",
-      "normative_ref": "SEC-1 §S10 case 14 — P14 connected activation",
+      "normative_ref": "SEC-1 \u00a7S10 case 14 \u2014 P14 connected activation",
       "scenario": "Drop FINISH/READY and restart around credential commit.",
       "expected": "Enrollment distinct from connection; activation needs commit and protected confirmation.",
       "primary_test_id": "planned/p14/s10-14-p14",
@@ -1583,7 +1583,7 @@
     },
     {
       "id": "s10-15",
-      "normative_ref": "SEC-1 §S10 case 15",
+      "normative_ref": "SEC-1 \u00a7S10 case 15",
       "scenario": "Admission failure, borrowed-buffer cancel, delayed completion.",
       "expected": "No nonce reuse, frame mutation, secret early release or unrelated teardown.",
       "primary_test_id": "planned/p14-p15/s10-15",
@@ -1597,7 +1597,7 @@
     },
     {
       "id": "s10-16",
-      "normative_ref": "SEC-1 §S10 case 16",
+      "normative_ref": "SEC-1 \u00a7S10 case 16",
       "scenario": "Compact refs with reused CID/context, wrong service/default, old ref.",
       "expected": "Only exact association-local reply completes.",
       "primary_test_id": "planned/p09-p15/s10-16",
@@ -1611,7 +1611,7 @@
     },
     {
       "id": "s10-17-p13",
-      "normative_ref": "SEC-1 §S10 case 17 — P13 abort-first attempt",
+      "normative_ref": "SEC-1 \u00a7S10 case 17 \u2014 P13 abort-first attempt",
       "scenario": "Continuation prefix/params, wrong IDs/lost state, pre-read drops, conflicting duplicates, invalid flights/DH/pin/payload/CID, stale completion, quota/cleanup.",
       "expected": "Pre-read rejects do not advance; conflicting processed dup preserves; admitted invalid expected flight aborts only attempt and rejects late continuation.",
       "primary_test_id": "planned/p13/s10-17-p13",
@@ -1634,7 +1634,7 @@
     },
     {
       "id": "s10-17-p14",
-      "normative_ref": "SEC-1 §S10 case 17 — P14 scheduled activation",
+      "normative_ref": "SEC-1 \u00a7S10 case 17 \u2014 P14 scheduled activation",
       "scenario": "Continue the P13 abort-first/restart scenarios through protected FINISH/READY and activation, including late completions.",
       "expected": "P13 restart/episode decisions remain unchanged; only valid protected confirmation activates the fresh candidate; no unrelated live-association teardown.",
       "primary_test_id": "planned/p14/s10-17-p14",
@@ -1648,7 +1648,7 @@
     },
     {
       "id": "s10-18",
-      "normative_ref": "SEC-1 §S10 case 18",
+      "normative_ref": "SEC-1 \u00a7S10 case 18",
       "scenario": "Fixed-stride protected reassembly; fresh-PN duplicate same metadata/different payload.",
       "expected": "Exact geometry; no reexecution; receipt refers to accepted identity.",
       "primary_test_id": "planned/p11-p15/s10-18",
@@ -1662,7 +1662,7 @@
     },
     {
       "id": "sel-r6-2of8",
-      "normative_ref": "SELECTIVE-32 §R6 table — Two missing of eight, indices 2 and 6",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Two missing of eight, indices 2 and 6",
       "scenario": "Two missing of eight, indices 2 and 6",
       "expected": "Mask 0x44 / bytes 44 00 00 00; repair only 2 and 6.",
       "primary_test_id": "planned/p19/sel-r6-2of8",
@@ -1675,9 +1675,9 @@
     },
     {
       "id": "sel-r6-final-all-loss",
-      "normative_ref": "SELECTIVE-32 §R6 table — Final or all initial fragments lost",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Final or all initial fragments lost",
       "scenario": "Final or all initial fragments lost",
-      "expected": "Fresh-PN N−1 probe can start/finish; status requests gaps.",
+      "expected": "Fresh-PN N\u22121 probe can start/finish; status requests gaps.",
       "primary_test_id": "planned/p19/sel-r6-final-all-loss",
       "primary_gate": "P19",
       "peer_test_id": "planned/p21d/sel-r6-final-all-loss",
@@ -1688,7 +1688,7 @@
     },
     {
       "id": "sel-r6-status-loss",
-      "normative_ref": "SELECTIVE-32 §R6 table — Status lost",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Status lost",
       "scenario": "Status lost",
       "expected": "Timeout/probe produces bounded new status with new SEQ.",
       "primary_test_id": "planned/p19/sel-r6-status-loss",
@@ -1701,7 +1701,7 @@
     },
     {
       "id": "sel-r6-repair-loss",
-      "normative_ref": "SELECTIVE-32 §R6 table — Repair slice lost",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Repair slice lost",
       "scenario": "Repair slice lost",
       "expected": "Next collection opportunity reports remaining gaps.",
       "primary_test_id": "planned/p19/sel-r6-repair-loss",
@@ -1714,7 +1714,7 @@
     },
     {
       "id": "sel-r6-final-ack-loss",
-      "normative_ref": "SELECTIVE-32 §R6 table — Final ACK lost",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Final ACK lost",
       "scenario": "Final ACK lost",
       "expected": "Fresh-PN probe reaches accepted history and repeats the permitted receipt without execution; selective results remain on their existing engine, with no parallel/full result resend or reopened terminal transfer.",
       "primary_test_id": "planned/p19/sel-r6-final-ack-loss",
@@ -1727,7 +1727,7 @@
     },
     {
       "id": "sel-r6-order",
-      "normative_ref": "SELECTIVE-32 §R6 table — Status reordered/duplicated",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Status reordered/duplicated",
       "scenario": "Status reordered/duplicated",
       "expected": "Ignore stale logical SEQ; invalid input cannot update state.",
       "primary_test_id": "planned/p19/sel-r6-order",
@@ -1740,7 +1740,7 @@
     },
     {
       "id": "sel-r6-tombstone",
-      "normative_ref": "SELECTIVE-32 §R6 table — Assembly expires/discarded",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Assembly expires/discarded",
       "scenario": "Assembly expires/discarded",
       "expected": "Tombstone prevents identity reopening/expiry renewal.",
       "primary_test_id": "planned/p19/sel-r6-tombstone",
@@ -1753,7 +1753,7 @@
     },
     {
       "id": "sel-r6-restart",
-      "normative_ref": "SELECTIVE-32 §R6 table — Receiver restart",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Receiver restart",
       "scenario": "Receiver restart",
       "expected": "Old association unusable; no selective resume.",
       "primary_test_id": "planned/p19/sel-r6-restart",
@@ -1766,7 +1766,7 @@
     },
     {
       "id": "sel-r6-after-accept",
-      "normative_ref": "SELECTIVE-32 §R6 table — Status after acceptance",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 Status after acceptance",
       "scenario": "Status after acceptance",
       "expected": "Drop; do not reopen recovery.",
       "primary_test_id": "planned/p19/sel-r6-after-accept",
@@ -1779,7 +1779,7 @@
     },
     {
       "id": "sel-r6-mtu-return",
-      "normative_ref": "SELECTIVE-32 §R6 table — No return schedule/smaller path MTU",
+      "normative_ref": "SELECTIVE-32 \u00a7R6 table \u2014 No return schedule/smaller path MTU",
       "scenario": "No return schedule/smaller path MTU",
       "expected": "Reject config/admission or terminate active transfer explicitly.",
       "primary_test_id": "planned/p19/sel-r6-mtu-return",
@@ -1792,7 +1792,7 @@
     },
     {
       "id": "sel-r7-protected-vector",
-      "normative_ref": "SELECTIVE-32 §R7 — Protected FRAG_STATUS golden/negative header/AAD/ciphertext",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Protected FRAG_STATUS golden/negative header/AAD/ciphertext",
       "scenario": "Produce complete protected FRAG_STATUS golden and negative vectors; independently derive header, AAD and ciphertext.",
       "expected": "Independent expected bytes match; invalid mask/reference and protected-field mutations reject.",
       "primary_test_id": "planned/p18/sel-r7-protected-vector",
@@ -1805,7 +1805,7 @@
     },
     {
       "id": "sel-r7-type8",
-      "normative_ref": "SELECTIVE-32 §R7 — TYPE 8 syntax, mask, reference, order and eligibility",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 TYPE 8 syntax, mask, reference, order and eligibility",
       "scenario": "Validate TYPE 8 syntax, four-byte mask, reference, ordering and transfer eligibility.",
       "expected": "Canonical valid status passes; zero, all, out-of-range masks and ineligible references reject without state change.",
       "primary_test_id": "planned/p16-p19/sel-r7-type8",
@@ -1821,7 +1821,7 @@
     },
     {
       "id": "sel-r7-determinism",
-      "normative_ref": "SELECTIVE-32 §R7 — Seeded loss/reorder/duplicate/delay simulation",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Seeded loss/reorder/duplicate/delay simulation",
       "scenario": "Replay seeded loss, reorder, duplicate and delay scenarios through deterministic harness and actual endpoints.",
       "expected": "Same seed/configuration reproduces event order and trace; injector contains no substitute protocol state machine.",
       "primary_test_id": "planned/p07-p19/sel-r7-determinism",
@@ -1834,7 +1834,7 @@
     },
     {
       "id": "sel-r7-profile",
-      "normative_ref": "SELECTIVE-32 §R7 — Profile MTU, return schedule and repair/probe constraints",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Profile MTU, return schedule and repair/probe constraints",
       "scenario": "Validate manifest MTU, feedback/repair/probe limits and return opportunities.",
       "expected": "Missing or impossible required schedule/MTU rejects before enable/admission; no implicit retry-all fallback.",
       "primary_test_id": "planned/p09/sel-r7-profile",
@@ -1850,7 +1850,7 @@
     },
     {
       "id": "sel-r7-full-loss",
-      "normative_ref": "SELECTIVE-32 §R7 — Full first burst lost",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Full first burst lost",
       "scenario": "Lose the complete initial burst and recover with original final-fragment probe.",
       "expected": "Recovery remains within original absolute transfer horizon; no new operation or deadline extension.",
       "primary_test_id": "planned/p19/sel-r7-full-loss",
@@ -1866,7 +1866,7 @@
     },
     {
       "id": "sel-r7-delayed-status",
-      "normative_ref": "SELECTIVE-32 §R7 — Delayed status during active burst/callback",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Delayed status during active burst/callback",
       "scenario": "Deliver status snapshots while repair burst or send callbacks remain active.",
       "expected": "Retain newest pending mask; never start concurrent burst; process it once current burst completes.",
       "primary_test_id": "planned/p19/sel-r7-delayed-status",
@@ -1879,7 +1879,7 @@
     },
     {
       "id": "sel-r7-no-storm",
-      "normative_ref": "SELECTIVE-32 §R7 — Repeated loss/probe/status",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Repeated loss/probe/status",
       "scenario": "Repeat loss, duplicate probes and feedback opportunities at configured limits.",
       "expected": "Feedback and pending counters stay bounded; no autonomous status storm.",
       "primary_test_id": "planned/p19/sel-r7-no-storm",
@@ -1896,7 +1896,7 @@
     },
     {
       "id": "sel-r7-tombstone-pressure",
-      "normative_ref": "SELECTIVE-32 §R7 — Tombstone capacity under transfer churn",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Tombstone capacity under transfer churn",
       "scenario": "Exhaust reserved accepted/expired tombstone capacity under incomplete-transfer churn.",
       "expected": "Refuse or terminate per policy; never silently evict, reopen identity or renew lifetime.",
       "primary_test_id": "planned/p19/sel-r7-tombstone-pressure",
@@ -1912,7 +1912,7 @@
     },
     {
       "id": "sel-r7-result-race",
-      "normative_ref": "SELECTIVE-32 §R7 — Terminal result/receipt races with status and duplicate REQ",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Terminal result/receipt races with status and duplicate REQ",
       "scenario": "Race terminal result/receipt with FRAG_STATUS, duplicate REQ and selective result transfer.",
       "expected": "Terminal event wins; no second result transfer, parallel resend, duplicate callback or post-terminal recovery.",
       "primary_test_id": "planned/p19/sel-r7-result-race",
@@ -1925,7 +1925,7 @@
     },
     {
       "id": "sel-r7-pn-seq",
-      "normative_ref": "SELECTIVE-32 §R7 — PN/SEQ boundaries on repairs/probes/status order",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 PN/SEQ boundaries on repairs/probes/status order",
       "scenario": "Exercise PN/SEQ boundaries and fresh-PN repair/probe under feedback reordering.",
       "expected": "No counter reuse/wrap; stale or overflow feedback cannot mutate live state.",
       "primary_test_id": "planned/p19/sel-r7-pn-seq",
@@ -1941,7 +1941,7 @@
     },
     {
       "id": "sel-r7-mismatch",
-      "normative_ref": "SELECTIVE-32 §R7 — Wrong peer/service/association feedback",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Wrong peer/service/association feedback",
       "scenario": "Inject feedback with wrong peer, service or association.",
       "expected": "Reject before scheduling; no cross-transfer or cross-association state change.",
       "primary_test_id": "planned/p19/sel-r7-mismatch",
@@ -1954,7 +1954,7 @@
     },
     {
       "id": "sel-r7-relay-cooldown",
-      "normative_ref": "SELECTIVE-32 §R7 — Static relay cooldown and forward cap",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Static relay cooldown and forward cap",
       "scenario": "Route repeated fragments/status through static relays with cooldown and forwarding caps.",
       "expected": "Bound transparent forwarding without key/plaintext access or protected-field changes.",
       "primary_test_id": "planned/p17-p19/sel-r7-relay-cooldown",
@@ -1967,7 +1967,7 @@
     },
     {
       "id": "sel-r7-expiry",
-      "normative_ref": "SELECTIVE-32 §R7 — Transfer/feedback/association/tombstone expiry",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Transfer/feedback/association/tombstone expiry",
       "scenario": "Expire sender/receiver transfer, feedback, association and tombstone at boundaries.",
       "expected": "Deadlines remain absolute; late feedback cannot reopen state or extend transfer/result/assembly horizon.",
       "primary_test_id": "planned/p19/sel-r7-expiry",
@@ -1984,7 +1984,7 @@
     },
     {
       "id": "sel-r7-acl-freshness",
-      "normative_ref": "SELECTIVE-32 §R7 — Denied ACL, absent/expired/mismatched S7 grant, expiry at final slice",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Denied ACL, absent/expired/mismatched S7 grant, expiry at final slice",
       "scenario": "Complete fragmented command with denied ACL, absent/expired/mismatched S7 grant or expiry at final slice.",
       "expected": "Recheck authorization/freshness at acceptance; reject without partial dispatch or cross-association grant.",
       "primary_test_id": "planned/p14-p19/sel-r7-acl-freshness",
@@ -1997,7 +1997,7 @@
     },
     {
       "id": "sel-r7-no-slot",
-      "normative_ref": "SELECTIVE-32 §R7 — Required return/receive slot unavailable",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Required return/receive slot unavailable",
       "scenario": "Remove the receive/return slot when status or receipt is due.",
       "expected": "Do not promise an impossible exchange; honor finite schedule and terminal-outcome rules without silent deferral/lifetime extension.",
       "primary_test_id": "planned/p19/sel-r7-no-slot",
@@ -2013,7 +2013,7 @@
     },
     {
       "id": "sel-r7-independent",
-      "normative_ref": "SELECTIVE-32 §R7 — Independent endpoint R6/R7 then both-way fixtures",
+      "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Independent endpoint R6/R7 then both-way fixtures",
       "scenario": "Run all applicable local R6/R7 cases in the independent endpoint and exchange vectors in both directions.",
       "expected": "Agree on bytes, acceptance, terminal outcomes and rejections for enabled host/simulation scope; physical evidence remains separate.",
       "primary_test_id": "planned/p19/sel-r7-independent",
@@ -2026,7 +2026,7 @@
     },
     {
       "id": "s-a1-service",
-      "normative_ref": "SAMPLE-1 §A1",
+      "normative_ref": "SAMPLE-1 \u00a7A1",
       "scenario": "Service 1 canonical omitted SERVICE/PAYLOAD_DESC, LE fixed binary schema.",
       "expected": "No padding/strings/implicit/trailing bytes; canonical bytes.",
       "primary_test_id": "planned/p05-p12/s-a1-service",
@@ -2039,7 +2039,7 @@
     },
     {
       "id": "s-a1-invalid",
-      "normative_ref": "SAMPLE-1 §A1",
+      "normative_ref": "SAMPLE-1 \u00a7A1",
       "scenario": "Invalid READ/STATUS length/opcode, missing ACK_REQ, unsupported schema.",
       "expected": "Retained STATUS=7 malformed request; STATUS=2 unsupported schema.",
       "primary_test_id": "planned/p12/s-a1-invalid",
@@ -2052,7 +2052,7 @@
     },
     {
       "id": "s-a1-size-order",
-      "normative_ref": "SAMPLE-1 §A1",
+      "normative_ref": "SAMPLE-1 \u00a7A1",
       "scenario": "READ 01 00 with size max 2 vs max 1.",
       "expected": "STATUS=7 if admitted by size; STATUS=3 if too large first.",
       "primary_test_id": "planned/p12/s-a1-size-order",
@@ -2065,7 +2065,7 @@
     },
     {
       "id": "s-a1-delivery",
-      "normative_ref": "SAMPLE-1 §A1",
+      "normative_ref": "SAMPLE-1 \u00a7A1",
       "scenario": "TELEM/READ/STATUS/RSP/NO_SAMPLE and duplicate read.",
       "expected": "Exact lengths/delivery; retained result replay; NO_SAMPLE reliable ERR=64 empty.",
       "primary_test_id": "planned/p12-p15/s-a1-delivery",
@@ -2078,7 +2078,7 @@
     },
     {
       "id": "s-a1-epoch",
-      "normative_ref": "SAMPLE-1 §A1",
+      "normative_ref": "SAMPLE-1 \u00a7A1",
       "scenario": "First publish/restart/index exhaustion/persistence failure/rollback.",
       "expected": "Durably reserve never-reused epoch; stop on failure; no wrap/time inference.",
       "primary_test_id": "planned/p12-p15/s-a1-epoch",
@@ -2091,7 +2091,7 @@
     },
     {
       "id": "s-a1-epoch-transition",
-      "normative_ref": "SAMPLE-1 §A1",
+      "normative_ref": "SAMPLE-1 \u00a7A1",
       "scenario": "New epoch races reads/publication/activation/shared service2 exchange.",
       "expected": "Close old-epoch associations before exposing new epoch; serialize; other exchange unknown outcome.",
       "primary_test_id": "planned/p12-p15/s-a1-epoch-transition",
@@ -2104,7 +2104,7 @@
     },
     {
       "id": "s-a2-unsync",
-      "normative_ref": "SAMPLE-1 §A2 step 1",
+      "normative_ref": "SAMPLE-1 \u00a7A2 step 1",
       "scenario": "Startup/new association with prior cache/early telemetry.",
       "expected": "New generation; prior cache not live; discard telemetry.",
       "primary_test_id": "planned/p12-p15/s-a2-unsync",
@@ -2117,7 +2117,7 @@
     },
     {
       "id": "s-a2-designated-read",
-      "normative_ref": "SAMPLE-1 §A2 step 2",
+      "normative_ref": "SAMPLE-1 \u00a7A2 step 2",
       "scenario": "Initialization READ retry/cancel/timeout/supersession.",
       "expected": "One designated full identity under finite policy; old designation invalidated.",
       "primary_test_id": "planned/p12-p15/s-a2-designated-read",
@@ -2130,7 +2130,7 @@
     },
     {
       "id": "s-a2-correlated-result",
-      "normative_ref": "SAMPLE-1 §A2 step 3",
+      "normative_ref": "SAMPLE-1 \u00a7A2 step 3",
       "scenario": "READ results across identity/generation/epoch changes.",
       "expected": "Only current authorized result selects epoch; same epoch no rollback; atomic update.",
       "primary_test_id": "planned/p12-p15/s-a2-correlated-result",
@@ -2143,7 +2143,7 @@
     },
     {
       "id": "s-a2-no-sample",
-      "normative_ref": "SAMPLE-1 §A2 step 4",
+      "normative_ref": "SAMPLE-1 \u00a7A2 step 4",
       "scenario": "NO_SAMPLE followed by new READ, timeout and exhausted attempts.",
       "expected": "ERR=64 ACKed; new identity retry; exhaustion explicit/no live sample.",
       "primary_test_id": "planned/p12-p15/s-a2-no-sample",
@@ -2156,7 +2156,7 @@
     },
     {
       "id": "s-a2-live-late",
-      "normative_ref": "SAMPLE-1 §A2 step 5",
+      "normative_ref": "SAMPLE-1 \u00a7A2 step 5",
       "scenario": "Lower/new sample, epoch violation, late old association/superseded result.",
       "expected": "Only selected epoch/higher index updates; stale result cannot alter cache; receipt rules apply.",
       "primary_test_id": "planned/p12-p15/s-a2-live-late",
@@ -2169,7 +2169,7 @@
     },
     {
       "id": "s-a3-positive",
-      "normative_ref": "SAMPLE-1 §A3",
+      "normative_ref": "SAMPLE-1 \u00a7A3",
       "scenario": "READ/STATUS/ready/TELEM/READ-result example payloads.",
       "expected": "Exact payload bytes; examples are not full packets.",
       "primary_test_id": "planned/p12/s-a3-positive",
@@ -2182,7 +2182,7 @@
     },
     {
       "id": "s-a3-negative",
-      "normative_ref": "SAMPLE-1 §A3",
+      "normative_ref": "SAMPLE-1 \u00a7A3",
       "scenario": "01 00, empty, opcode 03, STATUS 02 02, wrong result opcode/sender/service, TELEM length !=16.",
       "expected": "Reject before exchange completion/state update.",
       "primary_test_id": "planned/p12-p15/s-a3-negative",
@@ -2195,7 +2195,7 @@
     },
     {
       "id": "s-a4-firstboot",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "First boot.",
       "expected": "Unsynchronized until designated correlated READ.",
       "primary_test_id": "planned/p12-p15/s-a4-firstboot",
@@ -2208,7 +2208,7 @@
     },
     {
       "id": "s-a4-early-telem",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Telemetry before READ result.",
       "expected": "Discard; no pre-sync buffer/live display.",
       "primary_test_id": "planned/p12-p15/s-a4-early-telem",
@@ -2221,7 +2221,7 @@
     },
     {
       "id": "s-a4-no-sample-read",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "NO_SAMPLE then produced sample and new read.",
       "expected": "Remain unsynchronized; new identity.",
       "primary_test_id": "planned/p12-p15/s-a4-no-sample-read",
@@ -2234,7 +2234,7 @@
     },
     {
       "id": "s-a4-loss",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Lose READ/RSP/receipt separately.",
       "expected": "Reliable handling; no duplicate or false sync.",
       "primary_test_id": "planned/p12-p15/s-a4-loss",
@@ -2247,7 +2247,7 @@
     },
     {
       "id": "s-a4-timeout",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Initialization timeout/exhaustion.",
       "expected": "Explicit bounded failure; no live sample.",
       "primary_test_id": "planned/p12-p15/s-a4-timeout",
@@ -2260,7 +2260,7 @@
     },
     {
       "id": "s-a4-old-snapshot",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Same-epoch reconnect with older READ snapshot.",
       "expected": "May sync; cannot roll back newer index/value.",
       "primary_test_id": "planned/p12-p15/s-a4-old-snapshot",
@@ -2273,7 +2273,7 @@
     },
     {
       "id": "s-a4-restart",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Producer restart/index exhaustion/new epoch.",
       "expected": "Durable new epoch; no index wrap or telemetry adoption.",
       "primary_test_id": "planned/p12-p15/s-a4-restart",
@@ -2286,7 +2286,7 @@
     },
     {
       "id": "s-a4-late-result",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Late prior-association and superseded-request result.",
       "expected": "No epoch/cache change; normal correlation may still require ACK.",
       "primary_test_id": "planned/p12-p15/s-a4-late-result",
@@ -2299,7 +2299,7 @@
     },
     {
       "id": "s-a4-assoc-race",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Association replacement races result acceptance.",
       "expected": "Identity validation and update atomic with replacement/cancel.",
       "primary_test_id": "planned/p12-p15/s-a4-assoc-race",
@@ -2312,7 +2312,7 @@
     },
     {
       "id": "s-a4-persistence",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Persistence failure and epoch reuse/rollback attempt.",
       "expected": "Stop publishing; no wrap/time substitute; reprovision separately authorized.",
       "primary_test_id": "planned/p12-p15/s-a4-persistence",
@@ -2325,7 +2325,7 @@
     },
     {
       "id": "s-a4-close-shared",
-      "normative_ref": "SAMPLE-1 §A4",
+      "normative_ref": "SAMPLE-1 \u00a7A4",
       "scenario": "Epoch change closes association also carrying service2 work.",
       "expected": "Discard sample work; other exchange uses unknown-outcome rule.",
       "primary_test_id": "planned/p12-p15/s-a4-close-shared",
@@ -2338,7 +2338,7 @@
     },
     {
       "id": "manifest-reject-aesgcm",
-      "normative_ref": "Test Manifest Contract: Services and security; SEC-1 §S2",
+      "normative_ref": "Test Manifest Contract: Services and security; SEC-1 \u00a7S2",
       "scenario": "Change fixed cipher 1 manifest to cipher 2 without a new exact identity.",
       "expected": "Reject fixed-identity mutation or require separately named/revalidated manifest; not a universal AESGCM support claim.",
       "primary_test_id": "planned/p09/manifest-reject-aesgcm",
@@ -2351,7 +2351,7 @@
     },
     {
       "id": "manifest-reject-group",
-      "normative_ref": "Main §25; SEC-1 §S1",
+      "normative_ref": "Main \u00a725; SEC-1 \u00a7S1",
       "scenario": "Enable group key/protected group delivery.",
       "expected": "Reject before traffic; current contract is pairwise.",
       "primary_test_id": "planned/p09/manifest-reject-group",
@@ -2364,7 +2364,7 @@
     },
     {
       "id": "manifest-reject-dynamic-routing",
-      "normative_ref": "Main §10.6/§25; manifest Selected model",
+      "normative_ref": "Main \u00a710.6/\u00a725; manifest Selected model",
       "scenario": "Enable dynamic route control in static profile.",
       "expected": "Reject before traffic; no dynamic behavior.",
       "primary_test_id": "planned/p09/manifest-reject-dynamic-routing",
@@ -2377,7 +2377,7 @@
     },
     {
       "id": "manifest-reject-physical",
-      "normative_ref": "Manifest Selected model; Main §24",
+      "normative_ref": "Manifest Selected model; Main \u00a724",
       "scenario": "Replace simulated binding with physical UART/BLE/radio under simulation identity.",
       "expected": "Reject identity mismatch; physical requires own manifest/evidence.",
       "primary_test_id": "planned/p09/manifest-reject-physical",

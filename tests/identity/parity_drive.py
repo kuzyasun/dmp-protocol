@@ -116,7 +116,7 @@ def main(argv):
     corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
     mutations = corpus["mutation_cases"]
     raw_cases = corpus["raw_cases"]
-    if len(mutations) != 42 or len(raw_cases) != 17:
+    if len(mutations) != 43 or len(raw_cases) != 17:
         raise SystemExit(f"unexpected corpus size: {len(mutations)} mutations, {len(raw_cases)} raw")
     fixtures = sorted(FIXTURES.glob("*.json"))
     if len(fixtures) != 3:

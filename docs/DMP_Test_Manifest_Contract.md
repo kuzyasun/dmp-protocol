@@ -1,9 +1,9 @@
-# DMP test manifest contract 1
+# DMP test manifest contract 2
 
-**Scope:** P02 configuration contract for a two-endpoint host test deployment.
+**Scope:** P02 configuration contract 2 for a two-endpoint host test deployment.
 This selects a bounded subset of main document 10, SEC-1 revision 5,
 SELECTIVE-32 revision 1 and SAMPLE-1 revision 2. It changes no DMP wire rule.
-The [JSON Schema](../profiles/schema/manifest-v1.schema.json) supplies exact
+The [JSON Schema](../profiles/schema/manifest-v2.schema.json) supplies exact
 field names, types, required fields, enums and numerical bounds. This document
 supplies semantics and cross-field constraints. Neither part alone is sufficient.
 P03 separately freezes complete deployment instances and their evidence mapping.
@@ -229,6 +229,11 @@ origin/receiver airtime budget covers both application and worst complete
 bootstrap bursts plus status and receipts. Bootstrap count allowance is
 conservative; bootstrap still uses its own establishment retry/budget engine.
 `collect >= H+L`; `assembly >= max(H+L,collect)+M`, inactivity disabled.
+Manifest contract 2 also requires a per-peer expiry-tombstone count and a
+matching endpoint `assembly_tombstone` resource charge. The admitted count is
+bounded by that charge. A new assembly reserves its future tombstone before
+the first accepted slice; expiry preserves the message/context key until the
+identity context is retired. Tombstones are not evicted to admit later work.
 Dedup/rejection/tombstone durations, from first admission/decision, are at least
 `H+Q+F+R+M`. This deliberately covers R4's first-admission expiry bound as well
 as delayed duplicates; no eviction or renewal is permitted within that bound.

@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Executable manifest-v1 boundary. Codes and paths match the published contract. */
+/* Executable manifest-v2 boundary. Codes and paths match the published contract. */
 
 #define MANIFEST_MAX_BYTES 262144U
 

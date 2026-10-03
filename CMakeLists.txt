@@ -5,6 +5,7 @@ project(dmp LANGUAGES C)
 add_library(libdmp STATIC src/core/base.c src/core/codec.c
     src/integrity/crc32c.c src/stream/cobs.c src/stream/stream.c
     src/identity/identity.c src/identity/profile_admit.c
+    src/reassembly/reassembly.c
     src/reliability/reliability.c)
 add_library(dmp::dmp ALIAS libdmp)
 set_target_properties(libdmp PROPERTIES OUTPUT_NAME dmp
@@ -35,6 +36,7 @@ if(DMP_BUILD_TESTS)
     add_subdirectory(tests/core)
     add_subdirectory(tests/stream)
     add_subdirectory(tests/identity)
+    add_subdirectory(tests/reassembly)
     add_subdirectory(tests/reliability)
     add_subdirectory(tests/provider)
     add_subdirectory(tests/harness)

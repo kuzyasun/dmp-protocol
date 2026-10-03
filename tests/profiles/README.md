@@ -42,8 +42,8 @@ confirmation intervals use 448 ms each, and the total attempt budget is
 Radio relay cache capacity is `4 operations * (4 application + 2 bootstrap)
 + 2 statuses + 2 receipts + 14 establishment frames * 2 episode attempts = 56`
 records (54 for retry-all). The 32-byte records use 1792 bytes (1728 for
-retry-all); 12 one-byte component reservations add 12 bytes, and control plus
-adapter buffers add `2 * 256 = 512` bytes, for 2316 bytes total (2252 for
+retry-all); 13 one-byte component reservations add 13 bytes, and control plus
+adapter buffers add `2 * 256 = 512` bytes, for 2317 bytes total (2253 for
 retry-all). The checked-in totals are in `expected.json`.
 
 The suite checks only the offline validator contract. It does not simulate a

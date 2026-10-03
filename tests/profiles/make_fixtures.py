@@ -10,6 +10,7 @@ COMPONENTS = (
     "provider_retained", "provider_scratch", "association", "bootstrap",
     "sender", "assembly", "result", "history", "correlation", "control",
     "application_queue", "adapter", "stacks", "relay_cache", "freshness_tokens",
+    "assembly_tombstone",
 )
 
 
@@ -65,7 +66,8 @@ def _resources(role, encoded_frame_bytes, freshness_enabled, control_slots,
             ("association", 3, 128),
             ("bootstrap", 1, 120),
             ("sender", 4, 64),
-            ("assembly", 1, 64),
+            ("assembly", 1, 576),
+            ("assembly_tombstone", 16, 48),
             ("result", result_count, 64),
             ("history", 2 * result_count, 32),
             ("correlation", result_count, 32),
@@ -172,7 +174,7 @@ def manifest(kind):
                                     1, relay_cache_count))
 
     return {
-        "contract": "DMP-test-manifest/1",
+        "contract": "DMP-test-manifest/2",
         "revisions": {"core": 10, "security": 5, "bootstrap": 2,
                       "recovery": 1, "application": 2},
         "profile": profile,
@@ -186,7 +188,8 @@ def manifest(kind):
         "limits": {
             "message_bytes": 64, "fragments": 4, "chunk_bytes": 16,
             "bootstrap_chunk_bytes": 60, "bootstrap_fragments": 2,
-            "peers": 1, "assemblies_per_peer": 1, "operations_per_service": 1,
+            "peers": 1, "assemblies_per_peer": 1,
+            "assembly_tombstones_per_peer": 16, "operations_per_service": 1,
             "control_slots": 4 if freshness_enabled else 2,
             "application_queue_slots": 2, "adapter_slots": 2,
         },
