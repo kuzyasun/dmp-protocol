@@ -1,4 +1,0 @@
-[1/4] Building C object tests/provider/CMakeFiles/dmp_noise_memory_probe.dir/noise_checked_fixture_port.c.obj
-[2/4] Building C object tests/provider/CMakeFiles/dmp_noise_memory_probe.dir/noise_checked_no_legacy_rng.c.obj
-[3/4] Building C object tests/provider/CMakeFiles/dmp_noise_memory_probe.dir/noise_memory_probe.c.obj
-[4/4] Linking C executable tests\provider\dmp_noise_memory_probe.exe

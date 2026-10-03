@@ -1,3 +1,0 @@
-build/noise-experiments/tests/provider/libdmp_noise_arena.a:handshakestate.c.obj:                 U noise_alloc_memory
-build/noise-experiments/tests/provider/libdmp_noise_arena.a:util.c.obj:                 U noise_allocator_allocate
-build/noise-experiments/tests/provider/libdmp_noise_arena.a:util.c.obj:                 U noise_allocator_release

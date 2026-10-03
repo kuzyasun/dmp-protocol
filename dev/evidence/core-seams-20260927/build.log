@@ -1,4 +1,0 @@
-[1/4] Building CXX object tests/core/CMakeFiles/dmp_test_headers_cpp.dir/test_headers.cpp.obj
-[2/4] Building C object tests/core/CMakeFiles/dmp_test_headers.dir/test_headers.c.obj
-[3/4] Linking C executable tests\core\dmp_test_headers.exe
-[4/4] Linking CXX executable tests\core\dmp_test_headers_cpp.exe

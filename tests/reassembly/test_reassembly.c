@@ -233,6 +233,23 @@ static int open_peer(uint32_t origin, uint64_t epoch, int secured, dmp_identity_
     return status == DMP_OK;
 }
 
+/* Copy the profile only when admission returns DMP_OK. Any other status leaves
+ * g.profile unchanged, and the caller must not initialize the engine. */
+static int gate_profile(void)
+{
+    dmp_config in = g.profile;
+    dmp_admitted_profile out;
+    dmp_status status;
+
+    memset(&out, 0, sizeof out);
+    status = dmp_config_admit(&in, &out);
+    if (status != DMP_OK) {
+        return 1;
+    }
+    g.profile = out;
+    return 0;
+}
+
 static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint32_t per_tomb,
                 uint32_t fragments, uint32_t chunk_bytes, uint32_t mtu, uint32_t assembly_ms,
                 int secured)
@@ -246,7 +263,9 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
     g.profile.default_service = 1U;
     g.profile.service_id[0] = 1U;
     g.profile.service_id[1] = 2U;
-    g.profile.peers = 2U;
+    /* Reassembly does not read peers. 1 keeps slots >= peers * per-peer for the
+     * ordinary one-slot fixture. Assembly and tombstone quotas stay as passed. */
+    g.profile.peers = 1U;
     g.profile.assemblies_per_peer = per_asm;
     g.profile.assembly_tombstones_per_peer = per_tomb;
     g.profile.assembly_slots = assemblies;
@@ -270,7 +289,8 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
     storage.payload_capacity = sizeof g.payloads;
     storage.metadata = g.metadata;
     storage.metadata_capacity = sizeof g.metadata;
-    if (dmp_reassembly_init(&g.engine, &storage, &g.profile, &g.table) != DMP_OK) {
+    if (gate_profile() != 0 ||
+        dmp_reassembly_init(&g.engine, &storage, &g.profile, &g.table) != DMP_OK) {
         return 1;
     }
     return 0;
@@ -368,8 +388,9 @@ static int test_extra_storage(void)
     g.profile.default_service = 1U;
     g.profile.service_id[0] = 1U;
     g.profile.service_id[1] = 2U;
-    g.profile.assemblies_per_peer = 4U;
-    g.profile.assembly_tombstones_per_peer = 4U;
+    g.profile.peers = 1U;
+    g.profile.assemblies_per_peer = 1U;
+    g.profile.assembly_tombstones_per_peer = 1U;
     g.profile.assembly_slots = 1U;
     g.profile.assembly_tombstone_slots = 1U;
     g.profile.message_bytes = MAX_MSG;
@@ -389,6 +410,7 @@ static int test_extra_storage(void)
     storage.payload_capacity = sizeof g.payloads;
     storage.metadata = g.metadata;
     storage.metadata_capacity = sizeof g.metadata;
+    CHECK(gate_profile() == 0);
     CHECK(dmp_reassembly_init(&g.engine, &storage, &g.profile, &g.table) == DMP_OK);
     CHECK(g.assemblies[1].live == 9U);
     CHECK(g.engine.storage.assembly_capacity == 1U);
@@ -403,7 +425,7 @@ static int test_extra_storage(void)
     CHECK(g.assemblies[1].live == 9U);
     CHECK(g.assemblies[0].live == 1U);
 
-    CHECK(boot(2U, 1U, 2U, 4U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
+    CHECK(boot(2U, 1U, 1U, 1U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
     pattern(body, sizeof body, 0x22);
     frame = base_frag(1U, 0U, 16U, 32U, body, sizeof body);
     handle = sentinel();
@@ -843,16 +865,34 @@ static int test_quotas(void)
     CHECK(g.assemblies[1].live == 0U);
     CHECK(g.tombstones[1].state == DMP_REASSEMBLY_TOMBSTONE_UNUSED);
 
-    CHECK(boot(2U, 4U, 2U, 1U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
-    frame = base_frag(1U, 0U, 16U, 32U, body, sizeof body);
-    handle = sentinel();
-    CHECK(apply(&frame, 10U, &handle) == DMP_INCOMPLETE);
-    save_state();
-    frame.seq = 2U;
-    CHECK(apply(&frame, 11U, &handle) == DMP_QUOTA_EXHAUSTED);
-    CHECK(same_state());
-    CHECK(g.tombstones[1].state == DMP_REASSEMBLY_TOMBSTONE_UNUSED);
-    CHECK(g.ids[g.ctx.slot].retained == 1U);
+    /* per-peer tombstones below per-peer assemblies is not an engine case. */
+    {
+        dmp_config rejected;
+        dmp_admitted_profile out;
+        dmp_admitted_profile saved;
+
+        memset(&rejected, 0, sizeof rejected);
+        rejected.namespace_id = 1U;
+        rejected.node_id[0] = LOCAL_ID;
+        rejected.node_id[1] = PEER_ID;
+        rejected.default_service = 1U;
+        rejected.service_id[0] = 1U;
+        rejected.service_id[1] = 2U;
+        rejected.peers = 1U;
+        rejected.assemblies_per_peer = 2U;
+        rejected.assembly_tombstones_per_peer = 1U;
+        rejected.assembly_slots = 2U;
+        rejected.assembly_tombstone_slots = 4U;
+        rejected.message_bytes = MAX_MSG;
+        rejected.fragments = 8U;
+        rejected.chunk_bytes = 16U;
+        rejected.encoded_mtu = MAX_MTU;
+        rejected.assembly_ms = 1000U;
+        memset(&out, 0x5A, sizeof out);
+        saved = out;
+        CHECK(dmp_config_admit(&rejected, &out) == DMP_UNSUPPORTED);
+        CHECK(memcmp(&out, &saved, sizeof out) == 0);
+    }
 
     CHECK(boot(2U, 2U, 1U, 2U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
     CHECK(open_peer(OTHER_ID, PEER_EPOCH, 0, &other));
@@ -871,7 +911,7 @@ static int test_quotas(void)
     CHECK(apply(&frame, 12U, &handle) == DMP_QUOTA_EXHAUSTED);
     CHECK(g.assemblies[1].source.seq == 1U);
 
-    CHECK(boot(2U, 2U, 2U, 1U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
+    CHECK(boot(1U, 1U, 1U, 1U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
     pattern(body, sizeof body, 0x64);
     frame = base_frag(1U, 0U, 16U, 32U, body, sizeof body);
     frame.index = 0U;

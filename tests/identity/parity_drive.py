@@ -1,4 +1,9 @@
-"""Drive the C profile gate with the shared P02 corpus and compare codes."""
+"""Compare typed admission with the host JSON and PROFILE_HASH oracle.
+
+Python reads each deployment's original bytes, including a trailing newline.
+hashlib.sha256 of those bytes is the digest copied into dmp_config. The C
+driver does not parse JSON. Invalid manifests stay in tests/profiles.
+"""
 
 import hashlib
 import json
@@ -20,120 +25,178 @@ DEPLOYMENTS = (
     "test-radio-retry-all-nnpsk0.json",
     "test-radio-retry-all-xx.json",
 )
-STATUS = {
-    "encoding": "malformed",
-    "json": "malformed",
-    "digest": "integrity_failure",
-}
+RECOVERY = {"retry-all": 0, "selective-32": 1}
+FIELDS = (
+    "sha256",
+    "namespace_id",
+    "node_id0",
+    "node_id1",
+    "default_service",
+    "service_id0",
+    "service_id1",
+    "recovery0",
+    "recovery1",
+    "peers",
+    "operations_per_service",
+    "assemblies_per_peer",
+    "assembly_tombstones_per_peer",
+    "sender_slots",
+    "assembly_slots",
+    "assembly_tombstone_slots",
+    "result_slots",
+    "history_slots",
+    "correlation_slots",
+    "adapter_slots",
+    "application_queue_slots",
+    "control_slots",
+    "message_bytes",
+    "fragments",
+    "chunk_bytes",
+    "encoded_mtu",
+    "forward_mtu",
+    "return_mtu",
+    "queue_ms",
+    "response_timeout_ms",
+    "jitter_ms",
+    "send_horizon_ms",
+    "max_bursts",
+    "receipt_delay_ms",
+    "receipt_limit",
+    "dedup_ms",
+    "rejection_ms",
+    "result_cache_ms",
+    "result_deadline_ms",
+    "correlation_ms",
+    "tombstone_ms",
+    "late_result_ms",
+    "collect_ms",
+    "assembly_ms",
+    "tx_borrow",
+    "synchronous_completion",
+)
 
 
-def _mutate(document, operations):
-    value = json.loads(json.dumps(document))
-    for operation in operations:
-        path = operation["path"].strip("/").split("/")
-        parent = value
-        for part in path[:-1]:
-            parent = parent[int(part)] if isinstance(parent, list) else parent[part]
-        key = path[-1]
-        if operation["op"] == "remove":
-            if isinstance(parent, list):
-                parent.pop(int(key))
-            else:
-                del parent[key]
-        elif operation["op"] == "add":
-            parent[key] = operation["value"]
-        elif isinstance(parent, list):
-            parent[int(key)] = operation["value"]
-        else:
-            parent[key] = operation["value"]
-    return value
+def charge_count(document, component):
+    for resource in document["resources"]:
+        if resource["role"] == "relay":
+            continue
+        for charge in resource["charges"]:
+            if charge["component"] == component:
+                return int(charge["count"])
+        break
+    raise AssertionError(f"missing endpoint charge {component}")
 
 
-def _raw_case(case):
-    if "hex" in case:
-        return bytes.fromhex(case["hex"])
-    if "ascii" in case:
-        return case["ascii"].encode("ascii")
-    if "repeat_prefix_hex" in case:
-        prefix = bytes.fromhex(case["repeat_prefix_hex"]) * case["repeat"]
-        suffix = bytes.fromhex(case["repeat_suffix_hex"]) * case["repeat"]
-        return prefix + case.get("middle_ascii", "").encode("ascii") + suffix
-    if "repeat_hex" in case:
-        repeated = bytes.fromhex(case["repeat_hex"]) * case["repeat"]
-        return (repeated + case.get("middle_ascii", "").encode("ascii") +
-                bytes.fromhex(case.get("suffix_hex", "")))
-    raise AssertionError("unknown raw corpus encoding")
-
-
-def run_gate(executable, raw, expected_hex=None):
-    command = [executable, "-"]
-    if expected_hex is not None:
-        command.append(expected_hex)
-    completed = subprocess.run(command, input=raw, capture_output=True, check=False)
-    if completed.returncode != 0:
-        raise AssertionError(completed.stderr.decode("utf-8", "replace"))
-    line = completed.stdout.decode("utf-8").strip().splitlines()[-1]
-    return json.loads(line)
-
-
-def expect_failure(executable, raw, code, path, label):
-    python_error = None
-    try:
-        validator.validate_bytes(raw)
-    except validator.ProfileError as error:
-        python_error = error
-    if python_error is None:
-        raise AssertionError(f"{label}: Python accepted bytes the corpus rejects")
-    if python_error.code != code or python_error.path != path:
-        raise AssertionError(
-            f"{label}: Python {python_error.code} {python_error.path}, corpus {code} {path}")
-    result = run_gate(executable, raw)
-    expected_status = STATUS.get(code, "unsupported")
-    if result["status"] != expected_status or result["code"] != code or result["path"] != path:
-        raise AssertionError(
-            f"{label}: C {result['status']} {result['code']} {result['path']}, "
-            f"expected {expected_status} {code} {path}")
-
-
-def expect_success(executable, raw, label):
-    python_result = validator.validate_bytes(raw)
+def typed_fields(raw, document):
+    identity = document["identity"]
+    limits = document["limits"]
+    binding = document["binding"]
+    timing = document["timing"]
+    services = document["services"]
+    if len(identity["nodes"]) != 2 or len(services) != 2:
+        raise AssertionError("deployment is not the fixed node/service pair")
     digest = hashlib.sha256(raw).hexdigest()
+    return {
+        "sha256": digest,
+        "namespace_id": int(identity["namespace"]),
+        "node_id0": int(identity["nodes"][0]),
+        "node_id1": int(identity["nodes"][1]),
+        "default_service": int(identity["default_service"]),
+        "service_id0": int(services[0]["id"]),
+        "service_id1": int(services[1]["id"]),
+        "recovery0": RECOVERY[services[0]["recovery"]],
+        "recovery1": RECOVERY[services[1]["recovery"]],
+        "peers": int(limits["peers"]),
+        "operations_per_service": int(limits["operations_per_service"]),
+        "assemblies_per_peer": int(limits["assemblies_per_peer"]),
+        "assembly_tombstones_per_peer": int(limits["assembly_tombstones_per_peer"]),
+        "sender_slots": charge_count(document, "sender"),
+        "assembly_slots": charge_count(document, "assembly"),
+        "assembly_tombstone_slots": charge_count(document, "assembly_tombstone"),
+        "result_slots": charge_count(document, "result"),
+        "history_slots": charge_count(document, "history"),
+        "correlation_slots": charge_count(document, "correlation"),
+        "adapter_slots": charge_count(document, "adapter"),
+        "application_queue_slots": int(limits["application_queue_slots"]),
+        "control_slots": int(limits["control_slots"]),
+        "message_bytes": int(limits["message_bytes"]),
+        "fragments": int(limits["fragments"]),
+        "chunk_bytes": int(limits["chunk_bytes"]),
+        "encoded_mtu": int(binding["encoded_mtu"]),
+        "forward_mtu": int(binding["forward_mtu"]),
+        "return_mtu": int(binding["return_mtu"]),
+        "queue_ms": int(timing["queue_ms"]),
+        "response_timeout_ms": int(timing["response_timeout_ms"]),
+        "jitter_ms": int(timing["jitter_ms"]),
+        "send_horizon_ms": int(timing["send_horizon_ms"]),
+        "max_bursts": int(timing["max_bursts"]),
+        "receipt_delay_ms": int(timing["receipt_delay_ms"]),
+        "receipt_limit": int(timing["receipt_limit"]),
+        "dedup_ms": int(timing["dedup_ms"]),
+        "rejection_ms": int(timing["rejection_ms"]),
+        "result_cache_ms": int(timing["result_cache_ms"]),
+        "result_deadline_ms": int(timing["result_deadline_ms"]),
+        "correlation_ms": int(timing["correlation_ms"]),
+        "tombstone_ms": int(timing["tombstone_ms"]),
+        "late_result_ms": int(timing["late_result_ms"]),
+        "collect_ms": int(timing["collect_ms"]),
+        "assembly_ms": int(timing["assembly_ms"]),
+        "tx_borrow": 1 if binding["tx_ownership"] == "borrow" else 0,
+        "synchronous_completion": 1 if binding["synchronous_completion"] else 0,
+    }
+
+
+def run_admit(executable, fields):
+    payload = "".join(f"{name} {fields[name]}\n" for name in FIELDS)
+    completed = subprocess.run(
+        [executable, "--config"],
+        input=payload,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr)
+    parsed = {}
+    for line in completed.stdout.splitlines():
+        key, value = line.split(" ", 1)
+        parsed[key] = value
+    return parsed
+
+
+def expect_deployment(executable, name):
+    path = ROOT / "profiles" / "deployments" / name
+    raw = path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    python_result = validator.validate_bytes(raw)
     if python_result["sha256"] != digest:
-        raise AssertionError(f"{label}: Python digest mismatch")
-    result = run_gate(executable, raw, digest)
-    if result["status"] != "ok" or result["sha256"] != digest:
-        raise AssertionError(f"{label}: C did not admit the Python-valid profile: {result}")
-    wrong = "0" * 64 if digest[0] != "0" else "1" * 64
-    rejected = run_gate(executable, raw, wrong)
-    if rejected["status"] != "integrity_failure" or rejected["code"] != "digest" or rejected["path"] != "$":
-        raise AssertionError(f"{label}: wrong digest returned {rejected}")
+        raise AssertionError(f"{name}: validator digest is not hashlib of the file bytes")
+    document = json.loads(raw.decode("utf-8"))
+    fields = typed_fields(raw, document)
+    if fields["sha256"] != digest:
+        raise AssertionError(f"{name}: typed digest was not the original-byte hash")
+    admitted = run_admit(executable, fields)
+    if admitted.get("status") != "ok":
+        raise AssertionError(f"{name}: C admission returned {admitted.get('status')}")
+    for key in FIELDS:
+        if admitted.get(key) != str(fields[key]):
+            raise AssertionError(
+                f"{name}: admitted {key}={admitted.get(key)} expected {fields[key]}")
 
 
 def main(argv):
     if len(argv) != 2:
         raise SystemExit("usage: parity_drive.py <dmp_test_profile_admit>")
     executable = argv[1]
-    corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
-    mutations = corpus["mutation_cases"]
-    raw_cases = corpus["raw_cases"]
-    if len(mutations) != 43 or len(raw_cases) != 17:
-        raise SystemExit(f"unexpected corpus size: {len(mutations)} mutations, {len(raw_cases)} raw")
+    if not CORPUS.is_file():
+        raise SystemExit(f"missing invalid corpus {CORPUS}")
     fixtures = sorted(FIXTURES.glob("*.json"))
     if len(fixtures) != 3:
         raise SystemExit(f"expected 3 fixtures, found {len(fixtures)}")
-    for fixture in fixtures:
-        expect_success(executable, fixture.read_bytes(), fixture.name)
     for name in DEPLOYMENTS:
-        raw = (ROOT / "profiles" / "deployments" / name).read_bytes()
-        expect_success(executable, raw, name)
-    for case in mutations:
-        source = json.loads((FIXTURES / case["fixture"]).read_text(encoding="utf-8"))
-        raw = json.dumps(_mutate(source, case["mutations"]), separators=(",", ":")).encode()
-        expect_failure(executable, raw, case["expected_code"], case["expected_path"], case["name"])
-    for case in raw_cases:
-        expect_failure(executable, _raw_case(case), case["expected_code"], case["expected_path"], case["name"])
-    print(f"parity ok: {len(fixtures)} fixtures, {len(DEPLOYMENTS)} deployments, "
-          f"{len(mutations)} mutations, {len(raw_cases)} raw")
+        expect_deployment(executable, name)
+    print(f"parity ok: {len(DEPLOYMENTS)} deployments; "
+          f"invalid corpus and {len(fixtures)} fixtures remain host-side")
     return 0
 
 

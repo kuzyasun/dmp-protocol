@@ -1,8 +1,0 @@
-build/dh01-baseline-handshakestate.c: In function 'noise_handshakestate_requirements':
-build/dh01-baseline-handshakestate.c:67:37: error: unused parameter 'prefix_id' [-Werror=unused-parameter]
-   67 |     (NoisePatternFlags_t flags, int prefix_id, int role, int is_fallback)
-      |                                 ~~~~^~~~~~~~~
-build/dh01-baseline-handshakestate.c:67:52: error: unused parameter 'role' [-Werror=unused-parameter]
-   67 |     (NoisePatternFlags_t flags, int prefix_id, int role, int is_fallback)
-      |                                                ~~~~^~~~
-cc1.exe: all warnings being treated as errors

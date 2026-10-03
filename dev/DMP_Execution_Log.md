@@ -1101,3 +1101,74 @@ clear the binary path from the baseline-to-target diff. Workaround required:
 exclude `**/__pycache__/**` from the registered DMP snapshot coverage (or make
 the baseline and target cache bytes identical) before capturing a new review
 target. No turn or response was replayed.
+
+## 2026-10-04 — Stage-1 evidence cleanup
+
+Worker-only cleanup on `feat/initial-version` at
+`fc83b84354d16bd72164d37eb5b5e9efd862f321`. P11 was already committed and in
+`review`, not a live assignment. No P09–P11 implementation, public API, CMake,
+profile, or P12 file was edited. The staged `dev/DMP_Correction_Plan.md` index
+entry was left untouched. No stage, commit, push, flash, or DTrack action.
+
+Removed 330 tracked intermediate artifacts (jsonl traces, build/serial logs,
+gzip archives, symbol/size dumps, and large run summaries), 44666522 worktree
+bytes. Every removed path is in that commit. Sorted path-list SHA-256:
+`d34cc7fc0ac08494b3518656a7c26625b668d65b2cd33bdcc92fceedc8cf0c08`.
+Tracked evidence present afterward: 221 files, 898996 bytes. Ignored
+uncommitted `dev/evidence/p00/initial-*.patch` (425757 bytes) was retained.
+`test_resource_input_hashes_match_source_bytes` passed (1 test). Consolidated
+measurements are in `dev/DMP_Validation_Results.md`. Config-API correction was
+not started.
+
+## 2026-10-04 — Stage-2 configuration freeze
+
+Froze the typed configuration API, ownership rules, and acceptance checks in
+`dev/DMP_Correction_Plan.md` under "Frozen stage-2 contract (2026-10-04)".
+Baseline is HEAD `fc83b84354d16bd72164d37eb5b5e9efd862f321` plus the stage-1
+worktree. No code, P12, stage, commit, push, flash, or DTrack action. The
+index was left holding only the already staged correction plan.
+
+## 2026-10-04 — Stage-3 typed admission
+
+Replaced JSON admission in `libdmp` with `dmp_config_admit`. `dmp_config` and
+`dmp_admitted_profile` are one struct layout. Host tools still own JSON and
+`PROFILE_HASH`. No P12, stage, commit, push, flash, or DTrack action. The index
+was left holding only `dev/DMP_Correction_Plan.md`.
+
+Host tools: GCC 15.2.0, CMake/CTest 3.28.1, Python 3.12.8, GNU nm (Binutils)
+2.45 at `C:\develop\mingw\w64devkit\bin\nm.exe`. Rebuilt existing `build/host`
+without deleting it.
+
+`sizeof(dmp_reassembly_tombstone)` is 48. The six-row budget is in
+`dev/DMP_Validation_Results.md`.
+
+Commands and outcomes:
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "identity.profile_admit|identity.profile_parity|identity.context|reliability.direct|reassembly.direct"` — 5/5 passed, 0 failed (`identity.context`, `identity.profile_admit`, `identity.profile_parity`, `reassembly.direct`, `reliability.direct`).
+- `python -m unittest discover -s tests/profiles -p "test_*.py" -v` — 24 tests, OK.
+- `python tools/validate_profile.py profiles/deployments/direct-nnpsk0.json` — `valid: true`, sha256 `3d0229efafa5d15c1fcfe19265d81c70e7b004976d28303fb92fc27e4a357e2a`.
+- `python -m unittest tests.profiles.test_deployments.DeploymentTests.test_resource_input_hashes_match_source_bytes` — 1 test, OK.
+- `python tools/check_core_allocators.py build/host/libdmp.a --nm nm` — `no allocator references in build\host\libdmp.a`.
+- `nm --defined-only build/host/libdmp.a` — defined `T dmp_config_admit`; `dmp_profile_admit` absent.
+
+## 2026-10-04 — Reassembly test admission bypass removed
+
+`gate_profile()` in `tests/reassembly/test_reassembly.c` no longer treats
+`DMP_UNSUPPORTED` as success. `boot()` and the extra-storage path call
+`dmp_reassembly_init` only after `dmp_config_admit` returns `DMP_OK`. The
+profile with `assembly_tombstones_per_peer < assemblies_per_peer` is checked as
+`DMP_UNSUPPORTED` with an unchanged output and is not initialized. Production
+sources were not edited. Existing `build/host` was not deleted.
+
+- `cmake --build build/host --target dmp_test_reassembly` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "reassembly.direct|reliability.direct|identity.profile_admit"` — 3/3 passed, 0 failed (`identity.profile_admit`, `reassembly.direct`, `reliability.direct`).
+
+## 2026-10-04 — Coordinator rerun after the bypass fix
+
+Inspected `gate_profile()`: success paths call `dmp_reassembly_init` only after
+`DMP_OK`. The inadmissible tombstone/assembly pair is rejected and not
+initialized. Reran
+`ctest --test-dir build/host --output-on-failure -R "identity.profile_admit|identity.profile_parity|identity.context|reliability.direct|reassembly.direct"`:
+5/5 passed, 0 failed. P11 stays `review`. P12 was not started. No stage,
+commit, or push.

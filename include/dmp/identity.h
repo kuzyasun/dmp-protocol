@@ -97,28 +97,20 @@ dmp_status dmp_identity_reply_to(const dmp_frame_view *frame,
 
 enum {
     DMP_PROFILE_SHA256_BYTES = 32,
-    DMP_PROFILE_MAX_BYTES = 262144,
-    DMP_PROFILE_ADMIT_SCRATCH_BYTES = 419936,
     DMP_PROFILE_NODE_COUNT = 2,
     DMP_PROFILE_SERVICE_COUNT = 2
 };
-
-typedef dmp_status (*dmp_profile_sha256_fn)(void *context, dmp_bytes input,
-                                           uint8_t output[DMP_PROFILE_SHA256_BYTES]);
 
 typedef enum {
     DMP_PROFILE_RECOVERY_RETRY_ALL = 0,
     DMP_PROFILE_RECOVERY_SELECTIVE32 = 1
 } dmp_profile_recovery;
 
-/* The admitted view is copied from validated manifest bytes. It contains only
- * identity, operation/reassembly bounds and deadlines consumed by P10/P11; all
- * other manifest fields are still validated before admission. The sender,
- * assembly, expiry-tombstone, result, history, correlation and adapter slot
- * counts come from the endpoint resource row. control_slots and
- * application_queue_slots remain operational limits; admission verifies the
- * endpoint charges fund those limits. */
-typedef struct {
+/* One layout. dmp_config is borrowed for the call. dmp_admitted_profile is the
+ * caller-owned admitted copy. sha256 is opaque and is never hashed here.
+ * Slot counts and message_bytes are inputs. Admission does not own TX buffers;
+ * tx_borrow and synchronous_completion are flags only. */
+typedef struct dmp_config {
     uint8_t sha256[DMP_PROFILE_SHA256_BYTES];
     uint32_t namespace_id;
     uint32_t node_id[DMP_PROFILE_NODE_COUNT];
@@ -162,27 +154,20 @@ typedef struct {
     uint32_t assembly_ms;
     bool tx_borrow;
     bool synchronous_completion;
-} dmp_admitted_profile;
+} dmp_config;
 
-typedef struct {
-    char code[32];
-    char path[192];
-} dmp_profile_failure;
+typedef dmp_config dmp_admitted_profile;
 
-/* Validate exact UTF-8 manifest bytes with the complete P02 field and
- * cross-field contract before any traffic can start. scratch is caller-owned
- * and must be at least DMP_PROFILE_ADMIT_SCRATCH_BYTES; neither raw nor scratch
- * is retained. sha256 is mandatory and hashes the unmodified input bytes. The
- * optional expected digest is compared only after the profile itself validates.
- * On failure, *out is unchanged. Profile contract errors publish a stable code
- * and JSON path through failure; malformed bytes return DMP_MALFORMED,
- * unsupported profiles return DMP_UNSUPPORTED, and digest mismatch returns
- * DMP_INTEGRITY_FAILURE. */
-dmp_status dmp_profile_admit(dmp_bytes raw,
-                              const uint8_t expected_sha256[DMP_PROFILE_SHA256_BYTES],
-                              dmp_profile_sha256_fn sha256, void *sha256_context,
-                              dmp_buffer scratch, dmp_admitted_profile *out,
-                              dmp_profile_failure *failure);
+/* Borrow in until return. Copy into caller-owned *out only after every check
+ * passes. Failure leaves *out unchanged. No scratch and no allocation.
+ * DMP_INVALID_ARGUMENT: null, in == out, a zero message/chunk/encoded_mtu/
+ * fragments, fragments > 32, or overflow of a derived product.
+ * DMP_UNSUPPORTED: default_service is 0 or outside service_id[], the two
+ * service ids are equal, chunk_bytes >= message_bytes, peers == 0,
+ * assembly_tombstones_per_peer < assemblies_per_peer, or
+ * assembly_tombstone_slots < peers * assembly_tombstones_per_peer.
+ * JSON syntax and digest mismatch are not admission results. */
+dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out);
 
 #ifdef __cplusplus
 }

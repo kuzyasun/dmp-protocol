@@ -1,3 +1,0 @@
-build/noise-experiments/tests/provider/libdmp_noise_checked_startup.a:handshakestate.c.obj:                 U malloc
-build/noise-experiments/tests/provider/libdmp_noise_checked_startup.a:util.c.obj:                 U calloc
-build/noise-experiments/tests/provider/libdmp_noise_checked_startup.a:util.c.obj:                 U free

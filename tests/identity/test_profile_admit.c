@@ -1,8 +1,17 @@
-#include "dmp/identity.h"
+#include "dmp/reassembly.h"
+#include "dmp/reliability.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(DMP_PROFILE_ADMIT_SCRATCH_BYTES) || defined(DMP_PROFILE_MAX_BYTES)
+#error removed profile admission constants
+#endif
+
+#ifndef DMP_SOURCE_DIR
+#error DMP_SOURCE_DIR is required
+#endif
 
 #define CHECK(condition)                                                     \
     do {                                                                     \
@@ -13,121 +22,370 @@
         }                                                                    \
     } while (0)
 
-static uint32_t rotr(uint32_t value, unsigned bits)
-{
-    return (value >> bits) | (value << (32U - bits));
-}
+enum {
+    DIRECT_MESSAGE = 1024,
+    DIRECT_FRAGMENTS = 16,
+    DIRECT_CHUNK = 64,
+    DIRECT_MTU = 263,
+    DIRECT_SENDER = 4,
+    DIRECT_RESULT = 4,
+    DIRECT_HISTORY = 8,
+    DIRECT_CORRELATION = 4,
+    DIRECT_ASSEMBLY = 1,
+    DIRECT_TOMBSTONES = 16,
+    DIRECT_ADAPTER = 2,
+    DIRECT_CONTROL = 2,
+    RESERVE_ADAPTER = 3
+};
 
-static void sha256_block(uint32_t state[8], const uint8_t block[64])
+static void valid_config(dmp_config *config)
 {
-    static const uint32_t k[64] = {
-        0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U,
-        0x923f82a4U, 0xab1c5ed5U, 0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U,
-        0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U, 0xe49b69c1U, 0xefbe4786U,
-        0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
-        0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U, 0xc6e00bf3U, 0xd5a79147U,
-        0x06ca6351U, 0x14292967U, 0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U,
-        0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U, 0xa2bfe8a1U, 0xa81a664bU,
-        0xc24b8b70U, 0xc76c51a3U, 0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
-        0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U, 0x391c0cb3U, 0x4ed8aa4aU,
-        0x5b9cca4fU, 0x682e6ff3U, 0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U,
-        0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U
-    };
-    uint32_t w[64];
-    uint32_t a, b, c, d, e, f, g, h;
     unsigned i;
-    for (i = 0U; i < 16U; i++) {
-        w[i] = ((uint32_t)block[i * 4U] << 24) | ((uint32_t)block[i * 4U + 1U] << 16) |
-               ((uint32_t)block[i * 4U + 2U] << 8) | (uint32_t)block[i * 4U + 3U];
+    memset(config, 0, sizeof *config);
+    for (i = 0U; i < DMP_PROFILE_SHA256_BYTES; i++) {
+        config->sha256[i] = (uint8_t)(0xA0U + i);
     }
-    for (i = 16U; i < 64U; i++) {
-        uint32_t s0 = rotr(w[i - 15U], 7U) ^ rotr(w[i - 15U], 18U) ^ (w[i - 15U] >> 3U);
-        uint32_t s1 = rotr(w[i - 2U], 17U) ^ rotr(w[i - 2U], 19U) ^ (w[i - 2U] >> 10U);
-        w[i] = w[i - 16U] + s0 + w[i - 7U] + s1;
-    }
-    a = state[0];
-    b = state[1];
-    c = state[2];
-    d = state[3];
-    e = state[4];
-    f = state[5];
-    g = state[6];
-    h = state[7];
-    for (i = 0U; i < 64U; i++) {
-        uint32_t s1 = rotr(e, 6U) ^ rotr(e, 11U) ^ rotr(e, 25U);
-        uint32_t ch = (e & f) ^ ((~e) & g);
-        uint32_t t1 = h + s1 + ch + k[i] + w[i];
-        uint32_t s0 = rotr(a, 2U) ^ rotr(a, 13U) ^ rotr(a, 22U);
-        uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
-        h = g;
-        g = f;
-        f = e;
-        e = d + t1;
-        d = c;
-        c = b;
-        b = a;
-        a = t1 + s0 + maj;
-    }
-    state[0] += a;
-    state[1] += b;
-    state[2] += c;
-    state[3] += d;
-    state[4] += e;
-    state[5] += f;
-    state[6] += g;
-    state[7] += h;
+    config->namespace_id = 1U;
+    config->node_id[0] = 10U;
+    config->node_id[1] = 20U;
+    config->default_service = 1U;
+    config->service_id[0] = 1U;
+    config->service_id[1] = 2U;
+    config->peers = 1U;
+    config->operations_per_service = 1U;
+    config->assemblies_per_peer = 1U;
+    config->assembly_tombstones_per_peer = 1U;
+    config->sender_slots = 1U;
+    config->assembly_slots = 1U;
+    config->assembly_tombstone_slots = 1U;
+    config->result_slots = 1U;
+    config->history_slots = 1U;
+    config->correlation_slots = 1U;
+    config->adapter_slots = 2U;
+    config->application_queue_slots = 1U;
+    config->control_slots = 1U;
+    config->message_bytes = 64U;
+    config->fragments = 2U;
+    config->chunk_bytes = 16U;
+    config->encoded_mtu = 32U;
+    config->forward_mtu = 32U;
+    config->return_mtu = 32U;
+    config->tx_borrow = true;
+    config->synchronous_completion = false;
 }
 
-static dmp_status sha256_of(void *context, dmp_bytes input, uint8_t output[32])
+#define REJECT(setup, status)                                                \
+    do {                                                                     \
+        dmp_config in_;                                                      \
+        dmp_admitted_profile out_;                                           \
+        dmp_admitted_profile saved_;                                         \
+        valid_config(&in_);                                                  \
+        setup;                                                               \
+        memset(&out_, 0x3C, sizeof out_);                                    \
+        saved_ = out_;                                                       \
+        CHECK(dmp_config_admit(&in_, &out_) == (status));                    \
+        if ((status) == DMP_OK) {                                            \
+            CHECK(memcmp(&in_, &out_, sizeof in_) == 0);                     \
+        } else {                                                             \
+            CHECK(memcmp(&out_, &saved_, sizeof out_) == 0);                 \
+        }                                                                    \
+    } while (0)
+
+static int test_arguments_and_copy(void)
 {
-    uint32_t state[8] = { 0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
-                          0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U };
-    uint8_t block[64];
+    dmp_config in;
+    dmp_admitted_profile out;
+    dmp_admitted_profile same;
+    dmp_admitted_profile saved;
+    unsigned i;
+
+    memset(&out, 0x3C, sizeof out);
+    saved = out;
+    CHECK(dmp_config_admit(NULL, &out) == DMP_INVALID_ARGUMENT);
+    CHECK(memcmp(&out, &saved, sizeof out) == 0);
+    valid_config(&in);
+    CHECK(dmp_config_admit(&in, NULL) == DMP_INVALID_ARGUMENT);
+
+    memset(&same, 0xA5, sizeof same);
+    saved = same;
+    CHECK(dmp_config_admit(&same, &same) == DMP_INVALID_ARGUMENT);
+    CHECK(memcmp(&same, &saved, sizeof same) == 0);
+
+    valid_config(&in);
+    memset(&out, 0x3C, sizeof out);
+    CHECK(dmp_config_admit(&in, &out) == DMP_OK);
+    CHECK(memcmp(&in, &out, sizeof in) == 0);
+    for (i = 0U; i < DMP_PROFILE_SHA256_BYTES; i++) {
+        CHECK(out.sha256[i] == (uint8_t)(0xA0U + i));
+    }
+    CHECK(out.tx_borrow == true);
+    CHECK(out.synchronous_completion == false);
+
+    REJECT(in_.message_bytes = 0U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.chunk_bytes = 0U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.encoded_mtu = 0U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.fragments = 0U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.fragments = 33U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.fragments = 1U, DMP_OK);
+    REJECT(in_.fragments = 32U, DMP_OK);
+    REJECT(in_.sender_slots = 0x80000000U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.result_slots = 0x80000000U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.history_slots = 16843010U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.correlation_slots = 16843010U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.adapter_slots = 0x80000000U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.assembly_slots = 0x80000000U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.assembly_slots = 16843010U; in_.message_bytes = 64U;
+           in_.chunk_bytes = 16U, DMP_INVALID_ARGUMENT);
+    REJECT(in_.peers = 65536U; in_.assembly_tombstones_per_peer = 65536U;
+           in_.assembly_tombstone_slots = 0U, DMP_INVALID_ARGUMENT);
+
+    REJECT(in_.default_service = 0U, DMP_UNSUPPORTED);
+    REJECT(in_.default_service = 3U, DMP_UNSUPPORTED);
+    REJECT(in_.service_id[0] = 1U; in_.service_id[1] = 1U; in_.default_service = 1U,
+           DMP_UNSUPPORTED);
+    REJECT(in_.chunk_bytes = in_.message_bytes, DMP_UNSUPPORTED);
+    REJECT(in_.chunk_bytes = in_.message_bytes + 1U, DMP_UNSUPPORTED);
+    REJECT(in_.peers = 0U, DMP_UNSUPPORTED);
+    REJECT(in_.assembly_tombstones_per_peer = 0U, DMP_UNSUPPORTED);
+    REJECT(in_.peers = 2U; in_.assembly_tombstone_slots = 1U, DMP_UNSUPPORTED);
+    REJECT(in_.default_service = 2U, DMP_OK);
+    REJECT(in_.peers = 2U; in_.assembly_tombstone_slots = 2U, DMP_OK);
+    return 0;
+}
+
+static int header_closed(void)
+{
+    FILE *in;
+    char chunk[1024];
+    size_t n;
+    int saw_new = 0;
+    char window[2048];
     size_t filled = 0U;
-    size_t offset = 0U;
-    uint64_t bits;
+    static const char scratch[] = "419936";
+    static const char old_fn[] = "dmp_profile_admit";
+    static const char old_scratch[] = "DMP_PROFILE_ADMIT_SCRATCH_BYTES";
+    static const char old_max[] = "DMP_PROFILE_MAX_BYTES";
+    static const char new_fn[] = "dmp_config_admit";
+
+    in = fopen(DMP_SOURCE_DIR "/include/dmp/identity.h", "rb");
+    CHECK(in != NULL);
+    memset(window, 0, sizeof window);
+    while ((n = fread(chunk, 1U, sizeof chunk, in)) != 0U) {
+        size_t i;
+        for (i = 0U; i < n; i++) {
+            if (filled + 1U >= sizeof window) {
+                memmove(window, window + filled / 2U, filled - filled / 2U);
+                filled -= filled / 2U;
+            }
+            window[filled++] = chunk[i];
+            window[filled] = '\0';
+            if (strstr(window, scratch) != NULL || strstr(window, old_fn) != NULL ||
+                strstr(window, old_scratch) != NULL || strstr(window, old_max) != NULL) {
+                (void)fclose(in);
+                (void)fprintf(stderr, "public header still exposes removed admission API\n");
+                return 1;
+            }
+            if (strstr(window, new_fn) != NULL) {
+                saw_new = 1;
+            }
+        }
+    }
+    CHECK(ferror(in) == 0);
+    (void)fclose(in);
+    CHECK(saw_new == 1);
+    return 0;
+}
+
+static void direct_limits(dmp_config *config, uint32_t adapter_slots)
+{
+    memset(config, 0, sizeof *config);
+    config->namespace_id = 1U;
+    config->node_id[0] = 10U;
+    config->node_id[1] = 20U;
+    config->default_service = 1U;
+    config->service_id[0] = 1U;
+    config->service_id[1] = 2U;
+    config->peers = 1U;
+    config->operations_per_service = 1U;
+    config->assemblies_per_peer = 1U;
+    config->assembly_tombstones_per_peer = DIRECT_TOMBSTONES;
+    config->sender_slots = DIRECT_SENDER;
+    config->assembly_slots = DIRECT_ASSEMBLY;
+    config->assembly_tombstone_slots = DIRECT_TOMBSTONES;
+    config->result_slots = DIRECT_RESULT;
+    config->history_slots = DIRECT_HISTORY;
+    config->correlation_slots = DIRECT_CORRELATION;
+    config->adapter_slots = adapter_slots;
+    config->application_queue_slots = 2U;
+    config->control_slots = DIRECT_CONTROL;
+    config->message_bytes = DIRECT_MESSAGE;
+    config->fragments = DIRECT_FRAGMENTS;
+    config->chunk_bytes = DIRECT_CHUNK;
+    config->encoded_mtu = DIRECT_MTU;
+    config->forward_mtu = 256U;
+    config->return_mtu = 256U;
+}
+
+static void smaller_unfragmented(dmp_config *config)
+{
+    direct_limits(config, RESERVE_ADAPTER);
+    config->sender_slots = 1U;
+    config->result_slots = 1U;
+    config->assembly_slots = 0U;
+    config->assembly_tombstone_slots = 0U;
+    config->assemblies_per_peer = 0U;
+    config->assembly_tombstones_per_peer = 0U;
+    config->fragments = 2U;
+}
+
+static uint64_t eight_sum(const dmp_config *config)
+{
+    return (uint64_t)config->sender_slots * config->message_bytes +
+           (uint64_t)config->result_slots * config->message_bytes +
+           config->message_bytes +
+           (uint64_t)config->history_slots * (uint64_t)DMP_MAX_HEADER_BYTES +
+           (uint64_t)config->correlation_slots * (uint64_t)DMP_MAX_HEADER_BYTES +
+           (uint64_t)config->adapter_slots * config->encoded_mtu +
+           (uint64_t)config->assembly_slots * config->message_bytes +
+           (uint64_t)config->assembly_slots * (uint64_t)DMP_REASSEMBLY_METADATA_BYTES;
+}
+
+static size_t state_bytes(int reassembly, uint32_t assembly_slots)
+{
+    size_t bytes = sizeof(dmp_identity_slot) + sizeof(dmp_reliability);
+    if (reassembly) {
+        bytes += sizeof(dmp_reassembly_slot) * (size_t)assembly_slots + sizeof(dmp_reassembly);
+    }
+    return bytes;
+}
+
+static int test_budget(void)
+{
+    static const uint32_t budgets[6] = {1024U, 2048U, 3072U, 4096U, 8192U, 16384U};
+    dmp_config manifest;
+    dmp_config reserve;
+    dmp_config smaller;
+    dmp_admitted_profile out;
+    uint64_t manifest_sum;
+    uint64_t smaller_sum;
+    uint64_t reserve_sum;
+    size_t tombstone_one;
     unsigned i;
-    (void)context;
-    if (output == NULL || (input.size != 0U && input.data == NULL)) {
-        return DMP_INVALID_ARGUMENT;
+
+    CHECK(sizeof(dmp_reassembly_tombstone) == 48U);
+    tombstone_one = sizeof(dmp_reassembly_tombstone);
+    direct_limits(&manifest, DIRECT_ADAPTER);
+    direct_limits(&reserve, RESERVE_ADAPTER);
+    smaller_unfragmented(&smaller);
+    CHECK(dmp_config_admit(&manifest, &out) == DMP_OK);
+    CHECK(memcmp(&manifest, &out, sizeof manifest) == 0);
+    CHECK(manifest.adapter_slots == manifest.control_slots);
+    CHECK(dmp_config_admit(&reserve, &out) == DMP_OK);
+    CHECK(dmp_config_admit(&smaller, &out) == DMP_OK);
+    CHECK(smaller.adapter_slots > smaller.control_slots);
+    CHECK(smaller.control_slots >= 1U);
+    CHECK(smaller.message_bytes == DIRECT_MESSAGE);
+    CHECK(smaller.history_slots == DIRECT_HISTORY);
+    CHECK(smaller.correlation_slots == DIRECT_CORRELATION);
+    CHECK(reserve.assembly_tombstone_slots == DIRECT_TOMBSTONES);
+    CHECK(reserve.assembly_tombstones_per_peer >= reserve.assemblies_per_peer);
+    CHECK(reserve.assembly_tombstone_slots >=
+          reserve.peers * reserve.assembly_tombstones_per_peer);
+
+    manifest_sum = eight_sum(&manifest);
+    reserve_sum = eight_sum(&reserve);
+    smaller_sum = eight_sum(&smaller);
+    CHECK(manifest_sum == 14081ULL);
+    CHECK(reserve_sum == 14344ULL);
+    CHECK(smaller_sum == 6921ULL);
+    {
+        dmp_config unfragmented;
+        memset(&unfragmented, 0, sizeof unfragmented);
+        unfragmented.sender_slots = DIRECT_SENDER;
+        unfragmented.result_slots = DIRECT_RESULT;
+        unfragmented.history_slots = DIRECT_HISTORY;
+        unfragmented.correlation_slots = DIRECT_CORRELATION;
+        unfragmented.adapter_slots = DIRECT_ADAPTER;
+        unfragmented.message_bytes = DIRECT_MESSAGE;
+        unfragmented.encoded_mtu = DIRECT_MTU;
+        CHECK(eight_sum(&unfragmented) == 12802ULL);
+        CHECK(12802ULL > 8192ULL);
     }
-    while (offset < input.size) {
-        size_t space = 64U - filled;
-        size_t take = input.size - offset;
-        if (take > space) {
-            take = space;
+
+    (void)printf("SIZE identity_slot=%zu reliability=%zu reassembly_slot=%zu "
+                 "reassembly=%zu tombstone=%zu\n",
+                 sizeof(dmp_identity_slot), sizeof(dmp_reliability),
+                 sizeof(dmp_reassembly_slot), sizeof(dmp_reassembly), tombstone_one);
+    (void)printf("NOTE manifest adapter_slots=%u control_slots=%u eight_sum=%llu "
+                 "admits; reliability reserve is a separate engine rule\n",
+                 manifest.adapter_slots, manifest.control_slots,
+                 (unsigned long long)manifest_sum);
+
+    for (i = 0U; i < 6U; i++) {
+        const dmp_config *config;
+        int supported;
+        int reassembly;
+        uint64_t sum;
+        size_t tombs;
+        size_t state;
+        const char *capability;
+
+        if (budgets[i] >= 16384U) {
+            config = &reserve;
+            supported = 1;
+            reassembly = 1;
+            capability = "direct-nnpsk0 reassembly limits; adapter_slots 3 so "
+                         "adapter_slots > control_slots 2; manifest pair is 2 and 2";
+        } else if (budgets[i] >= 8192U) {
+            config = &smaller;
+            supported = 1;
+            reassembly = 0;
+            capability = "unfragmented reliability; omits assembly payload and "
+                         "assembly metadata; tombstones omitted; direct message, "
+                         "history 8, correlation 4, control_slots 2, adapter_slots 3; "
+                         "sender and result concurrency 1";
+        } else {
+            config = &smaller;
+            supported = 0;
+            reassembly = 0;
+            capability = "unsupported; preserved direct message 1024, history 8, "
+                         "correlation 4, control_slots 2, adapter_slots 3; "
+                         "unfragmented; eight-array sum exceeds the budget";
         }
-        memcpy(block + filled, input.data + offset, take);
-        filled += take;
-        offset += take;
-        if (filled == 64U) {
-            sha256_block(state, block);
-            filled = 0U;
+        sum = eight_sum(config);
+        tombs = reassembly ? (size_t)config->assembly_tombstone_slots * tombstone_one : 0U;
+        state = state_bytes(reassembly, config->assembly_slots);
+        if (supported) {
+            CHECK(sum <= budgets[i]);
+            CHECK(config->adapter_slots > config->control_slots);
+            CHECK(config->control_slots >= 1U);
+        } else {
+            CHECK(sum > budgets[i]);
+            CHECK(config->message_bytes == DIRECT_MESSAGE);
+            CHECK(config->history_slots == DIRECT_HISTORY);
+            CHECK(config->control_slots == DIRECT_CONTROL);
+            CHECK(config->adapter_slots > config->control_slots);
         }
-    }
-    block[filled++] = 0x80U;
-    if (filled > 56U) {
-        while (filled < 64U) {
-            block[filled++] = 0U;
+        if (reassembly) {
+            CHECK(tombs == 16U * 48U);
+            CHECK(config->assembly_slots != 0U);
+        } else {
+            CHECK(config->assembly_slots == 0U);
+            CHECK(tombs == 0U);
         }
-        sha256_block(state, block);
-        filled = 0U;
+        (void)printf(
+            "BUDGET_ROW budget=%u supported=%d capability=\"%s\" message_bytes=%u "
+            "fragments=%u chunk_bytes=%u peers=%u sender=%u result=%u history=%u "
+            "correlation=%u adapter=%u control=%u assembly=%u tombstone_slots=%u "
+            "eight_sum=%llu state_bytes=%zu tombstone_bytes=%zu crypto=excluded "
+            "stack=excluded json_scratch=0\n",
+            budgets[i], supported, capability, config->message_bytes, config->fragments,
+            config->chunk_bytes, config->peers, config->sender_slots, config->result_slots,
+            config->history_slots, config->correlation_slots, config->adapter_slots,
+            config->control_slots, config->assembly_slots, config->assembly_tombstone_slots,
+            (unsigned long long)sum, state, tombs);
     }
-    while (filled < 56U) {
-        block[filled++] = 0U;
-    }
-    bits = (uint64_t)input.size * 8U;
-    for (i = 0U; i < 8U; i++) {
-        block[56U + i] = (uint8_t)(bits >> (56U - 8U * i));
-    }
-    sha256_block(state, block);
-    for (i = 0U; i < 8U; i++) {
-        output[i * 4U] = (uint8_t)(state[i] >> 24);
-        output[i * 4U + 1U] = (uint8_t)(state[i] >> 16);
-        output[i * 4U + 2U] = (uint8_t)(state[i] >> 8);
-        output[i * 4U + 3U] = (uint8_t)state[i];
-    }
-    return DMP_OK;
+    return 0;
 }
 
 static int hex_nibble(char c)
@@ -147,9 +405,6 @@ static int hex_nibble(char c)
 static int parse_hex(const char *text, uint8_t out[32])
 {
     unsigned i;
-    if (text == NULL) {
-        return 0;
-    }
     for (i = 0U; i < 32U; i++) {
         int hi = hex_nibble(text[i * 2U]);
         int lo = hex_nibble(text[i * 2U + 1U]);
@@ -169,267 +424,191 @@ static void print_hex(const uint8_t raw[32])
     }
 }
 
-static int gate(int argc, char **argv)
+static int read_u32(const char *text, uint32_t *out)
 {
-    static uint8_t raw_mem[DMP_PROFILE_MAX_BYTES + 2U];
-    static uint8_t scratch_mem[DMP_PROFILE_ADMIT_SCRATCH_BYTES];
-    uint8_t expected_mem[32];
-    const uint8_t *expected = NULL;
-    dmp_bytes raw;
-    dmp_buffer scratch;
-    dmp_admitted_profile profile;
-    dmp_profile_failure failure;
-    dmp_status status;
-    size_t n = 0U;
-    FILE *in;
-    memset(&profile, 0, sizeof profile);
-    memset(&failure, 0, sizeof failure);
-    if (argc >= 3 && argv[2][0] != '\0') {
-        if (!parse_hex(argv[2], expected_mem)) {
-            (void)fprintf(stderr, "expected digest must be 64 hex characters\n");
-            return 2;
-        }
-        expected = expected_mem;
-    }
-    in = strcmp(argv[1], "-") == 0 ? stdin : fopen(argv[1], "rb");
-    if (in == NULL) {
-        (void)fprintf(stderr, "cannot read input\n");
-        return 2;
-    }
-    while (n < sizeof raw_mem) {
-        size_t got = fread(raw_mem + n, 1U, sizeof raw_mem - n, in);
-        n += got;
-        if (got == 0U) {
-            break;
-        }
-    }
-    if (in != stdin) {
-        (void)fclose(in);
-    }
-    raw.data = n == 0U ? NULL : raw_mem;
-    raw.size = n;
-    scratch.data = scratch_mem;
-    scratch.capacity = sizeof scratch_mem;
-    status = dmp_profile_admit(raw, expected, sha256_of, NULL, scratch, &profile, &failure);
-    (void)printf("{\"status\":\"%s\",\"code\":\"%s\",\"path\":\"%s\",\"sha256\":\"",
-                 dmp_status_name(status), failure.code, failure.path);
-    if (status == DMP_OK) {
-        print_hex(profile.sha256);
-    }
-    (void)printf("\"}\n");
-    return 0;
-}
-
-static int admit_file(const char *path, dmp_admitted_profile *out, dmp_profile_failure *failure,
-                      const uint8_t *expected)
-{
-    FILE *in = fopen(path, "rb");
-    static uint8_t raw_mem[DMP_PROFILE_MAX_BYTES + 2U];
-    static uint8_t scratch_mem[DMP_PROFILE_ADMIT_SCRATCH_BYTES];
-    dmp_bytes raw;
-    dmp_buffer scratch;
-    size_t n = 0U;
-    CHECK(in != NULL);
-    while (n < sizeof raw_mem) {
-        size_t got = fread(raw_mem + n, 1U, sizeof raw_mem - n, in);
-        n += got;
-        if (got == 0U) {
-            break;
-        }
-    }
-    (void)fclose(in);
-    raw.data = raw_mem;
-    raw.size = n;
-    scratch.data = scratch_mem;
-    scratch.capacity = sizeof scratch_mem;
-    return dmp_profile_admit(raw, expected, sha256_of, NULL, scratch, out, failure) == DMP_OK ? 0 : 1;
-}
-
-static int set_charge_count(char *json, const char *component, const char *replacement)
-{
-    char component_field[96];
-    char *component_at;
-    char *object_end;
-    char *count_at;
-    char *digits;
-    char *digits_end;
-    int written = snprintf(component_field, sizeof component_field, "\"component\": \"%s\"", component);
-    size_t replacement_size = strlen(replacement);
-    if (written < 0 || (size_t)written >= sizeof component_field || replacement_size == 0U) {
+    char *end = NULL;
+    unsigned long value;
+    if (text == NULL || text[0] == '\0' || text[0] == '-') {
         return 0;
     }
-    component_at = strstr(json, component_field);
-    if (component_at == NULL) {
+    value = strtoul(text, &end, 10);
+    if (end == text || *end != '\0' || value > 0xFFFFFFFFUL) {
         return 0;
     }
-    object_end = strchr(component_at, '}');
-    count_at = strstr(component_at, "\"count\"");
-    if (object_end == NULL || count_at == NULL || count_at > object_end) {
-        return 0;
-    }
-    digits = strchr(count_at, ':');
-    if (digits == NULL || digits > object_end) {
-        return 0;
-    }
-    digits++;
-    while (*digits == ' ' || *digits == '\t') {
-        digits++;
-    }
-    digits_end = digits;
-    while (*digits_end >= '0' && *digits_end <= '9') {
-        digits_end++;
-    }
-    if (digits_end == digits || (size_t)(digits_end - digits) != replacement_size) {
-        return 0;
-    }
-    memcpy(digits, replacement, replacement_size);
+    *out = (uint32_t)value;
     return 1;
 }
 
-static int test_edges(void)
+static char *trim(char *line)
 {
-    static uint8_t scratch_mem[DMP_PROFILE_ADMIT_SCRATCH_BYTES];
-    uint8_t tiny[8];
-    dmp_buffer scratch = { scratch_mem, sizeof scratch_mem };
-    dmp_buffer small = { tiny, sizeof tiny };
-    dmp_admitted_profile profile;
-    dmp_profile_failure failure;
-    dmp_bytes raw;
+    size_t n;
+    while (*line == ' ' || *line == '\t') {
+        line++;
+    }
+    n = strlen(line);
+    while (n > 0U && (line[n - 1U] == '\n' || line[n - 1U] == '\r' || line[n - 1U] == ' ')) {
+        line[--n] = '\0';
+    }
+    return line;
+}
+
+static int take_line(char *key, size_t key_n, char *value, size_t value_n)
+{
+    char line[256];
+    char *body;
+    char *split;
+    if (fgets(line, (int)sizeof line, stdin) == NULL) {
+        return 0;
+    }
+    body = trim(line);
+    split = strchr(body, ' ');
+    if (split == NULL) {
+        return 0;
+    }
+    *split = '\0';
+    if (strlen(body) + 1U > key_n || strlen(split + 1) + 1U > value_n) {
+        return 0;
+    }
+    memcpy(key, body, strlen(body) + 1U);
+    memcpy(value, split + 1, strlen(split + 1) + 1U);
+    return 1;
+}
+
+static int expect_key(const char *name, char *value, size_t value_n)
+{
+    char key[64];
+    if (!take_line(key, sizeof key, value, value_n) || strcmp(key, name) != 0) {
+        (void)fprintf(stderr, "expected field %s\n", name);
+        return 0;
+    }
+    return 1;
+}
+
+static int expect_u32(const char *name, uint32_t *out)
+{
+    char value[64];
+    if (!expect_key(name, value, sizeof value) || !read_u32(value, out)) {
+        return 0;
+    }
+    return 1;
+}
+
+static int admit_config_stdio(void)
+{
+    dmp_config in;
+    dmp_admitted_profile out;
     dmp_status status;
-    const uint8_t bom[] = { 0xefU, 0xbbU, 0xbfU, '{' };
-    const uint8_t brace[] = { '{' };
-    char path[512];
-    uint8_t wrong[32];
+    char value[80];
+    uint32_t recovery0;
+    uint32_t recovery1;
+    uint32_t flag;
 
-    memset(&profile, 0xa5, sizeof profile);
-    memset(&failure, 0xa5, sizeof failure);
-    raw.data = NULL;
-    raw.size = 0U;
-    CHECK(dmp_profile_admit(raw, NULL, NULL, NULL, scratch, &profile, &failure) == DMP_INVALID_ARGUMENT);
-    CHECK(((uint8_t *)&profile)[0] == 0xa5U);
-    CHECK(dmp_profile_admit(raw, NULL, sha256_of, NULL, scratch, NULL, &failure) == DMP_INVALID_ARGUMENT);
-    status = dmp_profile_admit(raw, NULL, sha256_of, NULL, scratch, &profile, &failure);
-    CHECK(status == DMP_MALFORMED);
-    CHECK(strcmp(failure.code, "encoding") == 0);
-    CHECK(strcmp(failure.path, "$") == 0);
-    CHECK(((uint8_t *)&profile)[0] == 0xa5U);
-
-    raw.data = brace;
-    raw.size = 1U;
-    status = dmp_profile_admit(raw, NULL, sha256_of, NULL, scratch, &profile, &failure);
-    CHECK(status == DMP_MALFORMED);
-    CHECK(strcmp(failure.code, "json") == 0);
-    CHECK(strcmp(failure.path, "$") == 0);
-
-    raw.data = bom;
-    raw.size = sizeof bom;
-    status = dmp_profile_admit(raw, NULL, sha256_of, NULL, scratch, &profile, &failure);
-    CHECK(status == DMP_MALFORMED);
-    CHECK(strcmp(failure.code, "encoding") == 0);
-
-    raw.data = (const uint8_t *)"{}";
-    raw.size = 2U;
-    status = dmp_profile_admit(raw, NULL, sha256_of, NULL, small, &profile, &failure);
-    CHECK(status == DMP_INVALID_ARGUMENT);
-    CHECK(((uint8_t *)&profile)[0] == 0xa5U);
-    CHECK(failure.code[0] == 'e' || failure.code[0] == 'j' || failure.code[0] == 0xa5);
-
-    (void)snprintf(path, sizeof path, "%s/tests/profiles/fixtures/direct.json", DMP_SOURCE_DIR);
-    memset(&profile, 0, sizeof profile);
-    memset(&failure, 0xa5, sizeof failure);
-    CHECK(admit_file(path, &profile, &failure, NULL) == 0);
-    CHECK(profile.namespace_id == 1U);
-    CHECK(profile.node_id[0] == 10U);
-    CHECK(profile.node_id[1] == 20U);
-    CHECK(profile.default_service == 1U);
-    CHECK(profile.service_id[0] == 1U || profile.service_id[1] == 1U);
-    CHECK(profile.message_bytes == 64U);
-    CHECK(profile.fragments == 4U);
-    CHECK(profile.encoded_mtu == 263U);
-    CHECK(profile.sender_slots == 4U);
-    CHECK(profile.assembly_slots == 1U);
-    CHECK(profile.assemblies_per_peer == 1U);
-    CHECK(profile.assembly_tombstones_per_peer == 16U);
-    CHECK(profile.assembly_tombstone_slots == 16U);
-    CHECK(profile.result_slots == 4U);
-    CHECK(profile.history_slots == 8U);
-    CHECK(profile.correlation_slots == 4U);
-    CHECK(profile.adapter_slots == 2U);
-    CHECK(profile.control_slots == 2U);
-    CHECK(profile.application_queue_slots == 2U);
-    CHECK(profile.tx_borrow);
-    CHECK(profile.synchronous_completion);
-    CHECK(profile.recovery[0] == DMP_PROFILE_RECOVERY_RETRY_ALL);
-    CHECK(profile.recovery[1] == DMP_PROFILE_RECOVERY_RETRY_ALL);
-    (void)snprintf(path, sizeof path, "%s/profiles/deployments/direct-nnpsk0.json", DMP_SOURCE_DIR);
-    {
-        FILE *in = fopen(path, "rb");
-        static char raw_mem[DMP_PROFILE_MAX_BYTES + 1U];
-        size_t n;
-        CHECK(in != NULL);
-        n = fread(raw_mem, 1U, sizeof raw_mem - 1U, in);
-        CHECK(ferror(in) == 0);
-        CHECK(feof(in) != 0);
-        (void)fclose(in);
-        raw_mem[n] = '\0';
-        /* Distinct in-memory charges make every exposed component mapping observable. */
-        CHECK(set_charge_count(raw_mem, "sender", "5"));
-        CHECK(set_charge_count(raw_mem, "correlation", "6"));
-        CHECK(set_charge_count(raw_mem, "application_queue", "3"));
-        raw.data = (const uint8_t *)raw_mem;
-        raw.size = n;
-        memset(&profile, 0, sizeof profile);
-        memset(&failure, 0, sizeof failure);
-        CHECK(dmp_profile_admit(raw, NULL, sha256_of, NULL, scratch, &profile, &failure) == DMP_OK);
-        CHECK(profile.sender_slots == 5U);
-        CHECK(profile.assembly_slots == 1U);
-        CHECK(profile.assembly_tombstones_per_peer == 16U);
-        CHECK(profile.assembly_tombstone_slots == 16U);
-        CHECK(profile.result_slots == 4U);
-        CHECK(profile.history_slots == 8U);
-        CHECK(profile.correlation_slots == 6U);
-        CHECK(profile.adapter_slots == 2U);
-        CHECK(profile.control_slots == 2U);
-        CHECK(profile.application_queue_slots == 2U);
+    memset(&in, 0, sizeof in);
+    memset(&out, 0x5A, sizeof out);
+    if (!expect_key("sha256", value, sizeof value) || !parse_hex(value, in.sha256) ||
+        !expect_u32("namespace_id", &in.namespace_id) ||
+        !expect_u32("node_id0", &in.node_id[0]) || !expect_u32("node_id1", &in.node_id[1]) ||
+        !expect_u32("default_service", &in.default_service) ||
+        !expect_u32("service_id0", &in.service_id[0]) ||
+        !expect_u32("service_id1", &in.service_id[1]) || !expect_u32("recovery0", &recovery0) ||
+        !expect_u32("recovery1", &recovery1) || !expect_u32("peers", &in.peers) ||
+        !expect_u32("operations_per_service", &in.operations_per_service) ||
+        !expect_u32("assemblies_per_peer", &in.assemblies_per_peer) ||
+        !expect_u32("assembly_tombstones_per_peer", &in.assembly_tombstones_per_peer) ||
+        !expect_u32("sender_slots", &in.sender_slots) ||
+        !expect_u32("assembly_slots", &in.assembly_slots) ||
+        !expect_u32("assembly_tombstone_slots", &in.assembly_tombstone_slots) ||
+        !expect_u32("result_slots", &in.result_slots) ||
+        !expect_u32("history_slots", &in.history_slots) ||
+        !expect_u32("correlation_slots", &in.correlation_slots) ||
+        !expect_u32("adapter_slots", &in.adapter_slots) ||
+        !expect_u32("application_queue_slots", &in.application_queue_slots) ||
+        !expect_u32("control_slots", &in.control_slots) ||
+        !expect_u32("message_bytes", &in.message_bytes) ||
+        !expect_u32("fragments", &in.fragments) || !expect_u32("chunk_bytes", &in.chunk_bytes) ||
+        !expect_u32("encoded_mtu", &in.encoded_mtu) ||
+        !expect_u32("forward_mtu", &in.forward_mtu) ||
+        !expect_u32("return_mtu", &in.return_mtu) || !expect_u32("queue_ms", &in.queue_ms) ||
+        !expect_u32("response_timeout_ms", &in.response_timeout_ms) ||
+        !expect_u32("jitter_ms", &in.jitter_ms) ||
+        !expect_u32("send_horizon_ms", &in.send_horizon_ms) ||
+        !expect_u32("max_bursts", &in.max_bursts) ||
+        !expect_u32("receipt_delay_ms", &in.receipt_delay_ms) ||
+        !expect_u32("receipt_limit", &in.receipt_limit) ||
+        !expect_u32("dedup_ms", &in.dedup_ms) || !expect_u32("rejection_ms", &in.rejection_ms) ||
+        !expect_u32("result_cache_ms", &in.result_cache_ms) ||
+        !expect_u32("result_deadline_ms", &in.result_deadline_ms) ||
+        !expect_u32("correlation_ms", &in.correlation_ms) ||
+        !expect_u32("tombstone_ms", &in.tombstone_ms) ||
+        !expect_u32("late_result_ms", &in.late_result_ms) ||
+        !expect_u32("collect_ms", &in.collect_ms) ||
+        !expect_u32("assembly_ms", &in.assembly_ms) || !expect_u32("tx_borrow", &flag)) {
+        return 2;
     }
-    (void)snprintf(path, sizeof path, "%s/profiles/deployments/radio-nnpsk0.json", DMP_SOURCE_DIR);
-    memset(&profile, 0, sizeof profile);
-    memset(&failure, 0xa5, sizeof failure);
-    CHECK(admit_file(path, &profile, &failure, NULL) == 0);
-    CHECK(profile.sender_slots == 4U);
-    CHECK(profile.assembly_slots == 1U);
-    CHECK(profile.assembly_tombstones_per_peer == 16U);
-    CHECK(profile.assembly_tombstone_slots == 16U);
-    CHECK(profile.result_slots == 6U);
-    CHECK(profile.history_slots == 12U);
-    CHECK(profile.correlation_slots == 6U);
-    CHECK(profile.adapter_slots == 2U);
-    memset(wrong, 0x11, sizeof wrong);
-    memset(&profile, 0xa5, sizeof profile);
-    {
-        FILE *in = fopen(path, "rb");
-        static uint8_t raw_mem[DMP_PROFILE_MAX_BYTES];
-        size_t n = 0U;
-        dmp_bytes body;
-        dmp_buffer full = { scratch_mem, sizeof scratch_mem };
-        CHECK(in != NULL);
-        n = fread(raw_mem, 1U, sizeof raw_mem, in);
-        (void)fclose(in);
-        body.data = raw_mem;
-        body.size = n;
-        status = dmp_profile_admit(body, wrong, sha256_of, NULL, full, &profile, &failure);
-        CHECK(status == DMP_INTEGRITY_FAILURE);
-        CHECK(strcmp(failure.code, "digest") == 0);
-        CHECK(strcmp(failure.path, "$") == 0);
-        CHECK(((uint8_t *)&profile)[0] == 0xa5U);
+    if (flag > 1U) {
+        return 2;
     }
+    in.tx_borrow = flag == 1U;
+    if (!expect_u32("synchronous_completion", &flag) || flag > 1U || recovery0 > 1U ||
+        recovery1 > 1U) {
+        return 2;
+    }
+    in.synchronous_completion = flag == 1U;
+    in.recovery[0] = (dmp_profile_recovery)recovery0;
+    in.recovery[1] = (dmp_profile_recovery)recovery1;
+    status = dmp_config_admit(&in, &out);
+    (void)printf("status %s\nsha256 ", dmp_status_name(status));
+    if (status == DMP_OK) {
+        print_hex(out.sha256);
+    }
+    (void)printf("\n");
+    if (status != DMP_OK) {
+        return 0;
+    }
+    (void)printf(
+        "namespace_id %u\nnode_id0 %u\nnode_id1 %u\ndefault_service %u\n"
+        "service_id0 %u\nservice_id1 %u\nrecovery0 %u\nrecovery1 %u\npeers %u\n"
+        "operations_per_service %u\nassemblies_per_peer %u\n"
+        "assembly_tombstones_per_peer %u\nsender_slots %u\nassembly_slots %u\n"
+        "assembly_tombstone_slots %u\nresult_slots %u\nhistory_slots %u\n"
+        "correlation_slots %u\nadapter_slots %u\napplication_queue_slots %u\n"
+        "control_slots %u\nmessage_bytes %u\nfragments %u\nchunk_bytes %u\n"
+        "encoded_mtu %u\nforward_mtu %u\nreturn_mtu %u\nqueue_ms %u\n"
+        "response_timeout_ms %u\njitter_ms %u\nsend_horizon_ms %u\nmax_bursts %u\n"
+        "receipt_delay_ms %u\nreceipt_limit %u\ndedup_ms %u\nrejection_ms %u\n"
+        "result_cache_ms %u\nresult_deadline_ms %u\ncorrelation_ms %u\n"
+        "tombstone_ms %u\nlate_result_ms %u\ncollect_ms %u\nassembly_ms %u\n"
+        "tx_borrow %u\nsynchronous_completion %u\n",
+        out.namespace_id, out.node_id[0], out.node_id[1], out.default_service, out.service_id[0],
+        out.service_id[1], (unsigned)out.recovery[0], (unsigned)out.recovery[1], out.peers,
+        out.operations_per_service, out.assemblies_per_peer, out.assembly_tombstones_per_peer,
+        out.sender_slots, out.assembly_slots, out.assembly_tombstone_slots, out.result_slots,
+        out.history_slots, out.correlation_slots, out.adapter_slots, out.application_queue_slots,
+        out.control_slots, out.message_bytes, out.fragments, out.chunk_bytes, out.encoded_mtu,
+        out.forward_mtu, out.return_mtu, out.queue_ms, out.response_timeout_ms, out.jitter_ms,
+        out.send_horizon_ms, out.max_bursts, out.receipt_delay_ms, out.receipt_limit, out.dedup_ms,
+        out.rejection_ms, out.result_cache_ms, out.result_deadline_ms, out.correlation_ms,
+        out.tombstone_ms, out.late_result_ms, out.collect_ms, out.assembly_ms,
+        out.tx_borrow ? 1U : 0U, out.synchronous_completion ? 1U : 0U);
+    return 0;
+}
+
+static int run_tests(void)
+{
+    CHECK(test_arguments_and_copy() == 0);
+    CHECK(header_closed() == 0);
+    CHECK(test_budget() == 0);
     return 0;
 }
 
 int main(int argc, char **argv)
 {
-    if (argc > 1) {
-        return gate(argc, argv);
+    if (argc >= 2 && strcmp(argv[1], "--config") == 0) {
+        return admit_config_stdio();
     }
-    return test_edges();
+    if (argc != 1) {
+        (void)fprintf(stderr, "usage: dmp_test_profile_admit [--config]\n");
+        return 2;
+    }
+    return run_tests();
 }

@@ -156,6 +156,10 @@ static void fill_profile(dmp_admitted_profile *profile)
     profile->peers = 1U;
     profile->operations_per_service = 2U;
     profile->assemblies_per_peer = 1U;
+    /* Admission requires tombstones_per_peer >= assemblies_per_peer and
+     * tombstone slots >= peers * that count. Reliability does not read them. */
+    profile->assembly_tombstones_per_peer = 1U;
+    profile->assembly_tombstone_slots = 1U;
     profile->sender_slots = 4U;
     profile->assembly_slots = 1U;
     profile->result_slots = 2U;
@@ -166,7 +170,9 @@ static void fill_profile(dmp_admitted_profile *profile)
     profile->control_slots = 2U;
     profile->message_bytes = MAX_MSG;
     profile->fragments = 2U;
-    profile->chunk_bytes = MAX_MSG;
+    /* chunk_bytes must be below message_bytes for admission. Reliability does
+     * not read chunk_bytes; adapter_slots 4 and control_slots 2 stay. */
+    profile->chunk_bytes = MAX_MSG - 1U;
     profile->encoded_mtu = MAX_MTU;
     profile->forward_mtu = MAX_MTU;
     profile->return_mtu = MAX_MTU;
@@ -391,6 +397,12 @@ static int prepare(node *n, int responder, int secured)
     dmp_message_origin peer = origin_of(responder ? 10U : 20U, responder ? 7U : 9U);
     memset(n, 0, sizeof *n);
     fill_profile(&n->profile);
+    {
+        dmp_config in = n->profile;
+        dmp_admitted_profile admitted;
+        CHECK(dmp_config_admit(&in, &admitted) == DMP_OK);
+        n->profile = admitted;
+    }
     CHECK(dmp_identity_table_init(&n->table, n->ids, 2U) == DMP_OK);
     memset(&config, 0, sizeof config);
     config.local = local;
