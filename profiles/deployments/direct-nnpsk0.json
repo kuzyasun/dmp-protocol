@@ -122,7 +122,7 @@
     "operations_per_service": 1,
     "control_slots": 2,
     "application_queue_slots": 2,
-    "adapter_slots": 2,
+    "adapter_slots": 3,
     "assembly_tombstones_per_peer": 16
   },
   "security": {
@@ -314,7 +314,7 @@
         {
           "component": "adapter",
           "region": "RAM",
-          "count": 2,
+          "count": 3,
           "bytes_each": 512
         },
         {

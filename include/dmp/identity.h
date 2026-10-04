@@ -164,8 +164,11 @@ typedef dmp_config dmp_admitted_profile;
  * fragments, fragments > 32, or overflow of a derived product.
  * DMP_UNSUPPORTED: default_service is 0 or outside service_id[], the two
  * service ids are equal, chunk_bytes >= message_bytes, peers == 0,
- * assembly_tombstones_per_peer < assemblies_per_peer, or
- * assembly_tombstone_slots < peers * assembly_tombstones_per_peer.
+ * assembly_tombstones_per_peer < assemblies_per_peer,
+ * assembly_tombstone_slots < peers * assembly_tombstones_per_peer, or
+ * adapter_slots is not strictly greater than the reliability control reserve
+ * min(control_slots, adapter_slots), including a zero reserve. That reserve
+ * check matches dmp_reliability_init.
  * JSON syntax and digest mismatch are not admission results. */
 dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out);
 

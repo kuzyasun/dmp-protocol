@@ -433,10 +433,9 @@ That full run is not claimed here.
 
 ### 6. Owner decisions still open
 
-- `direct-nnpsk0` admits `control_slots == 2` and `adapter_slots == 2`.
-  `dmp_reliability_init` rejects that pair. P10's handwritten fixture uses
-  `adapter_slots == 4` and `control_slots == 2`. This freeze does not choose
-  which side moves and does not change either behavior.
+- Closed 2026-10-04. See "Owner decision closed" below. The historical pair
+  was `control_slots == 2` and `adapter_slots == 2`. P10's handwritten fixture
+  still uses `adapter_slots == 4` and `control_slots == 2`.
 - Widening `node_id` or `service_id` past the fixed pair is not part of this
   contract. Current modules and manifest contract 2 are still one pair and
   two services.
@@ -473,7 +472,31 @@ the profile unittest run (24), `validate_profile.py` on `direct-nnpsk0.json`,
 the resource-input hash test, and `check_core_allocators.py` (no allocator
 references; `dmp_config_admit` present, `dmp_profile_admit` absent).
 
-Not done: full host CTest, P11 independent review of this snapshot, the
-`direct-nnpsk0` control/adapter contradiction, and P12. P12 stays pending
-until P11 is accepted. The 1/2/3/4 KiB rows are unsupported for the preserved
-direct charges; they are not total endpoint RAM.
+Not done: full host CTest, P11 independent review of this snapshot, and P12.
+P12 stays pending until P11 is accepted. The control/adapter item and the
+buffer rows are updated in "Owner decision closed" below.
+
+The 2026-10-04 independent review found no defect in the listed scope, so
+there was nothing to fix. P11 acceptance is recorded on the work board. P12
+was not started.
+
+## Owner decision closed (2026-10-04)
+
+The owner closed the control/adapter decision as a configuration correction
+plus the same reserve check in admission. The reliability formula is unchanged:
+reserve `min(control_slots, adapter_slots)`, reject unless `adapter_slots` is
+strictly greater, including a zero reserve. `dmp_config_admit` and
+`tools/validate_profile.py` use that rule. This supersedes the frozen sentence
+that declined to duplicate the reserve inside `dmp_config_admit`.
+
+`direct-nnpsk0.json` and `direct-xx.json` keep `control_slots` 2 and set
+`adapter_slots` 3. Their endpoint adapter charge count is 3; `bytes_each`
+stays 512. No deployment already had `adapter_slots` strictly above the
+reserve. The four radio manifests have `control_slots` 4, so `adapter_slots`
+3 would still fail the same reserve. Those manifests set `adapter_slots` and
+the endpoint adapter charge count to 5. `control_slots` was not lowered.
+Relay adapter charges are unchanged.
+
+The six buffer-budget rows, including what was initialized and exchanged, are
+in `dev/DMP_Validation_Results.md` under "Stage 3 buffer budget". They are not
+total endpoint RAM. This note does not accept P11 and does not start P12.

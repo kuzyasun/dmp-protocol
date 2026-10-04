@@ -1,7 +1,7 @@
 {
   "fixtures": {
     "direct.json": {
-      "sha256": "0d49bbf2fbce05247490538f9285446dfe28023366a6b96a25879c6755610320",
+      "sha256": "811de2cc9e2dc2e25c19decfd896c1f6ad5ca526d54c6a19905171b4e98a6a5b",
       "derived": {
         "fragment_count": 4,
         "bootstrap_fragment_count": 2,
@@ -18,13 +18,13 @@
         "bootstrap_flight_span_ms": 128,
         "ram_reserved_bytes": {
           "endpoint": {
-            "RAM": 4758
+            "RAM": 5021
           }
         }
       }
     },
     "radio.json": {
-      "sha256": "6ebff354d4c594725767aa0b4dbda46e637a5de5e5be66878fd8878b9a6419ef",
+      "sha256": "200c8ee93e582a3379457edf9f1a28c88b252fc30b9c2689f5a827ea9c18f258",
       "derived": {
         "fragment_count": 4,
         "bootstrap_fragment_count": 2,
@@ -41,7 +41,7 @@
         "bootstrap_flight_span_ms": 128,
         "ram_reserved_bytes": {
           "endpoint": {
-            "RAM": 5689
+            "RAM": 6457
           },
           "relay": {
             "RAM": 2317
@@ -50,7 +50,7 @@
       }
     },
     "test-radio-retry-all.json": {
-      "sha256": "7376dccf00225967513083139a5d28fcd5d7796fd4eb4c8978846601dd5a05aa",
+      "sha256": "96a16c177e1a6e9498d05ffb763293439a6b0fd4c49c849e025077583a091325",
       "derived": {
         "fragment_count": 4,
         "bootstrap_fragment_count": 2,
@@ -67,7 +67,7 @@
         "bootstrap_flight_span_ms": 128,
         "ram_reserved_bytes": {
           "endpoint": {
-            "RAM": 5689
+            "RAM": 6457
           },
           "relay": {
             "RAM": 2253

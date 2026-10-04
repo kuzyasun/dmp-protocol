@@ -33,9 +33,8 @@ enum {
     DIRECT_CORRELATION = 4,
     DIRECT_ASSEMBLY = 1,
     DIRECT_TOMBSTONES = 16,
-    DIRECT_ADAPTER = 2,
-    DIRECT_CONTROL = 2,
-    RESERVE_ADAPTER = 3
+    DIRECT_ADAPTER = 3,
+    DIRECT_CONTROL = 2
 };
 
 static void valid_config(dmp_config *config)
@@ -148,6 +147,10 @@ static int test_arguments_and_copy(void)
     REJECT(in_.peers = 0U, DMP_UNSUPPORTED);
     REJECT(in_.assembly_tombstones_per_peer = 0U, DMP_UNSUPPORTED);
     REJECT(in_.peers = 2U; in_.assembly_tombstone_slots = 1U, DMP_UNSUPPORTED);
+    REJECT(in_.adapter_slots = 2U; in_.control_slots = 2U, DMP_UNSUPPORTED);
+    REJECT(in_.adapter_slots = 1U; in_.control_slots = 2U, DMP_UNSUPPORTED);
+    REJECT(in_.adapter_slots = 1U; in_.control_slots = 1U, DMP_UNSUPPORTED);
+    REJECT(in_.control_slots = 0U, DMP_UNSUPPORTED);
     REJECT(in_.default_service = 2U, DMP_OK);
     REJECT(in_.peers = 2U; in_.assembly_tombstone_slots = 2U, DMP_OK);
     return 0;
@@ -226,28 +229,19 @@ static void direct_limits(dmp_config *config, uint32_t adapter_slots)
     config->return_mtu = 256U;
 }
 
-static void smaller_unfragmented(dmp_config *config)
+static uint64_t eight_sum(const dmp_config *config, int include_assembly)
 {
-    direct_limits(config, RESERVE_ADAPTER);
-    config->sender_slots = 1U;
-    config->result_slots = 1U;
-    config->assembly_slots = 0U;
-    config->assembly_tombstone_slots = 0U;
-    config->assemblies_per_peer = 0U;
-    config->assembly_tombstones_per_peer = 0U;
-    config->fragments = 2U;
-}
-
-static uint64_t eight_sum(const dmp_config *config)
-{
-    return (uint64_t)config->sender_slots * config->message_bytes +
-           (uint64_t)config->result_slots * config->message_bytes +
-           config->message_bytes +
-           (uint64_t)config->history_slots * (uint64_t)DMP_MAX_HEADER_BYTES +
-           (uint64_t)config->correlation_slots * (uint64_t)DMP_MAX_HEADER_BYTES +
-           (uint64_t)config->adapter_slots * config->encoded_mtu +
-           (uint64_t)config->assembly_slots * config->message_bytes +
-           (uint64_t)config->assembly_slots * (uint64_t)DMP_REASSEMBLY_METADATA_BYTES;
+    uint64_t sum = (uint64_t)config->sender_slots * config->message_bytes +
+                   (uint64_t)config->result_slots * config->message_bytes +
+                   config->message_bytes +
+                   (uint64_t)config->history_slots * (uint64_t)DMP_MAX_HEADER_BYTES +
+                   (uint64_t)config->correlation_slots * (uint64_t)DMP_MAX_HEADER_BYTES +
+                   (uint64_t)config->adapter_slots * config->encoded_mtu;
+    if (include_assembly) {
+        sum += (uint64_t)config->assembly_slots * config->message_bytes +
+               (uint64_t)config->assembly_slots * (uint64_t)DMP_REASSEMBLY_METADATA_BYTES;
+    }
+    return sum;
 }
 
 static size_t state_bytes(int reassembly, uint32_t assembly_slots)
@@ -259,131 +253,672 @@ static size_t state_bytes(int reassembly, uint32_t assembly_slots)
     return bytes;
 }
 
+enum {
+    BUDGET_SLOTS = 8,
+    BUDGET_MSG = 1024,
+    BUDGET_MTU = 1088,
+    BUDGET_ADAPTERS = 4,
+    BUDGET_TX = 8,
+    BUDGET_NOTES = 8
+};
+
+typedef struct {
+    uint32_t budget;
+    int reassembly;
+    uint32_t message_bytes;
+    uint32_t fragments;
+    uint32_t chunk_bytes;
+    uint32_t encoded_mtu;
+    uint32_t sender_slots;
+    uint32_t result_slots;
+    uint32_t history_slots;
+    uint32_t correlation_slots;
+    uint32_t adapter_slots;
+    uint32_t control_slots;
+    uint32_t application_queue_slots;
+    uint32_t assembly_slots;
+    uint32_t tombstone_slots;
+    uint32_t assemblies_per_peer;
+    uint32_t tombstones_per_peer;
+    uint32_t exchange_bytes;
+    uint32_t assembly_total;
+    uint64_t expect_sum;
+    const char *capability;
+} budget_spec;
+
+typedef struct {
+    int depth;
+    int n;
+    uint32_t mtu;
+    struct {
+        int used;
+        int done;
+        dmp_tx_token token;
+        dmp_tx_complete_fn complete;
+        void *owner;
+        uint8_t frame[BUDGET_MTU];
+        size_t len;
+    } hold[BUDGET_TX];
+} budget_tx;
+
+typedef struct {
+    int count;
+    int during_tx;
+    int *depth;
+    dmp_reliability_notice items[BUDGET_NOTES];
+    uint8_t bytes[BUDGET_NOTES][BUDGET_MSG];
+} budget_notes;
+
+typedef struct {
+    uint32_t default_service;
+    dmp_core_limits limits;
+    uint8_t ext[64];
+} budget_enc;
+
+typedef struct {
+    dmp_reliability engine;
+    dmp_admitted_profile profile;
+    dmp_identity_slot ids[2];
+    dmp_identity_table table;
+    dmp_identity_handle handle;
+    dmp_transport transport;
+    budget_tx tx;
+    budget_enc enc;
+    budget_notes notes;
+    dmp_reliability_storage storage;
+    dmp_reliability_sender_slot senders[BUDGET_SLOTS];
+    uint8_t sender_payload[BUDGET_SLOTS * BUDGET_MSG];
+    dmp_reliability_result_slot results[BUDGET_SLOTS];
+    uint8_t result_payload[BUDGET_SLOTS * BUDGET_MSG];
+    dmp_reliability_history_slot history[BUDGET_SLOTS];
+    dmp_reliability_correlation_slot correlations[BUDGET_SLOTS];
+    uint8_t history_metadata[BUDGET_SLOTS * DMP_RELIABILITY_METADATA_BYTES];
+    uint8_t correlation_metadata[BUDGET_SLOTS * DMP_RELIABILITY_METADATA_BYTES];
+    dmp_reliability_adapter_slot adapters[BUDGET_ADAPTERS];
+    uint8_t frames[BUDGET_ADAPTERS * BUDGET_MTU];
+    uint8_t receive_payload[BUDGET_MSG];
+} budget_node;
+
+static budget_node budget_a;
+static budget_node budget_b;
+
+static const uint8_t BUDGET_META[] = {0xA1, 0x5C};
+
+static dmp_bytes budget_span(const void *data, size_t size)
+{
+    dmp_bytes bytes;
+    bytes.data = (const uint8_t *)data;
+    bytes.size = size;
+    return bytes;
+}
+
+static void budget_add_uleb(uint8_t *data, size_t *n, size_t cap, uint32_t value)
+{
+    do {
+        uint8_t byte = (uint8_t)(value & 0x7fU);
+        value >>= 7U;
+        if (value != 0U) {
+            byte = (uint8_t)(byte | 0x80U);
+        }
+        if (*n < cap) {
+            data[(*n)++] = byte;
+        }
+    } while (value != 0U);
+}
+
+static void budget_add_u64le(uint8_t *data, size_t *n, size_t cap, uint64_t value)
+{
+    unsigned i;
+    for (i = 0U; i < 8U; i++) {
+        if (*n < cap) {
+            data[(*n)++] = (uint8_t)(value & 0xffU);
+        }
+        value >>= 8U;
+    }
+}
+
+static void budget_add_tlv(uint8_t *data, size_t *n, size_t cap, uint32_t tag, const uint8_t *value,
+                           size_t value_n)
+{
+    size_t i;
+    budget_add_uleb(data, n, cap, tag);
+    budget_add_uleb(data, n, cap, (uint32_t)value_n);
+    for (i = 0U; i < value_n; i++) {
+        if (*n < cap) {
+            data[(*n)++] = value[i];
+        }
+    }
+}
+
+static dmp_status budget_encode(void *context, const dmp_reliability_logical *logical, dmp_buffer out,
+                                size_t *written)
+{
+    budget_enc *enc = context;
+    dmp_frame_spec spec;
+    uint8_t value[32];
+    size_t value_n;
+    size_t ext_n = 0U;
+
+    if (enc == NULL || logical == NULL || written == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)logical->type;
+    spec.fields.options = DMP_OPT_SEQ;
+    spec.fields.seq = logical->own.seq;
+    if (logical->ack_req) {
+        spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_ACK_REQ);
+    }
+    if (logical->has_reply_to) {
+        value_n = 0U;
+        budget_add_uleb(value, &value_n, sizeof value, logical->reply_to.origin.namespace_id);
+        budget_add_uleb(value, &value_n, sizeof value, logical->reply_to.origin.origin_id);
+        budget_add_u64le(value, &value_n, sizeof value, logical->reply_to.origin.epoch);
+        budget_add_uleb(value, &value_n, sizeof value, logical->reply_to.seq);
+        budget_add_tlv(enc->ext, &ext_n, sizeof enc->ext, 5U, value, value_n);
+    }
+    if (logical->service_id != 0U && logical->service_id != enc->default_service) {
+        value_n = 0U;
+        budget_add_uleb(value, &value_n, sizeof value, logical->service_id);
+        budget_add_tlv(enc->ext, &ext_n, sizeof enc->ext, 17U, value, value_n);
+    }
+    if (ext_n != 0U) {
+        spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_EXT);
+        spec.extensions.data = enc->ext;
+        spec.extensions.size = ext_n;
+    }
+    spec.payload = logical->payload;
+    return dmp_core_encode(&spec, &enc->limits, out, written);
+}
+
+static dmp_status budget_submit(void *context, const dmp_tx_submission *submission)
+{
+    budget_tx *tx = context;
+    if (tx == NULL || submission == NULL || submission->frame.data == NULL ||
+        submission->frame.size > tx->mtu || submission->frame.size > BUDGET_MTU) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (tx->n >= BUDGET_TX) {
+        return DMP_BUSY;
+    }
+    tx->depth++;
+    tx->hold[tx->n].used = 1;
+    tx->hold[tx->n].done = 0;
+    tx->hold[tx->n].token = submission->token;
+    tx->hold[tx->n].complete = submission->complete;
+    tx->hold[tx->n].owner = submission->owner;
+    tx->hold[tx->n].len = submission->frame.size;
+    memcpy(tx->hold[tx->n].frame, submission->frame.data, submission->frame.size);
+    tx->n++;
+    tx->depth--;
+    return DMP_OK;
+}
+
+static dmp_status budget_cancel(void *context, dmp_tx_token token)
+{
+    (void)context;
+    (void)token;
+    return DMP_OK;
+}
+
+static void budget_on_notice(void *user, const dmp_reliability_notice *notice)
+{
+    budget_notes *log = user;
+    dmp_reliability_notice copy;
+    if (log->depth != NULL && *log->depth > 0) {
+        log->during_tx++;
+    }
+    if (log->count >= BUDGET_NOTES || notice->payload.size > BUDGET_MSG) {
+        return;
+    }
+    copy = *notice;
+    if (notice->payload.size > 0U && notice->payload.data != NULL) {
+        memcpy(log->bytes[log->count], notice->payload.data, notice->payload.size);
+        copy.payload.data = log->bytes[log->count];
+        copy.payload.size = notice->payload.size;
+    } else {
+        copy.payload.data = NULL;
+        copy.payload.size = 0U;
+    }
+    log->items[log->count++] = copy;
+}
+
+static void budget_finish(budget_node *node, dmp_time_ms when)
+{
+    int i;
+    for (i = 0; i < node->tx.n; i++) {
+        if (node->tx.hold[i].used && !node->tx.hold[i].done) {
+            node->tx.hold[i].done = 1;
+            node->tx.depth++;
+            node->tx.hold[i].complete(node->tx.hold[i].owner, node->tx.hold[i].token,
+                                      DMP_TX_TRANSMITTED, when);
+            node->tx.depth--;
+        }
+    }
+}
+
+static int budget_deliver(budget_node *src, int index, budget_node *dst, dmp_time_ms now)
+{
+    dmp_frame_view view;
+    dmp_reliability_input input;
+    dmp_bytes raw;
+    dmp_core_limits limits;
+    dmp_parse_result parsed;
+    raw.data = src->tx.hold[index].frame;
+    raw.size = src->tx.hold[index].len;
+    limits.max_frame_bytes = src->profile.encoded_mtu;
+    limits.max_message_bytes = src->profile.message_bytes;
+    limits.max_fragments = src->profile.fragments < 2U ? 2U : src->profile.fragments;
+    parsed = dmp_core_parse(raw, &limits, &view);
+    CHECK(parsed.status == DMP_OK);
+    memset(&input, 0, sizeof input);
+    input.frame = &view;
+    input.service_id = 1U;
+    input.plaintext = view.payload;
+    input.immutable_metadata = budget_span(BUDGET_META, sizeof BUDGET_META);
+    CHECK(dmp_reliability_on_rx(&dst->engine, &input, now) == DMP_OK);
+    return 0;
+}
+
+static int budget_notice(const budget_notes *log, dmp_reliability_event event, const uint8_t *expect,
+                         size_t expect_n)
+{
+    int i;
+    for (i = 0; i < log->count; i++) {
+        if (log->items[i].event == event && log->items[i].payload.size == expect_n &&
+            (expect_n == 0U || memcmp(log->items[i].payload.data, expect, expect_n) == 0)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int budget_boot(budget_node *node, const dmp_admitted_profile *profile, int responder)
+{
+    dmp_identity_context_config config;
+    dmp_reliability_storage *storage;
+    memset(node, 0, sizeof *node);
+    node->profile = *profile;
+    node->profile.tx_borrow = false;
+    node->profile.synchronous_completion = false;
+    CHECK(dmp_identity_table_init(&node->table, node->ids, 2U) == DMP_OK);
+    memset(&config, 0, sizeof config);
+    config.local.namespace_id = 1U;
+    config.local.origin_id = responder ? 20U : 10U;
+    config.local.epoch = responder ? 9U : 7U;
+    config.peer.namespace_id = 1U;
+    config.peer.origin_id = responder ? 10U : 20U;
+    config.peer.epoch = responder ? 7U : 9U;
+    config.security = 0U;
+    CHECK(dmp_identity_context_open(&node->table, &config, &node->handle) == DMP_OK);
+    node->tx.mtu = node->profile.encoded_mtu;
+    node->notes.depth = &node->tx.depth;
+    node->enc.default_service = node->profile.default_service;
+    node->enc.limits.max_frame_bytes = node->profile.encoded_mtu;
+    node->enc.limits.max_message_bytes = node->profile.message_bytes;
+    node->enc.limits.max_fragments = node->profile.fragments < 2U ? 2U : node->profile.fragments;
+    node->transport.context = &node->tx;
+    node->transport.submit = budget_submit;
+    node->transport.cancel = budget_cancel;
+    node->transport.caps.max_frame_bytes = node->profile.encoded_mtu;
+    node->transport.caps.ownership = DMP_TX_COPY;
+    node->transport.caps.synchronous_completion = false;
+    storage = &node->storage;
+    storage->profile = &node->profile;
+    storage->identity = &node->table;
+    storage->context = node->handle;
+    storage->transport = &node->transport;
+    storage->encode = budget_encode;
+    storage->encode_context = &node->enc;
+    storage->notice = budget_on_notice;
+    storage->notice_user = &node->notes;
+    storage->senders = node->senders;
+    storage->sender_capacity = node->profile.sender_slots;
+    storage->sender_payload = node->sender_payload;
+    storage->sender_payload_capacity = (size_t)node->profile.sender_slots * node->profile.message_bytes;
+    storage->results = node->results;
+    storage->result_capacity = node->profile.result_slots;
+    storage->result_payload = node->result_payload;
+    storage->result_payload_capacity = (size_t)node->profile.result_slots * node->profile.message_bytes;
+    storage->history = node->history;
+    storage->history_capacity = node->profile.history_slots;
+    storage->correlations = node->correlations;
+    storage->correlation_capacity = node->profile.correlation_slots;
+    storage->history_metadata = node->history_metadata;
+    storage->history_metadata_capacity =
+        (size_t)node->profile.history_slots * (size_t)DMP_RELIABILITY_METADATA_BYTES;
+    storage->correlation_metadata = node->correlation_metadata;
+    storage->correlation_metadata_capacity =
+        (size_t)node->profile.correlation_slots * (size_t)DMP_RELIABILITY_METADATA_BYTES;
+    storage->adapters = node->adapters;
+    storage->adapter_capacity = node->profile.adapter_slots;
+    storage->frames = node->frames;
+    storage->frame_capacity = (size_t)node->profile.adapter_slots * node->profile.encoded_mtu;
+    storage->receive_payload = node->receive_payload;
+    storage->receive_payload_capacity = node->profile.message_bytes;
+    CHECK(node->profile.sender_slots <= BUDGET_SLOTS);
+    CHECK(node->profile.result_slots <= BUDGET_SLOTS);
+    CHECK(node->profile.history_slots <= BUDGET_SLOTS);
+    CHECK(node->profile.correlation_slots <= BUDGET_SLOTS);
+    CHECK(node->profile.adapter_slots <= BUDGET_ADAPTERS);
+    CHECK(node->profile.message_bytes <= BUDGET_MSG);
+    CHECK(node->profile.encoded_mtu <= BUDGET_MTU);
+    CHECK(dmp_reliability_init(&node->engine, storage) == DMP_OK);
+    return 0;
+}
+
+static int budget_reliability_exchange(const dmp_admitted_profile *profile, uint32_t bytes)
+{
+    uint8_t request[BUDGET_MSG];
+    uint8_t response[BUDGET_MSG];
+    dmp_reliability_handle req;
+    int accepted;
+    int before;
+    CHECK(bytes > 0U && bytes <= profile->message_bytes);
+    CHECK(bytes + 48U <= profile->encoded_mtu);
+    memset(request, 0x11, bytes);
+    memset(response, 0x22, bytes);
+    CHECK(budget_boot(&budget_a, profile, 0) == 0);
+    CHECK(budget_boot(&budget_b, profile, 1) == 0);
+    CHECK(dmp_reliability_submit_req(&budget_a.engine, 1U, budget_span(request, bytes), 0U, 0U,
+                                     &req) == DMP_OK);
+    before = budget_a.tx.n;
+    CHECK(dmp_reliability_poll(&budget_a.engine, 0U) == DMP_OK);
+    CHECK(budget_a.tx.n == before + 1);
+    budget_finish(&budget_a, 0U);
+    CHECK(dmp_reliability_poll(&budget_a.engine, 0U) == DMP_OK);
+    CHECK(budget_deliver(&budget_a, before, &budget_b, 0U) == 0);
+    accepted = budget_notice(&budget_b.notes, DMP_REL_EVENT_REQUEST_ACCEPTED, request, bytes);
+    CHECK(accepted >= 0);
+    CHECK(dmp_reliability_complete(&budget_b.engine, budget_b.notes.items[accepted].handle, false, 0U,
+                                   budget_span(response, bytes), 10U) == DMP_OK);
+    before = budget_b.tx.n;
+    CHECK(dmp_reliability_poll(&budget_b.engine, 10U) == DMP_OK);
+    CHECK(budget_b.tx.n == before + 1);
+    budget_finish(&budget_b, 10U);
+    CHECK(dmp_reliability_poll(&budget_b.engine, 10U) == DMP_OK);
+    CHECK(budget_deliver(&budget_b, before, &budget_a, 10U) == 0);
+    CHECK(budget_notice(&budget_a.notes, DMP_REL_EVENT_RESULT, response, bytes) >= 0);
+    CHECK(budget_a.notes.during_tx == 0);
+    CHECK(budget_b.notes.during_tx == 0);
+    return 0;
+}
+
+static int budget_encode_slice(uint32_t seq, uint32_t index, uint32_t chunk, uint32_t total,
+                               const uint8_t *plain, size_t nplain, uint32_t mtu, uint32_t message,
+                               uint32_t fragments, uint8_t *raw, size_t raw_cap, dmp_frame_view *view)
+{
+    dmp_frame_spec spec;
+    dmp_core_limits limits;
+    dmp_buffer out;
+    dmp_parse_result parsed;
+    size_t written = 0U;
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = DMP_TYPE_DATA;
+    spec.fields.options =
+        (uint8_t)(DMP_OPT_SEQ | DMP_OPT_FRAG | DMP_OPT_ACK_REQ | DMP_OPT_PAYLOAD_DESC);
+    spec.fields.seq = seq;
+    spec.fields.fragment.index = index;
+    spec.fields.fragment.chunk_size = chunk;
+    spec.fields.fragment.total_size = total;
+    spec.fields.descriptor.codec = 7U;
+    spec.payload = budget_span(plain, nplain);
+    limits.max_frame_bytes = mtu;
+    limits.max_message_bytes = message;
+    limits.max_fragments = fragments < 2U ? 2U : fragments;
+    out.data = raw;
+    out.capacity = raw_cap;
+    CHECK(dmp_core_encode(&spec, &limits, out, &written) == DMP_OK);
+    parsed = dmp_core_parse(budget_span(raw, written), &limits, view);
+    CHECK(parsed.status == DMP_OK);
+    return 0;
+}
+
+static int budget_reassembly_exchange(const dmp_admitted_profile *profile, uint32_t total)
+{
+    static dmp_reassembly engine;
+    static dmp_reassembly_slot assemblies[1];
+    static dmp_reassembly_tombstone tombstones[DIRECT_TOMBSTONES];
+    static uint8_t payloads[BUDGET_MSG];
+    static uint8_t metadata[DMP_REASSEMBLY_METADATA_BYTES];
+    static dmp_identity_slot ids[2];
+    dmp_identity_table table;
+    dmp_identity_handle ctx;
+    dmp_identity_context_config config;
+    dmp_reassembly_storage storage;
+    dmp_admitted_profile admitted;
+    uint8_t body[BUDGET_MSG];
+    uint8_t raw[BUDGET_MTU];
+    dmp_frame_view view;
+    dmp_reassembly_input input;
+    dmp_reassembly_handle handle;
+    dmp_reassembly_message message;
+    uint32_t chunk;
+    uint32_t fragments;
+    uint32_t index;
+    CHECK(profile->assembly_slots == 1U);
+    CHECK(profile->assembly_tombstone_slots <= DIRECT_TOMBSTONES);
+    CHECK(total == profile->message_bytes);
+    CHECK(total > profile->chunk_bytes && total <= BUDGET_MSG);
+    chunk = profile->chunk_bytes;
+    fragments = 1U + (total - 1U) / chunk;
+    CHECK(fragments == profile->fragments);
+    CHECK(fragments >= 2U && fragments <= 32U);
+    admitted = *profile;
+    memset(&engine, 0, sizeof engine);
+    memset(assemblies, 0, sizeof assemblies);
+    memset(tombstones, 0, sizeof tombstones);
+    memset(ids, 0, sizeof ids);
+    CHECK(dmp_identity_table_init(&table, ids, 2U) == DMP_OK);
+    memset(&config, 0, sizeof config);
+    config.local.namespace_id = 1U;
+    config.local.origin_id = 10U;
+    config.local.epoch = 9U;
+    config.peer.namespace_id = 1U;
+    config.peer.origin_id = 20U;
+    config.peer.epoch = 7U;
+    CHECK(dmp_identity_context_open(&table, &config, &ctx) == DMP_OK);
+    memset(&storage, 0, sizeof storage);
+    storage.profile = &admitted;
+    storage.identity = &table;
+    storage.assemblies = assemblies;
+    storage.assembly_capacity = admitted.assembly_slots;
+    storage.tombstones = tombstones;
+    storage.tombstone_capacity = admitted.assembly_tombstone_slots;
+    storage.payloads = payloads;
+    storage.payload_capacity = (size_t)admitted.assembly_slots * admitted.message_bytes;
+    storage.metadata = metadata;
+    storage.metadata_capacity = (size_t)admitted.assembly_slots * (size_t)DMP_REASSEMBLY_METADATA_BYTES;
+    CHECK(dmp_reassembly_init(&engine, &storage, &admitted, &table) == DMP_OK);
+    memset(body, 0x31, total);
+    memset(&input, 0, sizeof input);
+    input.context = ctx;
+    input.service_id = 1U;
+    input.immutable_metadata = budget_span(NULL, 0U);
+    handle.slot = 99U;
+    handle.generation = 99U;
+    for (index = 0U; index < fragments; index++) {
+        uint32_t offset = index * chunk;
+        uint32_t slice = total - offset;
+        dmp_status expect = index + 1U == fragments ? DMP_OK : DMP_INCOMPLETE;
+        if (slice > chunk) {
+            slice = chunk;
+        }
+        CHECK(budget_encode_slice(4U, index, chunk, total, body + offset, slice, admitted.encoded_mtu,
+                                  admitted.message_bytes, fragments, raw, sizeof raw, &view) == 0);
+        input.frame = &view;
+        input.plaintext = view.payload;
+        CHECK(view.payload.size == slice);
+        CHECK(dmp_reassembly_on_fragment(&engine, &input, 100U + index, &handle) == expect);
+    }
+    CHECK(dmp_reassembly_get(&engine, handle, &message) == DMP_OK);
+    CHECK(message.payload.size == total);
+    CHECK(memcmp(message.payload.data, body, total) == 0);
+    return 0;
+}
+
+static void fill_budget(dmp_config *config, const budget_spec *spec)
+{
+    memset(config, 0, sizeof *config);
+    config->namespace_id = 1U;
+    config->node_id[0] = 10U;
+    config->node_id[1] = 20U;
+    config->default_service = 1U;
+    config->service_id[0] = 1U;
+    config->service_id[1] = 2U;
+    config->peers = 1U;
+    config->operations_per_service = 1U;
+    config->assemblies_per_peer = spec->assemblies_per_peer;
+    config->assembly_tombstones_per_peer = spec->tombstones_per_peer;
+    config->sender_slots = spec->sender_slots;
+    config->assembly_slots = spec->assembly_slots;
+    config->assembly_tombstone_slots = spec->tombstone_slots;
+    config->result_slots = spec->result_slots;
+    config->history_slots = spec->history_slots;
+    config->correlation_slots = spec->correlation_slots;
+    config->adapter_slots = spec->adapter_slots;
+    config->application_queue_slots = spec->application_queue_slots;
+    config->control_slots = spec->control_slots;
+    config->message_bytes = spec->message_bytes;
+    config->fragments = spec->fragments;
+    config->chunk_bytes = spec->chunk_bytes;
+    config->encoded_mtu = spec->encoded_mtu;
+    config->forward_mtu = spec->encoded_mtu;
+    config->return_mtu = spec->encoded_mtu;
+    config->queue_ms = 1000U;
+    config->response_timeout_ms = 50U;
+    config->jitter_ms = 5U;
+    config->send_horizon_ms = 100000U;
+    config->receipt_delay_ms = 20U;
+    config->receipt_limit = 3U;
+    config->dedup_ms = 5000U;
+    config->rejection_ms = 5000U;
+    config->result_cache_ms = 500U;
+    config->result_deadline_ms = 100000U;
+    config->correlation_ms = 200000U;
+    config->tombstone_ms = 300000U;
+    config->late_result_ms = 1000U;
+    config->assembly_ms = 10000U;
+}
+
 static int test_budget(void)
 {
-    static const uint32_t budgets[6] = {1024U, 2048U, 3072U, 4096U, 8192U, 16384U};
+    static const budget_spec rows[6] = {
+        {1024U, 0, 64U, 1U, 32U, 112U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 0U, 0U, 0U, 0U, 64U, 0U, 926ULL,
+         "unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones; "
+         "message 64, one sender/result/history/correlation, control 1, adapter 2"},
+        {2048U, 0, 256U, 1U, 128U, 304U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 0U, 0U, 0U, 0U, 256U, 0U, 1886ULL,
+         "unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones; "
+         "message 256, one sender/result/history/correlation, control 1, adapter 2"},
+        {3072U, 0, 384U, 1U, 128U, 432U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 0U, 0U, 0U, 0U, 384U, 0U, 2526ULL,
+         "unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones; "
+         "message 384, one sender/result/history/correlation, control 1, adapter 2"},
+        {4096U, 1, 256U, 2U, 128U, 304U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 1U, 1U, 1U, 1U, 256U, 256U, 2397ULL,
+         "reliability exchange of the full 256-byte message plus reassembly of the same 256 bytes "
+         "as two 128-byte slices; one tombstone, not the direct 16; control 1, adapter 2"},
+        {8192U, 0, 1024U, 1U, 512U, 1072U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 0U, 0U, 0U, 0U, 1024U, 0U,
+         5726ULL,
+         "unfragmented reliability of a 1024-byte message; omits assembly payload and metadata; "
+         "not direct-nnpsk0 (encoded_mtu 1072, fragments 1, one slot of each kind)"},
+        {16384U, 1, DIRECT_MESSAGE, DIRECT_FRAGMENTS, DIRECT_CHUNK, DIRECT_MTU, DIRECT_SENDER,
+         DIRECT_RESULT, DIRECT_HISTORY, DIRECT_CORRELATION, DIRECT_ADAPTER, DIRECT_CONTROL, 2U,
+         DIRECT_ASSEMBLY, DIRECT_TOMBSTONES, 1U, DIRECT_TOMBSTONES, 64U, DIRECT_MESSAGE, 14344ULL,
+         "direct-nnpsk0 limits with adapter 3 and control 2; the 64-byte reliability call only "
+         "fits inside encoded_mtu 263 and is not an exchange of message_bytes; reassembly init "
+         "completes all 1024 bytes as 16 slices of 64; 16 tombstones stay outside the eight-array sum"},
+    };
     dmp_config manifest;
-    dmp_config reserve;
-    dmp_config smaller;
+    dmp_config illegal;
     dmp_admitted_profile out;
-    uint64_t manifest_sum;
-    uint64_t smaller_sum;
-    uint64_t reserve_sum;
-    size_t tombstone_one;
+    dmp_admitted_profile saved;
     unsigned i;
 
     CHECK(sizeof(dmp_reassembly_tombstone) == 48U);
-    tombstone_one = sizeof(dmp_reassembly_tombstone);
     direct_limits(&manifest, DIRECT_ADAPTER);
-    direct_limits(&reserve, RESERVE_ADAPTER);
-    smaller_unfragmented(&smaller);
     CHECK(dmp_config_admit(&manifest, &out) == DMP_OK);
     CHECK(memcmp(&manifest, &out, sizeof manifest) == 0);
-    CHECK(manifest.adapter_slots == manifest.control_slots);
-    CHECK(dmp_config_admit(&reserve, &out) == DMP_OK);
-    CHECK(dmp_config_admit(&smaller, &out) == DMP_OK);
-    CHECK(smaller.adapter_slots > smaller.control_slots);
-    CHECK(smaller.control_slots >= 1U);
-    CHECK(smaller.message_bytes == DIRECT_MESSAGE);
-    CHECK(smaller.history_slots == DIRECT_HISTORY);
-    CHECK(smaller.correlation_slots == DIRECT_CORRELATION);
-    CHECK(reserve.assembly_tombstone_slots == DIRECT_TOMBSTONES);
-    CHECK(reserve.assembly_tombstones_per_peer >= reserve.assemblies_per_peer);
-    CHECK(reserve.assembly_tombstone_slots >=
-          reserve.peers * reserve.assembly_tombstones_per_peer);
-
-    manifest_sum = eight_sum(&manifest);
-    reserve_sum = eight_sum(&reserve);
-    smaller_sum = eight_sum(&smaller);
-    CHECK(manifest_sum == 14081ULL);
-    CHECK(reserve_sum == 14344ULL);
-    CHECK(smaller_sum == 6921ULL);
-    {
-        dmp_config unfragmented;
-        memset(&unfragmented, 0, sizeof unfragmented);
-        unfragmented.sender_slots = DIRECT_SENDER;
-        unfragmented.result_slots = DIRECT_RESULT;
-        unfragmented.history_slots = DIRECT_HISTORY;
-        unfragmented.correlation_slots = DIRECT_CORRELATION;
-        unfragmented.adapter_slots = DIRECT_ADAPTER;
-        unfragmented.message_bytes = DIRECT_MESSAGE;
-        unfragmented.encoded_mtu = DIRECT_MTU;
-        CHECK(eight_sum(&unfragmented) == 12802ULL);
-        CHECK(12802ULL > 8192ULL);
-    }
-
+    CHECK(manifest.adapter_slots == 3U);
+    CHECK(manifest.control_slots == 2U);
+    CHECK(manifest.adapter_slots > manifest.control_slots);
+    CHECK(eight_sum(&manifest, 1) == 14344ULL);
+    illegal = manifest;
+    illegal.adapter_slots = 2U;
+    illegal.control_slots = 2U;
+    memset(&out, 0x3C, sizeof out);
+    saved = out;
+    CHECK(dmp_config_admit(&illegal, &out) == DMP_UNSUPPORTED);
+    CHECK(memcmp(&out, &saved, sizeof out) == 0);
     (void)printf("SIZE identity_slot=%zu reliability=%zu reassembly_slot=%zu "
                  "reassembly=%zu tombstone=%zu\n",
                  sizeof(dmp_identity_slot), sizeof(dmp_reliability),
-                 sizeof(dmp_reassembly_slot), sizeof(dmp_reassembly), tombstone_one);
-    (void)printf("NOTE manifest adapter_slots=%u control_slots=%u eight_sum=%llu "
-                 "admits; reliability reserve is a separate engine rule\n",
-                 manifest.adapter_slots, manifest.control_slots,
-                 (unsigned long long)manifest_sum);
+                 sizeof(dmp_reassembly_slot), sizeof(dmp_reassembly),
+                 sizeof(dmp_reassembly_tombstone));
+    (void)printf("NOTE direct manifest pair adapter_slots=%u control_slots=%u admits; "
+                 "reliability reserve formula unchanged\n",
+                 manifest.adapter_slots, manifest.control_slots);
 
     for (i = 0U; i < 6U; i++) {
-        const dmp_config *config;
-        int supported;
-        int reassembly;
+        const budget_spec *spec = &rows[i];
+        dmp_config config;
+        dmp_admitted_profile admitted;
         uint64_t sum;
         size_t tombs;
         size_t state;
-        const char *capability;
-
-        if (budgets[i] >= 16384U) {
-            config = &reserve;
-            supported = 1;
-            reassembly = 1;
-            capability = "direct-nnpsk0 reassembly limits; adapter_slots 3 so "
-                         "adapter_slots > control_slots 2; manifest pair is 2 and 2";
-        } else if (budgets[i] >= 8192U) {
-            config = &smaller;
-            supported = 1;
-            reassembly = 0;
-            capability = "unfragmented reliability; omits assembly payload and "
-                         "assembly metadata; tombstones omitted; direct message, "
-                         "history 8, correlation 4, control_slots 2, adapter_slots 3; "
-                         "sender and result concurrency 1";
-        } else {
-            config = &smaller;
-            supported = 0;
-            reassembly = 0;
-            capability = "unsupported; preserved direct message 1024, history 8, "
-                         "correlation 4, control_slots 2, adapter_slots 3; "
-                         "unfragmented; eight-array sum exceeds the budget";
+        fill_budget(&config, spec);
+        sum = eight_sum(&config, spec->reassembly);
+        CHECK(sum == spec->expect_sum);
+        CHECK(sum <= spec->budget);
+        CHECK(config.adapter_slots > config.control_slots);
+        CHECK(config.control_slots >= 1U);
+        CHECK(spec->exchange_bytes > 0U && spec->exchange_bytes <= spec->message_bytes);
+        CHECK(spec->exchange_bytes + 48U <= spec->encoded_mtu);
+        if (spec->message_bytes + 48U <= spec->encoded_mtu) {
+            CHECK(spec->exchange_bytes == spec->message_bytes);
         }
-        sum = eight_sum(config);
-        tombs = reassembly ? (size_t)config->assembly_tombstone_slots * tombstone_one : 0U;
-        state = state_bytes(reassembly, config->assembly_slots);
-        if (supported) {
-            CHECK(sum <= budgets[i]);
-            CHECK(config->adapter_slots > config->control_slots);
-            CHECK(config->control_slots >= 1U);
+        if (spec->reassembly) {
+            CHECK(spec->assembly_total == spec->message_bytes);
+            CHECK(spec->fragments == 1U + (spec->message_bytes - 1U) / spec->chunk_bytes);
+            CHECK(spec->tombstone_slots > 0U);
         } else {
-            CHECK(sum > budgets[i]);
-            CHECK(config->message_bytes == DIRECT_MESSAGE);
-            CHECK(config->history_slots == DIRECT_HISTORY);
-            CHECK(config->control_slots == DIRECT_CONTROL);
-            CHECK(config->adapter_slots > config->control_slots);
+            CHECK(spec->exchange_bytes == spec->message_bytes);
+            CHECK(spec->fragments == 1U);
+            CHECK(spec->assembly_total == 0U);
         }
-        if (reassembly) {
-            CHECK(tombs == 16U * 48U);
-            CHECK(config->assembly_slots != 0U);
+        CHECK(dmp_config_admit(&config, &admitted) == DMP_OK);
+        CHECK(budget_reliability_exchange(&admitted, spec->exchange_bytes) == 0);
+        if (spec->reassembly) {
+            CHECK(config.assembly_slots == 1U);
+            CHECK(budget_reassembly_exchange(&admitted, spec->assembly_total) == 0);
+            tombs = (size_t)config.assembly_tombstone_slots * sizeof(dmp_reassembly_tombstone);
         } else {
-            CHECK(config->assembly_slots == 0U);
-            CHECK(tombs == 0U);
+            CHECK(config.assembly_slots == 0U);
+            CHECK(config.fragments == 1U);
+            tombs = 0U;
         }
-        (void)printf(
-            "BUDGET_ROW budget=%u supported=%d capability=\"%s\" message_bytes=%u "
-            "fragments=%u chunk_bytes=%u peers=%u sender=%u result=%u history=%u "
-            "correlation=%u adapter=%u control=%u assembly=%u tombstone_slots=%u "
-            "eight_sum=%llu state_bytes=%zu tombstone_bytes=%zu crypto=excluded "
-            "stack=excluded json_scratch=0\n",
-            budgets[i], supported, capability, config->message_bytes, config->fragments,
-            config->chunk_bytes, config->peers, config->sender_slots, config->result_slots,
-            config->history_slots, config->correlation_slots, config->adapter_slots,
-            config->control_slots, config->assembly_slots, config->assembly_tombstone_slots,
-            (unsigned long long)sum, state, tombs);
+        state = state_bytes(spec->reassembly, config.assembly_slots);
+        {
+            const char *delivered_by = "reliability";
+            if (spec->reassembly && spec->exchange_bytes == spec->message_bytes) {
+                delivered_by = "reliability+reassembly";
+            } else if (spec->reassembly) {
+                delivered_by = "reassembly";
+            }
+            (void)printf(
+                "BUDGET_ROW budget=%u supported=1 capability=\"%s\" message_bytes=%u "
+                "fragments=%u chunk_bytes=%u peers=%u sender=%u result=%u history=%u "
+                "correlation=%u adapter=%u control=%u assembly=%u tombstone_slots=%u "
+                "eight_sum=%llu state_bytes=%zu tombstone_bytes=%zu crypto=excluded "
+                "stack=excluded json_scratch=0 delivered_bytes=%u delivered_fragments=%u "
+                "delivered_by=%s reliability_frame_bytes=%u reassembly_bytes=%u "
+                "init=dmp_config_admit+dmp_reliability_init%s\n",
+                spec->budget, spec->capability, config.message_bytes, config.fragments,
+                config.chunk_bytes, config.peers, config.sender_slots, config.result_slots,
+                config.history_slots, config.correlation_slots, config.adapter_slots,
+                config.control_slots, config.assembly_slots, config.assembly_tombstone_slots,
+                (unsigned long long)sum, state, tombs, spec->message_bytes, config.fragments,
+                delivered_by, spec->exchange_bytes, spec->reassembly ? spec->assembly_total : 0U,
+                spec->reassembly ? "+dmp_reassembly_init+reassembly_on_fragment" : "");
+        }
     }
     return 0;
 }

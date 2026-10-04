@@ -80,8 +80,8 @@ explicit profile revision rather than silently dropping charges.
 
 | Per-device template | RAM reserved / limit | Linked flash reserved / limit |
 |---|---:|---:|
-| Direct endpoint | 78208 / 131072 | 262144 / 524288 |
-| Radio endpoint (either recovery) | 82048 / 131072 | 262144 / 524288 |
+| Direct endpoint | 78720 / 131072 | 262144 / 524288 |
+| Radio endpoint (either recovery) | 83584 / 131072 | 262144 / 524288 |
 | Each relay | 29441 / 65536 | 65536 / 131072 |
 
 Endpoint reserves apply to each endpoint separately; relay reserves to each of

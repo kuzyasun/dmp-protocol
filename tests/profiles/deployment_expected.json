@@ -12,7 +12,7 @@
     "freshness_required_ms": 5716,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 78208
+        "RAM": 78720
       }
     },
     "response_floor_ms": 150,
@@ -32,7 +32,7 @@
     "freshness_required_ms": 5716,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 78208
+        "RAM": 78720
       }
     },
     "response_floor_ms": 150,
@@ -52,7 +52,7 @@
     "freshness_required_ms": 10936,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 82048
+        "RAM": 83584
       },
       "relay": {
         "RAM": 29441
@@ -75,7 +75,7 @@
     "freshness_required_ms": 10936,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 82048
+        "RAM": 83584
       },
       "relay": {
         "RAM": 29441
@@ -98,7 +98,7 @@
     "freshness_required_ms": 10936,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 82048
+        "RAM": 83584
       },
       "relay": {
         "RAM": 29441
@@ -121,7 +121,7 @@
     "freshness_required_ms": 10936,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 82048
+        "RAM": 83584
       },
       "relay": {
         "RAM": 29441

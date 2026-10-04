@@ -275,6 +275,9 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
     g.profile.chunk_bytes = chunk_bytes;
     g.profile.encoded_mtu = mtu;
     g.profile.assembly_ms = assembly_ms;
+    /* Admission uses the same control reserve as reliability. */
+    g.profile.control_slots = 1U;
+    g.profile.adapter_slots = 2U;
     if (dmp_identity_table_init(&g.table, g.ids, 4U) != DMP_OK ||
         !open_peer(PEER_ID, PEER_EPOCH, secured, &g.ctx)) {
         return 1;
@@ -398,6 +401,8 @@ static int test_extra_storage(void)
     g.profile.chunk_bytes = 16U;
     g.profile.encoded_mtu = MAX_MTU;
     g.profile.assembly_ms = 1000U;
+    g.profile.control_slots = 1U;
+    g.profile.adapter_slots = 2U;
     CHECK(dmp_identity_table_init(&g.table, g.ids, 4U) == DMP_OK);
     CHECK(open_peer(PEER_ID, PEER_EPOCH, 0, &g.ctx));
     storage.profile = &g.profile;
@@ -888,6 +893,8 @@ static int test_quotas(void)
         rejected.chunk_bytes = 16U;
         rejected.encoded_mtu = MAX_MTU;
         rejected.assembly_ms = 1000U;
+        rejected.control_slots = 1U;
+        rejected.adapter_slots = 2U;
         memset(&out, 0x5A, sizeof out);
         saved = out;
         CHECK(dmp_config_admit(&rejected, &out) == DMP_UNSUPPORTED);

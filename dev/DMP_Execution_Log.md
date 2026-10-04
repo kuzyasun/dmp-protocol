@@ -1172,3 +1172,33 @@ initialized. Reran
 `ctest --test-dir build/host --output-on-failure -R "identity.profile_admit|identity.profile_parity|identity.context|reliability.direct|reassembly.direct"`:
 5/5 passed, 0 failed. P11 stays `review`. P12 was not started. No stage,
 commit, or push.
+
+## 2026-10-04 — Adapter reserve and smaller buffer rows
+
+Acceptance fix on `6779798644c7cdcb0e0d20596f3da84f6531ce26`. The reliability
+reserve formula was not edited. `dmp_config_admit` and `tools/validate_profile.py`
+reject `adapter_slots` that are not strictly greater than
+`min(control_slots, adapter_slots)`. Direct manifests are adapter 3 / control 2.
+Radio manifests are adapter 5 / control 4, because adapter 3 is not above that
+reserve. Endpoint adapter charge counts match. `PROFILE_HASH` values are in
+`profiles/deployments/digests.json`. P11 stays `review`. P12 was not started.
+No stage, commit, push, flash, or DTrack action.
+
+`sizeof(dmp_reassembly_tombstone)` is 48. All six buffer rows are supported
+and are recorded in `dev/DMP_Validation_Results.md`. Each row admitted the
+config, initialized reliability, and completed one request/result exchange.
+The 4096-byte and 16384-byte rows also initialized reassembly and completed
+one two-slice reassembly.
+
+Commands and outcomes, existing `build/host`, GCC 15.2.0, CMake/CTest 3.28.1,
+Python 3.12.8:
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "identity.profile_admit|identity.profile_parity|identity.context|reliability.direct|reassembly.direct|profiles.contract"` — 6/6 passed, 0 failed (`profiles.contract`, `identity.context`, `identity.profile_admit`, `identity.profile_parity`, `reassembly.direct`, `reliability.direct`).
+- `python -m unittest discover -s tests/profiles -p "test_*.py" -v` — 24 tests, OK.
+- `python -m unittest tests.profiles.test_deployments.DeploymentTests.test_resource_input_hashes_match_source_bytes` — 1 test, OK. `resource-inputs.json` was not edited.
+- `python tools/validate_profile.py` on each of the six deployment manifests — `valid: true`. Direct endpoint RAM 78720. Radio endpoint RAM 83584. Relay RAM 29441.
+
+## 2026-10-04 — P11 coordinator acceptance
+
+Coordinator accepted P11 after the independent review reported no findings. No new test run in this step. P12 was not started. No commit.

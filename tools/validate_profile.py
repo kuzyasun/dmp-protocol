@@ -381,6 +381,11 @@ def _resources(m, derived):
     minimum_bytes["freshness_tokens"] = 16 if grants else 1
     require(l["control_slots"] >= m["timing"]["feedback_buffers"] + grants + 1,
             "resources", "$.limits.control_slots", "grant requests cannot consume receipt/feedback reservation")
+    # Same reserve as dmp_reliability_init / dmp_config_admit. Not a stricter policy.
+    reserve = min(l["control_slots"], l["adapter_slots"])
+    require(reserve > 0 and l["adapter_slots"] > reserve,
+            "resources", "$.limits.adapter_slots",
+            "adapter slots must exceed the reliability control reserve")
     totals = {}
     for resource in m["resources"]:
         path = "$.resources[" + resource["role"] + "]"

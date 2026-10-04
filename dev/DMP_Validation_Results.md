@@ -163,36 +163,55 @@ correlation metadata (`DMP_MAX_HEADER_BYTES` 255), adapter frames, and, when
 reassembly is claimed, assembly payload plus assembly metadata. It is not
 total endpoint RAM.
 
-`direct-nnpsk0.json` limits used below: `message_bytes` 1024, `fragments` 16,
+Corrected `direct-nnpsk0.json` limits: `message_bytes` 1024, `fragments` 16,
 `chunk_bytes` 64, `encoded_mtu` 263, `peers` 1, `control_slots` 2,
-`assemblies_per_peer` 1, `assembly_tombstones_per_peer` 16. Endpoint charges:
-sender 4, result 4, history 8, correlation 4, assembly 1, assembly tombstone
-16, adapter 2. That manifest pair admits. `dmp_reliability_init` still rejects
-`adapter_slots == control_slots == 2`. The supported 16384-byte row raises
-adapter slots to 3 so `adapter_slots > control_slots`; it does not change the
-manifest. Its eight-array sum is 14344. The manifest's own eight-array sum,
-with adapter 2, is 14081. Unfragmented direct slot counts (sender 4, result 4,
-adapter 2, assembly lengths omitted) sum to 12802 and do not fit in 8192.
+`adapter_slots` 3, `assemblies_per_peer` 1, `assembly_tombstones_per_peer` 16.
+Endpoint charges used by the 16384-byte row: sender 4, result 4, history 8,
+correlation 4, assembly 1, assembly tombstone 16, adapter 3. That pair admits,
+and `dmp_reliability_init` accepts it. The reliability reserve formula was not
+changed. A handwritten profile mutated to `adapter_slots == control_slots == 2`
+is still rejected by `dmp_reliability_init`; `dmp_config_admit` now rejects
+that pair as well.
 
-Rows at 1024, 2048, 3072, and 4096 are unsupported. Fitting them would require
-shrinking the 1024-byte message, history 8, correlation 4, or the control
-reserve. Those charges were left in place. The 8192-byte row is a smaller
-capability: unfragmented reliability, sender and result concurrency 1, same
-message, history, correlation, MTU, and control reserve (`adapter_slots` 3).
-It omits both assembly byte lengths and does not claim direct reassembly, so
-its tombstone column is 0.
+Each supported row below was admitted with `dmp_config_admit` and initialized
+with `dmp_reliability_init`. Where one reliability frame can hold
+`message_bytes` (`message_bytes + 48 <= encoded_mtu`), the row completes a
+request/result exchange of that full size (`dmp_reliability_submit_req`, poll,
+`dmp_reliability_on_rx`, `dmp_reliability_complete`, and the returning
+`dmp_reliability_on_rx`). Rows that claim reassembly also call
+`dmp_reassembly_init` and complete every slice of the stated chunk until
+`message_bytes` is delivered; the slice count equals `fragments`. Unfragmented
+rows omit both assembly byte lengths and do not charge reassembly tombstones.
+None of these rows is total endpoint RAM. Crypto and stack stay excluded.
 
-| Budget | Result | Capability | message_bytes | fragments | chunk_bytes | Slots | Eight-array sum | State bytes | Tombstone bytes | Crypto | Stack | JSON scratch |
-|---:|---|---|---:|---:|---:|---|---:|---:|---:|---|---|---:|
-| 1024 | unsupported | Preserved direct message, history 8, correlation 4, control 2, adapter 3; unfragmented; sum exceeds budget | 1024 | 2 | 64 | peers 1, sender 1, result 1, history 8, correlation 4, adapter 3, control 2, assembly 0, tombstone slots 0 | 6921 | 576 | 0 | excluded | excluded | 0 |
-| 2048 | unsupported | Same preserved unfragmented configuration; sum exceeds budget | 1024 | 2 | 64 | peers 1, sender 1, result 1, history 8, correlation 4, adapter 3, control 2, assembly 0, tombstone slots 0 | 6921 | 576 | 0 | excluded | excluded | 0 |
-| 3072 | unsupported | Same preserved unfragmented configuration; sum exceeds budget | 1024 | 2 | 64 | peers 1, sender 1, result 1, history 8, correlation 4, adapter 3, control 2, assembly 0, tombstone slots 0 | 6921 | 576 | 0 | excluded | excluded | 0 |
-| 4096 | unsupported | Same preserved unfragmented configuration; sum exceeds budget | 1024 | 2 | 64 | peers 1, sender 1, result 1, history 8, correlation 4, adapter 3, control 2, assembly 0, tombstone slots 0 | 6921 | 576 | 0 | excluded | excluded | 0 |
-| 8192 | supported | Unfragmented reliability; omits assembly payload and metadata; does not claim direct reassembly | 1024 | 2 | 64 | peers 1, sender 1, result 1, history 8, correlation 4, adapter 3, control 2, assembly 0, tombstone slots 0 | 6921 | 576 | 0 | excluded | excluded | 0 |
-| 16384 | supported | direct-nnpsk0 reassembly limits with adapter_slots 3 so the control reserve holds; manifest pair remains 2 and 2 | 1024 | 16 | 64 | peers 1, sender 4, result 4, history 8, correlation 4, adapter 3, control 2, assembly 1, tombstone slots 16 | 14344 | 1032 | 768 | excluded | excluded | 0 |
+The 16384-byte row is the direct profile. `encoded_mtu` 263 cannot hold a
+1024-byte reliability frame, so its 64-byte request/result call is only a
+frame that fits and is not an exchange of `message_bytes`. The admitted
+message is delivered by reassembly: 1024 bytes, chunk 64, 16 slices.
+The smaller rows deliver their own stated message size. They are smaller
+capabilities, not labeled as direct-nnpsk0.
 
-State bytes 576 are one `dmp_identity_slot` plus one `dmp_reliability`.
-State bytes 1032 add one `dmp_reassembly_slot` and one `dmp_reassembly`.
-Tombstone bytes 768 are 16 × `sizeof(dmp_reassembly_tombstone)`. The 6921-byte
-sum is `1*1024 + 1*1024 + 1024 + 8*255 + 4*255 + 3*263`. The 14344-byte sum is
-`4*1024 + 4*1024 + 1024 + 8*255 + 4*255 + 3*263 + 1*1024 + 1*255`.
+Command, existing `build/host`, after `cmake --build build/host`:
+
+```text
+ctest --test-dir build/host --output-on-failure -R "identity.profile_admit"
+```
+
+`identity.profile_admit` passed and printed the rows. State bytes 576 are one
+`dmp_identity_slot` (64) plus one `dmp_reliability` (512). State bytes 1032
+add one `dmp_reassembly_slot` (152) and one `dmp_reassembly` (304).
+
+| Budget (bytes) | Result | Capability | message_bytes | fragments | chunk_bytes | encoded_mtu | Slots | Eight-array sum (bytes) | State bytes | Tombstone bytes | Crypto | Stack | JSON scratch | What ran |
+|---:|---|---|---:|---:|---:|---:|---|---:|---:|---:|---|---|---:|---|
+| 1024 | supported | Unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones | 64 | 1 | 32 | 112 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 926 | 576 | 0 | excluded | excluded | 0 | admit, reliability init, 64-byte request/result exchange |
+| 2048 | supported | Same shape, message 256 | 256 | 1 | 128 | 304 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 1886 | 576 | 0 | excluded | excluded | 0 | admit, reliability init, 256-byte request/result exchange |
+| 3072 | supported | Same shape, message 384 | 384 | 1 | 128 | 432 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 2526 | 576 | 0 | excluded | excluded | 0 | admit, reliability init, 384-byte request/result exchange |
+| 4096 | supported | Full 256-byte reliability exchange plus reassembly of the same 256 bytes as two 128-byte slices; one tombstone, not the direct 16 | 256 | 2 | 128 | 304 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 1, tombstone slots 1 | 2397 | 1032 | 48 | excluded | excluded | 0 | admit, reliability init, 256-byte request/result exchange, reassembly init, 256-byte two-slice reassembly |
+| 8192 | supported | Unfragmented 1024-byte message; not direct-nnpsk0 (MTU 1072, fragments 1, one slot of each kind) | 1024 | 1 | 512 | 1072 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 5726 | 576 | 0 | excluded | excluded | 0 | admit, reliability init, 1024-byte request/result exchange |
+| 16384 | supported | direct-nnpsk0 limits, adapter 3 and control 2; 64-byte reliability frame fits MTU 263 and is not the message exchange; reassembly delivers 1024 bytes as 16 slices of 64 | 1024 | 16 | 64 | 263 | peers 1, sender 4, result 4, history 8, correlation 4, adapter 3, control 2, assembly 1, tombstone slots 16 | 14344 | 1032 | 768 | excluded | excluded | 0 | admit, reliability init, 64-byte fitting frame, reassembly init, 1024-byte 16-slice reassembly |
+
+Unfragmented sums omit assembly payload and assembly metadata:
+`3*message_bytes + 255 + 255 + 2*encoded_mtu`.
+The 4096-byte sum is `3*256 + 255 + 255 + 2*304 + 256 + 255`.
+The 14344-byte sum is `4*1024 + 4*1024 + 1024 + 8*255 + 4*255 + 3*263 + 1*1024 + 1*255`.
+Tombstone bytes 768 are 16 × 48. Tombstone bytes 48 are 1 × 48.

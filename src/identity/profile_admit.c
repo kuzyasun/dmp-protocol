@@ -5,7 +5,10 @@
  * history_slots * DMP_MAX_HEADER_BYTES, correlation_slots * DMP_MAX_HEADER_BYTES,
  * adapter_slots * encoded_mtu, assembly_slots * message_bytes,
  * assembly_slots * DMP_MAX_HEADER_BYTES.
- * peers * assembly_tombstones_per_peer is the tombstone-slot product. */
+ * peers * assembly_tombstones_per_peer is the tombstone-slot product.
+ * The control reserve matches dmp_reliability_init: min(control_slots,
+ * adapter_slots) must be non-zero and adapter_slots must be strictly greater.
+ * It is the same rule, not a stricter one. */
 
 static int product_fits(uint32_t left, uint32_t right)
 {
@@ -16,6 +19,15 @@ static int service_selected(const dmp_config *in)
 {
     return in->default_service == in->service_id[0] ||
            in->default_service == in->service_id[1];
+}
+
+/* Same branch as reliability control_reserve. Do not tighten it. */
+static uint32_t control_reserve(const dmp_config *in)
+{
+    if (in->control_slots < in->adapter_slots) {
+        return in->control_slots;
+    }
+    return in->adapter_slots;
 }
 
 dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
@@ -46,6 +58,12 @@ dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
         in->peers == 0U || in->assembly_tombstones_per_peer < in->assemblies_per_peer ||
         (uint64_t)in->assembly_tombstone_slots < tombstones) {
         return DMP_UNSUPPORTED;
+    }
+    {
+        uint32_t reserve = control_reserve(in);
+        if (reserve == 0U || in->adapter_slots <= reserve) {
+            return DMP_UNSUPPORTED;
+        }
     }
     admitted = *in;
     *out = admitted;

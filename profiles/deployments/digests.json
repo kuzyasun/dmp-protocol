@@ -2,11 +2,11 @@
   "algorithm": "SHA-256",
   "bytes": "original UTF-8, no BOM, LF, terminal LF; no JSON reserialization",
   "manifests": {
-    "direct-nnpsk0.json": "3d0229efafa5d15c1fcfe19265d81c70e7b004976d28303fb92fc27e4a357e2a",
-    "direct-xx.json": "376be22059bc75504277a290f19ca0713633464440d59734c629f34a49c82647",
-    "radio-nnpsk0.json": "064922471ec796e38ac391eef37454f35be53c2f87e1643f067b482cdb22713e",
-    "radio-xx.json": "fd3a50fc9ce9f02ae2b435d448044383547221e6c02b80f0a56b798c2b78de22",
-    "test-radio-retry-all-nnpsk0.json": "b6e33c5cb7e42fcf8b068ff068e2d4540a65bdb3f1f9731a8fe500a7e3e77b11",
-    "test-radio-retry-all-xx.json": "cdcc7118bdaee47bc8003ad6686da12a5757fce85d24fb47b5005ce01aee496c"
+    "direct-nnpsk0.json": "29cb7b91ee0c269bc14ac43e3a7c8fd8bdcfe11e9e052e8bd9e6af00fb89c3bf",
+    "direct-xx.json": "53f37327c19f5a0b4cbe115fa33d2630b45db50ffebd4b54dd18a0c26754841e",
+    "radio-nnpsk0.json": "b8c0a7ba5491181a0453bd888dd494e30a8194f127462e72d57e9bc095aeffcd",
+    "radio-xx.json": "c8f7a045120977c322fd0c565df39986508e70f0d9467dbed106a1e52084ebea",
+    "test-radio-retry-all-nnpsk0.json": "41403f59b5278605d75169ea0417e0d66edb44dc9da9f4170aaf9d9593ceca2a",
+    "test-radio-retry-all-xx.json": "1d51e964f81688b2acab59f9d091664388cdc2bbdcd97b15f54dcb91b7f17d0d"
   }
 }
