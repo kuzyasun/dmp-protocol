@@ -1449,3 +1449,26 @@ No stage, commit, push, or flash.
 ## 2026-10-04 — P17 coordinator acceptance
 
 Coordinator accepted the host transparent relay on 2026-10-04 after independent review abfec04c found no defect. A transparent static hop changes only the forward-remaining nibble and, when INTEGRITY is set, recomputes CRC32C; payload and the other header fields are not rewritten. Cooldown and the schedule come from the relay/profile fields, not hardcoded 50/64/42/20 in relay.c. A forward during cooldown returns DMP_BUSY and does not move the cooldown anchor. There is no allocation on the forward path. Host CTest was reported 15/15 and was not rerun by the reviewer. INTEGRITY CRC recomputation was confirmed in source and is not covered by test_relay.c, which does not set INTEGRITY. Physical transport is not included. P17 is done. P18 was not started. No commit was made in this step.
+
+## 2026-10-04 — P18 protected FRAG_STATUS vectors, running
+
+P18 is running from baseline `edde21fdc063806feb4cf3f09fbad0308e59c747` and is not done. P19 was not started. `dev/dmp_generate_recovery_vectors.py` seals FRAG_STATUS with Python cryptography 46.0.4 ChaCha20-Poly1305. `dev/dmp_verify_recovery_vectors.cjs` rebuilds the header, AAD and ciphertext with Node.js v24.11.1 `node:crypto` and does not import the generator. Expected bytes are not produced by `src/reliability` or `dmp_core_encode`. The key and handshake hash are the published NNpsk0 ChaChaPoly `r_to_i_key` and `handshake_hash`; `docs/DMP_v2_Security_Test_Vectors.json` was not modified. The R6 illustrative header `48 0A C1 09 01 01 07 05 01 05` and plaintext `44 00 00 00` are recorded without a tag. Complete frames use receive CID 7 and fresh PNs. Cipher 1 is the supported suite. Cipher 2 and cipher 3 are rejected as outside that suite; AES-GCM is not invoked.
+
+Covered: golden masks for two of eight, N=2 index 0 and N=32 index 31; explicit service 2; a routed return whose AAD zeros the TTL nibble; a two-byte PN; invalid masks (zero, all-N for N=2 and N=32, out of range); payload lengths other than 4; missing, full and non-minimal REPLY_TO; ACK_REQ, FRAG, PAYLOAD_DESC, STATUS, FRESHNESS and INTEGRITY+SECURITY; PN>=2^24; an explicit default service; altered SEQ, REPLY_TO, CID, PN, destination, ciphertext, tag and handshake hash. A TTL-only change still authenticates. `recovery.frag_status` parses those frames with `dmp_core_parse` and does not decrypt them.
+
+Not invented: a JSON parser in libdmp, a manifest or PROFILE_HASH edit, a jitter distribution, NVS or filesystem persistence, identity reissue, a RADIO-1 retry-all switch, or an endpoint judgment of an ineligible or terminal reference. That last check needs retained transfer state and stays with P19. Host fixtures are not physical transport.
+
+GCC 15.2.0, CMake/CTest 3.28.1, Python 3.12.8. `build/host` was not deleted.
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure` — 53/53 passed, including `fixtures.recovery` and `recovery.frag_status`. `harness.subprocess` passed in this run.
+
+No stage, commit, push, or flash. P18 is not done.
+
+## 2026-10-04 — P18 coordinator acceptance
+
+Coordinator accepted the protected FRAG_STATUS vectors on 2026-10-04 after independent review 98a72880 found no defect. The reviewer rebuilt header, AAD, nonce and ChaCha20-Poly1305 output from the recovery annex and SEC-1 rules with a separate out-of-repository script, and all 26 cases and 8 mutations matched. The generator and verifier do not import each other or `src/`. The key is the published NNpsk0 `r_to_i_key`, which opens the published READY packet. `docs/DMP_v2_Security_Test_Vectors.json` is unchanged from HEAD (`dc8ba5a494d4f359402afe289cec733f5e7e12a0`). `fixtures.recovery` requires Node and Python and has no skip return code. The reviewed snapshot hashes were unchanged at the end of review.
+
+Coordinator recheck: `node dev/dmp_verify_recovery_vectors.cjs` exit 0 (26 cases, 8 mutations, cipher 1 only); `ctest --test-dir build/host -R "fixtures.recovery|recovery.frag_status"` 2/2 passed. The reviewer's full run was 53/53.
+
+Not covered: endpoint acceptance of FRAG_STATUS, replay window and old PN, ineligible or terminal references, service 0, a separate SERVICE_ID byte mutation, real AES-GCM frames and physical transport. Reference eligibility needs retained transfer state and stays with P19. `docs/DMP_v2_Recovery_Test_Vectors.json` stays in place; no normative text cites it yet. P18 is done. P19 was not started. No commit was made in this step.

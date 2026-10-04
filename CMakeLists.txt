@@ -61,6 +61,7 @@ if(DMP_BUILD_TESTS)
     endif()
     add_subdirectory(tests/harness)
     add_subdirectory(tests/mesh)
+    add_subdirectory(tests/recovery)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
        CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         add_executable(dmp_test_allocator_paths tests/core/allocator_probe.c)
@@ -86,6 +87,10 @@ if(DMP_BUILD_TESTS)
         COMMAND "${DMP_NODE_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/dev/dmp_verify_security_vectors.cjs")
     set_tests_properties(fixtures.sec1 PROPERTIES LABELS "fixture-only" TIMEOUT 30)
+    add_test(NAME fixtures.recovery
+        COMMAND "${DMP_NODE_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/dev/dmp_verify_recovery_vectors.cjs")
+    set_tests_properties(fixtures.recovery PROPERTIES LABELS "recovery;fixture-only" TIMEOUT 30)
 endif()
 
 
