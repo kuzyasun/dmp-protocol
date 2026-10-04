@@ -6,7 +6,8 @@ add_library(libdmp STATIC src/core/base.c src/core/codec.c
     src/integrity/crc32c.c src/stream/cobs.c src/stream/stream.c
     src/identity/identity.c src/identity/profile_admit.c
     src/reassembly/reassembly.c
-    src/reliability/reliability.c)
+    src/reliability/reliability.c
+    src/endpoint/endpoint.c)
 add_library(dmp::dmp ALIAS libdmp)
 set_target_properties(libdmp PROPERTIES OUTPUT_NAME dmp
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
@@ -38,6 +39,7 @@ if(DMP_BUILD_TESTS)
     add_subdirectory(tests/identity)
     add_subdirectory(tests/reassembly)
     add_subdirectory(tests/reliability)
+    add_subdirectory(tests/endpoint)
     add_subdirectory(tests/provider)
     add_subdirectory(tests/harness)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND

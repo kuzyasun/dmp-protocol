@@ -1202,3 +1202,63 @@ Python 3.12.8:
 ## 2026-10-04 — P11 coordinator acceptance
 
 Coordinator accepted P11 after the independent review reported no findings. No new test run in this step. P12 was not started. No commit.
+
+## 2026-10-04 — P12 direct endpoint, not accepted
+
+Started at `3f1dbfe806435a320c9439c5af391af9cd01db86`. Two `libdmp` endpoints exchange Stream R frames. Unfragmented REQ/RSP/TELEM retries, duplicate suppression, and results go through `dmp_reliability`. Payloads larger than one core frame are sliced at the admitted 64-byte stride and reassembled by `dmp_reassembly` in the peer endpoint. SAMPLE-1 payload layout lives in the host test, not in `libdmp`. No JSON parsing, no heap on the receive/encode/retry path, no Noise, and no second retry state machine. A transmitted fragment that is then lost is not retried here. SEC-1 is not applied; these exchanges are provisional until P15. The host loopback is not physical-transport evidence. Manifest bytes and `PROFILE_HASH` were not edited. P12 is not marked done. No stage, commit, push, flash, or DTrack action.
+
+GCC 15.2.0, CMake/CTest 3.28.1. Existing `build/host` was not deleted.
+
+- `cmake --build build/host --target dmp_test_endpoint` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "endpoint\.(sample1|fragment|retry|duplicate|quota)|reliability\.direct|reassembly\.direct"` — 7/7 passed, 0 failed (`reassembly.direct`, `reliability.direct`, `endpoint.sample1`, `endpoint.fragment`, `endpoint.retry`, `endpoint.duplicate`, `endpoint.quota`).
+
+## 2026-10-04 — P12 review fixes, not accepted
+
+Independent review `3a0a69dc` on the uncommitted endpoint at `3f1dbfe`. Three defects only. `src/reassembly/reassembly.c` and `src/reliability/reliability.c` were not edited. Manifest bytes were not edited. P12 stays `running` and is not done. No stage, commit, or push.
+
+SAMPLE-1 capture is the producer snapshot at `DMP_ENDPOINT_REQUEST`. Completion sends that snapshot. The consumer selects an epoch only from the designated READ, and a later older READ does not replace the live sample. A completed reassembly stays held, so the same slices are `DMP_DUPLICATE` and are not delivered again. Fragment input passes the parsed extension TLVs, omitting the per-frame SECURITY option. The test constant `DIRECT_SHA` is the current SHA-256 of `profiles/deployments/direct-nnpsk0.json` (`29cb7b91ee0c269bc14ac43e3a7c8fd8bdcfe11e9e052e8bd9e6af00fb89c3bf`). Admission still does not hash.
+
+GCC 15.2.0, CMake/CTest 3.28.1. Existing `build/host` was not deleted.
+
+- `cmake --build build/host --target dmp_test_endpoint` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "endpoint\.(sample1|sample_snapshot|fragment|fragment_replay|fragment_tlv|retry|duplicate|quota)|reliability\.direct|reassembly\.direct"` — 10/10 passed, 0 failed (`reassembly.direct`, `reliability.direct`, `endpoint.sample1`, `endpoint.sample_snapshot`, `endpoint.fragment`, `endpoint.fragment_replay`, `endpoint.fragment_tlv`, `endpoint.retry`, `endpoint.duplicate`, `endpoint.quota`).
+
+## 2026-10-04 — P12 lifetime recheck, still running
+
+Independent source recheck of the three P12 fixes confirmed they are present in the uncommitted tree on `3f1dbfe`. P12 stays `running`. Full A4, a SEC-1 rerun, and physical transport were not claimed. This recheck was source-only and did not re-run tests. The earlier CTest run after the fix was 10/10. `src/reliability/reliability.c` and `src/reassembly/reassembly.c` have no diff. No source, test, manifest, or CMake edit. No stage, commit, or push.
+
+- SAMPLE-1 snapshot is taken at `DMP_ENDPOINT_REQUEST` and complete sends that snapshot; an older READ does not roll back a newer sample.
+- `take_fragment` does not release the assembly after get; a full replay does not emit a second assembled callback.
+- Reassembly receives the slice extension span; a mismatched unknown safe TLV returns `DMP_MALFORMED`.
+
+## 2026-10-04 — P12 SAMPLE-1 A4 cases, still running
+
+Host loopback only. Plaintext, so SEC-1 remains a P15 rerun. Not physical transport. P12 stays `running` and is not done. Manifest bytes were not edited. `src/reliability/reliability.c` and `src/reassembly/reassembly.c` were not edited. No stage, commit, or push. `build/host` was not deleted.
+
+The consumer now sees the result source origin on `dmp_endpoint_notice` and a local `DMP_ENDPOINT_UNKNOWN` when a reliable READ ends without a result. SAMPLE-1 initialization stays in the host test. `direct-nnpsk0` sample budget is `init_attempts=1`, `init_retry_ms=5`, `init_deadline_ms=12000`, `no_sample_status=64`.
+
+A4 cases now tested:
+
+- First boot, telemetry before the READ result, and no epoch adoption from telemetry: `endpoint.sample1`. Accept-time snapshot: `endpoint.sample_snapshot`. Lost READ: `endpoint.retry`.
+- NO_SAMPLE: `endpoint.sample_no_sample`. An accepted READ with no sample is terminal ERR STATUS 64 and an empty payload. The consumer stays unsynchronized. The one manifest attempt is then exhausted, so no second initialization READ is opened. Telemetry of a later sample is discarded. Replaying that same request is not accepted again. A new READ identity returns the new snapshot and does not initialize.
+- Initialization budget: `endpoint.sample_init_budget`. Before the 12000 ms deadline the consumer is still unsynchronized and has not failed. At the deadline the READ ends unknown, local initialization fails, there is no live sample, and the retry interval does not open another request identity.
+- Same-epoch older READ: `endpoint.sample_same_epoch`. After a new initialization generation, the correlated result is the older snapshot. Synchronization completes on the retained epoch and the greater cached index/value stays.
+- Different epoch on the designated READ: `endpoint.sample_new_epoch`. A numerically smaller epoch replaces the cache. A later telemetry epoch is a contract violation and is not adopted.
+- Late result from the previous association, including replacement while that result is outstanding: `endpoint.sample_late_assoc`. The generation and designated handle still match; only the association origin changes. The newer snapshot is delivered and does not select an epoch or change the cache.
+- Superseded initialization request: `endpoint.sample_superseded`. Clearing the designation leaves the delivered READ result out of synchronization.
+- Invalid correlated result: `endpoint.sample_invalid`. It does not complete synchronization.
+
+Still deferred, not faked:
+
+- Persistence failure and epoch reuse. A1: "counter/storage loss, rollback, failure or exhaustion MUST stop SAMPLE-1 publication until a separately authorized reprovisioning of producer identity/state prevents reuse." There is no persistence port.
+- Producer restart or index exhaustion that must "atomically reserve and durably commit a never-reused epoch." The consumer rule for a different epoch on the designated READ is tested. The durable reservation is not.
+- Shared-association closure during epoch change. A1: "Closing a shared association also ends outstanding exchanges on its other services with the main unknown-outcome rules." The endpoint has no close that settles other live services as unknown, and `dmp_reliability_close` refuses while an exchange is live.
+- Lost result and lost receipt as their own SAMPLE-1 cases. Lost READ remains `endpoint.retry`. One discarded RSP was not redelivered by the existing schedule inside the request send horizon; that case was not given a passing CTest.
+- Real SEC-1 and a second independent endpoint implementation.
+
+GCC 15.2.0, CMake/CTest 3.28.1.
+
+- `cmake --build build/host --target dmp_test_endpoint` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "endpoint\.|reliability\.direct|reassembly\.direct"` — 17/17 passed, 0 failed (`reassembly.direct`, `reliability.direct`, `endpoint.sample1`, `endpoint.sample_snapshot`, `endpoint.fragment`, `endpoint.fragment_replay`, `endpoint.fragment_tlv`, `endpoint.retry`, `endpoint.duplicate`, `endpoint.quota`, `endpoint.sample_no_sample`, `endpoint.sample_init_budget`, `endpoint.sample_same_epoch`, `endpoint.sample_new_epoch`, `endpoint.sample_late_assoc`, `endpoint.sample_superseded`, `endpoint.sample_invalid`).
+
+P12 stays running: `endpoint.sample_init_budget` now fails on the consumer initialization clock at 5000 ms while reliability `result_deadline_ms` stays 12000, `init_failed` is 1 at now+5000 and now+5005 with no new READ, a later READ does not install a sample, and the requested ctest filter passed 5/5 with no edit to `src/reliability/reliability.c` or `src/reassembly/reassembly.c` and no commit.
