@@ -1,18 +1,24 @@
 cmake_minimum_required(VERSION 3.20)
 project(dmp LANGUAGES C)
 
-# The reusable C archive has no SDK, Python, Node or crypto dependency.
+# The reusable C archive has no SDK, Python, or Node dependency. The P01B
+# provider adapter is one archive member; tests/security link the reviewed
+# Noise engine. Other objects do not reference it.
 add_library(libdmp STATIC src/core/base.c src/core/codec.c
     src/integrity/crc32c.c src/stream/cobs.c src/stream/stream.c
     src/identity/identity.c src/identity/profile_admit.c
     src/reassembly/reassembly.c
     src/reliability/reliability.c
-    src/endpoint/endpoint.c)
+    src/endpoint/endpoint.c
+    src/security/provider_adapter.c)
 add_library(dmp::dmp ALIAS libdmp)
 set_target_properties(libdmp PROPERTIES OUTPUT_NAME dmp
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 target_compile_features(libdmp PUBLIC c_std_11)
 target_include_directories(libdmp PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(libdmp PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/noise-c/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/provider/backend")
 
 function(dmp_strict_target target)
     if(MSVC)
@@ -41,6 +47,15 @@ if(DMP_BUILD_TESTS)
     add_subdirectory(tests/reliability)
     add_subdirectory(tests/endpoint)
     add_subdirectory(tests/provider)
+    set(DMP_SODIUM_SOURCE_DIR "" CACHE PATH
+        "Pinned prepared libsodium tree for the P01B adapter tests")
+    if(IS_DIRECTORY "${DMP_SODIUM_SOURCE_DIR}")
+        enable_language(ASM)
+        add_subdirectory(tests/security)
+    else()
+        message(STATUS
+            "P01B adapter tests are not registered; set DMP_SODIUM_SOURCE_DIR")
+    endif()
     add_subdirectory(tests/harness)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
        CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

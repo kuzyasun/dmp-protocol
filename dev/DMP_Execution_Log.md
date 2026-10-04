@@ -1262,3 +1262,21 @@ GCC 15.2.0, CMake/CTest 3.28.1.
 - `ctest --test-dir build/host --output-on-failure -R "endpoint\.|reliability\.direct|reassembly\.direct"` — 17/17 passed, 0 failed (`reassembly.direct`, `reliability.direct`, `endpoint.sample1`, `endpoint.sample_snapshot`, `endpoint.fragment`, `endpoint.fragment_replay`, `endpoint.fragment_tlv`, `endpoint.retry`, `endpoint.duplicate`, `endpoint.quota`, `endpoint.sample_no_sample`, `endpoint.sample_init_budget`, `endpoint.sample_same_epoch`, `endpoint.sample_new_epoch`, `endpoint.sample_late_assoc`, `endpoint.sample_superseded`, `endpoint.sample_invalid`).
 
 P12 stays running: `endpoint.sample_init_budget` now fails on the consumer initialization clock at 5000 ms while reliability `result_deadline_ms` stays 12000, `init_failed` is 1 at now+5000 and now+5005 with no new READ, a later READ does not install a sample, and the requested ctest filter passed 5/5 with no edit to `src/reliability/reliability.c` or `src/reassembly/reassembly.c` and no commit.
+
+## 2026-10-04 — P01B provider adapter, not accepted
+
+Started at `9b2ac889c19f8627a421f156eedde8fd828f4f60`. The portable adapter is `src/security/provider_adapter.c` inside `libdmp`. Private ports live in `src/security/provider_port.h`. Tests in `tests/security/` link that same object plus the pinned Noise fork and the reviewed checked sodium backend. No public header change, no new cipher/KDF/handshake transition, no SEC-1 attempt scheduler, no P13/P14/P15 work. P01B is not done. P12 was not marked done.
+
+Host only. Startup and runtime entropy are injected test ports, not physical or MCU entropy. The enabled cipher backend is ChaChaPoly; AESGCM is rejected. One provider is serialized. Scratch and retained caps are adapter admission limits, not a measured MCU budget. Sodium's own startup allocator is outside the Noise block quota.
+
+GCC 15.2.0, CMake/CTest 3.28.1. Existing `build/host` was not deleted.
+
+- `cmake --build build/host --target dmp_test_provider` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "^security\.provider_adapter$"` — 1/1 passed. Cases: init, entropy, oom, wrong-psk, low-order, pn-aad-nnpsk0, pn-aad-xx, suite-nnpsk0, suite-xx, cleanup.
+- `cmake --build build/host --target dmp_test_endpoint` — exit 0. Endpoint tests were not re-run.
+
+No stage, commit, or push.
+
+## 2026-10-04 — P01B host adapter accepted
+
+Coordinator accepted the host P01B adapter on 2026-10-04 after independent review found no defect. The accepted behavior is the uncommitted worktree on 9b2ac889: tests call libdmp; wrong-PSK, low-order, PN and AAD failures wipe output; AESGCM is rejected before state creation; there is no new primitive and no SEC-1 attempt scheduler; endpoint, reliability, reassembly and profiles were untouched. Physical entropy, MCU measurement, and the SEC-1 attempt scheduler are not included; scratch and retained caps stay admission limits. P13 has not started and P12 was not marked done. No commit was made in this step.
