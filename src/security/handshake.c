@@ -1,4 +1,7 @@
 #include "handshake.h"
+#include "replay_window.h"
+
+#include "dmp/core.h"
 
 #include <noise/protocol.h>
 
@@ -8,6 +11,13 @@
 #define DMP_HS_PROLOGUE_LEN 85u
 #define DMP_HS_PREFIX_LEN 72u
 #define DMP_HS_CONT_LEN 18u
+#define DMP_HS_PROTECTED_MAX 96u
+#define DMP_HS_APP_PLAIN_MAX 32u
+#define DMP_HS_AAD_MAX (14u + 32u + DMP_MAX_HEADER_BYTES)
+#define DMP_HS_PN_LIMIT (UINT64_C(1) << 24)
+#define DMP_HS_PLAIN_LIMIT (UINT64_C(1) << 30)
+#define DMP_HS_LIFETIME_DEFAULT_MS UINT64_C(86400000)
+#define DMP_HS_AEAD_CEILING 65536u
 
 struct hs_attempt {
     int used;
@@ -57,6 +67,23 @@ struct hs_attempt {
     uint8_t cached[DMP_HS_PAYLOAD_MAX];
     uint16_t cached_len;
     uint8_t cached_flight;
+    int active;
+    int waiting_ready;
+    int ready_sent;
+    uint64_t split_ms;
+    uint64_t confirm_deadline;
+    uint64_t next_pn;
+    uint64_t send_plain;
+    uint64_t recv_plain;
+    uint32_t next_seq;
+    uint32_t confirm_sends;
+    uint32_t failed_aead;
+    uint32_t send_frames;
+    dmp_replay_window replay;
+    uint8_t protected_frame[DMP_HS_PROTECTED_MAX];
+    uint16_t protected_len;
+    uint8_t accepted[DMP_HS_APP_PLAIN_MAX];
+    uint16_t accepted_len;
     dmp_provider_handshake handshake;
     dmp_provider_cipher send_cipher;
     dmp_provider_cipher recv_cipher;
@@ -83,6 +110,9 @@ struct dmp_hs {
     uint32_t scratch_held;
     uint32_t total_reads;
     uint32_t next_cid;
+    uint32_t replay_width;
+    uint32_t failed_limit;
+    uint64_t lifetime_ms;
     int episode_open;
     struct hs_attempt attempts[DMP_HS_ATTEMPT_MAX];
     dmp_hs_retained retained[DMP_HS_ASSOCIATION_MAX];
@@ -393,6 +423,14 @@ static void abort_attempt(dmp_hs *hs, struct hs_attempt *attempt, dmp_hs_view vi
     attempt->awaiting = 0;
     attempt->candidate = 0;
     attempt->enrolled = 0;
+    attempt->active = 0;
+    attempt->waiting_ready = 0;
+    attempt->ready_sent = 0;
+    attempt->protected_len = 0U;
+    attempt->accepted_len = 0U;
+    wipe(attempt->protected_frame, sizeof(attempt->protected_frame));
+    wipe(attempt->accepted, sizeof(attempt->accepted));
+    dmp_replay_window_clear(&attempt->replay);
     attempt->view = view;
     attempt->generation = ++hs->generation_clock;
     attempt->expect_flight = 0U;
@@ -630,6 +668,10 @@ static dmp_hs_status finish_candidate(dmp_hs *hs, struct hs_attempt *attempt)
     }
     attempt->send_open = 1;
     attempt->recv_open = 1;
+    attempt->split_ms = now_ms(hs);
+    attempt->next_pn = 0U;
+    attempt->next_seq = 0U;
+    dmp_replay_window_init(&attempt->replay, hs->replay_width);
     (void)dmp_provider_handshake_close(hs->provider, &attempt->handshake);
     attempt->handshake_open = 0;
     wipe(attempt->ephemeral, sizeof(attempt->ephemeral));
@@ -1029,12 +1071,28 @@ dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_confi
     if (config->mode == 2U && (!config->has_static || config->key_hint != 0U)) {
         return DMP_HS_INVALID;
     }
+    if (config->budget.replay_window != 0U &&
+        (config->budget.replay_window < DMP_REPLAY_WINDOW_MIN ||
+         config->budget.replay_window > DMP_REPLAY_WINDOW_MAX ||
+         (config->budget.replay_window & (config->budget.replay_window - 1U)) != 0U)) {
+        return DMP_HS_INVALID;
+    }
+    if (config->budget.failed_aead_limit > DMP_HS_AEAD_CEILING) {
+        return DMP_HS_INVALID;
+    }
     memset(hs, 0, sizeof(*hs));
     hs->provider = provider;
     hs->config = *config;
     hs->ports = *ports;
     hs->later_remaining = config->budget.later_episodes;
     hs->next_cid = config->next_rx_cid == 0U ? 1U : config->next_rx_cid;
+    hs->replay_width = config->budget.replay_window == 0U ? DMP_REPLAY_WINDOW_DEFAULT
+                                                          : config->budget.replay_window;
+    hs->failed_limit = config->budget.failed_aead_limit == 0U ? DMP_HS_AEAD_CEILING
+                                                              : config->budget.failed_aead_limit;
+    hs->lifetime_ms = config->budget.association_lifetime_ms == 0U
+                          ? DMP_HS_LIFETIME_DEFAULT_MS
+                          : config->budget.association_lifetime_ms;
     if (noise_hashstate_new_by_id(&hs->epoch_hash, NOISE_HASH_SHA256) != NOISE_ERROR_NONE ||
         hs->epoch_hash == NULL) {
         wipe(hs, sizeof(*hs));
@@ -1256,6 +1314,305 @@ dmp_hs_status dmp_hs_cancel(dmp_hs *hs, uint32_t index)
     return DMP_HS_OK;
 }
 
+static int lifetime_over(const dmp_hs *hs, const struct hs_attempt *attempt)
+{
+    if (attempt->split_ms == 0U || hs->lifetime_ms > UINT64_MAX - attempt->split_ms) {
+        return 0;
+    }
+    return now_ms(hs) >= attempt->split_ms + hs->lifetime_ms;
+}
+
+static uint64_t add_ms(uint64_t now, uint32_t delta)
+{
+    if ((uint64_t)delta > UINT64_MAX - now) {
+        return UINT64_MAX;
+    }
+    return now + (uint64_t)delta;
+}
+
+/* Ends traffic keys and replay state. A pin committed before this call stays committed. */
+static void end_traffic(dmp_hs *hs, struct hs_attempt *attempt)
+{
+    int enrolled = attempt->enrolled;
+
+    if (!attempt->used || attempt->terminal) {
+        return;
+    }
+    attempt->terminal = 1;
+    attempt->awaiting = 0;
+    attempt->candidate = 0;
+    attempt->active = 0;
+    attempt->waiting_ready = 0;
+    attempt->ready_sent = 0;
+    attempt->expect_flight = 0U;
+    attempt->cached_len = 0U;
+    attempt->cached_flight = 0U;
+    attempt->protected_len = 0U;
+    attempt->accepted_len = 0U;
+    attempt->generation = ++hs->generation_clock;
+    attempt->view = enrolled ? DMP_HS_VIEW_ENROLLED : DMP_HS_VIEW_EXPIRED;
+    attempt->enrolled = enrolled;
+    release_scratch(hs, attempt);
+    close_crypto(hs, attempt);
+    dmp_replay_window_clear(&attempt->replay);
+    wipe(attempt->protected_frame, sizeof(attempt->protected_frame));
+    wipe(attempt->accepted, sizeof(attempt->accepted));
+    wipe(attempt->handshake_hash, sizeof(attempt->handshake_hash));
+    attempt->hash_valid = 0;
+    if (!enrolled) {
+        wipe(attempt->remote_public, sizeof(attempt->remote_public));
+        attempt->remote_public_valid = 0;
+    }
+    if (attempt->initiator) {
+        uint64_t now = now_ms(hs);
+        uint32_t backoff = hs->config.budget.restart_backoff_ms;
+
+        hs->next_attempt_ms = backoff > UINT64_MAX - now ? UINT64_MAX : now + backoff;
+    }
+}
+
+static void expire_attempt(dmp_hs *hs, struct hs_attempt *attempt)
+{
+    if (attempt->split_ms != 0U || attempt->enrolled || attempt->active || attempt->waiting_ready) {
+        end_traffic(hs, attempt);
+        return;
+    }
+    abort_attempt(hs, attempt, DMP_HS_VIEW_EXPIRED);
+}
+
+static size_t uleb_size(uint64_t value)
+{
+    size_t size = 1U;
+
+    while (value >= 0x80U) {
+        value >>= 7U;
+        size++;
+    }
+    return size;
+}
+
+static int traffic_authorized(const dmp_hs *hs, const struct hs_attempt *attempt)
+{
+    if (attempt->terminal || !attempt->recv_open || !attempt->send_open || !attempt->hash_valid) {
+        return 0;
+    }
+    if (attempt->view == DMP_HS_VIEW_AWAITING_VERIFICATION) {
+        return 0;
+    }
+    if (attempt->mode == 2U && !hs->config.has_pin && !attempt->enrolled) {
+        return 0;
+    }
+    return attempt->candidate || attempt->enrolled || attempt->active;
+}
+
+static void become_active(struct hs_attempt *attempt)
+{
+    attempt->active = 1;
+    attempt->waiting_ready = 0;
+    attempt->candidate = 0;
+    attempt->view = DMP_HS_VIEW_ACTIVE;
+}
+
+static int context_matches(const dmp_hs *hs, const struct hs_attempt *attempt,
+                           const dmp_hs_protected *incoming)
+{
+    uint64_t epoch;
+
+    if (incoming->destination_id != hs->config.local_id ||
+        incoming->namespace_id != attempt->namespace_id || incoming->origin_id == hs->config.local_id) {
+        return 0;
+    }
+    if (incoming->origin_id == attempt->initiator_id) {
+        epoch = attempt->epoch_i;
+    } else if (incoming->origin_id == attempt->responder_id) {
+        epoch = attempt->epoch_r;
+    } else {
+        return 0;
+    }
+    return incoming->context_epoch == epoch;
+}
+
+static int canonical_header(const dmp_frame_view *view, uint8_t *out, size_t cap, size_t *length)
+{
+    size_t offset = 3U;
+
+    if (view->header.data == NULL || view->header.size < 2U || view->header.size > cap) {
+        return 0;
+    }
+    memcpy(out, view->header.data, view->header.size);
+    *length = view->header.size;
+    if ((view->fields.options & DMP_OPT_ROUTE) == 0U) {
+        return 1;
+    }
+    if ((view->fields.options & DMP_OPT_SEQ) != 0U) {
+        offset += uleb_size(view->fields.seq);
+    }
+    if (offset >= view->header.size) {
+        return 0;
+    }
+    out[offset] = (uint8_t)(out[offset] & 0x0FU);
+    return 1;
+}
+
+static int build_aad(const uint8_t hash[32], const uint8_t *header, size_t header_len, uint8_t *aad,
+                     size_t cap, size_t *aad_len)
+{
+    if (header_len > cap - 46U) {
+        return 0;
+    }
+    memcpy(aad, "DMP2-SEC1-DATA", 14U);
+    memcpy(aad + 14U, hash, 32U);
+    memcpy(aad + 46U, header, header_len);
+    *aad_len = 46U + header_len;
+    return 1;
+}
+
+static const dmp_core_limits *protected_limits(void)
+{
+    static const dmp_core_limits limits = {512U, DMP_HS_APP_PLAIN_MAX, 2U};
+
+    return &limits;
+}
+
+static int seal_record(dmp_hs *hs, struct hs_attempt *attempt, uint8_t type, uint32_t seq,
+                       const uint8_t *plain, size_t plain_len)
+{
+    uint8_t header[DMP_MAX_HEADER_BYTES];
+    uint8_t body[DMP_HS_APP_PLAIN_MAX + 16U];
+    uint8_t frame[DMP_HS_PROTECTED_MAX];
+    uint8_t aad[DMP_HS_AAD_MAX];
+    dmp_frame_spec spec;
+    dmp_buffer output;
+    size_t header_len = 0U;
+    size_t aad_len = 0U;
+    size_t sealed = 0U;
+    size_t total;
+    uint64_t pn;
+    dmp_provider_status status;
+
+    if (!attempt->send_open || attempt->remote_rx_cid == 0U || plain_len > DMP_HS_APP_PLAIN_MAX ||
+        (plain_len != 0U && plain == NULL) || lifetime_over(hs, attempt)) {
+        return 0;
+    }
+    if (attempt->next_pn >= DMP_HS_PN_LIMIT || attempt->send_plain > DMP_HS_PLAIN_LIMIT - plain_len) {
+        return 0;
+    }
+    pn = attempt->next_pn;
+    memset(&spec, 0, sizeof(spec));
+    spec.fields.type = type;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_SECURITY);
+    spec.fields.seq = seq;
+    spec.fields.security.cipher = attempt->cipher;
+    spec.fields.security.receive_cid = attempt->remote_rx_cid;
+    spec.fields.security.pn = pn;
+    spec.payload.data = plain;
+    spec.payload.size = plain_len;
+    spec.trailer.size = 16U;
+    output.data = header;
+    output.capacity = sizeof(header);
+    if (dmp_core_encode_header(&spec, protected_limits(), output, &header_len) != DMP_OK ||
+        !build_aad(attempt->handshake_hash, header, header_len, aad, sizeof(aad), &aad_len) ||
+        header_len + plain_len + 16U > sizeof(frame)) {
+        wipe(aad, sizeof(aad));
+        return 0;
+    }
+    if (plain_len != 0U) {
+        memcpy(body, plain, plain_len);
+    }
+    status = dmp_provider_cipher_encrypt(hs->provider, &attempt->send_cipher, pn, aad, aad_len, body,
+                                         plain_len, sizeof(body), &sealed);
+    wipe(aad, sizeof(aad));
+    if (status != DMP_PROVIDER_OK || sealed != plain_len + 16U) {
+        wipe(body, sizeof(body));
+        return 0;
+    }
+    total = header_len + sealed;
+    memcpy(frame, header, header_len);
+    memcpy(frame + header_len, body, sealed);
+    wipe(body, sizeof(body));
+    memcpy(attempt->protected_frame, frame, total);
+    if (total < sizeof(attempt->protected_frame)) {
+        memset(attempt->protected_frame + total, 0, sizeof(attempt->protected_frame) - total);
+    }
+    wipe(frame, sizeof(frame));
+    attempt->protected_len = (uint16_t)total;
+    attempt->next_pn = pn + 1U;
+    attempt->send_frames++;
+    attempt->send_plain += plain_len;
+    return 1;
+}
+
+static dmp_hs_status retry_confirmation(dmp_hs *hs, struct hs_attempt *attempt)
+{
+    uint8_t opcode = 0x04U;
+    uint64_t now = now_ms(hs);
+    int flight3 = attempt->initiator && attempt->mode == 2U && attempt->cached_flight == 3U &&
+                  attempt->cached_len != 0U;
+
+    if (attempt->terminal || !attempt->waiting_ready) {
+        return DMP_HS_REFUSED;
+    }
+    if (now >= attempt->deadline_ms || lifetime_over(hs, attempt)) {
+        end_traffic(hs, attempt);
+        return DMP_HS_EXPIRED;
+    }
+    if (flight3) {
+        (void)retransmit_cached(hs, attempt);
+    }
+    if (now < attempt->confirm_deadline) {
+        return flight3 ? DMP_HS_OK : DMP_HS_REFUSED;
+    }
+    if (attempt->confirm_sends >= hs->config.budget.confirmation_attempts) {
+        end_traffic(hs, attempt);
+        return DMP_HS_EXPIRED;
+    }
+    if (!seal_record(hs, attempt, DMP_TYPE_HELLO, 0U, &opcode, 1U)) {
+        return DMP_HS_REFUSED;
+    }
+    attempt->confirm_sends++;
+    attempt->confirm_deadline = add_ms(now, hs->config.budget.confirmation_timeout_ms);
+    return DMP_HS_OK;
+}
+
+static struct hs_attempt *find_by_cid(dmp_hs *hs, uint32_t cid)
+{
+    uint32_t index;
+
+    if (cid == 0U) {
+        return NULL;
+    }
+    for (index = 0U; index < DMP_HS_ATTEMPT_MAX; ++index) {
+        struct hs_attempt *attempt = &hs->attempts[index];
+
+        if (attempt->used && !attempt->terminal && attempt->local_rx_cid == cid) {
+            return attempt;
+        }
+    }
+    return NULL;
+}
+
+static int confirmation_hello(const dmp_frame_view *view, const uint8_t *plain, size_t plain_len,
+                              uint8_t opcode)
+{
+    return view->fields.type == DMP_TYPE_HELLO &&
+           view->fields.options == (uint8_t)(DMP_OPT_SEQ | DMP_OPT_SECURITY) && view->fields.seq == 0U &&
+           view->extensions.size == 0U && plain_len == 1U && plain[0] == opcode;
+}
+
+static void remember_plain(struct hs_attempt *attempt, const uint8_t *plain, size_t plain_len)
+{
+    if (plain_len > sizeof(attempt->accepted)) {
+        plain_len = sizeof(attempt->accepted);
+    }
+    if (plain_len != 0U) {
+        memcpy(attempt->accepted, plain, plain_len);
+    }
+    if (plain_len < sizeof(attempt->accepted)) {
+        memset(attempt->accepted + plain_len, 0, sizeof(attempt->accepted) - plain_len);
+    }
+    attempt->accepted_len = (uint16_t)plain_len;
+}
+
 dmp_hs_status dmp_hs_poll(dmp_hs *hs, uint32_t *index_out)
 {
     uint32_t index;
@@ -1269,8 +1626,14 @@ dmp_hs_status dmp_hs_poll(dmp_hs *hs, uint32_t *index_out)
     for (index = 0U; index < DMP_HS_ATTEMPT_MAX; ++index) {
         struct hs_attempt *attempt = &hs->attempts[index];
 
-        if (attempt->used && !attempt->terminal && now >= attempt->deadline_ms) {
-            abort_attempt(hs, attempt, DMP_HS_VIEW_EXPIRED);
+        if (!attempt->used || attempt->terminal) {
+            continue;
+        }
+        if (lifetime_over(hs, attempt) ||
+            (attempt->waiting_ready && now >= attempt->confirm_deadline &&
+             attempt->confirm_sends >= hs->config.budget.confirmation_attempts) ||
+            now >= attempt->deadline_ms) {
+            expire_attempt(hs, attempt);
             if (!expired && index_out != NULL) {
                 *index_out = index;
             }
@@ -1288,11 +1651,17 @@ dmp_hs_status dmp_hs_retransmit(dmp_hs *hs, uint32_t index)
         return DMP_HS_INVALID;
     }
     attempt = &hs->attempts[index];
-    if (!attempt->used || attempt->terminal || attempt->cached_len == 0U) {
+    if (!attempt->used || attempt->terminal) {
         return DMP_HS_REFUSED;
     }
-    if (now_ms(hs) >= attempt->deadline_ms) {
-        abort_attempt(hs, attempt, DMP_HS_VIEW_EXPIRED);
+    if (attempt->waiting_ready) {
+        return retry_confirmation(hs, attempt);
+    }
+    if (attempt->cached_len == 0U) {
+        return DMP_HS_REFUSED;
+    }
+    if (now_ms(hs) >= attempt->deadline_ms || lifetime_over(hs, attempt)) {
+        expire_attempt(hs, attempt);
         return DMP_HS_EXPIRED;
     }
     if (!retransmit_cached(hs, attempt)) {
@@ -1357,11 +1726,204 @@ dmp_hs_status dmp_hs_approve(dmp_hs *hs, uint32_t index, const dmp_hs_approval *
 
 dmp_hs_status dmp_hs_send_application(const dmp_hs *hs, uint32_t attempt_index_in)
 {
-    (void)attempt_index_in;
+    const struct hs_attempt *attempt = attempt_at(hs, attempt_index_in);
+
     if (!live(hs)) {
         return DMP_HS_INVALID;
     }
+    if (attempt == NULL) {
+        return DMP_HS_INVALID;
+    }
+    if (attempt->active && !attempt->terminal) {
+        return DMP_HS_OK;
+    }
     return DMP_HS_NOT_ACTIVE;
+}
+
+dmp_hs_status dmp_hs_confirm(dmp_hs *hs, uint32_t index)
+{
+    struct hs_attempt *attempt;
+    uint8_t opcode = 0x04U;
+    uint64_t now;
+
+    if (!live(hs) || index >= DMP_HS_ATTEMPT_MAX) {
+        return DMP_HS_INVALID;
+    }
+    attempt = &hs->attempts[index];
+    if (!attempt->used) {
+        return DMP_HS_INVALID;
+    }
+    if (attempt->terminal) {
+        return DMP_HS_STALE;
+    }
+    now = now_ms(hs);
+    if (now >= attempt->deadline_ms || lifetime_over(hs, attempt)) {
+        expire_attempt(hs, attempt);
+        return DMP_HS_EXPIRED;
+    }
+    if (!attempt->initiator || attempt->remote_rx_cid == 0U) {
+        return DMP_HS_REFUSED;
+    }
+    if (attempt->active) {
+        return DMP_HS_OK;
+    }
+    if (!traffic_authorized(hs, attempt)) {
+        return DMP_HS_NO_TRUST;
+    }
+    if (hs->config.budget.confirmation_timeout_ms == 0U || hs->config.budget.confirmation_attempts == 0U) {
+        return DMP_HS_INVALID;
+    }
+    if (attempt->waiting_ready) {
+        return retry_confirmation(hs, attempt);
+    }
+    if (!seal_record(hs, attempt, DMP_TYPE_HELLO, 0U, &opcode, 1U)) {
+        return DMP_HS_REFUSED;
+    }
+    attempt->waiting_ready = 1;
+    attempt->confirm_sends = 1U;
+    attempt->confirm_deadline = add_ms(now, hs->config.budget.confirmation_timeout_ms);
+    if (attempt->next_seq == 0U) {
+        attempt->next_seq = 1U;
+    }
+    return DMP_HS_OK;
+}
+
+dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *incoming)
+{
+    struct hs_attempt *attempt;
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+    uint8_t canon[DMP_MAX_HEADER_BYTES];
+    uint8_t aad[DMP_HS_AAD_MAX];
+    uint8_t body[DMP_HS_APP_PLAIN_MAX + 16U];
+    size_t canon_len = 0U;
+    size_t aad_len = 0U;
+    size_t plain_len = 0U;
+    dmp_provider_status status;
+    uint8_t opcode = 0x05U;
+
+    if (!live(hs) || incoming == NULL || incoming->frame == NULL || incoming->frame_len == 0U) {
+        return DMP_HS_INVALID;
+    }
+    memset(&view, 0, sizeof(view));
+    parsed = dmp_core_parse((dmp_bytes){incoming->frame, incoming->frame_len}, protected_limits(), &view);
+    if (parsed.status != DMP_OK || (view.fields.options & DMP_OPT_SECURITY) == 0U) {
+        return DMP_HS_DROPPED;
+    }
+    attempt = find_by_cid(hs, view.fields.security.receive_cid);
+    if (attempt == NULL || !attempt->recv_open || !context_matches(hs, attempt, incoming)) {
+        return DMP_HS_DROPPED;
+    }
+    if (view.fields.security.cipher == 2U) {
+        return DMP_HS_UNSUPPORTED;
+    }
+    if (view.fields.security.cipher != attempt->cipher || view.trailer.size != 16U) {
+        return DMP_HS_DROPPED;
+    }
+    if (lifetime_over(hs, attempt) || attempt->recv_plain > DMP_HS_PLAIN_LIMIT - view.payload.size) {
+        end_traffic(hs, attempt);
+        return DMP_HS_EXPIRED;
+    }
+    if (view.fields.security.pn >= DMP_HS_PN_LIMIT ||
+        !dmp_replay_window_admit(&attempt->replay, view.fields.security.pn)) {
+        return DMP_HS_DROPPED;
+    }
+    if (!traffic_authorized(hs, attempt)) {
+        return DMP_HS_DROPPED;
+    }
+    if (attempt->failed_aead >= hs->failed_limit) {
+        end_traffic(hs, attempt);
+        return DMP_HS_DROPPED;
+    }
+    if (view.payload.size + view.trailer.size > sizeof(body) ||
+        !canonical_header(&view, canon, sizeof(canon), &canon_len) ||
+        !build_aad(attempt->handshake_hash, canon, canon_len, aad, sizeof(aad), &aad_len)) {
+        wipe(canon, sizeof(canon));
+        return DMP_HS_DROPPED;
+    }
+    if (view.payload.size != 0U) {
+        memcpy(body, view.payload.data, view.payload.size);
+    }
+    memcpy(body + view.payload.size, view.trailer.data, view.trailer.size);
+    status = dmp_provider_cipher_decrypt(hs->provider, &attempt->recv_cipher, view.fields.security.pn, aad,
+                                         aad_len, body, view.payload.size + view.trailer.size, sizeof(body),
+                                         &plain_len);
+    wipe(aad, sizeof(aad));
+    wipe(canon, sizeof(canon));
+    if (status != DMP_PROVIDER_OK || plain_len != view.payload.size) {
+        wipe(body, sizeof(body));
+        attempt->failed_aead++;
+        if (attempt->failed_aead >= hs->failed_limit) {
+            end_traffic(hs, attempt);
+        }
+        return DMP_HS_DROPPED;
+    }
+    if (!dmp_replay_window_commit(&attempt->replay, view.fields.security.pn)) {
+        wipe(body, sizeof(body));
+        return DMP_HS_DROPPED;
+    }
+    attempt->recv_plain += plain_len;
+    if (!attempt->initiator && confirmation_hello(&view, body, plain_len, 0x04U)) {
+        if (!seal_record(hs, attempt, DMP_TYPE_HELLO, 0U, &opcode, 1U)) {
+            wipe(body, sizeof(body));
+            return DMP_HS_REFUSED;
+        }
+        attempt->ready_sent = 1;
+        if (attempt->next_seq == 0U) {
+            attempt->next_seq = 1U;
+        }
+        become_active(attempt);
+        wipe(body, sizeof(body));
+        return DMP_HS_OK;
+    }
+    if (attempt->initiator && confirmation_hello(&view, body, plain_len, 0x05U)) {
+        become_active(attempt);
+        wipe(body, sizeof(body));
+        return DMP_HS_OK;
+    }
+    if (view.fields.type == DMP_TYPE_HELLO || (!attempt->initiator && !attempt->ready_sent) ||
+        (attempt->initiator && !attempt->waiting_ready && !attempt->active)) {
+        wipe(body, sizeof(body));
+        return DMP_HS_DROPPED;
+    }
+    remember_plain(attempt, body, plain_len);
+    if (attempt->initiator && attempt->waiting_ready) {
+        become_active(attempt);
+    }
+    wipe(body, sizeof(body));
+    if (!attempt->active) {
+        return DMP_HS_DROPPED;
+    }
+    return DMP_HS_OK;
+}
+
+dmp_hs_status dmp_hs_emit_application(dmp_hs *hs, uint32_t index, const uint8_t *plain, size_t plain_len)
+{
+    struct hs_attempt *attempt;
+
+    if (!live(hs) || index >= DMP_HS_ATTEMPT_MAX) {
+        return DMP_HS_INVALID;
+    }
+    attempt = &hs->attempts[index];
+    if (!attempt->used) {
+        return DMP_HS_INVALID;
+    }
+    if (!attempt->active || attempt->terminal) {
+        return DMP_HS_NOT_ACTIVE;
+    }
+    if (plain_len > DMP_HS_APP_PLAIN_MAX || (plain_len != 0U && plain == NULL) ||
+        attempt->next_seq == UINT32_MAX) {
+        return DMP_HS_INVALID;
+    }
+    if (lifetime_over(hs, attempt)) {
+        end_traffic(hs, attempt);
+        return DMP_HS_EXPIRED;
+    }
+    if (!seal_record(hs, attempt, DMP_TYPE_TELEM, attempt->next_seq, plain, plain_len)) {
+        return DMP_HS_REFUSED;
+    }
+    attempt->next_seq++;
+    return DMP_HS_OK;
 }
 
 dmp_hs_status dmp_hs_retain_association(dmp_hs *hs, const dmp_hs_retained *retained)
@@ -1383,7 +1945,18 @@ dmp_hs_status dmp_hs_retain_association(dmp_hs *hs, const dmp_hs_retained *retai
 
 int dmp_hs_association_active(const dmp_hs *hs)
 {
-    (void)hs;
+    uint32_t index;
+
+    if (!live(hs)) {
+        return 0;
+    }
+    for (index = 0U; index < DMP_HS_ATTEMPT_MAX; ++index) {
+        const struct hs_attempt *attempt = &hs->attempts[index];
+
+        if (attempt->used && attempt->active && !attempt->terminal) {
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -1515,6 +2088,52 @@ const uint8_t *dmp_hs_cached_flight(const dmp_hs *hs, uint32_t index, size_t *le
         *length = attempt->cached_len;
     }
     return attempt->cached;
+}
+
+const uint8_t *dmp_hs_protected_frame(const dmp_hs *hs, uint32_t index, size_t *length)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+
+    if (attempt == NULL || attempt->protected_len == 0U) {
+        if (length != NULL) {
+            *length = 0U;
+        }
+        return NULL;
+    }
+    if (length != NULL) {
+        *length = attempt->protected_len;
+    }
+    return attempt->protected_frame;
+}
+
+int dmp_hs_copy_accepted(const dmp_hs *hs, uint32_t index, uint8_t *out, size_t cap, size_t *length)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+
+    if (attempt == NULL || out == NULL || attempt->accepted_len > cap) {
+        return 0;
+    }
+    if (attempt->accepted_len != 0U) {
+        memcpy(out, attempt->accepted, attempt->accepted_len);
+    }
+    if (length != NULL) {
+        *length = attempt->accepted_len;
+    }
+    return 1;
+}
+
+uint32_t dmp_hs_failed_aead(const dmp_hs *hs, uint32_t index)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+
+    return attempt == NULL ? 0U : attempt->failed_aead;
+}
+
+uint64_t dmp_hs_next_pn(const dmp_hs *hs, uint32_t index)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+
+    return attempt == NULL ? 0U : attempt->next_pn;
 }
 
 int dmp_hs_copy_attempt_id(const dmp_hs *hs, uint32_t index, uint8_t id[16])

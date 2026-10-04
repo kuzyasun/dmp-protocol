@@ -1303,3 +1303,24 @@ GCC 15.2.0, CMake/CTest 3.28.1.
 P13 stays running: epoch SHA-256 reuses one Noise HashState allocated in `dmp_hs_init`, so offer and accept no longer allocate a short-lived HashState; `epoch-hash-alloc` passed with the existing handshake cases (`ctest` 2/2), cipher selection was not changed, and nothing was committed.
 
 P13 stays running: `epoch-hash-alloc` now counts HashState-sized allocations during `dmp_hs_accept` and requires that count to be zero with `DMP_HS_CANDIDATE` and the existing epoch values, while a null allocator on offer still returns `DMP_HS_ABORTED` without charging episode attempts or work (`ctest` `security.handshake` passed).
+
+## 2026-10-04 — P14 confirmation slice, running
+
+Started at baseline `146ef17ae02d445a202770555a4ecf48d30c01ec`. P14 is running, not done. P13 stays running. P15 was not started. P12 was not edited and was not marked done. No stage, commit, push, or flash. `build/host` was not deleted.
+
+Protected FINISH/READY now uses the existing P01B ChaChaPoly cipher, S5 AAD (`DMP2-SEC1-DATA` || handshake hash || canonical header), and an explicit PN. The initiator sends FINISH only after peer authorization; a committed pin alone does not activate. The responder becomes active only after it validates FINISH and sends READY. The initiator becomes active on READY, or on a valid application packet from the responder while READY is still outstanding. Application send returns `DMP_HS_NOT_ACTIVE` before that transition. Confirmation loss retries FINISH with the same SEQ and a fresh PN until the configured attempt count; the same ciphertext is a replay. A confirmation timeout discards traffic keys and leaves an already committed pin enrolled but disconnected. The receive window is the configured power of two in [64, 65536], default 1024: a PN at least W behind the highest authenticated PN is dropped before AEAD. An isolated bad tag does not install replay state; the count is not reset by success and closes the association at the configured ceiling (hard maximum 65536).
+
+The caller serializes an attempt. The sealed frame and accepted plaintext are attempt-owned fixed buffers; protected receive does not allocate. Epoch hashing still reuses the HashState created in `dmp_hs_init`.
+
+Not implemented, because the cited text does not define them or they are outside this write set: restart jitter (S3.1 says "with any jitter" and does not define the distribution; the fixed backoff remains), ACL/freshness leases, rotation/drain, and endpoint S10 cases. AESGCM stays unsupported. No second Noise stack and no new KDF.
+
+Host only. Fixture keys are not physical entropy or a transport.
+
+GCC 15.2.0, CMake/CTest 3.28.1.
+
+- `cmake --build build/host --target dmp_test_handshake` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "^security\.(handshake|provider_adapter)$"` — 2/2 passed. New handshake cases: finish-ready, confirmation-loss, replay-window, enroll-not-active, failed-aead-limit. Existing handshake cases still passed.
+
+## 2026-10-04 — P14 host confirmation slice accepted
+
+Coordinator accepted the host FINISH/READY, confirmation-loss, replay-window, and activation slice on 2026-10-04 after independent review found no defect. The accepted behavior is the uncommitted worktree on 146ef17. Activation stays 0 after enrollment commit and becomes 1 only on the FINISH/READY path. The replay window matches SEC-1 (power of two, 64..65536, default 1024). A too-old PN is dropped before AEAD. A bad tag does not mark the PN. Confirmation timeout wipes traffic keys and leaves the association inactive. Endpoint, reliability, reassembly, and profiles were not changed. P15 integration, ACL, rotation, S10 cases, physical transport, and a specified jitter distribution are not included; jitter remains the fixed restart interval because S3.1 does not define a distribution. P15 was not started. P12 and P13 were not marked done. No source, test, or CMake edit. No commit was made in this step.

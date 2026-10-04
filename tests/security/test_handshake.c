@@ -1,6 +1,5 @@
-/* Host tests for the P13 bootstrap owner. Fixture keys are public test
- * material. They call libdmp handshake functions and the P01B adapter.
- * Candidate keys and enrollment commit do not activate an association.
+/* Host tests for bootstrap plus protected FINISH/READY. Fixture keys are
+ * public test material. Enrollment commit does not activate an association.
  */
 #include "handshake.h"
 #include "noise_fixture_probe.h"
@@ -1488,6 +1487,458 @@ done:
     return passed && !port.nonzero_release;
 }
 
+static void tune_confirm(dmp_hs_config *initiator, dmp_hs_config *responder)
+{
+    initiator->budget.confirmation_timeout_ms = 1000U;
+    initiator->budget.confirmation_attempts = 3U;
+    responder->budget.confirmation_timeout_ms = 1000U;
+    responder->budget.confirmation_attempts = 3U;
+    initiator->budget.failed_aead_limit = 4U;
+    responder->budget.failed_aead_limit = 4U;
+}
+
+static void tune_window(dmp_hs_config *initiator, dmp_hs_config *responder)
+{
+    tune_confirm(initiator, responder);
+    initiator->budget.replay_window = 64U;
+    responder->budget.replay_window = 64U;
+}
+
+static void tune_aead_limit(dmp_hs_config *initiator, dmp_hs_config *responder)
+{
+    tune_confirm(initiator, responder);
+    initiator->budget.failed_aead_limit = 2U;
+    responder->budget.failed_aead_limit = 2U;
+}
+
+static void tune_one_confirm(dmp_hs_config *initiator, dmp_hs_config *responder)
+{
+    tune_confirm(initiator, responder);
+    initiator->budget.confirmation_attempts = 1U;
+    responder->budget.confirmation_attempts = 1U;
+}
+
+static dmp_hs_status offer_frame(dmp_hs *hs, const uint8_t *frame, size_t length, uint32_t origin,
+                                 uint32_t destination, uint64_t epoch)
+{
+    dmp_hs_protected incoming;
+
+    memset(&incoming, 0, sizeof(incoming));
+    incoming.frame = frame;
+    incoming.frame_len = length;
+    incoming.origin_id = origin;
+    incoming.destination_id = destination;
+    incoming.namespace_id = LOCAL_NS;
+    incoming.context_epoch = epoch;
+    return dmp_hs_offer_protected(hs, &incoming);
+}
+
+static int drive_nn(session *env, uint32_t *index)
+{
+    const uint8_t *cached;
+    size_t length = 0U;
+
+    if (dmp_hs_schedule(env->initiator, index) != DMP_HS_OK) {
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env->initiator, *index, &length);
+    if (!drive_flight(env->responder, cached, length, ID_INIT, ID_RESP, 1U, NN_EPOCH, DMP_HS_CANDIDATE)) {
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env->responder, 0U, &length);
+    return drive_flight(env->initiator, cached, length, ID_RESP, ID_INIT, 2U, NN_EPOCH, DMP_HS_CANDIDATE);
+}
+
+static const noise_fixture_probe_packet_t *find_packet(const noise_fixture_probe_fixture_t *fixture,
+                                                       const char *name)
+{
+    size_t index;
+
+    if (strcmp(fixture->finish.name, name) == 0) {
+        return &fixture->finish;
+    }
+    if (strcmp(fixture->ready.name, name) == 0) {
+        return &fixture->ready;
+    }
+    for (index = 0U; index < fixture->transport_packet_count; ++index) {
+        if (strcmp(fixture->transport_packets[index].name, name) == 0) {
+            return &fixture->transport_packets[index];
+        }
+    }
+    return NULL;
+}
+
+static int copy_protected(const dmp_hs *hs, uint32_t index, uint8_t *out, size_t cap, size_t *length)
+{
+    size_t have = 0U;
+    const uint8_t *frame = dmp_hs_protected_frame(hs, index, &have);
+
+    if (frame == NULL || have > cap) {
+        return 0;
+    }
+    memcpy(out, frame, have);
+    *length = have;
+    return 1;
+}
+
+static int test_finish_ready(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    const noise_fixture_probe_packet_t *telemetry;
+    session env;
+    port_ctx port;
+    uint8_t finish[64];
+    uint8_t ready[64];
+    uint8_t bare[1] = {0x04U};
+    uint8_t bad[64];
+    uint8_t wrong_cipher[64];
+    uint8_t app[64];
+    uint8_t accepted[8];
+    size_t finish_len = 0U;
+    size_t ready_len = 0U;
+    size_t app_len = 0U;
+    size_t accepted_len = 0U;
+    uint32_t index = 0U;
+    uint32_t writes;
+    int passed = 0;
+
+    if (fixture == NULL || (telemetry = find_packet(fixture, "telemetry")) == NULL ||
+        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_confirm) || !drive_nn(&env, &index)) {
+        return 0;
+    }
+    if (dmp_hs_emit_application(env.initiator, index, (const uint8_t *)"aa", 2U) != DMP_HS_NOT_ACTIVE ||
+        dmp_hs_emit_application(env.responder, 0U, (const uint8_t *)"aa", 2U) != DMP_HS_NOT_ACTIVE ||
+        !not_active(env.initiator, index) || !not_active(env.responder, 0U)) {
+        fprintf(stderr, "candidate state emitted application traffic\n");
+        goto done;
+    }
+    if (dmp_hs_confirm(env.initiator, index) != DMP_HS_OK || !copy_protected(env.initiator, index, finish, sizeof(finish), &finish_len) ||
+        !bytes_match("finish", finish, finish_len, fixture->finish.frame.data, fixture->finish.frame.size) ||
+        dmp_hs_send_application(env.initiator, index) != DMP_HS_NOT_ACTIVE) {
+        fprintf(stderr, "FINISH was not the published protected frame or it activated early\n");
+        goto done;
+    }
+    memcpy(bad, finish, finish_len);
+    bad[finish_len - 1U] ^= 0x01U;
+    memcpy(wrong_cipher, finish, finish_len);
+    wrong_cipher[4] = 0x02U;
+    if (offer_frame(env.responder, bare, sizeof(bare), ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_DROPPED ||
+        offer_frame(env.responder, wrong_cipher, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_UNSUPPORTED ||
+        offer_frame(env.responder, bad, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_DROPPED ||
+        dmp_hs_failed_aead(env.responder, 0U) != 1U || dmp_hs_association_active(env.responder) ||
+        dmp_hs_next_pn(env.responder, 0U) != 0U || !dmp_hs_candidate(env.responder, 0U)) {
+        fprintf(stderr, "FINISH without a valid AEAD tag was accepted or aborted the attempt\n");
+        goto done;
+    }
+    if (offer_frame(env.responder, finish, finish_len, ID_INIT, ID_RESP, NN_EPOCH_R) != DMP_HS_DROPPED ||
+        offer_frame(env.responder, finish, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK ||
+        !copy_protected(env.responder, 0U, ready, sizeof(ready), &ready_len) ||
+        !bytes_match("ready", ready, ready_len, fixture->ready.frame.data, fixture->ready.frame.size) ||
+        dmp_hs_send_application(env.responder, 0U) != DMP_HS_OK ||
+        dmp_hs_send_application(env.initiator, index) != DMP_HS_NOT_ACTIVE) {
+        fprintf(stderr, "responder did not activate only after an authorized FINISH\n");
+        goto done;
+    }
+    if (dmp_hs_emit_application(env.responder, 0U, (const uint8_t *)"hi", 2U) != DMP_HS_OK ||
+        !copy_protected(env.responder, 0U, app, sizeof(app), &app_len) ||
+        offer_frame(env.initiator, app, app_len, ID_RESP, ID_INIT, NN_EPOCH_R) != DMP_HS_OK ||
+        !dmp_hs_copy_accepted(env.initiator, index, accepted, sizeof(accepted), &accepted_len) ||
+        accepted_len != 2U || memcmp(accepted, "hi", 2U) != 0 ||
+        dmp_hs_send_application(env.initiator, index) != DMP_HS_OK) {
+        fprintf(stderr, "responder application did not prove readiness\n");
+        goto done;
+    }
+    if (offer_frame(env.initiator, ready, ready_len, ID_RESP, ID_INIT, NN_EPOCH_R) != DMP_HS_OK ||
+        dmp_hs_emit_application(env.initiator, index, (const uint8_t *)"\xaa\xbb", 2U) != DMP_HS_OK ||
+        !copy_protected(env.initiator, index, app, sizeof(app), &app_len) ||
+        !bytes_match("telemetry", app, app_len, telemetry->frame.data, telemetry->frame.size)) {
+        fprintf(stderr, "post-activation traffic did not match the published frame\n");
+        goto done;
+    }
+    writes = dmp_hs_noise_writes(env.initiator, index);
+    env.now += 1000U;
+    {
+        uint8_t extra_id[16];
+        uint8_t extra_eph[32];
+        uint32_t second = 0U;
+        dmp_hs_retained retained;
+
+        memset(extra_id, 0x44, sizeof(extra_id));
+        memset(extra_eph, 0x55, sizeof(extra_eph));
+        memset(&retained, 0, sizeof(retained));
+        retained.namespace_id = LOCAL_NS;
+        retained.origin_id = ID_RESP;
+        retained.epoch = 42U;
+        retained.rx_cid = 90U;
+        script_add(&env.init_script, extra_id, sizeof(extra_id));
+        script_add(&env.init_script, extra_eph, sizeof(extra_eph));
+        if (dmp_hs_retain_association(env.initiator, &retained) != DMP_HS_OK ||
+            dmp_hs_schedule(env.initiator, &second) != DMP_HS_OK || second == index ||
+            dmp_hs_association_active(env.initiator) == 0 ||
+            dmp_hs_send_application(env.initiator, index) != DMP_HS_OK ||
+            dmp_hs_send_application(env.initiator, second) != DMP_HS_NOT_ACTIVE ||
+            !dmp_hs_retained_alive(env.initiator, 0U) || !dmp_hs_association_active(env.responder)) {
+            fprintf(stderr, "a new attempt evicted the active association\n");
+            goto done;
+        }
+    }
+    passed = dmp_hs_noise_writes(env.initiator, index) == writes && !dmp_hs_enrolled(env.initiator, index);
+
+done:
+    close_session(&env);
+    return passed && !port.nonzero_release;
+}
+
+static int test_confirmation_loss(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint8_t first[64];
+    uint8_t retry[64];
+    uint8_t ready[64];
+    size_t first_len = 0U;
+    size_t retry_len = 0U;
+    size_t ready_len = 0U;
+    uint32_t index = 0U;
+    uint64_t pn_after_retry;
+    int passed = 0;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_confirm) ||
+        !drive_nn(&env, &index) || dmp_hs_confirm(env.initiator, index) != DMP_HS_OK ||
+        !copy_protected(env.initiator, index, first, sizeof(first), &first_len)) {
+        return 0;
+    }
+    if (dmp_hs_retransmit(env.initiator, index) != DMP_HS_REFUSED || dmp_hs_next_pn(env.initiator, index) != 1U) {
+        fprintf(stderr, "FINISH was retried before its confirmation timer\n");
+        goto done;
+    }
+    env.now += 1000U;
+    if (dmp_hs_retransmit(env.initiator, index) != DMP_HS_OK ||
+        !copy_protected(env.initiator, index, retry, sizeof(retry), &retry_len) || retry_len != first_len ||
+        memcmp(first, retry, first_len) == 0 || dmp_hs_next_pn(env.initiator, index) != 2U) {
+        fprintf(stderr, "lost FINISH was not retried under a fresh PN\n");
+        goto done;
+    }
+    if (offer_frame(env.responder, retry, retry_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK ||
+        offer_frame(env.responder, first, first_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK ||
+        dmp_hs_next_pn(env.responder, 0U) != 2U) {
+        fprintf(stderr, "reordered FINISH pair was not both accepted inside the window\n");
+        goto done;
+    }
+    pn_after_retry = dmp_hs_next_pn(env.responder, 0U);
+    if (!copy_protected(env.responder, 0U, ready, sizeof(ready), &ready_len) ||
+        offer_frame(env.responder, retry, retry_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_DROPPED ||
+        dmp_hs_next_pn(env.responder, 0U) != pn_after_retry || dmp_hs_failed_aead(env.responder, 0U) != 0U) {
+        fprintf(stderr, "replayed FINISH was accepted again\n");
+        goto done;
+    }
+    if (offer_frame(env.initiator, ready, ready_len, ID_RESP, ID_INIT, NN_EPOCH_R) != DMP_HS_OK ||
+        !dmp_hs_association_active(env.initiator) || !dmp_hs_association_active(env.responder) ||
+        dmp_hs_send_application(env.initiator, index) != DMP_HS_OK) {
+        fprintf(stderr, "READY after loss did not activate the initiator\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    close_session(&env);
+    return passed && !port.nonzero_release;
+}
+
+static int test_replay_window(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint8_t finish[64];
+    uint8_t ready[64];
+    uint8_t low[64];
+    uint8_t high[64];
+    uint8_t extra[64];
+    uint8_t accepted[4];
+    size_t finish_len = 0U;
+    size_t ready_len = 0U;
+    size_t low_len = 0U;
+    size_t high_len = 0U;
+    size_t extra_len = 0U;
+    size_t accepted_len = 0U;
+    uint32_t index = 0U;
+    uint32_t guard;
+    int passed = 0;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_window) ||
+        !drive_nn(&env, &index) || dmp_hs_confirm(env.initiator, index) != DMP_HS_OK ||
+        !copy_protected(env.initiator, index, finish, sizeof(finish), &finish_len) ||
+        offer_frame(env.responder, finish, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK ||
+        !copy_protected(env.responder, 0U, ready, sizeof(ready), &ready_len) ||
+        offer_frame(env.initiator, ready, ready_len, ID_RESP, ID_INIT, NN_EPOCH_R) != DMP_HS_OK) {
+        return 0;
+    }
+    if (dmp_hs_emit_application(env.initiator, index, (const uint8_t *)"L", 1U) != DMP_HS_OK ||
+        !copy_protected(env.initiator, index, low, sizeof(low), &low_len) ||
+        dmp_hs_emit_application(env.initiator, index, (const uint8_t *)"H", 1U) != DMP_HS_OK ||
+        !copy_protected(env.initiator, index, high, sizeof(high), &high_len)) {
+        goto done;
+    }
+    if (offer_frame(env.responder, high, high_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK ||
+        offer_frame(env.responder, low, low_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK ||
+        !dmp_hs_copy_accepted(env.responder, 0U, accepted, sizeof(accepted), &accepted_len) ||
+        accepted_len != 1U || accepted[0] != (uint8_t)'L') {
+        fprintf(stderr, "PN reorder inside W was rejected\n");
+        goto done;
+    }
+    if (offer_frame(env.responder, high, high_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_DROPPED ||
+        dmp_hs_failed_aead(env.responder, 0U) != 0U) {
+        fprintf(stderr, "in-window replay was decrypted again\n");
+        goto done;
+    }
+    for (guard = 0U; guard < 80U && dmp_hs_next_pn(env.initiator, index) <= 65U; ++guard) {
+        if (dmp_hs_emit_application(env.initiator, index, (const uint8_t *)"x", 1U) != DMP_HS_OK ||
+            !copy_protected(env.initiator, index, extra, sizeof(extra), &extra_len) ||
+            offer_frame(env.responder, extra, extra_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK) {
+            fprintf(stderr, "window advance failed at PN %llu\n",
+                    (unsigned long long)dmp_hs_next_pn(env.initiator, index));
+            goto done;
+        }
+    }
+    if (dmp_hs_next_pn(env.initiator, index) <= 65U ||
+        offer_frame(env.responder, low, low_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_DROPPED ||
+        dmp_hs_failed_aead(env.responder, 0U) != 0U || !dmp_hs_association_active(env.responder)) {
+        fprintf(stderr, "PN behind W was accepted\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    close_session(&env);
+    return passed && !port.nonzero_release;
+}
+
+static int test_enroll_not_active(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("xx");
+    session env;
+    port_ctx port;
+    uint8_t init_pin[32];
+    uint8_t resp_pin[32];
+    size_t cached_len = 0U;
+    uint32_t index = 0U;
+    uint32_t writes;
+    const uint8_t *cached;
+    dmp_hs_approval approval;
+    dmp_hs_retained retained;
+    int passed = 0;
+
+    if (fixture == NULL || !derive_pins(fixture, init_pin, resp_pin) ||
+        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 1, tune_one_confirm) ||
+        dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+    if (!drive_flight(env.responder, cached, cached_len, ID_INIT, ID_RESP, 1U, NN_EPOCH, DMP_HS_OK)) {
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.responder, 0U, &cached_len);
+    if (!drive_flight(env.initiator, cached, cached_len, ID_RESP, ID_INIT, 2U, NN_EPOCH, DMP_HS_CANDIDATE)) {
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+    if (!drive_flight(env.responder, cached, cached_len, ID_INIT, ID_RESP, 3U, NN_EPOCH, DMP_HS_CANDIDATE)) {
+        goto done;
+    }
+    if (dmp_hs_confirm(env.initiator, index) != DMP_HS_NO_TRUST || dmp_hs_protected_frame(env.initiator, index, NULL) != NULL ||
+        !not_active(env.initiator, index)) {
+        fprintf(stderr, "unapproved XX sent FINISH\n");
+        goto done;
+    }
+    fill_approval(env.initiator, index, &approval, 1);
+    if (dmp_hs_approve(env.initiator, index, &approval) != DMP_HS_COMMITTED) {
+        fprintf(stderr, "initiator enrollment did not commit\n");
+        goto done;
+    }
+    fill_approval(env.responder, 0U, &approval, 1);
+    if (dmp_hs_approve(env.responder, 0U, &approval) != DMP_HS_COMMITTED ||
+        !dmp_hs_enrolled(env.initiator, index) || !dmp_hs_enrolled(env.responder, 0U) ||
+        !not_active(env.initiator, index) || !not_active(env.responder, 0U) ||
+        dmp_hs_emit_application(env.initiator, index, (const uint8_t *)"no", 2U) != DMP_HS_NOT_ACTIVE) {
+        fprintf(stderr, "enrollment commit activated an association\n");
+        goto done;
+    }
+    writes = dmp_hs_noise_writes(env.initiator, index);
+    if (dmp_hs_confirm(env.initiator, index) != DMP_HS_OK || dmp_hs_retransmit(env.initiator, index) != DMP_HS_OK ||
+        dmp_hs_retransmits(env.initiator, index) != 1U || dmp_hs_noise_writes(env.initiator, index) != writes ||
+        dmp_hs_next_pn(env.initiator, index) != 1U || !not_active(env.initiator, index)) {
+        fprintf(stderr, "XX confirmation rewrote flight 3 or activated early\n");
+        goto done;
+    }
+    env.now += 1000U;
+    if (dmp_hs_poll(env.initiator, NULL) != DMP_HS_EXPIRED || !dmp_hs_enrolled(env.initiator, index) ||
+        dmp_hs_view_of(env.initiator, index) != DMP_HS_VIEW_ENROLLED || dmp_hs_association_active(env.initiator) ||
+        !dmp_hs_secrets_wiped(env.initiator, index) || env.init_store.calls != 1 ||
+        dmp_hs_send_application(env.initiator, index) != DMP_HS_NOT_ACTIVE ||
+        dmp_hs_association_active(env.responder) || !dmp_hs_enrolled(env.responder, 0U)) {
+        fprintf(stderr, "confirmation loss cleared the committed pin or left traffic active\n");
+        goto done;
+    }
+    memset(&retained, 0, sizeof(retained));
+    retained.namespace_id = LOCAL_NS;
+    retained.origin_id = ID_INIT;
+    retained.epoch = 42U;
+    retained.rx_cid = 90U;
+    passed = dmp_hs_retain_association(env.responder, &retained) == DMP_HS_OK &&
+             dmp_hs_retained_alive(env.responder, 0U) && dmp_hs_candidate(env.responder, 0U) &&
+             !dmp_hs_association_active(env.responder);
+
+done:
+    close_session(&env);
+    return passed && !port.nonzero_release;
+}
+
+static int test_failed_aead_limit(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint8_t finish[64];
+    uint8_t bad[64];
+    size_t finish_len = 0U;
+    uint32_t index = 0U;
+    int passed = 0;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_aead_limit) ||
+        !drive_nn(&env, &index) || dmp_hs_confirm(env.initiator, index) != DMP_HS_OK ||
+        !copy_protected(env.initiator, index, finish, sizeof(finish), &finish_len)) {
+        return 0;
+    }
+    memcpy(bad, finish, finish_len);
+    bad[finish_len - 1U] ^= 0x01U;
+    if (offer_frame(env.responder, bad, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_DROPPED ||
+        dmp_hs_failed_aead(env.responder, 0U) != 1U || !dmp_hs_candidate(env.responder, 0U) ||
+        dmp_hs_association_active(env.responder)) {
+        fprintf(stderr, "the first bad tag closed or authenticated the association\n");
+        goto done;
+    }
+    if (offer_frame(env.responder, finish, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK ||
+        dmp_hs_failed_aead(env.responder, 0U) != 1U || !dmp_hs_association_active(env.responder)) {
+        fprintf(stderr, "a successful packet reset the failed-AEAD count\n");
+        goto done;
+    }
+    bad[6] = 0x01U;
+    if (offer_frame(env.responder, bad, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_DROPPED ||
+        dmp_hs_failed_aead(env.responder, 0U) != 2U || dmp_hs_association_active(env.responder) ||
+        !dmp_hs_secrets_wiped(env.responder, 0U) ||
+        offer_frame(env.responder, finish, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_DROPPED) {
+        fprintf(stderr, "the configured failed-AEAD ceiling did not close the association\n");
+        goto done;
+    }
+    passed = dmp_hs_send_application(env.initiator, index) == DMP_HS_NOT_ACTIVE;
+
+done:
+    close_session(&env);
+    return passed && !port.nonzero_release;
+}
+
 int main(void)
 {
     expect_case("nn-candidate", test_nn_candidate());
@@ -1503,6 +1954,11 @@ int main(void)
     expect_case("scratch-serial-stale", test_scratch_serial_partial_stale());
     expect_case("entropy-cid-collision", test_entropy_cid_collision_and_cipher());
     expect_case("epoch-hash-alloc", test_epoch_hash_alloc());
+    expect_case("finish-ready", test_finish_ready());
+    expect_case("confirmation-loss", test_confirmation_loss());
+    expect_case("replay-window", test_replay_window());
+    expect_case("enroll-not-active", test_enroll_not_active());
+    expect_case("failed-aead-limit", test_failed_aead_limit());
     if (g_failures != 0) {
         fprintf(stderr, "%d handshake case(s) failed\n", g_failures);
         return 1;

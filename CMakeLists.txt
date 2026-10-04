@@ -11,6 +11,7 @@ add_library(libdmp STATIC src/core/base.c src/core/codec.c
     src/reliability/reliability.c
     src/endpoint/endpoint.c
     src/security/provider_adapter.c
+    src/security/replay_window.c
     src/security/handshake.c)
 add_library(dmp::dmp ALIAS libdmp)
 set_target_properties(libdmp PROPERTIES OUTPUT_NAME dmp

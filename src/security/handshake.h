@@ -6,12 +6,23 @@
  * and for the remote static public key. It does not open a second Noise
  * stack, choose a cipher, or export a test-only scheduler.
  *
- * Activation, protected FINISH/READY, AEAD, AAD, and PN/replay are not
- * implemented here. Candidate keys and a committed pin do not make an
- * association active, and application send is refused.
+ * Protected FINISH/READY uses the P01B cipher with S5 AAD and an explicit PN.
+ * The S6 window rejects a replay or a PN that has fallen at least W behind
+ * the highest authenticated PN. W is the configured power of two in
+ * [64, 65536]; zero selects the specified default 1024. Candidate keys and a
+ * committed pin do not activate an association. Application send is refused
+ * until the S4 confirmation transition.
  *
  * SEC-1 names restart jitter but does not define its function, source, or
  * distribution. The configured backoff is applied exactly, with no jitter.
+ * ACL, freshness leases, rotation, and endpoint S10 cases are outside this
+ * owner.
+ *
+ * The caller serializes each attempt. After AEAD the window is rechecked
+ * and marked in that same call; this module does not take a lock. The last
+ * sealed frame and the last accepted plaintext are attempt-owned and are
+ * replaced by the next seal or accept. Protected receive uses those buffers
+ * and does not allocate.
  * SEC-1 requires a nonzero locally unique receive CID and does not define
  * the allocator; this module uses a caller-configured counter that skips
  * 0 and values already retained. A work unit is one charged ingress or
@@ -57,7 +68,8 @@ typedef enum dmp_hs_view {
     DMP_HS_VIEW_AWAITING_VERIFICATION = 3,
     DMP_HS_VIEW_ENROLLED = 4,
     DMP_HS_VIEW_EXPIRED = 5,
-    DMP_HS_VIEW_REJECTED = 6
+    DMP_HS_VIEW_REJECTED = 6,
+    DMP_HS_VIEW_ACTIVE = 7
 } dmp_hs_view;
 
 typedef struct dmp_hs_budget {
@@ -76,6 +88,15 @@ typedef struct dmp_hs_budget {
     uint32_t admit_burst;
     uint32_t admit_window_ms;
     uint32_t provisional_bytes;
+    /* Zero selects the specified default 1024. Otherwise a power of two in [64, 65536]. */
+    uint32_t replay_window;
+    /* Zero selects the specified hard ceiling 65536. A larger value is rejected. */
+    uint32_t failed_aead_limit;
+    /* Zero selects the specified 24-hour lifetime. A shorter value is a local policy. */
+    uint32_t association_lifetime_ms;
+    /* No numeric default. Confirmation is refused until both are positive. */
+    uint32_t confirmation_timeout_ms;
+    uint32_t confirmation_attempts;
 } dmp_hs_budget;
 
 typedef struct dmp_hs_config {
@@ -154,6 +175,16 @@ typedef struct dmp_hs_retained {
     int draining;
 } dmp_hs_retained;
 
+/* Full protected core frame. Direct identity is resolved from these fields. */
+typedef struct dmp_hs_protected {
+    const uint8_t *frame;
+    size_t frame_len;
+    uint32_t origin_id;
+    uint32_t destination_id;
+    uint32_t namespace_id;
+    uint64_t context_epoch;
+} dmp_hs_protected;
+
 typedef struct dmp_hs dmp_hs;
 
 size_t dmp_hs_size(void);
@@ -172,6 +203,10 @@ dmp_hs_status dmp_hs_retransmit(dmp_hs *hs, uint32_t attempt_index);
 dmp_hs_status dmp_hs_approve(dmp_hs *hs, uint32_t attempt_index,
                              const dmp_hs_approval *approval);
 dmp_hs_status dmp_hs_send_application(const dmp_hs *hs, uint32_t attempt_index);
+dmp_hs_status dmp_hs_confirm(dmp_hs *hs, uint32_t attempt_index);
+dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *frame);
+dmp_hs_status dmp_hs_emit_application(dmp_hs *hs, uint32_t attempt_index, const uint8_t *plain,
+                                      size_t plain_len);
 dmp_hs_status dmp_hs_retain_association(dmp_hs *hs, const dmp_hs_retained *retained);
 
 int dmp_hs_association_active(const dmp_hs *hs);
@@ -193,6 +228,11 @@ int dmp_hs_secrets_wiped(const dmp_hs *hs, uint32_t attempt_index);
 int dmp_hs_retained_alive(const dmp_hs *hs, uint32_t index);
 const uint8_t *dmp_hs_cached_flight(const dmp_hs *hs, uint32_t attempt_index,
                                     size_t *length);
+const uint8_t *dmp_hs_protected_frame(const dmp_hs *hs, uint32_t attempt_index, size_t *length);
+int dmp_hs_copy_accepted(const dmp_hs *hs, uint32_t attempt_index, uint8_t *out, size_t cap,
+                         size_t *length);
+uint32_t dmp_hs_failed_aead(const dmp_hs *hs, uint32_t attempt_index);
+uint64_t dmp_hs_next_pn(const dmp_hs *hs, uint32_t attempt_index);
 int dmp_hs_copy_attempt_id(const dmp_hs *hs, uint32_t attempt_index, uint8_t id[16]);
 int dmp_hs_copy_hash(const dmp_hs *hs, uint32_t attempt_index, uint8_t hash[32]);
 int dmp_hs_epochs(const dmp_hs *hs, uint32_t attempt_index, uint64_t *initiator_epoch,
