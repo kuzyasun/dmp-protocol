@@ -1280,3 +1280,26 @@ No stage, commit, or push.
 ## 2026-10-04 — P01B host adapter accepted
 
 Coordinator accepted the host P01B adapter on 2026-10-04 after independent review found no defect. The accepted behavior is the uncommitted worktree on 9b2ac889: tests call libdmp; wrong-PSK, low-order, PN and AAD failures wipe output; AESGCM is rejected before state creation; there is no new primitive and no SEC-1 attempt scheduler; endpoint, reliability, reassembly and profiles were untouched. Physical entropy, MCU measurement, and the SEC-1 attempt scheduler are not included; scratch and retained caps stay admission limits. P13 has not started and P12 was not marked done. No commit was made in this step.
+
+## 2026-10-04 — P13 bootstrap slice, running
+
+Started at `0c808707844bbd5665d9546fad62b729ac89426b`. P13 is running, not done. P12 was not edited and was not marked done. P14 and P15 were not started. No stage, commit, or push. `build/host` was not deleted.
+
+The handshake owner is `src/security/handshake.c` inside `libdmp`. It calls the accepted `dmp_provider_*` adapter, including one added read of the remote static public key. The adapter's Noise open/read/write/split mapping was not rewritten. There is no second handshake stack, no new cipher, and no test-only scheduler.
+
+Implemented for ChaChaPoly NNpsk0 and XX, only where SEC-1 states the rule: abort-first bootstrap; episode scheduling whose attempt, work, and traffic counters are not reset by a fresh attempt, with the configured backoff and no automatic restart; pin and handshake-hash verification; candidate keys from Noise Split and the specified epoch hash; enrollment commit that does not activate an association; pre-read drops versus post-read abort, including zero CID, wrong pin, wrong PSK, and a low-order read failure; generation invalidation and stale completion; one Noise write per cached flight; same-attempt serialization; out-of-order flights, remote orphans, quotas, and cleanup that leaves another association in place. Application send is refused from candidate and enrolled states. There is no test-key fallback and no implicit trust.
+
+Left for P14: AEAD/AAD, PN allocation, replay, protected FINISH/READY, confirmation loss, and activation. S10.17's FINISH assertion after a conflicting duplicate is not claimed here. Preserve-state remains deferred. AESGCM stays unsupported. Full fixed-stride fragment parsing stays with reassembly; this module only retains a bounded incomplete bootstrap payload and refuses a conflicting overwrite.
+
+Not invented: SEC-1 S3.1 says the manifest defines restart backoff with any jitter, but it does not specify the jitter function, source, or distribution, so the configured backoff is applied exactly. A receive CID must be nonzero and locally unique; the allocator is a caller-configured counter that skips 0 and retained values. A work unit is one charged S3.1 ingress or Noise event, not a CPU-cycle measurement.
+
+Host only. Fixture keys and injected entropy are not physical entropy or a transport. SAMPLE-1 was not rerun.
+
+GCC 15.2.0, CMake/CTest 3.28.1.
+
+- `cmake --build build/host --target dmp_test_handshake --target dmp_test_provider` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "^security\.(handshake|provider_adapter)$"` — 2/2 passed (`security.provider_adapter`, `security.handshake`). Handshake cases: nn-candidate, preread-conflict, duplicate-loss, zero-cid-low-order, wrong-psk, xx-pin-candidate, wrong-pin, oob-commit, episode-backoff, orphan-quota, scratch-serial-stale, entropy-cid-collision.
+
+P13 stays running: epoch SHA-256 reuses one Noise HashState allocated in `dmp_hs_init`, so offer and accept no longer allocate a short-lived HashState; `epoch-hash-alloc` passed with the existing handshake cases (`ctest` 2/2), cipher selection was not changed, and nothing was committed.
+
+P13 stays running: `epoch-hash-alloc` now counts HashState-sized allocations during `dmp_hs_accept` and requires that count to be zero with `DMP_HS_CANDIDATE` and the existing epoch values, while a null allocator on offer still returns `DMP_HS_ABORTED` without charging episode attempts or work (`ctest` `security.handshake` passed).

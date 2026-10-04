@@ -100,6 +100,11 @@ dmp_provider_status dmp_provider_handshake_read(
 dmp_provider_status dmp_provider_handshake_hash(
     dmp_provider *provider, const dmp_provider_handshake *handshake,
     uint8_t hash[32]);
+/* Read the remote static public key already held by an XX handshake.
+ * Does not write, split, or change the Noise mapping. */
+dmp_provider_status dmp_provider_handshake_remote_public(
+    dmp_provider *provider, const dmp_provider_handshake *handshake,
+    uint8_t public_key[32]);
 dmp_provider_status dmp_provider_handshake_split(
     dmp_provider *provider, dmp_provider_handshake *handshake,
     dmp_provider_cipher *send, dmp_provider_cipher *receive);

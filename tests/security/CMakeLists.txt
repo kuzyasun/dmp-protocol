@@ -118,3 +118,15 @@ dmp_strict_target(dmp_test_provider)
 add_test(NAME security.provider_adapter COMMAND dmp_test_provider)
 set_tests_properties(security.provider_adapter PROPERTIES
     TIMEOUT 60 LABELS "provider-adapter")
+
+add_executable(dmp_test_handshake test_handshake.c "${_fixture_header}")
+target_include_directories(dmp_test_handshake PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/security" "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(dmp_test_handshake PRIVATE
+    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+set_target_properties(dmp_test_handshake PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+dmp_strict_target(dmp_test_handshake)
+add_test(NAME security.handshake COMMAND dmp_test_handshake)
+set_tests_properties(security.handshake PROPERTIES
+    TIMEOUT 60 LABELS "handshake")

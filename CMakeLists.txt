@@ -10,7 +10,8 @@ add_library(libdmp STATIC src/core/base.c src/core/codec.c
     src/reassembly/reassembly.c
     src/reliability/reliability.c
     src/endpoint/endpoint.c
-    src/security/provider_adapter.c)
+    src/security/provider_adapter.c
+    src/security/handshake.c)
 add_library(dmp::dmp ALIAS libdmp)
 set_target_properties(libdmp PROPERTIES OUTPUT_NAME dmp
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)

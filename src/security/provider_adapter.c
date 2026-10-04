@@ -626,6 +626,39 @@ dmp_provider_status dmp_provider_handshake_hash(
     return DMP_PROVIDER_OK;
 }
 
+dmp_provider_status dmp_provider_handshake_remote_public(
+    dmp_provider *provider, const dmp_provider_handshake *handshake,
+    uint8_t public_key[32])
+{
+    const dmp_provider_handshake_body *body;
+    NoiseDHState *remote;
+    int error;
+
+    if (!provider_live(provider) || handshake == NULL || public_key == NULL) {
+        return DMP_PROVIDER_INVALID;
+    }
+    body = handshake_body_const(handshake);
+    if (body->magic != DMP_PROVIDER_HANDSHAKE_MAGIC || body->state == NULL) {
+        wipe(public_key, DMP_PROVIDER_KEY_LEN);
+        return DMP_PROVIDER_INVALID;
+    }
+    if (noise_handshakestate_has_remote_public_key(body->state) == 0) {
+        wipe(public_key, DMP_PROVIDER_KEY_LEN);
+        return DMP_PROVIDER_REJECTED;
+    }
+    remote = noise_handshakestate_get_remote_public_key_dh(body->state);
+    if (remote == NULL) {
+        wipe(public_key, DMP_PROVIDER_KEY_LEN);
+        return DMP_PROVIDER_REJECTED;
+    }
+    error = noise_dhstate_get_public_key(remote, public_key, DMP_PROVIDER_KEY_LEN);
+    if (error != NOISE_ERROR_NONE) {
+        wipe(public_key, DMP_PROVIDER_KEY_LEN);
+        return map_noise(provider, error);
+    }
+    return DMP_PROVIDER_OK;
+}
+
 dmp_provider_status dmp_provider_handshake_split(
     dmp_provider *provider, dmp_provider_handshake *handshake,
     dmp_provider_cipher *send, dmp_provider_cipher *receive)
