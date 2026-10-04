@@ -1,10 +1,13 @@
 #include "dmp/endpoint.h"
 
+#include "../security/handshake.h"
+
 #include <string.h>
 
 /* Direct Stream R endpoint. Reliability owns unfragmented retry, duplicate
  * suppression, receipts and results. Reassembly owns fixed-stride fragments.
- * This file does not allocate, parse JSON, or implement SEC-1. */
+ * SEC-1 records are the P14 seal/open path. This file does not allocate,
+ * parse JSON, or hash epochs on receive. */
 
 enum { KIND_REL = 0, KIND_FRAG = 1, KIND_TELEM = 2 };
 
@@ -128,16 +131,90 @@ static void emit(dmp_endpoint *endpoint, dmp_endpoint_event event, dmp_reliabili
     endpoint->notice(endpoint->notice_user, &notice);
 }
 
+static int secured(const dmp_endpoint *endpoint)
+{
+    return endpoint->mem.context.security == 1U;
+}
+
+static dmp_status from_hs(dmp_hs_status status)
+{
+    if (status == DMP_HS_OK) {
+        return DMP_OK;
+    }
+    if (status == DMP_HS_EXPIRED) {
+        return DMP_DEADLINE_EXPIRED;
+    }
+    if (status == DMP_HS_UNSUPPORTED) {
+        return DMP_UNSUPPORTED;
+    }
+    if (status == DMP_HS_INVALID) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (status == DMP_HS_REFUSED) {
+        return DMP_LIMIT_EXHAUSTED;
+    }
+    return DMP_AUTHENTICATION_FAILURE;
+}
+
+static dmp_status install_epochs(dmp_endpoint *endpoint)
+{
+    dmp_identity_slot *slot;
+    uint32_t namespace_id = 0U;
+    uint32_t local_id = 0U;
+    uint32_t peer_id = 0U;
+    uint64_t local_epoch = 0U;
+    uint64_t peer_epoch = 0U;
+
+    if (!secured(endpoint)) {
+        return DMP_OK;
+    }
+    if (endpoint->association_bound == 0U || endpoint->association == NULL) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (!dmp_hs_traffic_identity(endpoint->association, endpoint->association_attempt, &namespace_id,
+                                 &local_id, &peer_id, &local_epoch, &peer_epoch)) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (endpoint->context.slot >= endpoint->identity.capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    slot = &endpoint->identity.slots[endpoint->context.slot];
+    if (slot->generation != endpoint->context.generation || slot->security != 1U ||
+        slot->local.namespace_id != namespace_id || slot->local.origin_id != local_id ||
+        slot->peer.origin_id != peer_id) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    /* Traffic epochs exist once the attempt is hashed. They are not activation. */
+    slot->local.epoch = local_epoch;
+    slot->peer.epoch = peer_epoch;
+    return DMP_OK;
+}
+
+static dmp_status require_active(dmp_endpoint *endpoint)
+{
+    dmp_status status = install_epochs(endpoint);
+    if (status != DMP_OK) {
+        return status;
+    }
+    if (secured(endpoint) &&
+        dmp_hs_send_application(endpoint->association, endpoint->association_attempt) != DMP_HS_OK) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    return DMP_OK;
+}
+
 static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t service, uint32_t seq,
                               int ack_req, int fragmented, uint32_t index, uint32_t chunk,
                               uint32_t total, dmp_bytes payload, int has_reply, dmp_message_key reply,
-                              int status_present, uint32_t wire_status, dmp_buffer out, size_t *written)
+                              int status_present, uint32_t wire_status, int compact, int protect,
+                              dmp_buffer out, size_t *written)
 {
     dmp_frame_spec spec;
     dmp_core_limits limits;
     uint8_t value[32];
     size_t value_n;
     size_t ext_n = 0U;
+    dmp_hs_status sealed;
 
     memset(&spec, 0, sizeof spec);
     spec.fields.type = type;
@@ -154,11 +231,17 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
     }
     if (has_reply) {
         value_n = 0U;
-        if (!put_uleb(value, &value_n, sizeof value, reply.origin.namespace_id) ||
-            !put_uleb(value, &value_n, sizeof value, reply.origin.origin_id) ||
-            !put_u64(value, &value_n, sizeof value, reply.origin.epoch) ||
-            !put_uleb(value, &value_n, sizeof value, reply.seq) ||
-            !put_tlv(endpoint->ext_scratch, &ext_n, sizeof endpoint->ext_scratch, 5U, value,
+        if (compact) {
+            if (!put_uleb(value, &value_n, sizeof value, reply.seq)) {
+                return DMP_LIMIT_EXHAUSTED;
+            }
+        } else if (!put_uleb(value, &value_n, sizeof value, reply.origin.namespace_id) ||
+                   !put_uleb(value, &value_n, sizeof value, reply.origin.origin_id) ||
+                   !put_u64(value, &value_n, sizeof value, reply.origin.epoch) ||
+                   !put_uleb(value, &value_n, sizeof value, reply.seq)) {
+            return DMP_LIMIT_EXHAUSTED;
+        }
+        if (!put_tlv(endpoint->ext_scratch, &ext_n, sizeof endpoint->ext_scratch, 5U, value,
                      value_n)) {
             return DMP_LIMIT_EXHAUSTED;
         }
@@ -185,6 +268,22 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
         spec.extensions.size = ext_n;
     }
     spec.payload = payload;
+    if (protect) {
+        dmp_status ready_status;
+        if (payload.size > DMP_HS_APP_PLAIN_MAX) {
+            return DMP_LIMIT_EXHAUSTED;
+        }
+        ready_status = require_active(endpoint);
+        if (ready_status != DMP_OK) {
+            return ready_status;
+        }
+        if (out.data == NULL) {
+            return DMP_INVALID_ARGUMENT;
+        }
+        sealed = dmp_hs_seal_logical(endpoint->association, endpoint->association_attempt, &spec,
+                                     out.data, out.capacity, written);
+        return from_hs(sealed);
+    }
     limits = limits_of(endpoint);
     return dmp_core_encode(&spec, &limits, out, written);
 }
@@ -202,7 +301,7 @@ static dmp_status encode_logical(void *context, const dmp_reliability_logical *l
     return encode_core(endpoint, (uint8_t)logical->type, logical->service_id, logical->own.seq,
                        logical->ack_req ? 1 : 0, 0, 0U, 0U, 0U, logical->payload,
                        logical->has_reply_to ? 1 : 0, logical->reply_to, status_present,
-                       logical->wire_status, out, written);
+                       logical->wire_status, secured(endpoint), secured(endpoint), out, written);
 }
 
 static void on_reliability_notice(void *user, const dmp_reliability_notice *notice)
@@ -397,7 +496,7 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     size_t stream_bound = 0U;
     dmp_status status;
     if (endpoint == NULL || storage == NULL || storage->profile == NULL ||
-        storage->transport == NULL || storage->notice == NULL || storage->context.security != 0U) {
+        storage->transport == NULL || storage->notice == NULL || storage->context.security > 1U) {
         return DMP_INVALID_ARGUMENT;
     }
     status = dmp_stream_encoded_bound(DMP_STREAM_R, storage->profile->encoded_mtu, &stream_bound);
@@ -518,6 +617,41 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     return DMP_OK;
 }
 
+dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake, uint32_t attempt_index)
+{
+    dmp_identity_slot *slot;
+    uint32_t namespace_id = 0U;
+    uint32_t local_id = 0U;
+    uint32_t peer_id = 0U;
+    uint64_t local_epoch = 0U;
+    uint64_t peer_epoch = 0U;
+
+    if (!ready(endpoint) || handshake == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (endpoint->context.slot >= endpoint->identity.capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    slot = &endpoint->identity.slots[endpoint->context.slot];
+    if (slot->generation != endpoint->context.generation || slot->security != 1U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (!dmp_hs_traffic_identity(handshake, attempt_index, &namespace_id, &local_id, &peer_id,
+                                 &local_epoch, &peer_epoch)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (slot->local.namespace_id != namespace_id || slot->local.origin_id != local_id ||
+        slot->peer.namespace_id != namespace_id || slot->peer.origin_id != peer_id) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    (void)local_epoch;
+    (void)peer_epoch;
+    endpoint->association = handshake;
+    endpoint->association_attempt = attempt_index;
+    endpoint->association_bound = 1U;
+    return install_epochs(endpoint);
+}
+
 dmp_status dmp_endpoint_submit_req(dmp_endpoint *endpoint, uint32_t service_id, dmp_bytes payload,
                                    dmp_time_ms now, dmp_reliability_handle *out)
 {
@@ -530,7 +664,7 @@ dmp_status dmp_endpoint_submit_req(dmp_endpoint *endpoint, uint32_t service_id, 
     probe.data = endpoint->mem.telemetry_frame;
     probe.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_REQ, service_id, 0U, 1, 0, 0U, 0U, 0U, payload,
-                         0, (dmp_message_key){0}, 0, 0U, probe, &written);
+                         0, (dmp_message_key){0}, 0, 0U, 0, 0, probe, &written);
     if (status != DMP_OK) {
         return status == DMP_LIMIT_EXHAUSTED ? DMP_LIMIT_EXHAUSTED : status;
     }
@@ -562,7 +696,7 @@ static dmp_status stage_telem(dmp_endpoint *endpoint, uint32_t service_id, dmp_b
     probe.data = endpoint->mem.telemetry_frame;
     probe.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_TELEM, service_id, 0U, 0, 0, 0U, 0U, 0U,
-                         payload, 0, (dmp_message_key){0}, 0, 0U, probe, &written);
+                         payload, 0, (dmp_message_key){0}, 0, 0U, 0, 0, probe, &written);
     if (status != DMP_OK) {
         return status;
     }
@@ -618,7 +752,7 @@ static dmp_status send_telem(dmp_endpoint *endpoint, dmp_time_ms now)
     out.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_TELEM, endpoint->telem_service,
                          endpoint->telem_seq, 0, 0, 0U, 0U, 0U, payload, 0, (dmp_message_key){0}, 0,
-                         0U, out, &written);
+                         0U, secured(endpoint), secured(endpoint), out, &written);
     if (status != DMP_OK) {
         return status;
     }
@@ -658,7 +792,8 @@ static dmp_status send_fragment(dmp_endpoint *endpoint, dmp_time_ms now)
     out.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, endpoint->frag_service, endpoint->frag_seq,
                          0, 1, endpoint->frag_index, endpoint->profile.chunk_bytes,
-                         endpoint->frag_total, slice, 0, (dmp_message_key){0}, 0, 0U, out, &written);
+                         endpoint->frag_total, slice, 0, (dmp_message_key){0}, 0, 0U,
+                         secured(endpoint), secured(endpoint), out, &written);
     if (status != DMP_OK) {
         return status;
     }
@@ -712,7 +847,7 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     probe.data = endpoint->mem.fragment_frame;
     probe.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, slot->next_seq, 0, 0, 0U, 0U,
-                         0U, payload, 0, (dmp_message_key){0}, 0, 0U, probe, &written);
+                         0U, payload, 0, (dmp_message_key){0}, 0, 0U, 0, 0, probe, &written);
     if (status == DMP_OK) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -735,7 +870,7 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     slice.data = payload.data + (size_t)last * (size_t)chunk;
     slice.size = payload.size - (size_t)last * (size_t)chunk;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, seq, 0, 1, last, chunk,
-                         (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U, probe,
+                         (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U, 0, 0, probe,
                          &written);
     if (status != DMP_OK) {
         return status;
@@ -870,6 +1005,31 @@ static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *fr
     }
 }
 
+static dmp_status open_protected(dmp_endpoint *endpoint, dmp_bytes core, dmp_frame_view *view,
+                                  uint8_t *plain, size_t plain_cap, size_t *plain_len)
+{
+    dmp_hs_protected incoming;
+    dmp_identity_slot *slot;
+    dmp_status status;
+    dmp_hs_status opened;
+
+    status = require_active(endpoint);
+    if (status != DMP_OK) {
+        return status;
+    }
+    slot = &endpoint->identity.slots[endpoint->context.slot];
+    memset(&incoming, 0, sizeof incoming);
+    incoming.frame = core.data;
+    incoming.frame_len = core.size;
+    incoming.origin_id = slot->peer.origin_id;
+    incoming.destination_id = slot->local.origin_id;
+    incoming.namespace_id = slot->local.namespace_id;
+    incoming.context_epoch = slot->peer.epoch;
+    opened = dmp_hs_open_logical(endpoint->association, endpoint->association_attempt, &incoming, plain,
+                                 plain_cap, plain_len, view);
+    return from_hs(opened);
+}
+
 static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms now)
 {
     dmp_frame_view view;
@@ -878,12 +1038,27 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
     dmp_role_policy policy;
     dmp_reliability_input input;
     dmp_bytes empty;
+    uint8_t plain[DMP_HS_APP_PLAIN_MAX];
+    size_t plain_len = 0U;
     uint32_t service = 0U;
     dmp_status status;
-    limits = limits_of(endpoint);
-    parsed = dmp_core_parse(core, &limits, &view);
-    if (parsed.status != DMP_OK) {
-        return parsed.status;
+    memset(&view, 0, sizeof view);
+    if (secured(endpoint)) {
+        /* Epochs are the attempt values installed above. No hash and no
+         * allocation on this path. */
+        status = open_protected(endpoint, core, &view, plain, sizeof plain, &plain_len);
+        if (status != DMP_OK) {
+            return status;
+        }
+        if (plain_len != view.payload.size) {
+            return DMP_AUTHENTICATION_FAILURE;
+        }
+    } else {
+        limits = limits_of(endpoint);
+        parsed = dmp_core_parse(core, &limits, &view);
+        if (parsed.status != DMP_OK) {
+            return parsed.status;
+        }
     }
     memset(&policy, 0, sizeof policy);
     policy.role = DMP_ROLE_ENDPOINT;

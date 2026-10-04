@@ -130,3 +130,27 @@ dmp_strict_target(dmp_test_handshake)
 add_test(NAME security.handshake COMMAND dmp_test_handshake)
 set_tests_properties(security.handshake PROPERTIES
     TIMEOUT 60 LABELS "handshake")
+
+# endpoint.o now calls the handshake record path, so the plaintext endpoint
+# binary needs the same Noise link group.
+target_link_libraries(dmp_test_endpoint PRIVATE
+    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+
+add_executable(dmp_test_endpoint_sec
+    "${PROJECT_SOURCE_DIR}/tests/endpoint/test_endpoint_sec.c" "${_fixture_header}")
+target_include_directories(dmp_test_endpoint_sec PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/security"
+    "${PROJECT_SOURCE_DIR}/tests/endpoint"
+    "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(dmp_test_endpoint_sec PRIVATE
+    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+set_target_properties(dmp_test_endpoint_sec PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+dmp_strict_target(dmp_test_endpoint_sec)
+if(MSVC)
+    target_compile_definitions(dmp_test_endpoint_sec PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+foreach(name activation alter loss isolate reassembly ttl)
+    add_test(NAME endpoint.protected_${name} COMMAND dmp_test_endpoint_sec ${name})
+    set_tests_properties(endpoint.protected_${name} PROPERTIES TIMEOUT 60 LABELS "endpoint")
+endforeach()

@@ -1324,3 +1324,20 @@ GCC 15.2.0, CMake/CTest 3.28.1.
 ## 2026-10-04 — P14 host confirmation slice accepted
 
 Coordinator accepted the host FINISH/READY, confirmation-loss, replay-window, and activation slice on 2026-10-04 after independent review found no defect. The accepted behavior is the uncommitted worktree on 146ef17. Activation stays 0 after enrollment commit and becomes 1 only on the FINISH/READY path. The replay window matches SEC-1 (power of two, 64..65536, default 1024). A too-old PN is dropped before AEAD. A bad tag does not mark the PN. Confirmation timeout wipes traffic keys and leaves the association inactive. Endpoint, reliability, reassembly, and profiles were not changed. P15 integration, ACL, rotation, S10 cases, physical transport, and a specified jitter distribution are not included; jitter remains the fixed restart interval because S3.1 does not define a distribution. P15 was not started. P12 and P13 were not marked done. No source, test, or CMake edit. No commit was made in this step.
+
+## 2026-10-04 — P15 host integration, running
+
+Started at baseline `448565b8d1f6bb1cab347a781453e9d5680fde70`. P15 is running, not done. P12, P13, and P14 were not marked done. No stage, commit, push, or flash. `build/host` was not deleted.
+
+Two `dmp_endpoint` instances on the host loopback exchange SAMPLE-1 and fixed-stride DATA only after the existing P14 association is active. Before activation, application send and receive fail and nothing is delivered. Protected frames are the P14 records (`dmp_hs_seal_logical` / `dmp_hs_open_logical` on the existing ChaChaPoly provider path). There is no second handshake, cipher, or KDF. An altered protected reply is rejected and does not mark the PN. A lost request is retried by the existing reliability engine, which seals a new record rather than replaying the dropped ciphertext. A frame from one association is not accepted by the other. Authenticated fragments reorder and reassemble; a conflicting slice is not assembled; a fragment from the other association is not assembled. A TTL-only change of a routed protected TELEM still verifies; a destination change does not. Receive does not allocate and does not hash an epoch. The host loopback is not physical-transport evidence.
+
+Not invented, and not implemented: ACL, freshness leases, key rotation, and a jitter distribution. S3.1 still does not define jitter. Explicitly deferred: the relay-state portion of S10 case 6 (P19) and multi-binding forwarding S10 case 11 (P23). Manifest bytes, cipher selection, and replay-window bounds were not edited. Fixture verification was not treated as closing this gate.
+
+GCC 15.2.0.
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "endpoint\.|security\.(handshake|provider_adapter)"` — 23/23 passed, including the existing `endpoint.*` and `security.handshake` / `security.provider_adapter` tests and `endpoint.protected_activation`, `endpoint.protected_alter`, `endpoint.protected_loss`, `endpoint.protected_isolate`, `endpoint.protected_reassembly`, `endpoint.protected_ttl`.
+
+## 2026-10-04 — P15 host protected-endpoint integration accepted
+
+Coordinator accepted the host protected-endpoint integration on 2026-10-04 after independent review found no defect in the uncommitted work on top of 448565b8d1f6bb1cab347a781453e9d5680fde70. Two endpoints exchange only after activation. An altered tag returns DMP_HS_DROPPED before the replay bit is committed. A reliability retry seals a new PN. A foreign association does not deliver payload. The receive path does not allocate or hash an epoch. Profiles and replay-window bounds were not changed. Relay S10 case 6 (later P19), multi-binding S10 case 11 (later P23), physical transport, ACL, key rotation, and a specified jitter distribution are not included. No commit was made in this step.

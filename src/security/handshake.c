@@ -12,7 +12,6 @@
 #define DMP_HS_PREFIX_LEN 72u
 #define DMP_HS_CONT_LEN 18u
 #define DMP_HS_PROTECTED_MAX 96u
-#define DMP_HS_APP_PLAIN_MAX 32u
 #define DMP_HS_AAD_MAX (14u + 32u + DMP_MAX_HEADER_BYTES)
 #define DMP_HS_PN_LIMIT (UINT64_C(1) << 24)
 #define DMP_HS_PLAIN_LIMIT (UINT64_C(1) << 30)
@@ -1926,6 +1925,241 @@ dmp_hs_status dmp_hs_emit_application(dmp_hs *hs, uint32_t index, const uint8_t 
     return DMP_HS_OK;
 }
 
+dmp_hs_status dmp_hs_seal_logical(dmp_hs *hs, uint32_t index, const dmp_frame_spec *logical,
+                                  uint8_t *out, size_t cap, size_t *written)
+{
+    struct hs_attempt *attempt;
+    dmp_frame_spec spec;
+    dmp_frame_view view;
+    dmp_core_limits limits;
+    dmp_buffer output;
+    uint8_t header[DMP_MAX_HEADER_BYTES];
+    uint8_t canon[DMP_MAX_HEADER_BYTES];
+    uint8_t body[DMP_HS_APP_PLAIN_MAX + 16U];
+    uint8_t aad[DMP_HS_AAD_MAX];
+    size_t header_len = 0U;
+    size_t canon_len = 0U;
+    size_t aad_len = 0U;
+    size_t sealed = 0U;
+    uint64_t pn;
+    dmp_provider_status status;
+
+    if (written != NULL) {
+        *written = 0U;
+    }
+    if (!live(hs) || logical == NULL || out == NULL || written == NULL || index >= DMP_HS_ATTEMPT_MAX) {
+        return DMP_HS_INVALID;
+    }
+    attempt = &hs->attempts[index];
+    if (!attempt->used) {
+        return DMP_HS_INVALID;
+    }
+    if (!attempt->active || attempt->terminal) {
+        return DMP_HS_NOT_ACTIVE;
+    }
+    if (attempt->cipher != 1U) {
+        return DMP_HS_UNSUPPORTED;
+    }
+    if (logical->payload.size > DMP_HS_APP_PLAIN_MAX ||
+        (logical->payload.size != 0U && logical->payload.data == NULL) ||
+        (logical->fields.options & DMP_OPT_SEQ) == 0U ||
+        (logical->fields.options & DMP_OPT_INTEGRITY) != 0U) {
+        return DMP_HS_INVALID;
+    }
+    if (!attempt->send_open || attempt->remote_rx_cid == 0U) {
+        return DMP_HS_REFUSED;
+    }
+    if (lifetime_over(hs, attempt)) {
+        end_traffic(hs, attempt);
+        return DMP_HS_EXPIRED;
+    }
+    if (attempt->next_pn >= DMP_HS_PN_LIMIT ||
+        attempt->send_plain > DMP_HS_PLAIN_LIMIT - logical->payload.size) {
+        return DMP_HS_REFUSED;
+    }
+    pn = attempt->next_pn;
+    spec = *logical;
+    spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_SECURITY);
+    spec.fields.security.cipher = attempt->cipher;
+    spec.fields.security.receive_cid = attempt->remote_rx_cid;
+    spec.fields.security.pn = pn;
+    spec.trailer.data = NULL;
+    spec.trailer.size = 16U;
+    limits.max_frame_bytes = cap;
+    /* The slice stays within the P14 plaintext bound. total_size may name a
+     * larger reassembled message. */
+    limits.max_message_bytes = 65535U;
+    limits.max_fragments = 32U;
+    output.data = header;
+    output.capacity = sizeof(header);
+    if (dmp_core_encode_header(&spec, &limits, output, &header_len) != DMP_OK ||
+        header_len + logical->payload.size + 16U > cap) {
+        wipe(header, sizeof(header));
+        return DMP_HS_REFUSED;
+    }
+    memset(&view, 0, sizeof(view));
+    view.header.data = header;
+    view.header.size = header_len;
+    view.fields.options = spec.fields.options;
+    view.fields.seq = spec.fields.seq;
+    if (!canonical_header(&view, canon, sizeof(canon), &canon_len) ||
+        !build_aad(attempt->handshake_hash, canon, canon_len, aad, sizeof(aad), &aad_len)) {
+        wipe(header, sizeof(header));
+        wipe(canon, sizeof(canon));
+        wipe(aad, sizeof(aad));
+        return DMP_HS_REFUSED;
+    }
+    if (logical->payload.size != 0U) {
+        memcpy(body, logical->payload.data, logical->payload.size);
+    }
+    status = dmp_provider_cipher_encrypt(hs->provider, &attempt->send_cipher, pn, aad, aad_len, body,
+                                         logical->payload.size, sizeof(body), &sealed);
+    wipe(aad, sizeof(aad));
+    wipe(canon, sizeof(canon));
+    if (status != DMP_PROVIDER_OK || sealed != logical->payload.size + 16U) {
+        wipe(header, sizeof(header));
+        wipe(body, sizeof(body));
+        return DMP_HS_REFUSED;
+    }
+    memcpy(out, header, header_len);
+    memcpy(out + header_len, body, sealed);
+    wipe(header, sizeof(header));
+    wipe(body, sizeof(body));
+    *written = header_len + sealed;
+    attempt->next_pn = pn + 1U;
+    attempt->send_frames++;
+    attempt->send_plain += logical->payload.size;
+    return DMP_HS_OK;
+}
+
+dmp_hs_status dmp_hs_open_logical(dmp_hs *hs, uint32_t index, const dmp_hs_protected *incoming,
+                                  uint8_t *plain, size_t plain_cap, size_t *plain_len,
+                                  dmp_frame_view *view_out)
+{
+    struct hs_attempt *attempt;
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+    dmp_core_limits limits;
+    uint8_t canon[DMP_MAX_HEADER_BYTES];
+    uint8_t aad[DMP_HS_AAD_MAX];
+    uint8_t body[DMP_HS_APP_PLAIN_MAX + 16U];
+    size_t canon_len = 0U;
+    size_t aad_len = 0U;
+    size_t opened = 0U;
+    dmp_provider_status status;
+
+    if (plain_len != NULL) {
+        *plain_len = 0U;
+    }
+    if (!live(hs) || incoming == NULL || incoming->frame == NULL || incoming->frame_len == 0U ||
+        plain == NULL || plain_len == NULL || view_out == NULL || index >= DMP_HS_ATTEMPT_MAX) {
+        return DMP_HS_INVALID;
+    }
+    attempt = &hs->attempts[index];
+    if (!attempt->used) {
+        return DMP_HS_INVALID;
+    }
+    limits.max_frame_bytes = 512U;
+    limits.max_message_bytes = 65535U;
+    limits.max_fragments = 32U;
+    memset(&view, 0, sizeof(view));
+    parsed = dmp_core_parse((dmp_bytes){incoming->frame, incoming->frame_len}, &limits, &view);
+    if (parsed.status != DMP_OK || (view.fields.options & DMP_OPT_SECURITY) == 0U) {
+        return DMP_HS_DROPPED;
+    }
+    if (attempt->terminal || !attempt->recv_open || attempt->local_rx_cid != view.fields.security.receive_cid ||
+        !context_matches(hs, attempt, incoming)) {
+        return DMP_HS_DROPPED;
+    }
+    if (view.fields.security.cipher == 2U) {
+        return DMP_HS_UNSUPPORTED;
+    }
+    if (view.fields.security.cipher != attempt->cipher || view.trailer.size != 16U) {
+        return DMP_HS_DROPPED;
+    }
+    if (!attempt->active || view.fields.type == DMP_TYPE_HELLO) {
+        return attempt->active ? DMP_HS_DROPPED : DMP_HS_NOT_ACTIVE;
+    }
+    if (lifetime_over(hs, attempt) || attempt->recv_plain > DMP_HS_PLAIN_LIMIT - view.payload.size) {
+        end_traffic(hs, attempt);
+        return DMP_HS_EXPIRED;
+    }
+    if (view.fields.security.pn >= DMP_HS_PN_LIMIT ||
+        !dmp_replay_window_admit(&attempt->replay, view.fields.security.pn)) {
+        return DMP_HS_DROPPED;
+    }
+    if (!traffic_authorized(hs, attempt)) {
+        return DMP_HS_DROPPED;
+    }
+    if (attempt->failed_aead >= hs->failed_limit) {
+        end_traffic(hs, attempt);
+        return DMP_HS_DROPPED;
+    }
+    if (view.payload.size > DMP_HS_APP_PLAIN_MAX || view.payload.size > plain_cap ||
+        view.payload.size + view.trailer.size > sizeof(body) ||
+        !canonical_header(&view, canon, sizeof(canon), &canon_len) ||
+        !build_aad(attempt->handshake_hash, canon, canon_len, aad, sizeof(aad), &aad_len)) {
+        wipe(canon, sizeof(canon));
+        wipe(aad, sizeof(aad));
+        return DMP_HS_DROPPED;
+    }
+    if (view.payload.size != 0U) {
+        memcpy(body, view.payload.data, view.payload.size);
+    }
+    memcpy(body + view.payload.size, view.trailer.data, view.trailer.size);
+    status = dmp_provider_cipher_decrypt(hs->provider, &attempt->recv_cipher, view.fields.security.pn, aad,
+                                         aad_len, body, view.payload.size + view.trailer.size, sizeof(body),
+                                         &opened);
+    wipe(aad, sizeof(aad));
+    wipe(canon, sizeof(canon));
+    if (status != DMP_PROVIDER_OK || opened != view.payload.size) {
+        wipe(body, sizeof(body));
+        attempt->failed_aead++;
+        if (attempt->failed_aead >= hs->failed_limit) {
+            end_traffic(hs, attempt);
+        }
+        return DMP_HS_DROPPED;
+    }
+    if (!dmp_replay_window_commit(&attempt->replay, view.fields.security.pn)) {
+        wipe(body, sizeof(body));
+        return DMP_HS_DROPPED;
+    }
+    attempt->recv_plain += opened;
+    if (opened != 0U) {
+        memcpy(plain, body, opened);
+    }
+    wipe(body, sizeof(body));
+    view.payload.data = plain;
+    view.payload.size = opened;
+    *plain_len = opened;
+    *view_out = view;
+    return DMP_HS_OK;
+}
+
+int dmp_hs_traffic_identity(const dmp_hs *hs, uint32_t index, uint32_t *namespace_id,
+                            uint32_t *local_id, uint32_t *peer_id, uint64_t *local_epoch,
+                            uint64_t *peer_epoch)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+
+    if (attempt == NULL || !attempt->hash_valid || namespace_id == NULL || local_id == NULL ||
+        peer_id == NULL || local_epoch == NULL || peer_epoch == NULL) {
+        return 0;
+    }
+    *namespace_id = attempt->namespace_id;
+    *local_id = hs->config.local_id;
+    if (attempt->initiator) {
+        *peer_id = attempt->responder_id;
+        *local_epoch = attempt->epoch_i;
+        *peer_epoch = attempt->epoch_r;
+    } else {
+        *peer_id = attempt->initiator_id;
+        *local_epoch = attempt->epoch_r;
+        *peer_epoch = attempt->epoch_i;
+    }
+    return 1;
+}
+
 dmp_hs_status dmp_hs_retain_association(dmp_hs *hs, const dmp_hs_retained *retained)
 {
     uint32_t index;
@@ -2168,6 +2402,13 @@ int dmp_hs_epochs(const dmp_hs *hs, uint32_t index, uint64_t *initiator_epoch, u
     *initiator_epoch = attempt->epoch_i;
     *responder_epoch = attempt->epoch_r;
     return 1;
+}
+
+uint64_t dmp_hs_boot_epoch(const dmp_hs *hs, uint32_t index)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+
+    return attempt == NULL ? 0U : attempt->boot_epoch;
 }
 
 uint8_t dmp_hs_expect_flight(const dmp_hs *hs, uint32_t index)

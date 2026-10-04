@@ -33,6 +33,8 @@
 
 #include "provider_port.h"
 
+#include "dmp/core.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -43,6 +45,8 @@ extern "C" {
 #define DMP_HS_ATTEMPT_MAX 4u
 #define DMP_HS_ASSOCIATION_MAX 4u
 #define DMP_HS_PAYLOAD_MAX 120u
+/* P14 application record plaintext bound. Endpoint slices use this same limit. */
+#define DMP_HS_APP_PLAIN_MAX 32u
 
 typedef enum dmp_hs_status {
     DMP_HS_OK = 0,
@@ -207,6 +211,19 @@ dmp_hs_status dmp_hs_confirm(dmp_hs *hs, uint32_t attempt_index);
 dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *frame);
 dmp_hs_status dmp_hs_emit_application(dmp_hs *hs, uint32_t attempt_index, const uint8_t *plain,
                                       size_t plain_len);
+/* Same P14 cipher, AAD, PN and replay window as FINISH/READY. Caller owns
+ * the output. Does not allocate and does not hash an epoch. Inactive
+ * associations are refused. Plaintext above the P14 record bound is refused. */
+dmp_hs_status dmp_hs_seal_logical(dmp_hs *hs, uint32_t attempt_index, const dmp_frame_spec *logical,
+                                  uint8_t *out, size_t cap, size_t *written);
+/* Decrypt one record for the named attempt. A bad tag does not mark the PN.
+ * Cross-attempt and inactive frames are not accepted. Does not allocate. */
+dmp_hs_status dmp_hs_open_logical(dmp_hs *hs, uint32_t attempt_index, const dmp_hs_protected *incoming,
+                                  uint8_t *plain, size_t plain_cap, size_t *plain_len,
+                                  dmp_frame_view *view);
+int dmp_hs_traffic_identity(const dmp_hs *hs, uint32_t attempt_index, uint32_t *namespace_id,
+                            uint32_t *local_id, uint32_t *peer_id, uint64_t *local_epoch,
+                            uint64_t *peer_epoch);
 dmp_hs_status dmp_hs_retain_association(dmp_hs *hs, const dmp_hs_retained *retained);
 
 int dmp_hs_association_active(const dmp_hs *hs);
@@ -237,6 +254,7 @@ int dmp_hs_copy_attempt_id(const dmp_hs *hs, uint32_t attempt_index, uint8_t id[
 int dmp_hs_copy_hash(const dmp_hs *hs, uint32_t attempt_index, uint8_t hash[32]);
 int dmp_hs_epochs(const dmp_hs *hs, uint32_t attempt_index, uint64_t *initiator_epoch,
                   uint64_t *responder_epoch);
+uint64_t dmp_hs_boot_epoch(const dmp_hs *hs, uint32_t attempt_index);
 uint8_t dmp_hs_expect_flight(const dmp_hs *hs, uint32_t attempt_index);
 int dmp_hs_copy_partial(const dmp_hs *hs, uint8_t *out, size_t cap, size_t *length);
 uint32_t dmp_hs_pending(const dmp_hs *hs);

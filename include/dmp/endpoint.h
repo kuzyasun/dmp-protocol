@@ -13,9 +13,13 @@ extern "C" {
  * engines in src/. Payload bytes stay opaque. SAMPLE-1 layout is an application
  * codec outside libdmp. No heap and no JSON parsing.
  *
- * SECURITY is not applied. A context with security != 0 is rejected. Any later
- * protected run of these exchanges is provisional until P15 repeats it on SEC-1.
+ * security == 0 is the plaintext path. security == 1 delivers application
+ * traffic only after dmp_endpoint_bind and association activation. Protection
+ * is the existing P14 record path; this module does not open a second
+ * handshake, cipher, or KDF. Receive does not allocate for epoch hashing.
  * The object must not be moved after a successful init. Calls are serialized. */
+
+struct dmp_hs;
 
 typedef enum {
     DMP_ENDPOINT_REQUEST = 1,
@@ -142,6 +146,9 @@ typedef struct {
     uint32_t telem_service;
     uint32_t telem_seq;
     uint8_t ext_scratch[DMP_MAX_HEADER_BYTES];
+    struct dmp_hs *association;
+    uint32_t association_attempt;
+    uint8_t association_bound;
 } dmp_endpoint;
 
 /* now is the first monotonic time the Stream R decoder may observe. Failure
@@ -149,6 +156,12 @@ typedef struct {
  * a context may already be open in the caller table. */
 dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage *storage,
                              dmp_time_ms now);
+
+/* Attach one real handshake attempt. Requires security == 1 and a hashed
+ * attempt whose namespace and node ids match the open context. Activation is
+ * separate: application send and receive fail until that attempt is active. */
+dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake,
+                             uint32_t attempt_index);
 
 /* Unfragmented reliable REQ. Payload must fit in one core frame. Copies on
  * success. A second live operation that exceeds the admitted queue returns the
