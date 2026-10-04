@@ -154,9 +154,12 @@ Host ABI from the existing `build/host` tree (GCC 15.2.0). Measured
 16 × 48 = 768 bytes. The struct was not padded.
 
 Other measured state objects, not folded into the eight-array budget:
-`dmp_identity_slot` 64, `dmp_reliability` 512, `dmp_reassembly_slot` 152,
-`dmp_reassembly` 304. Crypto is excluded. Stack is excluded. JSON admission
-scratch is 0.
+`dmp_identity_slot` 64, `dmp_reliability` 544, `dmp_reassembly_slot` 176,
+`dmp_reassembly` 336, `dmp_reassembly_tombstone` 48. The reliability and
+reassembly objects grew when the admitted profile gained the eight R3 fields
+and the reassembly slot gained the collection timer, status counter, and
+expected-status snapshot. Crypto is excluded. Stack is excluded. JSON admission
+scratch is 0. These sizes are not total endpoint RAM.
 
 The eight-array sum is sender, result, and receive payload, history and
 correlation metadata (`DMP_MAX_HEADER_BYTES` 255), adapter frames, and, when
@@ -197,21 +200,43 @@ Command, existing `build/host`, after `cmake --build build/host`:
 ctest --test-dir build/host --output-on-failure -R "identity.profile_admit"
 ```
 
-`identity.profile_admit` passed and printed the rows. State bytes 576 are one
-`dmp_identity_slot` (64) plus one `dmp_reliability` (512). State bytes 1032
-add one `dmp_reassembly_slot` (152) and one `dmp_reassembly` (304).
+`identity.profile_admit` passed and printed the rows. State bytes 608 are one
+`dmp_identity_slot` (64) plus one `dmp_reliability` (544). State bytes 1120
+add one `dmp_reassembly_slot` (176) and one `dmp_reassembly` (336). The
+eight-array sums are unchanged: the new fields are state, not payload buffers.
 
 | Budget (bytes) | Result | Capability | message_bytes | fragments | chunk_bytes | encoded_mtu | Slots | Eight-array sum (bytes) | State bytes | Tombstone bytes | Crypto | Stack | JSON scratch | What ran |
 |---:|---|---|---:|---:|---:|---:|---|---:|---:|---:|---|---|---:|---|
-| 1024 | supported | Unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones | 64 | 1 | 32 | 112 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 926 | 576 | 0 | excluded | excluded | 0 | admit, reliability init, 64-byte request/result exchange |
-| 2048 | supported | Same shape, message 256 | 256 | 1 | 128 | 304 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 1886 | 576 | 0 | excluded | excluded | 0 | admit, reliability init, 256-byte request/result exchange |
-| 3072 | supported | Same shape, message 384 | 384 | 1 | 128 | 432 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 2526 | 576 | 0 | excluded | excluded | 0 | admit, reliability init, 384-byte request/result exchange |
-| 4096 | supported | Full 256-byte reliability exchange plus reassembly of the same 256 bytes as two 128-byte slices; one tombstone, not the direct 16 | 256 | 2 | 128 | 304 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 1, tombstone slots 1 | 2397 | 1032 | 48 | excluded | excluded | 0 | admit, reliability init, 256-byte request/result exchange, reassembly init, 256-byte two-slice reassembly |
-| 8192 | supported | Unfragmented 1024-byte message; not direct-nnpsk0 (MTU 1072, fragments 1, one slot of each kind) | 1024 | 1 | 512 | 1072 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 5726 | 576 | 0 | excluded | excluded | 0 | admit, reliability init, 1024-byte request/result exchange |
-| 16384 | supported | direct-nnpsk0 limits, adapter 3 and control 2; 64-byte reliability frame fits MTU 263 and is not the message exchange; reassembly delivers 1024 bytes as 16 slices of 64 | 1024 | 16 | 64 | 263 | peers 1, sender 4, result 4, history 8, correlation 4, adapter 3, control 2, assembly 1, tombstone slots 16 | 14344 | 1032 | 768 | excluded | excluded | 0 | admit, reliability init, 64-byte fitting frame, reassembly init, 1024-byte 16-slice reassembly |
+| 1024 | supported | Unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones | 64 | 1 | 32 | 112 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 926 | 608 | 0 | excluded | excluded | 0 | admit, reliability init, 64-byte request/result exchange |
+| 2048 | supported | Same shape, message 256 | 256 | 1 | 128 | 304 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 1886 | 608 | 0 | excluded | excluded | 0 | admit, reliability init, 256-byte request/result exchange |
+| 3072 | supported | Same shape, message 384 | 384 | 1 | 128 | 432 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 2526 | 608 | 0 | excluded | excluded | 0 | admit, reliability init, 384-byte request/result exchange |
+| 4096 | supported | Full 256-byte reliability exchange plus reassembly of the same 256 bytes as two 128-byte slices; one tombstone, not the direct 16 | 256 | 2 | 128 | 304 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 1, tombstone slots 1 | 2397 | 1120 | 48 | excluded | excluded | 0 | admit, reliability init, 256-byte request/result exchange, reassembly init, 256-byte two-slice reassembly |
+| 8192 | supported | Unfragmented 1024-byte message; not direct-nnpsk0 (MTU 1072, fragments 1, one slot of each kind) | 1024 | 1 | 512 | 1072 | peers 1, sender 1, result 1, history 1, correlation 1, adapter 2, control 1, assembly 0, tombstone slots 0 | 5726 | 608 | 0 | excluded | excluded | 0 | admit, reliability init, 1024-byte request/result exchange |
+| 16384 | supported | direct-nnpsk0 limits, adapter 3 and control 2; 64-byte reliability frame fits MTU 263 and is not the message exchange; reassembly delivers 1024 bytes as 16 slices of 64 | 1024 | 16 | 64 | 263 | peers 1, sender 4, result 4, history 8, correlation 4, adapter 3, control 2, assembly 1, tombstone slots 16 | 14344 | 1120 | 768 | excluded | excluded | 0 | admit, reliability init, 64-byte fitting frame, reassembly init, 1024-byte 16-slice reassembly |
 
 Unfragmented sums omit assembly payload and assembly metadata:
 `3*message_bytes + 255 + 255 + 2*encoded_mtu`.
 The 4096-byte sum is `3*256 + 255 + 255 + 2*304 + 256 + 255`.
 The 14344-byte sum is `4*1024 + 4*1024 + 1024 + 8*255 + 4*255 + 3*263 + 1*1024 + 1*255`.
 Tombstone bytes 768 are 16 × 48. Tombstone bytes 48 are 1 × 48.
+
+## P15 host provider retained and scratch
+
+Compared with `profiles/deployments/direct-nnpsk0.json`, role `endpoint`,
+target `portable-host.endpoint.v1`. That row charges `provider_retained`
+count 3 × 12288 = 36864 bytes and `provider_scratch` count 1 × 4096 = 4096
+bytes. There is no separate retained/scratch row for the composed endpoint
+object beyond those provider charges.
+
+The integrated host session in `endpoint.protected_context` and
+`endpoint.protected_drain` puts both peers on one provider. Measured Noise
+block accounting, not stack and not the 419936-byte JSON scratch:
+
+| Run | Peak retained (bytes) | Live retained (bytes) | Blocks | Largest single allocation (bytes) |
+|---|---:|---:|---:|---:|
+| One active association | 2826 | 816 | 6 | 256 |
+| Active plus draining attempts | 3338 | 1328 | 10 | 256 |
+
+Both high-water totals sit inside one endpoint's 36864-byte retained charge.
+The largest allocation sits inside the 4096-byte scratch charge. This is host
+provider accounting, not an MCU budget. The 2^24 frame ceiling was not moved.

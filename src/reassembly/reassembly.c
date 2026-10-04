@@ -52,6 +52,65 @@ static int service_allowed(const dmp_admitted_profile *profile, uint32_t service
            (service == profile->service_id[0] || service == profile->service_id[1]);
 }
 
+static int selective_service(const dmp_admitted_profile *profile, uint32_t service)
+{
+    if (service == profile->service_id[0]) {
+        return profile->recovery[0] == DMP_PROFILE_RECOVERY_SELECTIVE32;
+    }
+    if (service == profile->service_id[1]) {
+        return profile->recovery[1] == DMP_PROFILE_RECOVERY_SELECTIVE32;
+    }
+    return 0;
+}
+
+static uint32_t missing_mask(const dmp_reassembly_slot *slot)
+{
+    uint32_t count;
+    uint32_t all;
+
+    if (slot->chunk_size == 0U || slot->total_size <= slot->chunk_size) {
+        return 0U;
+    }
+    count = 1U + (slot->total_size - 1U) / slot->chunk_size;
+    if (count < 2U || count > 32U) {
+        return 0U;
+    }
+    all = count == 32U ? 0xFFFFFFFFU : (1U << count) - 1U;
+    return all & ~slot->received_bitmap;
+}
+
+/* R4.2. The due time is arrival plus burst_span+forward_delay+feedback_guard.
+ * collect_ms is not this timer. A later slice does not move an armed due time.
+ * A pending status is not a second timer. */
+static void note_collection(dmp_reassembly_slot *slot, const dmp_admitted_profile *profile,
+                            uint32_t service, dmp_time_ms now, int complete)
+{
+    uint32_t sum;
+    uint32_t span;
+
+    if (complete) {
+        slot->collection_armed = 0U;
+        slot->status_expected = 0U;
+        return;
+    }
+    if (!selective_service(profile, service) || slot->collection_armed != 0U ||
+        slot->status_expected != 0U) {
+        return;
+    }
+    if (profile->burst_span_ms > 0xFFFFFFFFU - profile->forward_delay_ms) {
+        return;
+    }
+    sum = profile->burst_span_ms + profile->forward_delay_ms;
+    if (sum > 0xFFFFFFFFU - profile->feedback_guard_ms) {
+        return;
+    }
+    span = sum + profile->feedback_guard_ms;
+    if (dmp_deadline_after(now, span, &slot->collection_due) != DMP_OK) {
+        return;
+    }
+    slot->collection_armed = 1U;
+}
+
 static dmp_status check_minimum_capacity(uint32_t count, uint32_t elem, size_t actual)
 {
     size_t minimum;
@@ -425,10 +484,12 @@ static dmp_status accept_existing(dmp_reassembly *engine, size_t slot_index,
     slot->received_bitmap |= bit;
     if ((slot->received_bitmap & fragment_mask(count)) == fragment_mask(count)) {
         slot->complete = 1U;
+        note_collection(slot, &engine->profile, slot->service_id, now, 1);
         completed->slot = (uint32_t)slot_index;
         completed->generation = slot->generation;
         return DMP_OK;
     }
+    note_collection(slot, &engine->profile, slot->service_id, now, 0);
     return DMP_INCOMPLETE;
 }
 
@@ -511,10 +572,12 @@ static dmp_status accept_new(dmp_reassembly *engine, dmp_message_key key,
     slot->received_bitmap = fragment_bit(fields->fragment.index);
     if ((slot->received_bitmap & fragment_mask(count)) == fragment_mask(count)) {
         slot->complete = 1U;
+        note_collection(slot, &engine->profile, slot->service_id, now, 1);
         completed->slot = (uint32_t)slot_index;
         completed->generation = generation;
         return DMP_OK;
     }
+    note_collection(slot, &engine->profile, slot->service_id, now, 0);
     return DMP_INCOMPLETE;
 }
 
@@ -657,6 +720,24 @@ dmp_status dmp_reassembly_poll(dmp_reassembly *engine, dmp_time_ms now, size_t *
 
     if (!ready(engine) || expired_count == NULL) {
         return DMP_INVALID_ARGUMENT;
+    }
+    for (i = 0U; i < engine->storage.assembly_capacity; i++) {
+        dmp_reassembly_slot *slot = &engine->storage.assemblies[i];
+        uint32_t missing;
+
+        if (slot->live == 0U || slot->complete != 0U || slot->collection_armed == 0U ||
+            dmp_deadline_reached(now, slot->deadline) ||
+            !dmp_deadline_reached(now, slot->collection_due)) {
+            continue;
+        }
+        slot->collection_armed = 0U;
+        missing = missing_mask(slot);
+        if (missing == 0U || slot->status_count >= engine->profile.max_status) {
+            continue;
+        }
+        slot->status_count++;
+        slot->status_mask = missing;
+        slot->status_expected = 1U;
     }
     for (i = 0U; i < engine->storage.assembly_capacity; i++) {
         dmp_reassembly_slot *slot = &engine->storage.assemblies[i];

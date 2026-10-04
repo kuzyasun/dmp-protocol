@@ -152,6 +152,17 @@ typedef struct dmp_config {
     uint32_t late_result_ms;
     uint32_t collect_ms;
     uint32_t assembly_ms;
+    /* R3 recovery bounds. collect_ms is T_collect and is not the R4.2 timer.
+     * Zero is legal for retry-all. SELECTIVE-32 admission checks the
+     * combinations stated in SELECTIVE-32 R3 and main §11.1. */
+    uint32_t burst_span_ms;
+    uint32_t forward_delay_ms;
+    uint32_t return_delay_ms;
+    uint32_t feedback_guard_ms;
+    uint32_t feedback_delay_ms;
+    uint32_t max_probes;
+    uint32_t max_status;
+    uint32_t record_margin_ms;
     bool tx_borrow;
     bool synchronous_completion;
 } dmp_config;
@@ -169,6 +180,13 @@ typedef dmp_config dmp_admitted_profile;
  * adapter_slots is not strictly greater than the reliability control reserve
  * min(control_slots, adapter_slots), including a zero reserve. That reserve
  * check matches dmp_reliability_init.
+ * When either service selects SELECTIVE-32, DMP_UNSUPPORTED also covers a
+ * fragment ceiling below 2, a non-positive R3 duration or probe/status cap,
+ * max_probes above max_bursts-1, a zero return MTU, response_timeout_ms below
+ * 2*forward_delay+burst_span+feedback_guard+feedback_delay+return_delay, or
+ * assembly_ms below send_horizon+forward_delay+record_margin or below
+ * collect_ms+record_margin. Overflow of those sums is DMP_INVALID_ARGUMENT.
+ * collect_ms stays T_collect. Retry-all does not require the R3 fields.
  * JSON syntax and digest mismatch are not admission results. */
 dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out);
 

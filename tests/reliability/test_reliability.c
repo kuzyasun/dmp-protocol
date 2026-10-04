@@ -24,8 +24,11 @@ enum {
     MAX_SLOTS = 8,
     MAX_MSG = 48,
     MAX_MTU = 192,
+    /* DIRECT-1-like result: 1024 bytes, 64-byte chunks, encoded MTU 263. */
+    WIDE_MSG = 1024,
+    WIDE_MTU = 320,
     MAX_NOTES = 32,
-    TX_LOG = 32,
+    TX_LOG = 48,
     Q_MS = 1000,
     RESP_MS = 50,
     JITTER_MS = 5,
@@ -62,7 +65,7 @@ typedef struct {
         dmp_tx_token token;
         dmp_tx_complete_fn complete;
         void *owner;
-        uint8_t frame[MAX_MTU];
+        uint8_t frame[WIDE_MTU];
         size_t len;
         const uint8_t *borrowed;
         dmp_time_ms not_after;
@@ -103,16 +106,16 @@ typedef struct {
     note_log notes;
     dmp_reliability_storage storage;
     dmp_reliability_sender_slot senders[MAX_SLOTS];
-    uint8_t sender_payload[MAX_SLOTS * MAX_MSG];
+    uint8_t sender_payload[MAX_SLOTS * WIDE_MSG];
     dmp_reliability_result_slot results[MAX_SLOTS];
-    uint8_t result_payload[MAX_SLOTS * MAX_MSG];
+    uint8_t result_payload[MAX_SLOTS * WIDE_MSG];
     dmp_reliability_history_slot history[MAX_SLOTS];
     dmp_reliability_correlation_slot correlations[MAX_SLOTS];
     uint8_t history_metadata[MAX_SLOTS * DMP_RELIABILITY_METADATA_BYTES];
     uint8_t correlation_metadata[MAX_SLOTS * DMP_RELIABILITY_METADATA_BYTES];
     dmp_reliability_adapter_slot adapters[MAX_SLOTS];
-    uint8_t frames[MAX_SLOTS * MAX_MTU];
-    uint8_t receive_payload[MAX_MSG + 1];
+    uint8_t frames[MAX_SLOTS * WIDE_MTU];
+    uint8_t receive_payload[WIDE_MSG + 1];
 } node;
 
 static node side_a;
@@ -293,6 +296,12 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
         spec.fields.descriptor.flags = 0U;
         spec.fields.descriptor.codec = 7U;
     }
+    if (logical->total_size != 0U) {
+        spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_FRAG);
+        spec.fields.fragment.index = logical->fragment_index;
+        spec.fields.fragment.chunk_size = logical->chunk_size;
+        spec.fields.fragment.total_size = logical->total_size;
+    }
     spec.payload = logical->payload;
     return dmp_core_encode(&spec, &enc->limits, out, written);
 }
@@ -300,7 +309,7 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
 static dmp_status fake_submit(void *context, const dmp_tx_submission *submission)
 {
     fake_tx *tx = context;
-    if (tx == NULL || submission == NULL || submission->frame.size > MAX_MTU) {
+    if (tx == NULL || submission == NULL || submission->frame.size > WIDE_MTU) {
         return DMP_INVALID_ARGUMENT;
     }
     tx->depth++;
@@ -499,7 +508,7 @@ static int parse_hold(const node *n, int index, dmp_frame_view *view)
     input.size = n->tx.hold[index].len;
     limits.max_frame_bytes = n->profile.encoded_mtu;
     limits.max_message_bytes = n->profile.message_bytes;
-    limits.max_fragments = 2U;
+    limits.max_fragments = n->profile.fragments < 2U ? 2U : n->profile.fragments;
     parsed = dmp_core_parse(input, &limits, view);
     return parsed.status == DMP_OK ? 0 : 1;
 }
@@ -1487,6 +1496,385 @@ static int test_secured_provisional(void)
     return 0;
 }
 
+static int fragment_indexes(const node *n, int begin, uint32_t *out, int cap)
+{
+    int i;
+    int found = 0;
+
+    for (i = begin; i < n->tx.n; i++) {
+        dmp_frame_view view;
+        if (parse_hold(n, i, &view) != 0 || view.fields.type != DMP_TYPE_REQ ||
+            (view.fields.options & DMP_OPT_FRAG) == 0U || found >= cap) {
+            return -1;
+        }
+        out[found++] = view.fields.fragment.index;
+    }
+    return found;
+}
+
+static int flush_slices(node *n, dmp_time_ms now, int expect)
+{
+    int guard;
+
+    for (guard = 0; guard < 24 && n->tx.n < expect; guard++) {
+        CHECK(dmp_reliability_poll(&n->engine, now) == DMP_OK);
+        finish_all(n, DMP_TX_TRANSMITTED, now);
+    }
+    return n->tx.n == expect ? 0 : 1;
+}
+
+static void arm_recovery(node *n, int selective)
+{
+    n->profile.chunk_bytes = 8U;
+    n->profile.fragments = 8U;
+    n->profile.encoded_mtu = 31U;
+    n->profile.forward_mtu = 31U;
+    n->profile.recovery[0] =
+        selective ? DMP_PROFILE_RECOVERY_SELECTIVE32 : DMP_PROFILE_RECOVERY_RETRY_ALL;
+    n->profile.recovery[1] = n->profile.recovery[0];
+    n->profile.burst_span_ms = 1U;
+    n->profile.forward_delay_ms = 1U;
+    n->profile.return_delay_ms = 1U;
+    n->profile.feedback_guard_ms = 1U;
+    n->profile.feedback_delay_ms = 1U;
+    n->profile.record_margin_ms = 1U;
+    n->profile.max_probes = selective ? 1U : 0U;
+    n->profile.max_status = selective ? 1U : 0U;
+    n->profile.max_bursts = 4U;
+    n->profile.collect_ms = 1U;
+    n->profile.assembly_ms = 100002U;
+    n->profile.response_timeout_ms = 50U;
+    n->profile.jitter_ms = 0U;
+    n->profile.return_mtu = MAX_MTU;
+}
+
+static int boot_recovery(node *n, int selective)
+{
+    dmp_config in;
+    dmp_admitted_profile admitted;
+
+    CHECK(prepare(n, 0, 0) == 0);
+    arm_recovery(n, selective);
+    in = n->profile;
+    CHECK(dmp_config_admit(&in, &admitted) == DMP_OK);
+    n->profile = admitted;
+    bind_node(n);
+    n->enc.limits.max_fragments = 8U;
+    n->enc.limits.max_frame_bytes = n->profile.encoded_mtu;
+    CHECK(dmp_reliability_init(&n->engine, &n->storage) == DMP_OK);
+    return 0;
+}
+
+static int inject_status(node *dst, uint32_t ref_seq, uint32_t feedback_seq, uint32_t mask,
+                         dmp_time_ms now, int secured)
+{
+    const dmp_identity_slot *slot = &dst->ids[dst->handle.slot];
+    uint8_t value[32];
+    uint8_t ext[64];
+    uint8_t plain[4];
+    size_t value_n = 0U;
+    size_t ext_n = 0U;
+    dmp_frame_view view;
+    dmp_reliability_input input;
+
+    if (secured) {
+        add_uleb(value, &value_n, sizeof value, ref_seq);
+    } else {
+        add_uleb(value, &value_n, sizeof value, slot->local.namespace_id);
+        add_uleb(value, &value_n, sizeof value, slot->local.origin_id);
+        add_u64le(value, &value_n, sizeof value, slot->local.epoch);
+        add_uleb(value, &value_n, sizeof value, ref_seq);
+    }
+    add_tlv(ext, &ext_n, sizeof ext, 5U, value, value_n);
+    plain[0] = (uint8_t)mask;
+    plain[1] = (uint8_t)(mask >> 8U);
+    plain[2] = (uint8_t)(mask >> 16U);
+    plain[3] = (uint8_t)(mask >> 24U);
+    memset(&view, 0, sizeof view);
+    view.fields.type = (uint8_t)DMP_TYPE_FRAG_STATUS;
+    view.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT);
+    if (secured) {
+        view.fields.options = (uint8_t)(view.fields.options | DMP_OPT_SECURITY);
+        view.fields.security.cipher = 1U;
+        view.fields.security.receive_cid = 1U;
+        view.fields.security.pn = 7U;
+    }
+    view.fields.seq = feedback_seq;
+    view.extensions = span(ext, ext_n);
+    view.payload = span(plain, sizeof plain);
+    memset(&input, 0, sizeof input);
+    input.frame = &view;
+    input.service_id = 1U;
+    input.plaintext = view.payload;
+    CHECK(dmp_reliability_on_rx(&dst->engine, &input, now) == DMP_OK);
+    return 0;
+}
+
+static int test_selective_and_retry_all(void)
+{
+    uint8_t body[32];
+    dmp_reliability_handle handle;
+    dmp_frame_view first;
+    uint32_t indexes[4];
+    int found;
+    int begin;
+    dmp_time_ms now = 1000U;
+    unsigned i;
+
+    for (i = 0U; i < sizeof body; i++) {
+        body[i] = (uint8_t)(0x30U + i);
+    }
+    CHECK(boot_recovery(&side_a, 1) == 0);
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(body, sizeof body), now, 0U, &handle) ==
+          DMP_OK);
+    CHECK(flush_slices(&side_a, now, 4) == 0);
+    CHECK(parse_hold(&side_a, 0, &first) == 0);
+    found = fragment_indexes(&side_a, 0, indexes, 4);
+    CHECK(found == 4);
+    CHECK(indexes[0] == 0U && indexes[1] == 1U && indexes[2] == 2U && indexes[3] == 3U);
+    CHECK(inject_status(&side_a, first.fields.seq, 9U, 0x00000001U, now, 0) == 0);
+    begin = side_a.tx.n;
+    CHECK(flush_slices(&side_a, now, begin + 1) == 0);
+    found = fragment_indexes(&side_a, begin, indexes, 4);
+    CHECK(found == 1);
+    CHECK(indexes[0] == 0U);
+
+    CHECK(boot_recovery(&side_a, 0) == 0);
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(body, sizeof body), now, 0U, &handle) ==
+          DMP_OK);
+    CHECK(flush_slices(&side_a, now, 4) == 0);
+    begin = side_a.tx.n;
+    CHECK(flush_slices(&side_a, now + 50U, begin + 4) == 0);
+    found = fragment_indexes(&side_a, begin, indexes, 4);
+    CHECK(found == 4);
+    CHECK(indexes[0] == 0U && indexes[1] == 1U && indexes[2] == 2U && indexes[3] == 3U);
+    return 0;
+}
+
+static int boot_wide(node *n, int responder, int selective, int secured)
+{
+    dmp_config in;
+    dmp_admitted_profile admitted;
+
+    CHECK(prepare(n, responder, secured) == 0);
+    arm_recovery(n, selective);
+    n->profile.message_bytes = WIDE_MSG;
+    n->profile.chunk_bytes = 64U;
+    n->profile.fragments = 16U;
+    n->profile.encoded_mtu = 263U;
+    n->profile.forward_mtu = 263U;
+    n->profile.return_mtu = 263U;
+    in = n->profile;
+    CHECK(dmp_config_admit(&in, &admitted) == DMP_OK);
+    n->profile = admitted;
+    bind_node(n);
+    n->enc.limits.max_fragments = 16U;
+    n->enc.limits.max_frame_bytes = n->profile.encoded_mtu;
+    n->enc.limits.max_message_bytes = n->profile.message_bytes;
+    CHECK(dmp_reliability_init(&n->engine, &n->storage) == DMP_OK);
+    return 0;
+}
+
+static int accept_ping(node *src, node *dst, dmp_time_ms now)
+{
+    dmp_reliability_handle req;
+    CHECK(submit_and_air(src, 1U, span(PING, sizeof PING), now, &req) == 0);
+    CHECK(deliver_index(src, 0, dst, 1U, span(META1, sizeof META1), span(PING, sizeof PING), now,
+                        DMP_OK) == 0);
+    CHECK(event_count(&dst->notes, DMP_REL_EVENT_REQUEST_ACCEPTED) == 1);
+    return 0;
+}
+
+static int expect_ascending_slices(const node *n, int begin, int count, uint8_t type,
+                                   const uint8_t *body, uint32_t total, uint32_t chunk, uint32_t seq)
+{
+    int i;
+
+    for (i = 0; i < count; i++) {
+        dmp_frame_view view;
+        uint32_t offset = (uint32_t)i * chunk;
+        uint32_t len;
+        CHECK(parse_hold(n, begin + i, &view) == 0);
+        CHECK(view.fields.type == type);
+        CHECK(view.fields.seq == seq);
+        CHECK((view.fields.options & DMP_OPT_ACK_REQ) != 0U);
+        CHECK((view.fields.options & DMP_OPT_FRAG) != 0U);
+        CHECK(view.fields.fragment.index == (uint32_t)i);
+        CHECK(view.fields.fragment.chunk_size == chunk);
+        CHECK(view.fields.fragment.total_size == total);
+        len = total - offset;
+        if (len > chunk) {
+            len = chunk;
+        }
+        CHECK(view.payload.size == len);
+        CHECK(memcmp(view.payload.data, body + offset, len) == 0);
+    }
+    return 0;
+}
+
+static int test_large_result_slices(void)
+{
+    uint8_t body[WIDE_MSG];
+    uint8_t saved[WIDE_MTU];
+    uint8_t keep = 0U;
+    dmp_frame_view view;
+    dmp_reliability_input input;
+    dmp_reliability_sender_slot *sender;
+    dmp_bytes status_value;
+    dmp_time_ms now = 1000U;
+    dmp_time_ms send_dl;
+    dmp_time_ms result_dl;
+    dmp_time_ms cache;
+    uint32_t seq = 0U;
+    uint32_t slot;
+    uint64_t generation;
+    uint64_t saved_pn = 0U;
+    size_t saved_len;
+    int begin;
+    int calls;
+    unsigned i;
+
+    for (i = 0U; i < sizeof body; i++) {
+        body[i] = (uint8_t)(0x40U + (i & 0x3fU));
+    }
+
+    CHECK(boot(&side_a, 0, 0) == 0);
+    CHECK(boot_wide(&side_b, 1, 1, 0) == 0);
+    CHECK(accept_ping(&side_a, &side_b, now) == 0);
+    CHECK(dmp_reliability_complete(&side_b.engine, side_b.notes.items[0].handle, false, 0U,
+                                   span(PONG, sizeof PONG), now) == DMP_OK);
+    sender = &side_b.senders[side_b.results[0].sender_slot];
+    CHECK(sender->frag_count == 0U);
+    CHECK(sender->chunk_size == 0U);
+    CHECK(sender->total_size == 0U);
+    CHECK(sender->active_mask == 0U);
+    CHECK(flush_slices(&side_b, now, 1) == 0);
+    CHECK(parse_hold(&side_b, 0, &view) == 0);
+    CHECK(view.fields.type == DMP_TYPE_RSP);
+    CHECK((view.fields.options & DMP_OPT_FRAG) == 0U);
+    CHECK(view.payload.size == sizeof PONG);
+
+    CHECK(boot(&side_a, 0, 1) == 0);
+    CHECK(boot_wide(&side_b, 1, 1, 1) == 0);
+    CHECK(accept_ping(&side_a, &side_b, now) == 0);
+    CHECK(dmp_reliability_complete(&side_b.engine, side_b.notes.items[0].handle, false, 0U,
+                                   span(body, sizeof body), now) == DMP_OK);
+    slot = side_b.results[0].sender_slot;
+    sender = &side_b.senders[slot];
+    generation = sender->generation;
+    CHECK(sender->frag_count == 16U);
+    CHECK(sender->chunk_size == 64U);
+    CHECK(sender->total_size == WIDE_MSG);
+    CHECK(sender->active_mask == 0xFFFFU);
+    send_dl = sender->send_deadline;
+    result_dl = sender->result_deadline;
+    cache = side_b.results[0].deadline;
+    CHECK(cache == now + CACHE_MS);
+    CHECK(send_dl == cache && result_dl == cache);
+    calls = side_b.enc.calls;
+    CHECK(flush_slices(&side_b, now, 16) == 0);
+    CHECK(side_b.enc.calls == calls + 16);
+    CHECK(parse_hold(&side_b, 0, &view) == 0);
+    seq = view.fields.seq;
+    saved_pn = view.fields.security.pn;
+    saved_len = side_b.tx.hold[0].len;
+    CHECK(saved_len <= sizeof saved);
+    memcpy(saved, side_b.tx.hold[0].frame, saved_len);
+    CHECK(expect_ascending_slices(&side_b, 0, 16, (uint8_t)DMP_TYPE_RSP, body, WIDE_MSG, 64U, seq) ==
+          0);
+    for (i = 0U; i < 16U; i++) {
+        CHECK(parse_hold(&side_b, (int)i, &view) == 0);
+        CHECK((view.fields.options & DMP_OPT_SECURITY) != 0U);
+        CHECK(view.fields.security.pn == saved_pn + i);
+    }
+    CHECK(inject_status(&side_b, seq, 9U, 0x00000005U, now, 1) == 0);
+    begin = side_b.tx.n;
+    CHECK(flush_slices(&side_b, now, begin + 2) == 0);
+    CHECK(parse_hold(&side_b, begin, &view) == 0);
+    CHECK(view.fields.type == DMP_TYPE_RSP);
+    CHECK(view.fields.seq == seq);
+    CHECK(view.fields.fragment.index == 0U);
+    CHECK(view.payload.size == 64U);
+    CHECK(memcmp(view.payload.data, body, 64U) == 0);
+    CHECK(view.fields.security.pn != saved_pn);
+    CHECK(side_b.tx.hold[begin].len != saved_len ||
+          memcmp(side_b.tx.hold[begin].frame, saved, saved_len) != 0);
+    CHECK(parse_hold(&side_b, begin + 1, &view) == 0);
+    CHECK(view.fields.fragment.index == 2U);
+    CHECK(view.fields.seq == seq);
+    CHECK(view.payload.size == 64U);
+    CHECK(memcmp(view.payload.data, body + 128U, 64U) == 0);
+    CHECK(side_b.senders[slot].live == 1U);
+    CHECK(side_b.senders[slot].generation == generation);
+    CHECK(side_b.senders[slot].send_deadline == send_dl);
+    CHECK(side_b.senders[slot].result_deadline == result_dl);
+    CHECK(side_b.results[0].live == 1U);
+    CHECK(side_b.results[0].deadline == cache);
+    CHECK(parse_hold(&side_b, 0, &view) == 0);
+    memset(&input, 0, sizeof input);
+    input.frame = &view;
+    input.service_id = 1U;
+    input.plaintext = span(&keep, 0U);
+    input.immutable_metadata = span(META1, sizeof META1);
+    CHECK(dmp_reliability_on_rx(&side_a.engine, &input, now) == DMP_UNSUPPORTED);
+    CHECK(event_count(&side_a.notes, DMP_REL_EVENT_RESULT) == 0);
+
+    CHECK(boot(&side_a, 0, 0) == 0);
+    CHECK(boot_wide(&side_b, 1, 0, 0) == 0);
+    CHECK(accept_ping(&side_a, &side_b, now) == 0);
+    CHECK(dmp_reliability_complete(&side_b.engine, side_b.notes.items[0].handle, false, 0U,
+                                   span(body, sizeof body), now) == DMP_OK);
+    slot = side_b.results[0].sender_slot;
+    generation = side_b.senders[slot].generation;
+    send_dl = side_b.senders[slot].send_deadline;
+    result_dl = side_b.senders[slot].result_deadline;
+    cache = side_b.results[0].deadline;
+    CHECK(flush_slices(&side_b, now, 16) == 0);
+    CHECK(parse_hold(&side_b, 0, &view) == 0);
+    seq = view.fields.seq;
+    CHECK(expect_ascending_slices(&side_b, 0, 16, (uint8_t)DMP_TYPE_RSP, body, WIDE_MSG, 64U, seq) ==
+          0);
+    begin = side_b.tx.n;
+    CHECK(flush_slices(&side_b, now + 50U, begin + 16) == 0);
+    CHECK(expect_ascending_slices(&side_b, begin, 16, (uint8_t)DMP_TYPE_RSP, body, WIDE_MSG, 64U,
+                                  seq) == 0);
+    CHECK(side_b.senders[slot].live == 1U);
+    CHECK(side_b.senders[slot].generation == generation);
+    CHECK(side_b.senders[slot].send_deadline == send_dl);
+    CHECK(side_b.senders[slot].result_deadline == result_dl);
+    CHECK(side_b.results[0].deadline == cache);
+
+    CHECK(boot(&side_a, 0, 0) == 0);
+    CHECK(boot_wide(&side_b, 1, 1, 0) == 0);
+    CHECK(accept_ping(&side_a, &side_b, now) == 0);
+    CHECK(dmp_reliability_complete(&side_b.engine, side_b.notes.items[0].handle, true, 64U,
+                                   span(body, sizeof body), now) == DMP_OK);
+    slot = side_b.results[0].sender_slot;
+    CHECK(side_b.senders[slot].frag_count == 16U);
+    send_dl = side_b.senders[slot].send_deadline;
+    result_dl = side_b.senders[slot].result_deadline;
+    cache = side_b.results[0].deadline;
+    CHECK(flush_slices(&side_b, now, 16) == 0);
+    CHECK(parse_hold(&side_b, 0, &view) == 0);
+    seq = view.fields.seq;
+    CHECK(expect_ascending_slices(&side_b, 0, 16, (uint8_t)DMP_TYPE_ERR, body, WIDE_MSG, 64U, seq) ==
+          0);
+    CHECK(extension_value(&view, 5U, &status_value) == 0);
+    CHECK(status_value.size == 1U && status_value.data[0] == 64U);
+    CHECK(inject_status(&side_b, seq, 3U, 0x00000001U, now, 0) == 0);
+    begin = side_b.tx.n;
+    CHECK(flush_slices(&side_b, now, begin + 1) == 0);
+    CHECK(parse_hold(&side_b, begin, &view) == 0);
+    CHECK(view.fields.type == DMP_TYPE_ERR);
+    CHECK(view.fields.seq == seq);
+    CHECK(view.fields.fragment.index == 0U);
+    CHECK(view.payload.size == 64U);
+    CHECK(side_b.senders[slot].send_deadline == send_dl);
+    CHECK(side_b.senders[slot].result_deadline == result_dl);
+    CHECK(side_b.results[0].deadline == cache);
+    return 0;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -1500,6 +1888,8 @@ int main(void)
     failed |= test_gate_queue_and_ack_bypass();
     failed |= test_buffer_ownership();
     failed |= test_secured_provisional();
+    failed |= test_selective_and_retry_all();
+    failed |= test_large_result_slices();
     if (failed != 0) {
         (void)fprintf(stderr, "reliability tests failed\n");
         return 1;

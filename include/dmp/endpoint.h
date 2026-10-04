@@ -17,7 +17,12 @@ extern "C" {
  * traffic only after dmp_endpoint_bind and association activation. Protection
  * is the existing P14 record path; this module does not open a second
  * handshake, cipher, or KDF. Receive does not allocate for epoch hashing.
- * The object must not be moved after a successful init. Calls are serialized. */
+ * A secured principal may send only the actions in the installed grant table.
+ * Service 0 control permission does not grant an application service.
+ * Rotation keeps one draining association and admits new messages only on an
+ * activated replacement. An in-flight message stays on the association that
+ * admitted it. The object must not be moved after a successful init. Calls
+ * are serialized. */
 
 struct dmp_hs;
 
@@ -103,7 +108,24 @@ typedef struct {
     size_t stream_rx_capacity;
 } dmp_endpoint_storage;
 
-enum { DMP_ENDPOINT_TX_SLOTS = 4 };
+enum {
+    DMP_ENDPOINT_TX_SLOTS = 4,
+    DMP_ENDPOINT_GRANT_MAX = 8,
+    /* Agreed service actions. A control bit on service 0 does not imply these. */
+    DMP_ENDPOINT_PERMIT_REQ = 1u,
+    DMP_ENDPOINT_PERMIT_RESULT = 2u,
+    DMP_ENDPOINT_PERMIT_TELEM = 4u,
+    DMP_ENDPOINT_PERMIT_CONTROL = 8u
+};
+
+/* principal is the authenticated node id. permit is the action mask above.
+ * The same table is the send policy for the local id and the receive policy
+ * for the peer id. Payload bytes are not inspected. */
+typedef struct {
+    uint32_t principal;
+    uint32_t service_id;
+    uint32_t permit;
+} dmp_endpoint_grant;
 
 typedef struct {
     uint8_t live;
@@ -149,6 +171,19 @@ typedef struct {
     struct dmp_hs *association;
     uint32_t association_attempt;
     uint8_t association_bound;
+    uint8_t grants_set;
+    uint8_t grant_count;
+    uint8_t revoked;
+    uint8_t drain_live;
+    uint32_t drain_ms;
+    uint32_t drain_attempt;
+    uint32_t frag_attempt;
+    uint32_t telem_attempt;
+    dmp_identity_handle drain_context;
+    uint64_t drain_not_after;
+    uint64_t drain_local_epoch;
+    uint64_t drain_peer_epoch;
+    dmp_endpoint_grant grants[DMP_ENDPOINT_GRANT_MAX];
 } dmp_endpoint;
 
 /* now is the first monotonic time the Stream R decoder may observe. Failure
@@ -162,6 +197,29 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
  * separate: application send and receive fail until that attempt is active. */
 dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake,
                              uint32_t attempt_index);
+
+/* Replace any previous table. count 0 installs an empty policy. A secured
+ * endpoint with no table admits no application action. Plaintext ignores it.
+ * More than DMP_ENDPOINT_GRANT_MAX grants are refused and the previous table
+ * is left unchanged. */
+dmp_status dmp_endpoint_set_grants(dmp_endpoint *endpoint, const dmp_endpoint_grant *grants,
+                                   size_t count);
+
+/* Explicit drain bound from the deployment. Zero expires the old association
+ * at the rotation instant. The original send and result deadlines are not
+ * moved. An operation whose deadline passes this bound is canceled locally. */
+dmp_status dmp_endpoint_set_drain_ms(dmp_endpoint *endpoint, uint32_t drain_ms);
+
+/* Move new messages to attempt_index only after that attempt is active.
+ * The previous association drains until min(now + drain_ms, its own seal
+ * lifetime). A second identity slot is required; a full table refuses the
+ * switch and leaves the current association in place. An inactive attempt
+ * does not become the send association. */
+dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, dmp_time_ms now);
+
+/* Local revocation. Destroys the bound and draining associations and reports
+ * unresolved outbound requests as unknown. No received frame calls this. */
+dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now);
 
 /* Unfragmented reliable REQ. Payload must fit in one core frame. Copies on
  * success. A second live operation that exceeds the admitted queue returns the

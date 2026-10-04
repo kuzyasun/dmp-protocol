@@ -7,7 +7,7 @@ if(MSVC)
     target_compile_definitions(dmp_test_endpoint PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
-foreach(name sample1 sample_snapshot fragment fragment_replay fragment_tlv retry duplicate quota sample_no_sample sample_init_budget sample_same_epoch sample_new_epoch sample_late_assoc sample_superseded sample_invalid)
+foreach(name sample1 sample_snapshot fragment fragment_replay fragment_tlv retry duplicate quota sample_no_sample sample_init_budget sample_same_epoch sample_new_epoch sample_late_assoc sample_superseded sample_invalid sample_epoch_restart sample_epoch_fail sample_epoch_indeterminate)
     add_test(NAME endpoint.${name} COMMAND dmp_test_endpoint ${name})
     set_tests_properties(endpoint.${name} PROPERTIES TIMEOUT 30 LABELS "endpoint")
 endforeach()

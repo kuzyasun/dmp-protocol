@@ -70,6 +70,12 @@ typedef struct {
     bool ack_req;
     uint32_t wire_status;
     dmp_bytes payload;
+    /* Zero total_size is one unfragmented frame. Otherwise payload is one
+     * slice of the saved message: index, chunk_size and total_size are that
+     * slice's geometry. The engine does not copy the message per fragment. */
+    uint32_t fragment_index;
+    uint32_t chunk_size;
+    uint32_t total_size;
 } dmp_reliability_logical;
 
 /* The encoder constructs one fresh direct logical frame per attempt. For a
@@ -124,6 +130,24 @@ typedef struct {
     bool tx_live;
     bool receipt_seen;
     bool result_seen;
+    /* Selective repair state. repair_mask is the newest pending missing mask.
+     * active_mask is the burst still being sent. feedback_seq is the greatest
+     * accepted FRAG_STATUS SEQ once feedback_valid is set. packet_count counts
+     * started bursts. probe_count counts probes. Zero frag_count is the
+     * unfragmented path. */
+    uint32_t repair_mask;
+    uint32_t active_mask;
+    uint32_t feedback_seq;
+    uint32_t packet_count;
+    uint32_t probe_count;
+    uint32_t frag_count;
+    uint32_t chunk_size;
+    uint32_t total_size;
+    uint32_t sending_index;
+    uint8_t feedback_valid;
+    uint8_t burst_inflight;
+    uint8_t burst_counted;
+    uint8_t probe_burst;
 } dmp_reliability_sender_slot;
 
 typedef struct {

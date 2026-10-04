@@ -30,6 +30,53 @@ static uint32_t control_reserve(const dmp_config *in)
     return in->adapter_slots;
 }
 
+static int add_u32(uint32_t left, uint32_t right, uint32_t *out)
+{
+    if (left > 0xFFFFFFFFU - right) {
+        return 0;
+    }
+    *out = left + right;
+    return 1;
+}
+
+/* R3 and main §11.1 only. The test-manifest symmetric max() is a profile
+ * choice, not an extra admission limit. Retry-all is not checked here. */
+static dmp_status admit_selective(const dmp_config *in)
+{
+    uint32_t twice;
+    uint32_t floor;
+    uint32_t life;
+    uint32_t cover;
+    int selective;
+
+    selective = in->recovery[0] == DMP_PROFILE_RECOVERY_SELECTIVE32 ||
+                in->recovery[1] == DMP_PROFILE_RECOVERY_SELECTIVE32;
+    if (!selective) {
+        return DMP_OK;
+    }
+    if (in->fragments < 2U || in->burst_span_ms == 0U || in->forward_delay_ms == 0U ||
+        in->return_delay_ms == 0U || in->feedback_guard_ms == 0U ||
+        in->feedback_delay_ms == 0U || in->record_margin_ms == 0U || in->max_probes == 0U ||
+        in->max_status == 0U || in->max_bursts == 0U || in->return_mtu == 0U ||
+        in->max_probes > in->max_bursts - 1U) {
+        return DMP_UNSUPPORTED;
+    }
+    if (!add_u32(in->forward_delay_ms, in->forward_delay_ms, &twice) ||
+        !add_u32(twice, in->burst_span_ms, &floor) ||
+        !add_u32(floor, in->feedback_guard_ms, &floor) ||
+        !add_u32(floor, in->feedback_delay_ms, &floor) ||
+        !add_u32(floor, in->return_delay_ms, &floor) ||
+        !add_u32(in->send_horizon_ms, in->forward_delay_ms, &life) ||
+        !add_u32(life, in->record_margin_ms, &life) ||
+        !add_u32(in->collect_ms, in->record_margin_ms, &cover)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (in->response_timeout_ms < floor || in->assembly_ms < life || in->assembly_ms < cover) {
+        return DMP_UNSUPPORTED;
+    }
+    return DMP_OK;
+}
+
 dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
 {
     uint64_t tombstones;
@@ -63,6 +110,12 @@ dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
         uint32_t reserve = control_reserve(in);
         if (reserve == 0U || in->adapter_slots <= reserve) {
             return DMP_UNSUPPORTED;
+        }
+    }
+    {
+        dmp_status selective = admit_selective(in);
+        if (selective != DMP_OK) {
+            return selective;
         }
     }
     admitted = *in;

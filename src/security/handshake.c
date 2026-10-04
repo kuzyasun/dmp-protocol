@@ -413,6 +413,17 @@ static void close_crypto(dmp_hs *hs, struct hs_attempt *attempt)
     attempt->pending_len = 0U;
 }
 
+/* S3.1 allows any jitter. This build uses zero until a deployment defines a distribution. */
+static void schedule_restart(dmp_hs *hs)
+{
+    uint64_t now = now_ms(hs);
+    const uint32_t jitter_ms = 0U;
+    uint32_t backoff = hs->config.budget.restart_backoff_ms;
+    uint64_t delay = (uint64_t)backoff + (uint64_t)jitter_ms;
+
+    hs->next_attempt_ms = delay > UINT64_MAX - now ? UINT64_MAX : now + delay;
+}
+
 static void abort_attempt(dmp_hs *hs, struct hs_attempt *attempt, dmp_hs_view view)
 {
     if (!attempt->used || attempt->terminal) {
@@ -442,10 +453,7 @@ static void abort_attempt(dmp_hs *hs, struct hs_attempt *attempt, dmp_hs_view vi
     attempt->remote_public_valid = 0;
     attempt->hash_valid = 0;
     if (attempt->initiator) {
-        uint64_t now = now_ms(hs);
-        uint32_t backoff = hs->config.budget.restart_backoff_ms;
-
-        hs->next_attempt_ms = backoff > UINT64_MAX - now ? UINT64_MAX : now + backoff;
+        schedule_restart(hs);
     }
 }
 
@@ -1363,10 +1371,7 @@ static void end_traffic(dmp_hs *hs, struct hs_attempt *attempt)
         attempt->remote_public_valid = 0;
     }
     if (attempt->initiator) {
-        uint64_t now = now_ms(hs);
-        uint32_t backoff = hs->config.budget.restart_backoff_ms;
-
-        hs->next_attempt_ms = backoff > UINT64_MAX - now ? UINT64_MAX : now + backoff;
+        schedule_restart(hs);
     }
 }
 

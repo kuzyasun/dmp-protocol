@@ -500,3 +500,28 @@ Relay adapter charges are unchanged.
 The six buffer-budget rows, including what was initialized and exchanged, are
 in `dev/DMP_Validation_Results.md` under "Stage 3 buffer budget". They are not
 total endpoint RAM. This note does not accept P11 and does not start P12.
+
+## Owner direction 2026-10-04
+
+Binding. Not yet implemented. This section does not change package status
+cells, frozen contracts, wire format, or SAMPLE-1 rules.
+
+1. **P16 SELECTIVE-32.** This stays inside P16. Copy the R3 manifest
+   parameters the recovery rules need into the typed `dmp_admitted_profile`
+   and check legal combinations. Extend sender state with the repair mask,
+   feedback order, counters, and in-flight transfer state. Pass one fragment's
+   geometry to the encoder. Reuse the saved payload; do not copy the whole
+   message per fragment. A fragment retry keeps plaintext and logical identity
+   and receives a new PN and encryption. Wire format stays. Memory totals must
+   be recalculated and tested.
+2. **SAMPLE-1 durable epoch.** An application port such as
+   `reserve_sample_epoch` returns a new epoch only after durable save. No NVS
+   or filesystem in the portable core. Host tests cover restart, write
+   failure, and indeterminate save. On failure, SAMPLE-1 publication stops.
+   No automatic counter reset or identity reissue. A separate authorization is
+   required only for recovery after state loss, not for ordinary reservation
+   of the next epoch. MCU storage is later.
+3. **Jitter.** The current implementation is deterministic restart backoff
+   with jitter explicitly 0. Attempt, time, and load limits stay mandatory.
+   Do not add a random delay source. A deployment that needs scatter defines
+   it later.

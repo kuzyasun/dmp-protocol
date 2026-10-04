@@ -9,7 +9,7 @@
  * SEC-1 records are the P14 seal/open path. This file does not allocate,
  * parse JSON, or hash epochs on receive. */
 
-enum { KIND_REL = 0, KIND_FRAG = 1, KIND_TELEM = 2 };
+enum { KIND_REL = 0, KIND_FRAG = 1, KIND_TELEM = 2, KIND_STATUS = 3 };
 
 static int ready(const dmp_endpoint *endpoint)
 {
@@ -190,14 +190,22 @@ static dmp_status install_epochs(dmp_endpoint *endpoint)
     return DMP_OK;
 }
 
-static dmp_status require_active(dmp_endpoint *endpoint)
+static dmp_status require_attempt(const dmp_endpoint *endpoint, uint32_t attempt)
 {
-    dmp_status status = install_epochs(endpoint);
-    if (status != DMP_OK) {
-        return status;
+    if (!secured(endpoint)) {
+        return DMP_OK;
     }
-    if (secured(endpoint) &&
-        dmp_hs_send_application(endpoint->association, endpoint->association_attempt) != DMP_HS_OK) {
+    if (endpoint->revoked != 0U || endpoint->association_bound == 0U || endpoint->association == NULL) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (endpoint->drain_live != 0U && attempt == endpoint->drain_attempt) {
+        if (dmp_hs_send_application(endpoint->association, attempt) != DMP_HS_OK) {
+            return DMP_DEADLINE_EXPIRED;
+        }
+        return DMP_OK;
+    }
+    if (attempt != endpoint->association_attempt ||
+        dmp_hs_send_application(endpoint->association, attempt) != DMP_HS_OK) {
         return DMP_AUTHENTICATION_FAILURE;
     }
     return DMP_OK;
@@ -207,7 +215,7 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
                               int ack_req, int fragmented, uint32_t index, uint32_t chunk,
                               uint32_t total, dmp_bytes payload, int has_reply, dmp_message_key reply,
                               int status_present, uint32_t wire_status, int compact, int protect,
-                              dmp_buffer out, size_t *written)
+                              uint32_t seal_attempt, dmp_buffer out, size_t *written)
 {
     dmp_frame_spec spec;
     dmp_core_limits limits;
@@ -273,19 +281,32 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
         if (payload.size > DMP_HS_APP_PLAIN_MAX) {
             return DMP_LIMIT_EXHAUSTED;
         }
-        ready_status = require_active(endpoint);
+        ready_status = require_attempt(endpoint, seal_attempt);
         if (ready_status != DMP_OK) {
             return ready_status;
         }
         if (out.data == NULL) {
             return DMP_INVALID_ARGUMENT;
         }
-        sealed = dmp_hs_seal_logical(endpoint->association, endpoint->association_attempt, &spec,
-                                     out.data, out.capacity, written);
+        /* One attempt, one PN counter. A refusal is not retried on another association. */
+        sealed = dmp_hs_seal_logical(endpoint->association, seal_attempt, &spec, out.data,
+                                     out.capacity, written);
         return from_hs(sealed);
     }
     limits = limits_of(endpoint);
     return dmp_core_encode(&spec, &limits, out, written);
+}
+
+static uint32_t seal_attempt_for(const dmp_endpoint *endpoint, const dmp_reliability_logical *logical)
+{
+    if (endpoint->drain_live != 0U && logical->has_reply_to &&
+        logical->reply_to.origin.epoch == endpoint->drain_peer_epoch) {
+        return endpoint->drain_attempt;
+    }
+    if (endpoint->drain_live != 0U && logical->own.origin.epoch == endpoint->drain_local_epoch) {
+        return endpoint->drain_attempt;
+    }
+    return endpoint->association_attempt;
 }
 
 static dmp_status encode_logical(void *context, const dmp_reliability_logical *logical, dmp_buffer out,
@@ -299,9 +320,11 @@ static dmp_status encode_logical(void *context, const dmp_reliability_logical *l
     status_present = logical->type == DMP_TYPE_ERR ||
                      (logical->type == DMP_TYPE_RSP && logical->wire_status != 0U);
     return encode_core(endpoint, (uint8_t)logical->type, logical->service_id, logical->own.seq,
-                       logical->ack_req ? 1 : 0, 0, 0U, 0U, 0U, logical->payload,
+                       logical->ack_req ? 1 : 0, logical->total_size != 0U, logical->fragment_index,
+                       logical->chunk_size, logical->total_size, logical->payload,
                        logical->has_reply_to ? 1 : 0, logical->reply_to, status_present,
-                       logical->wire_status, secured(endpoint), secured(endpoint), out, written);
+                       logical->wire_status, secured(endpoint), secured(endpoint),
+                       seal_attempt_for(endpoint, logical), out, written);
 }
 
 static void on_reliability_notice(void *user, const dmp_reliability_notice *notice)
@@ -617,6 +640,245 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     return DMP_OK;
 }
 
+static uint32_t permit_mask(const dmp_endpoint *endpoint, uint32_t principal, uint32_t service)
+{
+    uint32_t mask = 0U;
+    uint8_t index;
+
+    if (endpoint->grants_set == 0U) {
+        return 0U;
+    }
+    for (index = 0U; index < endpoint->grant_count; index++) {
+        const dmp_endpoint_grant *grant = &endpoint->grants[index];
+        if (grant->principal == principal && grant->service_id == service) {
+            mask |= grant->permit;
+        }
+    }
+    return mask;
+}
+
+static int action_allowed(const dmp_endpoint *endpoint, uint32_t principal, uint32_t service,
+                          uint32_t need)
+{
+    if (!secured(endpoint)) {
+        return 1;
+    }
+    if (endpoint->revoked != 0U || endpoint->grants_set == 0U || need == 0U) {
+        return 0;
+    }
+    return (permit_mask(endpoint, principal, service) & need) == need;
+}
+
+static int local_action(const dmp_endpoint *endpoint, uint32_t service, uint32_t need)
+{
+    const dmp_identity_slot *slot;
+
+    if (!secured(endpoint)) {
+        return 1;
+    }
+    if (endpoint->context.slot >= endpoint->identity.capacity) {
+        return 0;
+    }
+    slot = &endpoint->identity.slots[endpoint->context.slot];
+    if (slot->generation != endpoint->context.generation) {
+        return 0;
+    }
+    return action_allowed(endpoint, slot->local.origin_id, service, need);
+}
+
+static void use_context(dmp_endpoint *endpoint, dmp_identity_handle handle)
+{
+    endpoint->reliability.storage.context = handle;
+}
+
+static void cancel_epoch_requests(dmp_endpoint *endpoint, dmp_time_ms now, int only_past_drain)
+{
+    size_t index;
+
+    if (endpoint->mem.senders == NULL) {
+        return;
+    }
+    for (index = 0U; index < endpoint->mem.sender_capacity; index++) {
+        dmp_reliability_sender_slot *sender = &endpoint->mem.senders[index];
+        dmp_reliability_handle handle;
+
+        if (sender->live == 0U || sender->kind != DMP_REL_SENDER_REQUEST ||
+            sender->phase == DMP_REL_PHASE_TERMINAL) {
+            continue;
+        }
+        if (endpoint->drain_live != 0U && sender->own.origin.epoch != endpoint->drain_local_epoch) {
+            continue;
+        }
+        if (only_past_drain && endpoint->drain_live != 0U &&
+            sender->send_deadline <= endpoint->drain_not_after &&
+            sender->result_deadline <= endpoint->drain_not_after) {
+            continue;
+        }
+        handle.slot = (uint32_t)index;
+        handle.generation = sender->generation;
+        (void)dmp_reliability_cancel(&endpoint->reliability, handle, now);
+    }
+}
+
+static void end_drain(dmp_endpoint *endpoint, dmp_time_ms now)
+{
+    dmp_status retired;
+
+    if (endpoint->drain_live == 0U) {
+        return;
+    }
+    cancel_epoch_requests(endpoint, now, 0);
+    if (endpoint->association != NULL) {
+        (void)dmp_hs_cancel(endpoint->association, endpoint->drain_attempt);
+    }
+    /* Reassembly may still retain the draining context. Leave the slot and
+     * retry on a later poll once that retain drops. */
+    retired = dmp_identity_context_retire(&endpoint->identity, endpoint->drain_context, now);
+    if (retired != DMP_OK && retired != DMP_STALE_HANDLE) {
+        return;
+    }
+    endpoint->drain_live = 0U;
+}
+
+static void expire_drain(dmp_endpoint *endpoint, dmp_time_ms now)
+{
+    if (endpoint->drain_live != 0U && now >= endpoint->drain_not_after) {
+        end_drain(endpoint, now);
+    }
+}
+
+dmp_status dmp_endpoint_set_grants(dmp_endpoint *endpoint, const dmp_endpoint_grant *grants,
+                                   size_t count)
+{
+    size_t index;
+
+    if (!ready(endpoint) || count > DMP_ENDPOINT_GRANT_MAX || (count != 0U && grants == NULL)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    for (index = 0U; index < count; index++) {
+        endpoint->grants[index] = grants[index];
+    }
+    endpoint->grant_count = (uint8_t)count;
+    endpoint->grants_set = 1U;
+    return DMP_OK;
+}
+
+dmp_status dmp_endpoint_set_drain_ms(dmp_endpoint *endpoint, uint32_t drain_ms)
+{
+    if (!ready(endpoint)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    endpoint->drain_ms = drain_ms;
+    return DMP_OK;
+}
+
+dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, dmp_time_ms now)
+{
+    dmp_identity_context_config config;
+    dmp_identity_handle fresh;
+    dmp_identity_slot *slot;
+    uint32_t namespace_id = 0U;
+    uint32_t local_id = 0U;
+    uint32_t peer_id = 0U;
+    uint64_t local_epoch = 0U;
+    uint64_t peer_epoch = 0U;
+    uint64_t bound;
+    dmp_status status;
+
+    if (!ready(endpoint)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (endpoint->revoked != 0U || endpoint->association_bound == 0U || endpoint->association == NULL) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (endpoint->drain_live != 0U || attempt_index == endpoint->association_attempt) {
+        return DMP_BUSY;
+    }
+    if (dmp_hs_send_application(endpoint->association, attempt_index) != DMP_HS_OK) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (!dmp_hs_traffic_identity(endpoint->association, attempt_index, &namespace_id, &local_id,
+                                 &peer_id, &local_epoch, &peer_epoch)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (endpoint->context.slot >= endpoint->identity.capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    slot = &endpoint->identity.slots[endpoint->context.slot];
+    if (slot->generation != endpoint->context.generation || slot->local.namespace_id != namespace_id ||
+        slot->local.origin_id != local_id || slot->peer.origin_id != peer_id) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    memset(&config, 0, sizeof config);
+    config.local = slot->local;
+    config.peer = slot->peer;
+    config.local.epoch = local_epoch;
+    config.peer.epoch = peer_epoch;
+    config.security = 1U;
+    status = dmp_identity_context_open(&endpoint->identity, &config, &fresh);
+    if (status != DMP_OK) {
+        return status;
+    }
+    bound = (uint64_t)endpoint->drain_ms > UINT64_MAX - now ? UINT64_MAX
+                                                           : now + (uint64_t)endpoint->drain_ms;
+    status = dmp_identity_context_begin_drain(&endpoint->identity, endpoint->context, bound);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = dmp_identity_context_retain(&endpoint->identity, fresh);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = dmp_identity_context_release(&endpoint->identity, endpoint->context);
+    if (status != DMP_OK) {
+        return status;
+    }
+    endpoint->drain_context = endpoint->context;
+    endpoint->drain_attempt = endpoint->association_attempt;
+    endpoint->drain_local_epoch = slot->local.epoch;
+    endpoint->drain_peer_epoch = slot->peer.epoch;
+    endpoint->drain_not_after = bound;
+    endpoint->drain_live = 1U;
+    endpoint->context = fresh;
+    endpoint->association_attempt = attempt_index;
+    use_context(endpoint, fresh);
+    /* Original deadlines stay. Work that runs past the drain bound is not moved. */
+    cancel_epoch_requests(endpoint, now, 1);
+    if (now >= bound) {
+        end_drain(endpoint, now);
+    }
+    return DMP_OK;
+}
+
+dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now)
+{
+    size_t index;
+
+    if (!ready(endpoint)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    endpoint->revoked = 1U;
+    if (endpoint->mem.senders != NULL) {
+        for (index = 0U; index < endpoint->mem.sender_capacity; index++) {
+            dmp_reliability_sender_slot *sender = &endpoint->mem.senders[index];
+            dmp_reliability_handle handle;
+
+            if (sender->live == 0U || sender->kind != DMP_REL_SENDER_REQUEST ||
+                sender->phase == DMP_REL_PHASE_TERMINAL) {
+                continue;
+            }
+            handle.slot = (uint32_t)index;
+            handle.generation = sender->generation;
+            (void)dmp_reliability_cancel(&endpoint->reliability, handle, now);
+        }
+    }
+    if (endpoint->association != NULL && endpoint->association_bound != 0U) {
+        (void)dmp_hs_cancel(endpoint->association, endpoint->association_attempt);
+    }
+    end_drain(endpoint, now);
+    return DMP_OK;
+}
+
 dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake, uint32_t attempt_index)
 {
     dmp_identity_slot *slot;
@@ -628,6 +890,10 @@ dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake, u
 
     if (!ready(endpoint) || handshake == NULL) {
         return DMP_INVALID_ARGUMENT;
+    }
+    if (endpoint->association_bound != 0U &&
+        (handshake != endpoint->association || attempt_index != endpoint->association_attempt)) {
+        return DMP_BUSY;
     }
     if (endpoint->context.slot >= endpoint->identity.capacity) {
         return DMP_STALE_HANDLE;
@@ -661,10 +927,24 @@ dmp_status dmp_endpoint_submit_req(dmp_endpoint *endpoint, uint32_t service_id, 
     if (!ready(endpoint) || out == NULL || !bytes_ok(payload)) {
         return DMP_INVALID_ARGUMENT;
     }
+    if (endpoint->revoked != 0U) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (!local_action(endpoint, service_id, DMP_ENDPOINT_PERMIT_REQ)) {
+        return DMP_UNSUPPORTED;
+    }
     probe.data = endpoint->mem.telemetry_frame;
     probe.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_REQ, service_id, 0U, 1, 0, 0U, 0U, 0U, payload,
-                         0, (dmp_message_key){0}, 0, 0U, 0, 0, probe, &written);
+                         0, (dmp_message_key){0}, 0, 0U, 0, 0, 0U, probe, &written);
+    if (status == DMP_LIMIT_EXHAUSTED && payload.size > endpoint->profile.encoded_mtu &&
+        endpoint->profile.chunk_bytes != 0U && payload.size > endpoint->profile.chunk_bytes) {
+        uint32_t count = 1U + ((uint32_t)payload.size - 1U) / endpoint->profile.chunk_bytes;
+        if (count >= 2U && count <= 32U && count <= endpoint->profile.fragments) {
+            return dmp_reliability_submit_req(&endpoint->reliability, service_id, payload, now, 0U,
+                                             out);
+        }
+    }
     if (status != DMP_OK) {
         return status == DMP_LIMIT_EXHAUSTED ? DMP_LIMIT_EXHAUSTED : status;
     }
@@ -675,11 +955,35 @@ dmp_status dmp_endpoint_complete(dmp_endpoint *endpoint, dmp_reliability_handle 
                                  bool application_err, uint32_t wire_status, dmp_bytes payload,
                                  dmp_time_ms now)
 {
+    dmp_status status;
+    int swapped = 0;
+
     if (!ready(endpoint)) {
         return DMP_INVALID_ARGUMENT;
     }
-    return dmp_reliability_complete(&endpoint->reliability, request, application_err, wire_status,
-                                    payload, now);
+    if (endpoint->revoked != 0U) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (request.slot < endpoint->mem.history_capacity && endpoint->mem.history != NULL) {
+        dmp_reliability_history_slot *history = &endpoint->mem.history[request.slot];
+        if (history->live != 0U && history->generation == request.generation) {
+            /* Local RESULT permission applies with or without a live drain. */
+            if (!local_action(endpoint, history->service_id, DMP_ENDPOINT_PERMIT_RESULT)) {
+                return DMP_UNSUPPORTED;
+            }
+            if (endpoint->drain_live != 0U &&
+                history->source.origin.epoch == endpoint->drain_peer_epoch) {
+                use_context(endpoint, endpoint->drain_context);
+                swapped = 1;
+            }
+        }
+    }
+    status = dmp_reliability_complete(&endpoint->reliability, request, application_err, wire_status,
+                                      payload, now);
+    if (swapped) {
+        use_context(endpoint, endpoint->context);
+    }
+    return status;
 }
 
 static dmp_status stage_telem(dmp_endpoint *endpoint, uint32_t service_id, dmp_bytes payload,
@@ -693,10 +997,16 @@ static dmp_status stage_telem(dmp_endpoint *endpoint, uint32_t service_id, dmp_b
         return payload.size > endpoint->profile.message_bytes ? DMP_LIMIT_EXHAUSTED
                                                              : DMP_UNSUPPORTED;
     }
+    if (endpoint->revoked != 0U) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (!local_action(endpoint, service_id, DMP_ENDPOINT_PERMIT_TELEM)) {
+        return DMP_UNSUPPORTED;
+    }
     probe.data = endpoint->mem.telemetry_frame;
     probe.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_TELEM, service_id, 0U, 0, 0, 0U, 0U, 0U,
-                         payload, 0, (dmp_message_key){0}, 0, 0U, 0, 0, probe, &written);
+                         payload, 0, (dmp_message_key){0}, 0, 0U, 0, 0, 0U, probe, &written);
     if (status != DMP_OK) {
         return status;
     }
@@ -744,6 +1054,7 @@ static dmp_status send_telem(dmp_endpoint *endpoint, dmp_time_ms now)
         if (status != DMP_OK) {
             return status;
         }
+        endpoint->telem_attempt = endpoint->association_attempt;
         endpoint->telem_seq_set = 1U;
     }
     payload.data = endpoint->telem_len == 0U ? NULL : endpoint->mem.telemetry_payload;
@@ -752,7 +1063,8 @@ static dmp_status send_telem(dmp_endpoint *endpoint, dmp_time_ms now)
     out.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_TELEM, endpoint->telem_service,
                          endpoint->telem_seq, 0, 0, 0U, 0U, 0U, payload, 0, (dmp_message_key){0}, 0,
-                         0U, secured(endpoint), secured(endpoint), out, &written);
+                         0U, secured(endpoint), secured(endpoint), endpoint->telem_attempt, out,
+                         &written);
     if (status != DMP_OK) {
         return status;
     }
@@ -793,7 +1105,7 @@ static dmp_status send_fragment(dmp_endpoint *endpoint, dmp_time_ms now)
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, endpoint->frag_service, endpoint->frag_seq,
                          0, 1, endpoint->frag_index, endpoint->profile.chunk_bytes,
                          endpoint->frag_total, slice, 0, (dmp_message_key){0}, 0, 0U,
-                         secured(endpoint), secured(endpoint), out, &written);
+                         secured(endpoint), secured(endpoint), endpoint->frag_attempt, out, &written);
     if (status != DMP_OK) {
         return status;
     }
@@ -831,6 +1143,12 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     if (!service_allowed(&endpoint->profile, service_id)) {
         return DMP_UNSUPPORTED;
     }
+    if (endpoint->revoked != 0U) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (!local_action(endpoint, service_id, DMP_ENDPOINT_PERMIT_REQ)) {
+        return DMP_UNSUPPORTED;
+    }
     if (endpoint->frag_live != 0U) {
         return DMP_QUOTA_EXHAUSTED;
     }
@@ -847,7 +1165,7 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     probe.data = endpoint->mem.fragment_frame;
     probe.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, slot->next_seq, 0, 0, 0U, 0U,
-                         0U, payload, 0, (dmp_message_key){0}, 0, 0U, 0, 0, probe, &written);
+                         0U, payload, 0, (dmp_message_key){0}, 0, 0U, 0, 0, 0U, probe, &written);
     if (status == DMP_OK) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -866,12 +1184,13 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     if (status != DMP_OK) {
         return status;
     }
+    endpoint->frag_attempt = endpoint->association_attempt;
     last = count - 1U;
     slice.data = payload.data + (size_t)last * (size_t)chunk;
     slice.size = payload.size - (size_t)last * (size_t)chunk;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, seq, 0, 1, last, chunk,
-                         (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U, 0, 0, probe,
-                         &written);
+                         (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U, 0, 0, 0U,
+                         probe, &written);
     if (status != DMP_OK) {
         return status;
     }
@@ -886,6 +1205,107 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     return DMP_OK;
 }
 
+static int service_selective(const dmp_admitted_profile *profile, uint32_t service)
+{
+    if (service == profile->service_id[0]) {
+        return profile->recovery[0] == DMP_PROFILE_RECOVERY_SELECTIVE32;
+    }
+    if (service == profile->service_id[1]) {
+        return profile->recovery[1] == DMP_PROFILE_RECOVERY_SELECTIVE32;
+    }
+    return 0;
+}
+
+static uint32_t assembly_missing(const dmp_reassembly_slot *slot)
+{
+    uint32_t count;
+    uint32_t all;
+
+    if (slot->chunk_size == 0U || slot->total_size <= slot->chunk_size) {
+        return 0U;
+    }
+    count = 1U + (slot->total_size - 1U) / slot->chunk_size;
+    if (count < 2U || count > 32U) {
+        return 0U;
+    }
+    all = count == 32U ? 0xFFFFFFFFU : (1U << count) - 1U;
+    return all & ~slot->received_bitmap;
+}
+
+/* One FRAG_STATUS, sealed at construction so the PN is fresh. Not a reliable
+ * retry. fragment_frame is free while the one-shot DATA burst is idle. */
+static dmp_status send_pending_status(dmp_endpoint *endpoint, dmp_time_ms now)
+{
+    size_t i;
+
+    if (!secured(endpoint) || endpoint->frag_live != 0U || endpoint->wire_busy != 0U) {
+        return DMP_OK;
+    }
+    for (i = 0U; i < endpoint->reassembly.storage.assembly_capacity; i++) {
+        dmp_reassembly_slot *slot = &endpoint->reassembly.storage.assemblies[i];
+        uint8_t mask_bytes[4];
+        uint32_t mask;
+        uint32_t seq = 0U;
+        uint32_t attempt;
+        dmp_buffer out;
+        dmp_bytes payload;
+        dmp_bytes frame;
+        dmp_time_ms not_after;
+        size_t written = 0U;
+        dmp_status status;
+
+        if (slot->live == 0U || slot->complete != 0U || slot->status_expected == 0U) {
+            continue;
+        }
+        if (!service_selective(&endpoint->profile, slot->service_id)) {
+            slot->status_expected = 0U;
+            continue;
+        }
+        mask = assembly_missing(slot);
+        if (mask == 0U) {
+            slot->status_expected = 0U;
+            continue;
+        }
+        status = dmp_identity_next_seq(&endpoint->identity, endpoint->context, &seq);
+        if (status != DMP_OK) {
+            return status;
+        }
+        mask_bytes[0] = (uint8_t)mask;
+        mask_bytes[1] = (uint8_t)(mask >> 8U);
+        mask_bytes[2] = (uint8_t)(mask >> 16U);
+        mask_bytes[3] = (uint8_t)(mask >> 24U);
+        payload.data = mask_bytes;
+        payload.size = 4U;
+        attempt = endpoint->association_attempt;
+        if (endpoint->drain_live != 0U && slot->context.slot == endpoint->drain_context.slot &&
+            slot->context.generation == endpoint->drain_context.generation) {
+            attempt = endpoint->drain_attempt;
+        }
+        out.data = endpoint->mem.fragment_frame;
+        out.capacity = endpoint->profile.encoded_mtu;
+        status = encode_core(endpoint, (uint8_t)DMP_TYPE_FRAG_STATUS, slot->service_id, seq, 0, 0,
+                             0U, 0U, 0U, payload, 1, slot->source, 0, 0U, 1, 1, attempt, out,
+                             &written);
+        if (status != DMP_OK) {
+            return status;
+        }
+        status = dmp_deadline_after(now, endpoint->profile.feedback_delay_ms, &not_after);
+        if (status != DMP_OK) {
+            return status;
+        }
+        frame.data = endpoint->mem.fragment_frame;
+        frame.size = written;
+        status = submit_wire(endpoint, KIND_STATUS, frame, NULL, NULL, (dmp_tx_token){0}, not_after);
+        if (status != DMP_OK) {
+            return status;
+        }
+        slot->status_mask = mask;
+        slot->status_expected = 0U;
+        return DMP_OK;
+    }
+    return DMP_OK;
+}
+
 dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
 {
     dmp_status reliability;
@@ -895,9 +1315,16 @@ dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
     if (!ready(endpoint)) {
         return DMP_INVALID_ARGUMENT;
     }
+    expire_drain(endpoint, now);
     reliability = dmp_reliability_poll(&endpoint->reliability, now);
     status = dmp_reassembly_poll(&endpoint->reassembly, now, &expired);
     if (status != DMP_OK) {
+        return status;
+    }
+    /* The same poll may have released the assembly retain. Retry retire. */
+    expire_drain(endpoint, now);
+    status = send_pending_status(endpoint, now);
+    if (status != DMP_OK && status != DMP_BUSY) {
         return status;
     }
     for (guard = 0U; guard < endpoint->profile.fragments + 4U; guard++) {
@@ -907,6 +1334,11 @@ dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
                 break;
             }
             if (status != DMP_OK) {
+                if (endpoint->frag_attempt != endpoint->association_attempt) {
+                    endpoint->frag_live = 0U;
+                    endpoint->frag_tx = 0U;
+                    continue;
+                }
                 return status;
             }
             continue;
@@ -918,6 +1350,12 @@ dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
                 break;
             }
             if (status != DMP_OK) {
+                if (endpoint->telem_seq_set != 0U &&
+                    endpoint->telem_attempt != endpoint->association_attempt) {
+                    endpoint->telem_pending = 0U;
+                    endpoint->telem_tx = 0U;
+                    continue;
+                }
                 return status;
             }
             continue;
@@ -925,6 +1363,41 @@ dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
         break;
     }
     return reliability;
+}
+
+static int read_wire_status(const dmp_frame_view *frame, uint32_t *status_out)
+{
+    size_t cursor = 0U;
+    int found = 0;
+    uint32_t wire = 0U;
+
+    if (frame->extensions.size != 0U && frame->extensions.data == NULL) {
+        return 0;
+    }
+    while (cursor < frame->extensions.size) {
+        dmp_extension_view view;
+        dmp_status status = dmp_extension_next(frame->extensions, &cursor, &view);
+        size_t at = 0U;
+        if (status == DMP_INCOMPLETE) {
+            break;
+        }
+        if (status != DMP_OK) {
+            return 0;
+        }
+        if ((view.tag >> 2) != 5U) {
+            continue;
+        }
+        if (found != 0 || (view.tag & 3U) != 1U || !read_uleb32(view.value, &at, &wire) ||
+            at != view.value.size) {
+            return 0;
+        }
+        found = 1;
+    }
+    if (found == 0) {
+        return 0;
+    }
+    *status_out = wire;
+    return 1;
 }
 
 static dmp_status resolve_service(const dmp_endpoint *endpoint, const dmp_frame_view *frame,
@@ -970,7 +1443,7 @@ static dmp_status resolve_service(const dmp_endpoint *endpoint, const dmp_frame_
 }
 
 static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *frame, uint32_t service,
-                                dmp_time_ms now)
+                                dmp_identity_handle context, dmp_time_ms now)
 {
     dmp_reassembly_input input;
     dmp_reassembly_handle handle;
@@ -978,7 +1451,7 @@ static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *fr
     memset(&input, 0, sizeof input);
     memset(&handle, 0, sizeof handle);
     input.frame = frame;
-    input.context = endpoint->context;
+    input.context = context;
     input.service_id = service;
     input.plaintext = frame->payload;
     /* Parsed EXT TLVs in wire order. The SECURITY option, PN and tag are not
@@ -1005,17 +1478,56 @@ static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *fr
     }
 }
 
+static int matching_attempt(const dmp_endpoint *endpoint, dmp_bytes core, uint32_t *attempt,
+                            uint64_t *peer_epoch)
+{
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+    dmp_core_limits limits;
+    uint32_t cid;
+
+    memset(&view, 0, sizeof view);
+    limits = limits_of(endpoint);
+    parsed = dmp_core_parse(core, &limits, &view);
+    if (parsed.status != DMP_OK || (view.fields.options & DMP_OPT_SECURITY) == 0U ||
+        endpoint->association == NULL) {
+        return 0;
+    }
+    cid = view.fields.security.receive_cid;
+    if (cid == 0U) {
+        return 0;
+    }
+    if (endpoint->association_bound != 0U &&
+        dmp_hs_rx_cid(endpoint->association, endpoint->association_attempt) == cid) {
+        if (endpoint->context.slot >= endpoint->identity.capacity) {
+            return 0;
+        }
+        *attempt = endpoint->association_attempt;
+        *peer_epoch = endpoint->identity.slots[endpoint->context.slot].peer.epoch;
+        return 1;
+    }
+    if (endpoint->drain_live != 0U &&
+        dmp_hs_rx_cid(endpoint->association, endpoint->drain_attempt) == cid) {
+        *attempt = endpoint->drain_attempt;
+        *peer_epoch = endpoint->drain_peer_epoch;
+        return 1;
+    }
+    return 0;
+}
+
 static dmp_status open_protected(dmp_endpoint *endpoint, dmp_bytes core, dmp_frame_view *view,
-                                  uint8_t *plain, size_t plain_cap, size_t *plain_len)
+                                  uint8_t *plain, size_t plain_cap, size_t *plain_len,
+                                  uint32_t *attempt_out)
 {
     dmp_hs_protected incoming;
     dmp_identity_slot *slot;
-    dmp_status status;
+    uint32_t attempt = 0U;
+    uint64_t peer_epoch = 0U;
     dmp_hs_status opened;
 
-    status = require_active(endpoint);
-    if (status != DMP_OK) {
-        return status;
+    if (endpoint->revoked != 0U || endpoint->context.slot >= endpoint->identity.capacity ||
+        !matching_attempt(endpoint, core, &attempt, &peer_epoch)) {
+        return DMP_AUTHENTICATION_FAILURE;
     }
     slot = &endpoint->identity.slots[endpoint->context.slot];
     memset(&incoming, 0, sizeof incoming);
@@ -1024,10 +1536,14 @@ static dmp_status open_protected(dmp_endpoint *endpoint, dmp_bytes core, dmp_fra
     incoming.origin_id = slot->peer.origin_id;
     incoming.destination_id = slot->local.origin_id;
     incoming.namespace_id = slot->local.namespace_id;
-    incoming.context_epoch = slot->peer.epoch;
-    opened = dmp_hs_open_logical(endpoint->association, endpoint->association_attempt, &incoming, plain,
-                                 plain_cap, plain_len, view);
-    return from_hs(opened);
+    incoming.context_epoch = peer_epoch;
+    opened = dmp_hs_open_logical(endpoint->association, attempt, &incoming, plain, plain_cap,
+                                 plain_len, view);
+    if (opened != DMP_HS_OK) {
+        return from_hs(opened);
+    }
+    *attempt_out = attempt;
+    return DMP_OK;
 }
 
 static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms now)
@@ -1041,17 +1557,24 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
     uint8_t plain[DMP_HS_APP_PLAIN_MAX];
     size_t plain_len = 0U;
     uint32_t service = 0U;
+    uint32_t opened_attempt = 0U;
+    dmp_identity_handle rx_context;
     dmp_status status;
     memset(&view, 0, sizeof view);
+    rx_context = endpoint->context;
     if (secured(endpoint)) {
         /* Epochs are the attempt values installed above. No hash and no
          * allocation on this path. */
-        status = open_protected(endpoint, core, &view, plain, sizeof plain, &plain_len);
+        status = open_protected(endpoint, core, &view, plain, sizeof plain, &plain_len,
+                                &opened_attempt);
         if (status != DMP_OK) {
             return status;
         }
         if (plain_len != view.payload.size) {
             return DMP_AUTHENTICATION_FAILURE;
+        }
+        if (endpoint->drain_live != 0U && opened_attempt == endpoint->drain_attempt) {
+            rx_context = endpoint->drain_context;
         }
     } else {
         limits = limits_of(endpoint);
@@ -1063,7 +1586,8 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
     memset(&policy, 0, sizeof policy);
     policy.role = DMP_ROLE_ENDPOINT;
     policy.default_service = endpoint->profile.default_service;
-    policy.selective32 = false;
+    policy.selective32 = endpoint->profile.recovery[0] == DMP_PROFILE_RECOVERY_SELECTIVE32 ||
+                         endpoint->profile.recovery[1] == DMP_PROFILE_RECOVERY_SELECTIVE32;
     status = dmp_core_check_role(&view, &policy);
     if (status != DMP_OK) {
         return status;
@@ -1072,14 +1596,81 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
     if (status != DMP_OK) {
         return status;
     }
+    if (secured(endpoint)) {
+        const dmp_identity_slot *peer_slot;
+        uint32_t need = 0U;
+        if (rx_context.slot >= endpoint->identity.capacity) {
+            return DMP_STALE_HANDLE;
+        }
+        peer_slot = &endpoint->identity.slots[rx_context.slot];
+        if (view.fields.type == DMP_TYPE_REQ || view.fields.type == DMP_TYPE_DATA) {
+            need = DMP_ENDPOINT_PERMIT_REQ;
+        } else if (view.fields.type == DMP_TYPE_TELEM || view.fields.type == DMP_TYPE_EVENT) {
+            need = DMP_ENDPOINT_PERMIT_TELEM;
+        } else if (view.fields.type == DMP_TYPE_RSP) {
+            need = DMP_ENDPOINT_PERMIT_RESULT;
+        } else if (view.fields.type == DMP_TYPE_ERR) {
+            uint32_t wire_status = 0U;
+            if (!read_wire_status(&view, &wire_status)) {
+                return DMP_MALFORMED;
+            }
+            if (wire_status >= 64U) {
+                need = DMP_ENDPOINT_PERMIT_RESULT;
+            } else if (wire_status < 1U || wire_status > 7U) {
+                return DMP_MALFORMED;
+            }
+        }
+        if (need != 0U &&
+            !action_allowed(endpoint, peer_slot->peer.origin_id, service, need)) {
+            /* PN is already marked. Do not call the application handler.
+             * A fragmented REQ is not admitted to reassembly. Reliability
+             * rejects FRAG, so the best-effort STATUS=6 uses the same
+             * unfragmented rejection path. */
+            if (view.fields.type == DMP_TYPE_REQ &&
+                (view.fields.options & DMP_OPT_ACK_REQ) != 0U) {
+                dmp_frame_view logical = view;
+                logical.fields.options =
+                    (uint8_t)(logical.fields.options & (uint8_t)~DMP_OPT_FRAG);
+                memset(&logical.fields.fragment, 0, sizeof logical.fields.fragment);
+                empty.data = NULL;
+                empty.size = 0U;
+                memset(&input, 0, sizeof input);
+                input.frame = &logical;
+                input.service_id = service;
+                input.plaintext = view.payload;
+                input.immutable_metadata = empty;
+                use_context(endpoint, rx_context);
+                status = dmp_reliability_reject_req(&endpoint->reliability, &input, 6U, now);
+                if (status == DMP_DUPLICATE) {
+                    status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
+                }
+                use_context(endpoint, endpoint->context);
+                return status == DMP_OK || status == DMP_DUPLICATE ? DMP_OK : status;
+            }
+            return DMP_OK;
+        }
+    }
+    if (view.fields.type == DMP_TYPE_FRAG_STATUS) {
+        empty.data = NULL;
+        empty.size = 0U;
+        memset(&input, 0, sizeof input);
+        input.frame = &view;
+        input.service_id = service;
+        input.plaintext = view.payload;
+        input.immutable_metadata = empty;
+        use_context(endpoint, rx_context);
+        status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
+        use_context(endpoint, endpoint->context);
+        return status;
+    }
     if ((view.fields.options & DMP_OPT_FRAG) != 0U) {
-        return take_fragment(endpoint, &view, service, now);
+        return take_fragment(endpoint, &view, service, rx_context, now);
     }
     if (view.fields.type == DMP_TYPE_TELEM) {
         dmp_reliability_handle none;
         dmp_message_key source;
         memset(&none, 0, sizeof none);
-        status = dmp_identity_source_key(&view, &endpoint->identity, endpoint->context, now, &source);
+        status = dmp_identity_source_key(&view, &endpoint->identity, rx_context, now, &source);
         if (status != DMP_OK) {
             return status;
         }
@@ -1097,7 +1688,10 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
     input.service_id = service;
     input.plaintext = view.payload;
     input.immutable_metadata = empty;
-    return dmp_reliability_on_rx(&endpoint->reliability, &input, now);
+    use_context(endpoint, rx_context);
+    status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
+    use_context(endpoint, endpoint->context);
+    return status;
 }
 
 dmp_status dmp_endpoint_rx(dmp_endpoint *endpoint, dmp_bytes input, dmp_time_ms now)

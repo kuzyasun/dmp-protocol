@@ -35,6 +35,15 @@ typedef struct {
     uint16_t metadata_len;
     uint8_t live;
     uint8_t complete;
+    /* R4.2 collection timer. The interval is burst_span+forward_delay+
+     * feedback_guard from the first slice that armed it, not collect_ms.
+     * status_count is the FRAG_STATUS budget. status_expected is the single
+     * pending snapshot; status_mask is that snapshot. */
+    dmp_time_ms collection_due;
+    uint32_t status_count;
+    uint32_t status_mask;
+    uint8_t collection_armed;
+    uint8_t status_expected;
 } dmp_reassembly_slot;
 
 /* Tombstones keep only identity/context keys; they never retain payload or pin

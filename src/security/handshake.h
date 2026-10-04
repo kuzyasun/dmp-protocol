@@ -13,8 +13,8 @@
  * committed pin do not activate an association. Application send is refused
  * until the S4 confirmation transition.
  *
- * SEC-1 names restart jitter but does not define its function, source, or
- * distribution. The configured backoff is applied exactly, with no jitter.
+ * S3.1 allows any jitter. This build uses zero until a deployment defines a
+ * distribution. Attempt, time, and load limits stay. There is no random source.
  * ACL, freshness leases, rotation, and endpoint S10 cases are outside this
  * owner.
  *

@@ -127,6 +127,18 @@ static int test_arguments_and_copy(void)
     REJECT(in_.fragments = 33U, DMP_INVALID_ARGUMENT);
     REJECT(in_.fragments = 1U, DMP_OK);
     REJECT(in_.fragments = 32U, DMP_OK);
+    REJECT(in_.recovery[0] = DMP_PROFILE_RECOVERY_SELECTIVE32, DMP_UNSUPPORTED);
+    REJECT(in_.recovery[0] = DMP_PROFILE_RECOVERY_SELECTIVE32; in_.burst_span_ms = 1U;
+           in_.forward_delay_ms = 1U; in_.return_delay_ms = 1U; in_.feedback_guard_ms = 1U;
+           in_.feedback_delay_ms = 1U; in_.record_margin_ms = 1U; in_.max_probes = 2U;
+           in_.max_status = 1U; in_.max_bursts = 2U; in_.response_timeout_ms = 6U;
+           in_.send_horizon_ms = 10U; in_.collect_ms = 4U; in_.assembly_ms = 12U,
+           DMP_UNSUPPORTED);
+    REJECT(in_.recovery[0] = DMP_PROFILE_RECOVERY_SELECTIVE32; in_.burst_span_ms = 1U;
+           in_.forward_delay_ms = 1U; in_.return_delay_ms = 1U; in_.feedback_guard_ms = 1U;
+           in_.feedback_delay_ms = 1U; in_.record_margin_ms = 1U; in_.max_probes = 1U;
+           in_.max_status = 1U; in_.max_bursts = 2U; in_.response_timeout_ms = 6U;
+           in_.send_horizon_ms = 10U; in_.collect_ms = 4U; in_.assembly_ms = 12U, DMP_OK);
     REJECT(in_.sender_slots = 0x80000000U, DMP_INVALID_ARGUMENT);
     REJECT(in_.result_slots = 0x80000000U, DMP_INVALID_ARGUMENT);
     REJECT(in_.history_slots = 16843010U, DMP_INVALID_ARGUMENT);
@@ -1077,7 +1089,14 @@ static int admit_config_stdio(void)
         !expect_u32("tombstone_ms", &in.tombstone_ms) ||
         !expect_u32("late_result_ms", &in.late_result_ms) ||
         !expect_u32("collect_ms", &in.collect_ms) ||
-        !expect_u32("assembly_ms", &in.assembly_ms) || !expect_u32("tx_borrow", &flag)) {
+        !expect_u32("assembly_ms", &in.assembly_ms) ||
+        !expect_u32("burst_span_ms", &in.burst_span_ms) ||
+        !expect_u32("forward_delay_ms", &in.forward_delay_ms) ||
+        !expect_u32("return_delay_ms", &in.return_delay_ms) ||
+        !expect_u32("feedback_guard_ms", &in.feedback_guard_ms) ||
+        !expect_u32("feedback_delay_ms", &in.feedback_delay_ms) ||
+        !expect_u32("max_probes", &in.max_probes) || !expect_u32("max_status", &in.max_status) ||
+        !expect_u32("record_margin_ms", &in.record_margin_ms) || !expect_u32("tx_borrow", &flag)) {
         return 2;
     }
     if (flag > 1U) {
@@ -1113,7 +1132,9 @@ static int admit_config_stdio(void)
         "receipt_delay_ms %u\nreceipt_limit %u\ndedup_ms %u\nrejection_ms %u\n"
         "result_cache_ms %u\nresult_deadline_ms %u\ncorrelation_ms %u\n"
         "tombstone_ms %u\nlate_result_ms %u\ncollect_ms %u\nassembly_ms %u\n"
-        "tx_borrow %u\nsynchronous_completion %u\n",
+        "burst_span_ms %u\nforward_delay_ms %u\nreturn_delay_ms %u\n"
+        "feedback_guard_ms %u\nfeedback_delay_ms %u\nmax_probes %u\nmax_status %u\n"
+        "record_margin_ms %u\ntx_borrow %u\nsynchronous_completion %u\n",
         out.namespace_id, out.node_id[0], out.node_id[1], out.default_service, out.service_id[0],
         out.service_id[1], (unsigned)out.recovery[0], (unsigned)out.recovery[1], out.peers,
         out.operations_per_service, out.assemblies_per_peer, out.assembly_tombstones_per_peer,
@@ -1123,8 +1144,10 @@ static int admit_config_stdio(void)
         out.forward_mtu, out.return_mtu, out.queue_ms, out.response_timeout_ms, out.jitter_ms,
         out.send_horizon_ms, out.max_bursts, out.receipt_delay_ms, out.receipt_limit, out.dedup_ms,
         out.rejection_ms, out.result_cache_ms, out.result_deadline_ms, out.correlation_ms,
-        out.tombstone_ms, out.late_result_ms, out.collect_ms, out.assembly_ms,
-        out.tx_borrow ? 1U : 0U, out.synchronous_completion ? 1U : 0U);
+        out.tombstone_ms, out.late_result_ms, out.collect_ms, out.assembly_ms, out.burst_span_ms,
+        out.forward_delay_ms, out.return_delay_ms, out.feedback_guard_ms, out.feedback_delay_ms,
+        out.max_probes, out.max_status, out.record_margin_ms, out.tx_borrow ? 1U : 0U,
+        out.synchronous_completion ? 1U : 0U);
     return 0;
 }
 

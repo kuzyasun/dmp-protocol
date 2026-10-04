@@ -250,6 +250,8 @@ static int gate_profile(void)
     return 0;
 }
 
+static int g_selective_boot;
+
 static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint32_t per_tomb,
                 uint32_t fragments, uint32_t chunk_bytes, uint32_t mtu, uint32_t assembly_ms,
                 int secured)
@@ -275,6 +277,23 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
     g.profile.chunk_bytes = chunk_bytes;
     g.profile.encoded_mtu = mtu;
     g.profile.assembly_ms = assembly_ms;
+    if (g_selective_boot) {
+        g.profile.recovery[0] = DMP_PROFILE_RECOVERY_SELECTIVE32;
+        g.profile.recovery[1] = DMP_PROFILE_RECOVERY_SELECTIVE32;
+        g.profile.burst_span_ms = 1U;
+        g.profile.forward_delay_ms = 1U;
+        g.profile.return_delay_ms = 1U;
+        g.profile.feedback_guard_ms = 1U;
+        g.profile.feedback_delay_ms = 1U;
+        g.profile.record_margin_ms = 1U;
+        g.profile.max_probes = 1U;
+        g.profile.max_status = 1U;
+        g.profile.max_bursts = 2U;
+        g.profile.response_timeout_ms = 6U;
+        g.profile.send_horizon_ms = 10U;
+        g.profile.collect_ms = 100U;
+        g.profile.return_mtu = mtu;
+    }
     /* Admission uses the same control reserve as reliability. */
     g.profile.control_slots = 1U;
     g.profile.adapter_slots = 2U;
@@ -1239,6 +1258,55 @@ static int test_service_two(void)
     return 0;
 }
 
+static int test_selective_tail(void)
+{
+    uint8_t body[16];
+    uint8_t rest[16];
+    uint8_t joined[32];
+    frag frame;
+    dmp_reassembly_handle handle;
+    dmp_reassembly_message message;
+    dmp_time_ms arrival = 10U;
+
+    g_selective_boot = 1;
+    CHECK(boot(1U, 1U, 1U, 1U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
+    g_selective_boot = 0;
+    pattern(body, sizeof body, 0x11);
+    pattern(rest, sizeof rest, 0x22);
+    memcpy(joined, body, sizeof body);
+    memcpy(joined + sizeof body, rest, sizeof rest);
+    frame = base_frag(4U, 0U, 16U, 32U, body, sizeof body);
+    handle = sentinel();
+    CHECK(apply(&frame, arrival, &handle) == DMP_INCOMPLETE);
+    CHECK(g.assemblies[0].collection_armed == 1U);
+    CHECK(g.assemblies[0].collection_due == arrival + 3U);
+    CHECK(g.assemblies[0].status_expected == 0U);
+    frame.index = 0U;
+    CHECK(apply(&frame, arrival + 1U, &handle) == DMP_DUPLICATE);
+    CHECK(g.assemblies[0].collection_due == arrival + 3U);
+    CHECK(dmp_reassembly_poll(&g.engine, arrival + 2U, &(size_t){0}) == DMP_OK);
+    CHECK(g.assemblies[0].status_expected == 0U);
+    CHECK(g.assemblies[0].status_count == 0U);
+    CHECK(dmp_reassembly_poll(&g.engine, arrival + 3U, &(size_t){0}) == DMP_OK);
+    CHECK(g.assemblies[0].collection_armed == 0U);
+    CHECK(g.assemblies[0].status_expected == 1U);
+    CHECK(g.assemblies[0].status_count == 1U);
+    CHECK(g.assemblies[0].status_mask == 0x00000002U);
+    CHECK(dmp_reassembly_poll(&g.engine, arrival + 4U, &(size_t){0}) == DMP_OK);
+    CHECK(g.assemblies[0].status_count == 1U);
+    frame.index = 1U;
+    frame.plain = rest;
+    CHECK(apply(&frame, arrival + 5U, &handle) == DMP_OK);
+    CHECK(g.assemblies[0].status_expected == 0U);
+    CHECK(apply(&frame, arrival + 6U, &handle) == DMP_DUPLICATE);
+    CHECK(dmp_reassembly_get(&g.engine, handle, &message) == DMP_OK);
+    CHECK(message.payload.size == sizeof joined);
+    CHECK(memcmp(message.payload.data, joined, sizeof joined) == 0);
+    CHECK(dmp_reassembly_get(&g.engine, handle, &message) == DMP_OK);
+    CHECK(message.payload.size == sizeof joined);
+    return 0;
+}
+
 int main(void)
 {
     if (test_init_bounds() != 0) {
@@ -1275,6 +1343,9 @@ int main(void)
         return 1;
     }
     if (test_service_two() != 0) {
+        return 1;
+    }
+    if (test_selective_tail() != 0) {
         return 1;
     }
     return 0;

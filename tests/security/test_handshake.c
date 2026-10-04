@@ -1056,7 +1056,17 @@ static int test_episode_backoff(void)
         fprintf(stderr, "backoff or a repeated episode request reset the budget\n");
         goto done;
     }
-    env.now += 1000U;
+    /* Scheduled delay is restart_backoff_ms. Jitter is 0, so one millisecond
+     * early is still refused and the exact backoff is admitted. */
+    {
+        uint64_t cancelled_at = env.now;
+        env.now = cancelled_at + 999U;
+        if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_REFUSED) {
+            fprintf(stderr, "restart delay was shorter than restart_backoff_ms\n");
+            goto done;
+        }
+        env.now = cancelled_at + 1000U;
+    }
     if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK ||
         dmp_hs_episode_attempts_used(env.initiator) != 2U ||
         dmp_hs_global_work(env.initiator) <= global_after_first ||

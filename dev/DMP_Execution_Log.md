@@ -1341,3 +1341,94 @@ GCC 15.2.0.
 ## 2026-10-04 — P15 host protected-endpoint integration accepted
 
 Coordinator accepted the host protected-endpoint integration on 2026-10-04 after independent review found no defect in the uncommitted work on top of 448565b8d1f6bb1cab347a781453e9d5680fde70. Two endpoints exchange only after activation. An altered tag returns DMP_HS_DROPPED before the replay bit is committed. A reliability retry seals a new PN. A foreign association does not deliver payload. The receive path does not allocate or hash an epoch. Profiles and replay-window bounds were not changed. Relay S10 case 6 (later P19), multi-binding S10 case 11 (later P23), physical transport, ACL, key rotation, and a specified jitter distribution are not included. No commit was made in this step.
+
+## 2026-10-04 — P16 selective recovery, running, stopped on missing types
+
+Started at baseline `fe0d9a3842db7864fcbccfe574c8908c1265643e`. P16 is running, not done. P12 and P13 were not marked done. No stage, commit, push, or flash. `build/host` was not deleted. Profiles, deployment JSON, `include/dmp/endpoint.h`, wire encoding, and SEC-1 were not edited. `src/reliability/` and `src/reassembly/` were not edited.
+
+SELECTIVE-32 revision 1 defines the receiver and sender transitions (R4 and R5). They were not implemented. The admitted C profile and the existing caller-owned slots cannot hold the state those transitions name, and the assignment forbids adding a new public type. No second recovery machine was added in tests. Retry-all remains the only fragmented send path, and it still lives in the endpoint as one ascending burst with no slice retry. Reliability still rejects fragmented input and TYPE 8. Reassembly still records a presence bitmap and delivers a completed message once.
+
+Missing before a later assignment can implement the machine without inventing values:
+
+- Admitted timing the engines can read: `burst_span`, `forward_delay`, `return_delay`, `feedback_guard`, `feedback_delay`, `max_probes`, `max_status`, and `record_margin`. Manifest JSON has them. `dmp_admitted_profile` does not. `collect_ms` is not the R4.2 collection interval.
+- Sender slot fields: one pending missing mask, greatest accepted feedback SEQ, burst and probe counts, fragment count, and whether a burst is in flight. `dmp_reliability_logical` has no fragment index, chunk size, or total size, so the existing encode callback cannot emit one immutable slice.
+- Receiver slot fields: collection-timer armed flag and due time, status count, and status-pending flag. `received_bitmap` already exists. Tombstones already refuse re-admission until context retirement.
+
+Not invented: a numeric scheduler margin beyond the admitted `response_timeout`, a runtime `max_probes = max_bursts - 1`, static or heap recovery tables, or a test-only repair loop. No recovery CTest was added.
+
+## 2026-10-04 — P16 selective recovery blocked
+
+P16 is blocked at baseline `fe0d9a38`, not running and not done. No recovery machine was implemented. R4 and R5 of SELECTIVE-32 revision 1 need state that is not on the admitted profile or the engine slots: admitted-profile fields burst_span, forward_delay, return_delay, feedback_guard, feedback_delay, max_probes, max_status, and record_margin are present in manifest JSON and absent from dmp_admitted_profile, plus a sender-slot repair mask, feedback sequence, and in-flight flag and a fragment index on the logical record. No public type was added. Manifests were not edited. The existing reliability.direct, reassembly.direct, and endpoint.fragment tests stayed 5/5 and no recovery test was added.
+
+## 2026-10-04 — Owner direction recorded, not implemented
+
+Binding owner direction, not yet implemented, is in `dev/DMP_Correction_Plan.md` under "Owner direction 2026-10-04" (P16 SELECTIVE-32 fields, SAMPLE-1 durable epoch, jitter 0); package status cells were not changed.
+
+## 2026-10-04 — Board correction, SAMPLE-1 epoch port, jitter 0
+
+P12 stays `running`. P13 is `done`: closing commit `146ef17ae02d445a202770555a4ecf48d30c01ec`; no remaining P13 requirement was found, and P14/P15 own confirmation and activation. P15 is `running` again. Host loopback after activation is recorded, but P15 stays open until endpoint-local ACL and rotation are implemented. Jitter is not the reason it stays open. Only relay case 6 (P19) and multi-binding case 11 (P23) are deferred. P16 stays `blocked`. SELECTIVE-32 was not started. No NVS, filesystem, ACL policy, or key rotation. No stage, commit, or push. `build/host` was not deleted.
+
+`reserve_sample_epoch` is the host SAMPLE-1 port in `tests/endpoint/test_endpoint.c`. The portable core does not store epochs, and `include/dmp/endpoint.h` was not changed. A saved result returns the new epoch and publication continues. A write failure or an indeterminate save stops publication, does not reserve that epoch, does not reset the sample index, and does not reissue the identity epoch. Restart returns the previously saved epoch with no second reservation, and publication continues. Recovery after state loss is not implemented. Ordinary reservation has no separate authorization flag.
+
+Handshake restart delay is `restart_backoff_ms` plus explicit jitter 0. `security.handshake` (`episode-backoff`) refuses one millisecond early and admits the attempt at exactly `restart_backoff_ms`. Backoff limits were not changed. There is no random source.
+
+GCC 15.2.0, CMake/CTest 3.28.1. Configure rewrote the existing `build/host` after the new endpoint test names.
+
+- `cmake --build build/host --target dmp_test_endpoint dmp_test_handshake` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "endpoint\.sample|security\.handshake"` — 13/13 passed, 0 failed (`endpoint.sample1`, `endpoint.sample_snapshot`, `endpoint.sample_no_sample`, `endpoint.sample_init_budget`, `endpoint.sample_same_epoch`, `endpoint.sample_new_epoch`, `endpoint.sample_late_assoc`, `endpoint.sample_superseded`, `endpoint.sample_invalid`, `endpoint.sample_epoch_restart`, `endpoint.sample_epoch_fail`, `endpoint.sample_epoch_indeterminate`, `security.handshake`).
+
+## 2026-10-04 — P15 endpoint ACL and rotation, running
+
+P15 stays `running`. P16 stays `blocked` and was not started. No stage, commit, push, or flash. `build/host` was not deleted. Profiles and deployment JSON were not edited.
+
+Permission is the authenticated node id plus the installed service-action grants. A secured endpoint with no grant table admits no application action. A disallowed request is not delivered to the notice handler. An authenticated REQ that the receiver's policy denies is marked in the replay window and answered with best-effort protected STATUS=6. Control permission on service 0 does not grant service 1. The core does not parse SAMPLE-1 opcodes.
+
+Rotation uses the existing handshake attempt. New application sends move only after that attempt is active. An in-flight message keeps the association that admitted it and is not resealed onto the new one. Work whose original send or result deadline passes the caller-supplied drain bound is canceled locally as unknown. After the drain instant the old attempt is destroyed. A full identity table refuses the switch and leaves the live association. Lost FINISH/READY does not activate the replacement. Local revoke destroys the associations; a short received buffer does not. Host loopback is not physical-transport evidence.
+
+Not implemented, because the admitted services set `freshness` false and `lease_ms` 0, so S7.1 allows omitting the token table: S10 case 10. Relay-state case 6 stays with P19. Multi-binding case 11 stays with P23. The 2^24 frame ceiling is the existing seal refusal; this host run does not drive that counter. No new cipher, KDF, NVS, filesystem, or jitter distribution. RADIO-1 was not switched to retry-all.
+
+The host provider child table is 12 so one provider can track both peers' active and draining cipher pairs while a handshake is still registered at split. One device, one role, still fits in the previous 8.
+
+GCC 15.2.0, CMake/CTest 3.28.1.
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "endpoint\.|security\.(handshake|provider_adapter)"` — 28/28 passed, 0 failed, including `endpoint.protected_acl` and `endpoint.protected_rotation`.
+
+## 2026-10-04 — P15 review defects, running
+
+P15 stays `running`. P16 was not started. No stage, commit, push, or flash. `build/host` was not deleted. Deployment manifests were not edited. RADIO-1 was not switched to retry-all. No SELECTIVE-32 fields, no new cipher, no NVS, and jitter stays 0. `reserve_sample_epoch` stays in the application test port.
+
+Local RESULT permission is checked on `dmp_endpoint_complete` whether or not a drain is live. Node 10 and node 20 each have only `PERMIT_REQ` on service 1. Node 20's READ still invokes node 10's handler, and `dmp_endpoint_complete` returns `DMP_UNSUPPORTED` with an empty output queue. No RSP is sent.
+
+An authenticated REQ that policy rejects still does not call the handler. A fragmented REQ is not admitted to reassembly. Reliability still refuses `reject_req` when FRAG is set, so the endpoint clears only that flag on the parsed view and uses the existing unfragmented STATUS=6 rejection. A reseal of the same request does not call the handler. The review case is a sealed REQ with FRAG|ACK_REQ|SEQ, service 1, and a principal who has only `PERMIT_CONTROL` on service 0: `dmp_endpoint_rx` returns `DMP_OK`, and the next poll emits protected ERR STATUS=6.
+
+If identity retire fails because reassembly still retains the draining context, `drain_live` stays set and a later poll retries retire. The handshake attempt is canceled at the drain deadline; the identity slot is not cleared while `retained != 0`. After the assembly deadline, the same poll releases the retain and retires the slot. With two identity slots and `drain_ms` shorter than the remaining `assembly_ms`, a second rotation then succeeds. The one-slot rotation that fails with `DMP_QUOTA_EXHAUSTED` before `drain_live` changes still passes. The 2^24 frame ceiling still stops a new seal; an in-flight message is not moved to another association.
+
+S10 case 8 is host context destruction only. Cancel wipes traffic secrets. Cleanup drops the handshake object. Replaying the captured bootstrap does not restore the old keys or make application send succeed. A later handshake that reuses the old receive CID has different epochs; the captured old datagram fails authentication, and a new datagram on the new keys is delivered. This is not a physical reboot and does not add NVS. Sleeping-state loss is the destroyed host context; a new handshake is required.
+
+S10 case 10 stays omitted: freshness is off and `lease_ms` is 0. Relay case 6 stays with P19. Multi-binding case 11 stays with P23.
+
+Integrated provider accounting was compared with `profiles/deployments/direct-nnpsk0.json`, role `endpoint`, target `portable-host.endpoint.v1`: `provider_retained` count 3 × 12288 = 36864 bytes, and `provider_scratch` count 1 × 4096 = 4096 bytes. The host session puts both peers on one provider. After one active association the high-water retained was 2826 bytes (live 816, 6 blocks). With the old and new attempts both registered the high-water retained was 3338 bytes (live 1328, 10 blocks). The largest single allocation in both runs was 256 bytes. Those counts sit inside the two manifest charges. They are not an MCU budget, not stack, and not the JSON admission scratch.
+
+GCC 15.2.0, CMake/CTest 3.28.1.
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "endpoint\.|security\.(handshake|provider_adapter)"` — 32/32 passed, 0 failed, including `endpoint.protected_acl`, `endpoint.protected_rotation`, `endpoint.protected_result`, `endpoint.protected_fragdeny`, `endpoint.protected_drain`, and `endpoint.protected_context`.
+
+## 2026-10-04 — P15 accepted, P16 running
+
+Independent recheck 81817c1e confirmed the three P15 defects are fixed in the current tree. P15 is done. Accepted 2026-10-04 after the recheck of ACL, rotation, the three fixes, and host case 8. Still excluded: relay S10 case 6 (P19), multi-binding case 11 (P23), physical transport, and a measured-in-test retained peak. Retained peaks 2826 and 3338 are log literals inside the direct manifest charges (3×12288 and 1×4096) and are not re-measured by an assertion; that is an evidence limit, not a reason to keep P15 open. P16 is running from baseline `fe0d9a38` plus this uncommitted P15 tree and is not done. No commit.
+
+## 2026-10-04 — P16 selective recovery, running
+
+P16 stays running and is not done. The admitted profile now carries burst_span_ms, forward_delay_ms, return_delay_ms, feedback_guard_ms, feedback_delay_ms, max_probes, max_status, and record_margin_ms. collect_ms stays T_collect. SELECTIVE-32 admission checks the R3 and §11.1 combinations; retry-all does not require those fields. A selective repair sends only the missing slices, in ascending index order, from the saved payload, with a new encode. retry-all resends every slice. A recovered tail is delivered once. A protected fragment retry is sealed again, so the PN and ciphertext change. Manifest bytes, PROFILE_HASH, and RADIO-1 were not edited. Jitter stays 0. No identity reissue. Host state sizes, not total endpoint RAM: dmp_reliability 544, dmp_reassembly_slot 176, dmp_reassembly 336, tombstone 48; state bytes 608 and 1120. Eight-array sums are unchanged.
+
+GCC 15.2.0. `cmake --build build/host` exit 0. `ctest --test-dir build/host --output-on-failure -R "reliability\.direct|reassembly\.direct|endpoint\.(fragment|protected)|identity\.profile_admit"` — 19/19 passed, including endpoint.protected_repair. No stage, commit, push, or flash. `build/host` was not deleted.
+
+## 2026-10-04 — P16 large result slices, running
+
+P16 stays running and is not done: a 1024-byte RSP and a terminal ERR are sliced from the one saved result for selective-32 and retry-all, a missing mask repairs that result without extending deadlines, and `cmake --build build/host` plus the reliability/reassembly/endpoint filter passed 18/18 with no stage, commit, or push.
+
+## 2026-10-04 — P16 coordinator acceptance
+
+Coordinator accepted host SELECTIVE-32 recovery on 2026-10-04 after independent recheck e4350cf5 confirmed the last gap is fixed: dmp_reliability_complete stores a 1024-byte RSP and a terminal ERR once and slices them from that buffer; FRAG_STATUS updates the result mask; repair does not move send_deadline or result_deadline; the test encodes the frames. Earlier review 2a16b7cd accepted the request selective path, a new PN, and retry-all. Missing slices are repaired from one saved payload. A protected retry receives a new PN. retry-all still sends every slice. Host CTest after the result fix was 18/18. This is not physical transport. RADIO-1 was not switched to retry-all. Manifest bytes were not changed. P16 is done. No commit was made in this step.

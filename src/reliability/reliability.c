@@ -3,9 +3,14 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Direct unfragmented REQ/RSP/ERR/ACK only. P10 does not authenticate, decrypt,
- * reassemble, forward ROUTE frames, or cache ciphertext. Each attempt calls the
- * injected encoder; a future SEC-1 hook owns fresh PN allocation. */
+/* Direct REQ/RSP/ERR/ACK, plus fragmented recovery when the saved payload does
+ * not fit one frame. Each attempt calls the injected encoder. A fragment retry
+ * keeps the saved plaintext and logical identity and is encoded again, so a
+ * protected path allocates a new PN. Ciphertext is not cached. SELECTIVE-32
+ * repairs only the admitted missing mask. retry-all resends every slice.
+ * A large RSP and a large terminal ERR (status >= 64) are slices of the one
+ * saved result, under the same rules as a fragmented REQ. Deadlines stay
+ * absolute. This file does not authenticate, decrypt, or forward ROUTE frames. */
 
 enum {
     KIND_REQ = 0,
@@ -38,6 +43,81 @@ static int service_allowed(const dmp_admitted_profile *profile, uint32_t service
 {
     return service != 0U &&
            (service == profile->service_id[0] || service == profile->service_id[1]);
+}
+
+static int selective_service(const dmp_admitted_profile *profile, uint32_t service)
+{
+    if (service == profile->service_id[0]) {
+        return profile->recovery[0] == DMP_PROFILE_RECOVERY_SELECTIVE32;
+    }
+    if (service == profile->service_id[1]) {
+        return profile->recovery[1] == DMP_PROFILE_RECOVERY_SELECTIVE32;
+    }
+    return 0;
+}
+
+static uint32_t fragment_bit(uint32_t index)
+{
+    return 1U << index;
+}
+
+static uint32_t fragment_mask(uint32_t count)
+{
+    if (count >= 32U) {
+        return 0xFFFFFFFFU;
+    }
+    return (1U << count) - 1U;
+}
+
+static int lowest_fragment(uint32_t mask, uint32_t *index)
+{
+    uint32_t i;
+
+    for (i = 0U; i < 32U; i++) {
+        if ((mask & fragment_bit(i)) != 0U) {
+            *index = i;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int plan_fragments(const dmp_admitted_profile *profile, size_t payload, uint32_t *count_out)
+{
+    uint32_t count;
+
+    if (payload <= (size_t)profile->chunk_bytes || profile->chunk_bytes == 0U) {
+        return 0;
+    }
+    count = 1U + ((uint32_t)payload - 1U) / profile->chunk_bytes;
+    if (count < 2U || count > 32U || count > profile->fragments) {
+        return 0;
+    }
+    *count_out = count;
+    return 1;
+}
+
+/* 48 matches the existing single-frame admission margin. A payload that still
+ * fits with that margin stays one unfragmented attempt. The saved buffer is
+ * not copied per slice. */
+static void arm_saved_fragments(dmp_reliability *engine, dmp_reliability_sender_slot *sender,
+                                size_t payload)
+{
+    uint32_t frag_count = 0U;
+
+    sender->frag_count = 0U;
+    sender->chunk_size = 0U;
+    sender->total_size = 0U;
+    sender->active_mask = 0U;
+    if ((payload > (size_t)engine->profile.encoded_mtu ||
+         (payload <= (size_t)UINT32_MAX - 48U &&
+          payload + 48U > (size_t)engine->profile.encoded_mtu)) &&
+        plan_fragments(&engine->profile, payload, &frag_count)) {
+        sender->frag_count = frag_count;
+        sender->chunk_size = engine->profile.chunk_bytes;
+        sender->total_size = (uint32_t)payload;
+        sender->active_mask = fragment_mask(frag_count);
+    }
 }
 
 static uint32_t control_reserve(const dmp_admitted_profile *profile)
@@ -456,6 +536,33 @@ static void apply_tx(dmp_reliability *engine, dmp_reliability_sender_slot *sende
         sender->next_attempt = when;
         return;
     }
+    if ((sender->kind == KIND_REQ || sender->kind == KIND_RESULT) && sender->frag_count != 0U) {
+        if (sender->burst_counted == 0U) {
+            sender->packet_count++;
+            if (sender->probe_burst != 0U) {
+                sender->probe_count++;
+            }
+            sender->burst_counted = 1U;
+        }
+        if (sender->sending_index < 32U) {
+            sender->active_mask &= ~fragment_bit(sender->sending_index);
+        }
+        if (sender->active_mask != 0U) {
+            sender->phase = DMP_REL_PHASE_QUEUED;
+            sender->next_attempt = when;
+            return;
+        }
+        sender->burst_inflight = 0U;
+        sender->burst_counted = 0U;
+        sender->probe_burst = 0U;
+        if (selective_service(&engine->profile, sender->service_id) && sender->repair_mask != 0U) {
+            sender->active_mask = sender->repair_mask;
+            sender->repair_mask = 0U;
+            sender->phase = DMP_REL_PHASE_QUEUED;
+            sender->next_attempt = when;
+            return;
+        }
+    }
     if (sender->kind == KIND_RESULT) {
         result = result_of_sender(engine, sender);
         if (result != NULL && result->acknowledged != 0U) {
@@ -820,6 +927,32 @@ static dmp_status send_ack(dmp_reliability *engine, uint32_t service, dmp_messag
     return submit_frame(engine, adapter, written, not_after);
 }
 
+static dmp_bytes slice_at(const uint8_t *base, uint32_t index, uint32_t chunk, uint32_t total)
+{
+    dmp_bytes slice;
+    uint64_t offset = (uint64_t)index * (uint64_t)chunk;
+    uint32_t expect;
+
+    slice.data = NULL;
+    slice.size = 0U;
+    if (base == NULL || chunk == 0U || offset >= total) {
+        return slice;
+    }
+    expect = total - (uint32_t)offset;
+    if (expect > chunk) {
+        expect = chunk;
+    }
+    slice.data = base + (size_t)offset;
+    slice.size = expect;
+    return slice;
+}
+
+static dmp_bytes slice_view(dmp_reliability *engine, size_t sender_index, uint32_t index,
+                            uint32_t chunk, uint32_t total)
+{
+    return slice_at(sender_bytes(engine, sender_index), index, chunk, total);
+}
+
 static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms now)
 {
     dmp_reliability_sender_slot *sender = &engine->storage.senders[index];
@@ -886,6 +1019,45 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
         logical.ack_req = false;
         logical.wire_status = history->wire_status;
     }
+    if ((sender->kind == KIND_REQ || sender->kind == KIND_RESULT) && sender->frag_count != 0U) {
+        uint32_t frag_index = 0U;
+        int starting = sender->burst_inflight == 0U;
+
+        if (sender->active_mask == 0U || !lowest_fragment(sender->active_mask, &frag_index)) {
+            sender->phase = DMP_REL_PHASE_TERMINAL;
+            settle_sender(engine, sender);
+            return DMP_OK;
+        }
+        if (starting &&
+            ((engine->profile.max_bursts != 0U &&
+              sender->packet_count >= engine->profile.max_bursts) ||
+             (sender->probe_burst != 0U && engine->profile.max_probes != 0U &&
+              sender->probe_count >= engine->profile.max_probes))) {
+            sender->phase = DMP_REL_PHASE_TERMINAL;
+            settle_sender(engine, sender);
+            return DMP_OK;
+        }
+        if (starting) {
+            sender->burst_inflight = 1U;
+        }
+        sender->sending_index = frag_index;
+        logical.fragment_index = frag_index;
+        logical.chunk_size = sender->chunk_size;
+        logical.total_size = sender->total_size;
+        if (sender->kind == KIND_RESULT) {
+            logical.payload = slice_at(result_bytes(engine, sender->related_slot), frag_index,
+                                      sender->chunk_size, sender->total_size);
+        } else {
+            logical.payload = slice_view(engine, index, frag_index, sender->chunk_size,
+                                         sender->total_size);
+        }
+        if (logical.payload.data == NULL || logical.payload.size == 0U) {
+            if (starting) {
+                sender->burst_inflight = 0U;
+            }
+            return DMP_MALFORMED;
+        }
+    }
     adapter_index = find_adapter(engine, 0, allow_control);
     if (adapter_index < 0) {
         return DMP_BUSY;
@@ -924,6 +1096,9 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
             if (sender->attempts > 0U) {
                 sender->attempts--;
             }
+            if (sender->frag_count != 0U && sender->burst_counted == 0U) {
+                sender->burst_inflight = 0U;
+            }
         }
         return status;
     }
@@ -957,6 +1132,41 @@ static void stop_request(dmp_reliability *engine, dmp_reliability_sender_slot *s
     } else {
         settle_sender(engine, sender);
     }
+}
+
+/* Returns 1 when recovery has ended and the caller must leave this sender. */
+static int finish_fragment_wait(dmp_reliability *engine, dmp_reliability_sender_slot *sender)
+{
+    int selective;
+
+    if (sender->frag_count == 0U) {
+        return 0;
+    }
+    selective = selective_service(&engine->profile, sender->service_id);
+    if (selective && sender->repair_mask != 0U) {
+        sender->active_mask = sender->repair_mask;
+        sender->repair_mask = 0U;
+        sender->probe_burst = 0U;
+    } else if (selective) {
+        if (sender->packet_count >= engine->profile.max_bursts ||
+            sender->probe_count >= engine->profile.max_probes) {
+            sender->phase = DMP_REL_PHASE_TERMINAL;
+            settle_sender(engine, sender);
+            return 1;
+        }
+        sender->active_mask = fragment_bit(sender->frag_count - 1U);
+        sender->probe_burst = 1U;
+    } else {
+        if (engine->profile.max_bursts != 0U &&
+            sender->packet_count >= engine->profile.max_bursts) {
+            sender->phase = DMP_REL_PHASE_TERMINAL;
+            settle_sender(engine, sender);
+            return 1;
+        }
+        sender->active_mask = fragment_mask(sender->frag_count);
+        sender->probe_burst = 0U;
+    }
+    return 0;
 }
 
 static void expire(dmp_reliability *engine, dmp_time_ms now)
@@ -1019,7 +1229,23 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
             !sender->result_seen && dmp_deadline_reached(now, sender->next_attempt) &&
             !dmp_deadline_reached(now, sender->send_deadline) &&
             !dmp_deadline_reached(now, sender->result_deadline)) {
+            if (finish_fragment_wait(engine, sender)) {
+                continue;
+            }
             sender->phase = DMP_REL_PHASE_QUEUED;
+        }
+        if (sender->kind == KIND_RESULT && sender->frag_count != 0U && !sender->tx_live &&
+            sender->phase == DMP_REL_PHASE_AWAIT_RECEIPT && !sender->result_seen &&
+            dmp_deadline_reached(now, sender->next_attempt) &&
+            !dmp_deadline_reached(now, sender->send_deadline) &&
+            !dmp_deadline_reached(now, sender->result_deadline)) {
+            dmp_reliability_result_slot *result = result_of_sender(engine, sender);
+            if (result != NULL && result->acknowledged == 0U) {
+                if (finish_fragment_wait(engine, sender)) {
+                    continue;
+                }
+                sender->phase = DMP_REL_PHASE_QUEUED;
+            }
         }
         if (sender->kind == KIND_RESULT && dmp_deadline_reached(now, sender->send_deadline)) {
             if (sender->tx_live) {
@@ -1199,6 +1425,7 @@ static dmp_status rearm_result(dmp_reliability *engine, int result_index, dmp_ti
     sender->result_deadline = result->deadline;
     sender->next_attempt = now;
     sender->payload_len = result->payload_len;
+    arm_saved_fragments(engine, sender, result->payload_len);
     sender->related_slot = (uint32_t)result_index;
     sender->related_generation = result->generation;
     result->sender_slot = (uint32_t)index;
@@ -1888,6 +2115,7 @@ dmp_status dmp_reliability_submit_req(dmp_reliability *engine, uint32_t service_
     sender->next_attempt = now;
     sender->jitter_ms = jitter_ms;
     sender->payload_len = (uint32_t)payload.size;
+    arm_saved_fragments(engine, sender, payload.size);
     sender->related_slot = (uint32_t)correlation_index;
     sender->related_generation = correlation_gen;
     correlation->live = 1U;
@@ -1966,6 +2194,65 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
     }
     frame = input->frame;
     ack_req = (frame->fields.options & DMP_OPT_ACK_REQ) != 0U;
+    if (frame->fields.type == DMP_TYPE_FRAG_STATUS) {
+        dmp_message_key reply;
+        dmp_reliability_sender_slot *sender;
+        uint32_t mask;
+        uint32_t all;
+        uint32_t service_id = 0U;
+        if (input->plaintext.size != 4U || input->plaintext.data == NULL) {
+            return DMP_OK;
+        }
+        status = resolve_service(engine, frame, input->service_id, &service_id);
+        if (status != DMP_OK || !selective_service(&engine->profile, service_id)) {
+            return status == DMP_OK ? DMP_OK : status;
+        }
+        status = dmp_identity_reply_to(frame, engine->storage.identity, engine->storage.context, now,
+                                       &reply);
+        if (status != DMP_OK) {
+            return DMP_OK;
+        }
+        sender = NULL;
+        {
+            size_t i;
+            for (i = 0U; i < engine->storage.sender_capacity; i++) {
+                dmp_reliability_sender_slot *candidate = &engine->storage.senders[i];
+                if (candidate->live != 0U &&
+                    (candidate->kind == KIND_REQ || candidate->kind == KIND_RESULT) &&
+                    candidate->service_id == service_id && key_eq(candidate->own, reply)) {
+                    sender = candidate;
+                    break;
+                }
+            }
+        }
+        if (sender == NULL || sender->frag_count < 2U || sender->phase == DMP_REL_PHASE_TERMINAL ||
+            sender->result_seen || (sender->kind == KIND_REQ && sender->receipt_seen)) {
+            return DMP_OK;
+        }
+        mask = (uint32_t)input->plaintext.data[0] |
+               ((uint32_t)input->plaintext.data[1] << 8) |
+               ((uint32_t)input->plaintext.data[2] << 16) |
+               ((uint32_t)input->plaintext.data[3] << 24);
+        all = fragment_mask(sender->frag_count);
+        if (mask == 0U || mask == all || (mask & ~all) != 0U) {
+            return DMP_OK;
+        }
+        if (sender->feedback_valid != 0U && frame->fields.seq <= sender->feedback_seq) {
+            return DMP_OK;
+        }
+        sender->feedback_seq = frame->fields.seq;
+        sender->feedback_valid = 1U;
+        if (sender->burst_inflight != 0U) {
+            sender->repair_mask = mask;
+            return DMP_OK;
+        }
+        sender->repair_mask = 0U;
+        sender->active_mask = mask;
+        sender->probe_burst = 0U;
+        sender->phase = DMP_REL_PHASE_QUEUED;
+        sender->next_attempt = now;
+        return DMP_OK;
+    }
     if (frame->fields.type != DMP_TYPE_REQ && frame->fields.type != DMP_TYPE_RSP &&
         frame->fields.type != DMP_TYPE_ERR && frame->fields.type != DMP_TYPE_ACK) {
         return DMP_UNSUPPORTED;
@@ -2197,6 +2484,16 @@ dmp_status dmp_reliability_complete(dmp_reliability *engine, dmp_reliability_han
     result->deadline = cache_deadline;
     sender->own = result->result;
     sender->payload_len = result->payload_len;
+    arm_saved_fragments(engine, sender, payload.size);
+    sender->repair_mask = 0U;
+    sender->feedback_seq = 0U;
+    sender->packet_count = 0U;
+    sender->probe_count = 0U;
+    sender->sending_index = 0U;
+    sender->feedback_valid = 0U;
+    sender->burst_inflight = 0U;
+    sender->burst_counted = 0U;
+    sender->probe_burst = 0U;
     sender->phase = DMP_REL_PHASE_QUEUED;
     sender->next_attempt = now;
     sender->send_deadline = cache_deadline;
