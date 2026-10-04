@@ -10,6 +10,7 @@ add_library(libdmp STATIC src/core/base.c src/core/codec.c
     src/reassembly/reassembly.c
     src/reliability/reliability.c
     src/endpoint/endpoint.c
+    src/mesh/relay.c
     src/security/provider_adapter.c
     src/security/replay_window.c
     src/security/handshake.c)
@@ -59,6 +60,7 @@ if(DMP_BUILD_TESTS)
             "P01B adapter tests are not registered; set DMP_SODIUM_SOURCE_DIR")
     endif()
     add_subdirectory(tests/harness)
+    add_subdirectory(tests/mesh)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
        CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         add_executable(dmp_test_allocator_paths tests/core/allocator_probe.c)

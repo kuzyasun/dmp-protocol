@@ -1432,3 +1432,20 @@ P16 stays running and is not done: a 1024-byte RSP and a terminal ERR are sliced
 ## 2026-10-04 — P16 coordinator acceptance
 
 Coordinator accepted host SELECTIVE-32 recovery on 2026-10-04 after independent recheck e4350cf5 confirmed the last gap is fixed: dmp_reliability_complete stores a 1024-byte RSP and a terminal ERR once and slices them from that buffer; FRAG_STATUS updates the result mask; repair does not move send_deadline or result_deadline; the test encodes the frames. Earlier review 2a16b7cd accepted the request selective path, a new PN, and retry-all. Missing slices are repaired from one saved payload. A protected retry receives a new PN. retry-all still sends every slice. Host CTest after the result fix was 18/18. This is not physical transport. RADIO-1 was not switched to retry-all. Manifest bytes were not changed. P16 is done. No commit was made in this step.
+
+## 2026-10-04 — P17 static relay, running
+
+P17 is running from baseline `4c00ea5338cb11ef33f9b1c4f48a5982a49dc604` and is not done. P18 was not started. A transparent static-unicast relay in `src/mesh/relay.c` forwards a parsed core frame to the configured next hop. It decrements the remaining-forwards nibble and, when INTEGRITY is present, recomputes CRC32C. SECURITY payload and tag bytes are copied. Cooldown starts at the caller-supplied forward completion and is not moved by a duplicate refused during cooldown. Absolute expiry stays at first admission. The forward and return instants use the admitted profile delays, queue, and the RADIO-1 period 64 / width 42 / cooldown 50 schedule with jitter 0. The selected public PN filter rejects PN>=2^24 without writing the output, the relay cache, the endpoint identity/reliability/reassembly slots, or the security replay window.
+
+Not invented: ACL changes, key rotation, a jitter distribution, SELECTIVE-32 behavior, bounded flooding, or a retry-all switch of RADIO-1. Manifest bytes and PROFILE_HASH were not edited. libdmp does not parse JSON. The receive/forward path does not allocate. Host harness evidence is not physical transport. Relay-state S10 case 6 stays with P19.
+
+GCC 15.2.0, CMake/CTest 3.28.1. `build/host` was not deleted.
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure -R "relay\.|endpoint\.protected|reliability\.direct"` — 15/15 passed, 0 failed, including `relay.transparent`, `endpoint.protected_acl`, `endpoint.protected_rotation`, and `reliability.direct`.
+
+No stage, commit, push, or flash.
+
+## 2026-10-04 — P17 coordinator acceptance
+
+Coordinator accepted the host transparent relay on 2026-10-04 after independent review abfec04c found no defect. A transparent static hop changes only the forward-remaining nibble and, when INTEGRITY is set, recomputes CRC32C; payload and the other header fields are not rewritten. Cooldown and the schedule come from the relay/profile fields, not hardcoded 50/64/42/20 in relay.c. A forward during cooldown returns DMP_BUSY and does not move the cooldown anchor. There is no allocation on the forward path. Host CTest was reported 15/15 and was not rerun by the reviewer. INTEGRITY CRC recomputation was confirmed in source and is not covered by test_relay.c, which does not set INTEGRITY. Physical transport is not included. P17 is done. P18 was not started. No commit was made in this step.
