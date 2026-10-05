@@ -120,6 +120,7 @@
     "peers": 1,
     "assemblies_per_peer": 1,
     "operations_per_service": 1,
+    "sender_slots": 4,
     "control_slots": 4,
     "application_queue_slots": 2,
     "adapter_slots": 5,

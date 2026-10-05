@@ -1,134 +1,217 @@
 {
-  "direct-nnpsk0.json": {
-    "app_frame_bytes": 119,
-    "bootstrap_flight_span_ms": 128,
+  "direct-nnpsk0-async.json": {
+    "fragment_count": 16,
     "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 48,
     "bootstrap_frame_bytes": 86,
     "encoded_frame_bytes": 263,
-    "establishment_frame_reserve": 14,
-    "establishment_ms": 11804,
-    "establishment_wire_bytes": 3682,
-    "fragment_count": 16,
+    "response_floor_ms": 150,
     "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 57,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 78720
+        "RAM": 52698
       }
-    },
-    "response_floor_ms": 150,
+    }
+  },
+  "direct-nnpsk0.json": {
+    "fragment_count": 16,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
     "status_frame_bytes": 48,
-    "transfer_frame_reserve": 57
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 150,
+    "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 57,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 52698
+      }
+    }
   },
   "direct-xx.json": {
-    "app_frame_bytes": 119,
-    "bootstrap_flight_span_ms": 128,
+    "fragment_count": 16,
     "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 48,
     "bootstrap_frame_bytes": 86,
     "encoded_frame_bytes": 263,
-    "establishment_frame_reserve": 22,
-    "establishment_ms": 15516,
-    "establishment_wire_bytes": 5786,
-    "fragment_count": 16,
+    "response_floor_ms": 150,
     "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 57,
+    "establishment_frame_reserve": 22,
+    "establishment_wire_bytes": 5786,
+    "establishment_ms": 15516,
+    "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 78720
+        "RAM": 72576
       }
-    },
-    "response_floor_ms": 150,
-    "status_frame_bytes": 48,
-    "transfer_frame_reserve": 57
+    }
+  },
+  "radio-nnpsk0-n2.json": {
+    "fragment_count": 32,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 62,
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 128,
+    "response_floor_ms": 2222,
+    "freshness_required_ms": 10936,
+    "transfer_frame_reserve": 108,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 1792,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 57425
+      },
+      "relay": {
+        "RAM": 29441
+      }
+    }
   },
   "radio-nnpsk0.json": {
-    "app_frame_bytes": 119,
-    "bootstrap_flight_span_ms": 128,
+    "fragment_count": 32,
     "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 62,
     "bootstrap_frame_bytes": 86,
     "encoded_frame_bytes": 256,
-    "establishment_frame_reserve": 14,
-    "establishment_ms": 11804,
-    "establishment_wire_bytes": 3584,
-    "fragment_count": 32,
+    "response_floor_ms": 2222,
     "freshness_required_ms": 10936,
+    "transfer_frame_reserve": 108,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3584,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 83584
+        "RAM": 58579
       },
       "relay": {
         "RAM": 29441
       }
-    },
-    "response_floor_ms": 2222,
-    "status_frame_bytes": 62,
-    "transfer_frame_reserve": 108
+    }
   },
   "radio-xx.json": {
-    "app_frame_bytes": 119,
-    "bootstrap_flight_span_ms": 128,
+    "fragment_count": 32,
     "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 62,
     "bootstrap_frame_bytes": 86,
     "encoded_frame_bytes": 256,
-    "establishment_frame_reserve": 22,
-    "establishment_ms": 15516,
-    "establishment_wire_bytes": 5632,
-    "fragment_count": 32,
+    "response_floor_ms": 2222,
     "freshness_required_ms": 10936,
+    "transfer_frame_reserve": 108,
+    "establishment_frame_reserve": 22,
+    "establishment_wire_bytes": 5632,
+    "establishment_ms": 15516,
+    "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 83584
+        "RAM": 77440
       },
       "relay": {
         "RAM": 29441
       }
-    },
-    "response_floor_ms": 2222,
-    "status_frame_bytes": 62,
-    "transfer_frame_reserve": 108
+    }
+  },
+  "test-direct-minimal-128.json": {
+    "fragment_count": 2,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 48,
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 150,
+    "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 15,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 32590
+      }
+    }
+  },
+  "test-direct-minimal-256.json": {
+    "fragment_count": 4,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 48,
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 150,
+    "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 21,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 33614
+      }
+    }
   },
   "test-radio-retry-all-nnpsk0.json": {
-    "app_frame_bytes": 119,
-    "bootstrap_flight_span_ms": 128,
+    "fragment_count": 32,
     "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 62,
     "bootstrap_frame_bytes": 86,
     "encoded_frame_bytes": 256,
-    "establishment_frame_reserve": 14,
-    "establishment_ms": 11804,
-    "establishment_wire_bytes": 3584,
-    "fragment_count": 32,
+    "response_floor_ms": 150,
     "freshness_required_ms": 10936,
+    "transfer_frame_reserve": 105,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3584,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 83584
+        "RAM": 58579
       },
       "relay": {
         "RAM": 29441
       }
-    },
-    "response_floor_ms": 150,
-    "status_frame_bytes": 62,
-    "transfer_frame_reserve": 105
+    }
   },
   "test-radio-retry-all-xx.json": {
-    "app_frame_bytes": 119,
-    "bootstrap_flight_span_ms": 128,
+    "fragment_count": 32,
     "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 62,
     "bootstrap_frame_bytes": 86,
     "encoded_frame_bytes": 256,
-    "establishment_frame_reserve": 22,
-    "establishment_ms": 15516,
-    "establishment_wire_bytes": 5632,
-    "fragment_count": 32,
+    "response_floor_ms": 150,
     "freshness_required_ms": 10936,
+    "transfer_frame_reserve": 105,
+    "establishment_frame_reserve": 22,
+    "establishment_wire_bytes": 5632,
+    "establishment_ms": 15516,
+    "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 83584
+        "RAM": 77440
       },
       "relay": {
         "RAM": 29441
       }
-    },
-    "response_floor_ms": 150,
-    "status_frame_bytes": 62,
-    "transfer_frame_reserve": 105
+    }
   }
 }

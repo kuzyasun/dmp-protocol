@@ -1472,3 +1472,139 @@ Coordinator accepted the protected FRAG_STATUS vectors on 2026-10-04 after indep
 Coordinator recheck: `node dev/dmp_verify_recovery_vectors.cjs` exit 0 (26 cases, 8 mutations, cipher 1 only); `ctest --test-dir build/host -R "fixtures.recovery|recovery.frag_status"` 2/2 passed. The reviewer's full run was 53/53.
 
 Not covered: endpoint acceptance of FRAG_STATUS, replay window and old PN, ineligible or terminal references, service 0, a separate SERVICE_ID byte mutation, real AES-GCM frames and physical transport. Reference eligibility needs retained transfer state and stays with P19. `docs/DMP_v2_Recovery_Test_Vectors.json` stays in place; no normative text cites it yet. P18 is done. P19 was not started. No commit was made in this step.
+
+## 2026-10-04 — P19 host recovery gate, not accepted
+
+Worker baseline HEAD `13e2ff6` on `feat/initial-version`. P19 is `running`. It is not done. P12 was not marked done. No stage, commit, push, flash, or DTrack integration. `build/host` was not deleted. Manifests in `profiles/` were not edited. Public headers were not edited.
+
+Three defects were fixed because a P19 test failed against the normative text. Details and the case map are in [DMP_Recovery_Matrix.md](DMP_Recovery_Matrix.md).
+
+- Completed ACK_REQ reassembly did not enter reliability, so there was no acceptance ACK (R4.4). `take_fragment` now presents the assembled plaintext with FRAG cleared.
+- A secured payload above the 32-byte seal cap but inside the clear MTU was not fragmented. RADIO-1 N=2 is a 64-byte service-2 REQ and two 32-byte slices.
+- A duplicate probe of an incomplete transfer did not arm the next collection, so a lost FRAG_STATUS produced no later status.
+
+Host evidence is not physical transport. RADIO-1 service 2 was exercised without an S7 token; that component is not in the endpoint and needs a public-header change. DIRECT-1 `chunk_bytes` 64 cannot be sealed under `DMP_HS_APP_PLAIN_MAX` 32. The endpoint encoder does not emit ROUTE or CONTEXT, and `dmp_config` has no TTL, so a live endpoint frame is not relay-admissible. The relay-cache check uses one frame sealed by the live association. S10 case 11 stays pending for P23.
+
+Measured in the tests, not copied from a manifest charge: caller node `sizeof` 63872; provider allocator peak 2826; geometry retained payload peak 1986; r6 retained payload peak 512. Geometry moved 6226 tx bytes and 2914 rx bytes. The r6 process ended at 3813 tx bytes and 2088 rx bytes. Retry-all loss was 1212 tx bytes and 1035 rx bytes before the expiry case.
+
+Commands, all exit 0:
+
+- `cmake --build build/host`
+- `ctest --test-dir build/host --output-on-failure` — 60/60 passed, including `harness.subprocess`
+- `node dev/dmp_verify_security_vectors.cjs` — 4 fixtures, 64 packets, 44 mutations
+- `node dev/dmp_verify_recovery_vectors.cjs` — 26 cases, 8 mutations, cipher 1 only
+
+## 2026-10-05 — P19 review fixes, not accepted
+
+P19 stays `running`. P12 was not marked done. No stage, commit, push, flash, or DTrack integration. `include/dmp/`, `profiles/`, `docs/`, `AGENTS.md` and `README` were not edited. `build/host` was not deleted.
+
+`DMP_HS_APP_PLAIN_MAX` is 240, the largest plaintext that fits one direct frame with a 7-byte protected header and a 16-byte tag (`263 - 7 - 16`). Buffers that use the macro (`body[]` in seal/open/seal_record, `plain[]` in `take_frame`, `accepted[]` per attempt) grow with it. `handshake.c` did not need a separate edit.
+
+Sizes, gcc `-fstack-usage`, before to after:
+
+| Object | Before | After | Manifest charge |
+|---|---:|---:|---|
+| `sizeof(dmp_hs)` | 39160 | 39992 | association 512 endpoint, 256 relay. Already over before this change because each attempt holds an 8208-byte replay bitmap. Delta +832. |
+| one `hs_attempt` | 9624 | 9832 | same association rows |
+| `accepted[]` | 32 | 240 | 240 fits one 512-byte endpoint row and the 256-byte relay row |
+| `dmp_hs_seal_logical` stack | 1360 | 1568 | stacks 12288 endpoint, 4096 relay |
+| `dmp_hs_open_logical` stack | 992 | 1200 | same |
+| `seal_record` stack | 1024 | 1232 | same |
+| `dmp_hs_offer_protected` stack | 960 | 1168 | same |
+| `take_frame` stack | 752 | 960 | same |
+
+The deepest receive chain measured here is about 2512 bytes (`dmp_endpoint_rx` 144 + `take_frame` 960 + `open_protected` 208 + `dmp_hs_open_logical` 1200). That is inside both stack charges. The association row was already exceeded and this delta does not bring `dmp_hs` under 512. Manifests were not edited. The 32-byte cap was raised because leaving it would not satisfy that row either, and DIRECT-1 chunk 64 could not be sealed.
+
+Fragmentation no longer uses the 32-byte seal cap. A protected payload fragments only when it does not fit `encoded_mtu` after a 73-byte worst header and tag. A 64-byte RADIO-1 service-2 REQ is one frame with no FRAG. 256/512/1024/993 bytes remain 8/16/32/32 frames at MTU 256. N=2 stays open: at chunk 32 and MTU 256 it is unreachable. A seal or encode failure after admission frees the sender and submits no frame. A duplicate accepted index at the assembly deadline returns `DMP_DEADLINE_EXPIRED` and does not arm collection.
+
+Host evidence is not physical transport. Still open, owner decisions not taken: S7 freshness tokens for service 2, endpoint-originated ROUTE/CONTEXT/TTL, a delayed-completion seam under `synchronous_completion: true`, and the MTU or length that should exercise RADIO-1 N=2. DATA/EVENT with ACK_REQ is `DMP_UNSUPPORTED` for an unfragmented frame and has no submit path. S10 case 11 stays with P23.
+
+`tests/reassembly/test_reassembly.c` changed one expectation from `DMP_DUPLICATE` to `DMP_DEADLINE_EXPIRED` at `now == deadline`. That file was outside the scenario write set; the old assertion encoded the defect.
+
+Measured again, not copied from a charge: caller node 63872; provider peak 2826; geometry retained payload 2048; gaps retained payload 2048. Geometry moved 9356 tx bytes and 9356 rx bytes. The gaps process ended at 8369 tx bytes and 6318 rx bytes.
+
+Commands, all exit 0. gcc 15.2.0, cmake 3.28.1, Node v24.11.1.
+
+- `cmake --build build/host`
+- `ctest --test-dir build/host --output-on-failure` — 61/61 passed, including `harness.subprocess`
+- `node dev/dmp_verify_security_vectors.cjs` — 4 fixtures, 64 packets, 44 mutations
+- `node dev/dmp_verify_recovery_vectors.cjs` — 26 cases, 8 mutations, cipher 1 only
+
+## 2026-10-05 — P19 review findings, still running
+
+P19 stays `running`. P12 was not marked done. No stage, commit, push, flash, or DTrack integration. `include/dmp/`, `profiles/`, `docs/`, `AGENTS.md`, `README`, and `dev/DMP_Validation_Results.md` were not edited. `build/host` was not deleted.
+
+Four review findings were checked against the worktree. Three were fixed. The local-unsent event was stopped because it needs a new public enum.
+
+1. A REQ admitted before activation was dropped on the first poll. `dmp_hs_send_application` returns `DMP_HS_NOT_ACTIVE` both while the attempt is alive and after cancel, and `from_hs` mapped both to `DMP_AUTHENTICATION_FAILURE`. `begin_send` then freed the sender. A live not-yet-active attempt now returns `DMP_BUSY` and the sender stays queued. A terminal attempt still frees the slot. `send_ready` does not publish `DMP_BUSY`, so `dmp_endpoint_poll` is `DMP_OK`. No frame leaves before activation. The same request is delivered after activation (`endpoint.protected_activation`). `scenarios.gaps` `seal-after-admit` still expects `DMP_AUTHENTICATION_FAILURE`.
+
+2. Fragmentation used a fixed 73-byte or 48-byte margin. The endpoint now encodes the exact non-FRAG header, including the security block and 16-byte tag when protected, and fragments only when that size exceeds `encoded_mtu`. `DMP_HS_APP_PLAIN_MAX` 240 remains the seal buffer ceiling. `scenarios.geometry` covers the largest service-2 body that is one frame and the next byte, for radio and direct. Encoders that reject the NULL size probe still use the old margin. RADIO-1 N=2 stays open: at MTU 256 and chunk 32 the first fragmented body is already eight slices.
+
+3. Stopped. `on_reliability_notice` still drops `DMP_REL_EVENT_LOCAL_UNSENT`. `DMP_ENDPOINT_UNKNOWN` is documented as possibly-sent, so it cannot mean "deadline before transmission." Proposed, not added, in `include/dmp/endpoint.h`: `DMP_ENDPOINT_LOCAL_UNSENT = 6`. Empty payload, own request key, no claim of remote cancellation. `deadline-before-tx` would assert that event once. `r7-expiry` would keep `unknowns == 1`.
+
+4. The replay bitmap was `65536/8` bytes per attempt while every manifest uses 1024. `DMP_REPLAY_WINDOW_MAX` now defaults to 1024, is overridable with a compile definition, and is static-asserted to a power of two in [64, 65536]. The bitmap is `ceiling/8`. `W=0` selects 1024. Init rejects `W` above the ceiling (`DMP_HS_INVALID`), including 2048 and 65536 at the default ceiling. The previous `replay_window` comment allowed [64, 65536] in one build; that conflicts with the smaller bitmap, so the ceiling wins. `failed_aead_limit` is unchanged: zero still selects 65536. Manifest totals were not recalculated.
+
+Sizes, gcc 15.2.0, before to after: `dmp_replay_window` 8208 to 144, one attempt 9832 to 1768, `dmp_hs` 39992 to 7736.
+
+An intermediate full ctest before the encoder fallback was 60/61, failing `identity.profile_admit`, because a NULL size probe was treated as "does not fit." The final run below is after that fallback.
+
+Host only. Not physical transport. Still open: S7 freshness tokens, endpoint ROUTE/CONTEXT/TTL, delayed completion, RADIO-1 N=2, manifest RAM charges and `PROFILE_HASH`.
+
+gcc 15.2.0, cmake 3.28.1, Node v24.11.1.
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure` — 61/61 passed, 0 failed, including `harness.subprocess`.
+- `node dev/dmp_verify_security_vectors.cjs` — exit 0, 4 fixtures, 64 packets, 44 mutations.
+- `node dev/dmp_verify_recovery_vectors.cjs` — exit 0, 26 cases, 8 mutations, cipher 1 only.
+
+## 2026-10-05 — P19 local-unsent, size probe, replay ceiling wording
+
+P19 stays `running`. P12 was not marked done. No stage, commit, push, flash, or DTrack integration. `profiles/`, `docs/`, `AGENTS.md`, `README`, and `dev/DMP_Validation_Results.md` were not edited. `build/host` was not deleted. The encoder-port sentence was not added to `include/dmp/reliability.h`.
+
+`DMP_ENDPOINT_LOCAL_UNSENT = 6` is now a public endpoint event. `on_reliability_notice` maps `DMP_REL_EVENT_LOCAL_UNSENT` to it: empty body, the request's own key, no claim of remote cancellation. `DMP_ENDPOINT_UNKNOWN` stays possibly-sent. `scenarios.gaps` `deadline-before-tx` expects one `LOCAL_UNSENT` and `unknowns == 0`. `deadline-before-activation` is the same outcome when the queue deadline passes while the attempt is still not active: the earlier poll stays `DMP_OK`, sends nothing, and keeps the sender. `scenarios.r7` `r7-expiry` keeps `unknowns == 1` and `local_unsents == 0`.
+
+The 48/73-byte fragment margin is removed. A NULL size probe whose capacity is `encoded_mtu` must return `DMP_OK` or `DMP_LIMIT_EXHAUSTED`. Any other status frees the sender, sends no frame, and for a new REQ reports `LOCAL_UNSENT`. `budget_encode` answers the probe with `dmp_core_encode_header`. `dmp_core_encode` cannot answer it: `out.data == NULL` and a non-zero capacity is `DMP_INVALID_ARGUMENT` (`src/core/codec.c` line 420); capacity 0 falls through to `DMP_LIMIT_EXHAUSTED` for every non-empty frame, so it never reports a fit. `src/core` was not changed.
+
+The compilable replay ceiling is a power of two in [1024, 65536] because the default W of 1024 must fit. `tests/security/test_handshake.c` accepts `W <= DMP_REPLAY_WINDOW_MAX` and rejects `2 * ceiling` when the ceiling is below 65536.
+
+Host only. Not physical transport. Still open: S7 freshness tokens, endpoint ROUTE/CONTEXT/TTL, delayed completion, RADIO-1 N=2, manifest RAM charges, and the `include/dmp/reliability.h` encoder-port sentence.
+
+gcc 15.2.0, cmake 3.28.1, Node v24.11.1.
+
+- `cmake --build build/host` — exit 0.
+- `ctest --test-dir build/host --output-on-failure` — 61/61 passed, 0 failed, including `harness.subprocess`.
+- `node dev/dmp_verify_security_vectors.cjs` — exit 0, 4 fixtures, 64 packets, 44 mutations.
+- `node dev/dmp_verify_recovery_vectors.cjs` — exit 0, 26 cases, 8 mutations, cipher 1 only.
+
+## 2026-10-06 — P19 RAM tooling handoff, endpoint runtime gate remains open
+
+P19 remains `running` and is not accepted. This closes one bounded step: the
+RAM report now separates P01B provider-only fixture measurements from the
+required libdmp endpoint lifecycle. The probe does not instantiate a
+`dmp_endpoint`; its repeated provider cipher calls are not DMP request/result,
+loss-retry, or reconnect-overlap measurements. Endpoint phases
+`initial`, `handshake_peak`, `active_steady`, `request_result_retry`, `cleanup`,
+and `reconnect` remain `not_measured`. Both report/layout `--check` paths fail
+closed until those runtime phases and reconnect overlap are measured. Profile
+charges remain reservations/projections; this step provides no measured
+endpoint RAM total or charge reduction and did not edit manifests.
+
+RAM-worker checks (reported in its handoff; the coordinator did not rerun them
+in this paused step): `python -B tests/memory/test_ram_report.py` passed 12/12;
+strict GCC syntax checking of `ram_measure.c`, Python AST parsing and
+`git diff --check` passed. The Cortex-M compile-only probe reported 22 layout
+records and 3 private sizes: `dmp_endpoint` 2144 B, freshness slot 88 B,
+`dmp_hs` 7712 B and provider 672 B. These are ABI layout values, not runtime
+peaks. No profile runtime allocator values were produced; `build/p19-gcc` has
+an empty `DMP_SODIUM_SOURCE_DIR` and no `dmp_ram_measure` executable. The
+provider adapter's process-global active provider prevents independent peer
+and endpoint provider instances in the same process; an isolated peer-process
+IPC harness or verified endpoint traces plus a runnable P01B build remain
+necessary for one-device lifecycle measurement.
+
+Coordinator verification attempt `job_01M4725W2BCFY9HAVCT8WKH9E5` failed before
+the script started (`agent_disconnected`). No local retry was run. The staged
+index tree remains `bf267a3107329d1ca9e927cf484369bc2d46f454`; no stage, commit,
+push, hardware operation or DTrack integration was performed. P19 functional
+review, full host gate, recovery-matrix reconciliation and final acceptance
+remain pending.

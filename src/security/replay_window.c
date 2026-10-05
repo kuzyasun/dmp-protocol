@@ -29,6 +29,12 @@ void dmp_replay_window_init(dmp_replay_window *window, uint32_t width)
         return;
     }
     memset(window, 0, sizeof(*window));
+    /* Width 0 keeps admit closed. Handshake init rejects W above the ceiling;
+     * this guard stops a larger width from writing past the bitmap. */
+    if (width < DMP_REPLAY_WINDOW_MIN || width > DMP_REPLAY_WINDOW_MAX ||
+        (width & (width - 1U)) != 0U) {
+        return;
+    }
     window->width = width;
 }
 

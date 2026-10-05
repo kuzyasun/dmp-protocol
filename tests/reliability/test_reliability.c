@@ -88,6 +88,7 @@ typedef struct {
     int descriptor;
     uint64_t pn;
     int calls;
+    int probe_status;
     uint32_t default_service;
     dmp_core_limits limits;
     uint8_t ext[160];
@@ -245,7 +246,16 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
     if (enc == NULL || logical == NULL || written == NULL) {
         return DMP_INVALID_ARGUMENT;
     }
-    enc->calls++;
+    /* NULL output is the admission size check. It must not count as a send.
+     * DMP_OK means the exact non-FRAG frame fits; DMP_LIMIT_EXHAUSTED means
+     * it does not. probe_status injects any other local failure. */
+    if (out.data == NULL && enc->probe_status != 0) {
+        *written = 0U;
+        return (dmp_status)enc->probe_status;
+    }
+    if (out.data != NULL) {
+        enc->calls++;
+    }
     memset(&spec, 0, sizeof spec);
     spec.fields.type = (uint8_t)logical->type;
     spec.fields.options = DMP_OPT_SEQ;
@@ -257,9 +267,11 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
         spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_SECURITY);
         spec.fields.security.cipher = 1U;
         spec.fields.security.receive_cid = 1U;
-        spec.fields.security.pn = enc->pn++;
-        memset(enc->trailer, 0, sizeof enc->trailer);
-        spec.trailer.data = enc->trailer;
+        spec.fields.security.pn = out.data == NULL ? enc->pn : enc->pn++;
+        if (out.data != NULL) {
+            memset(enc->trailer, 0, sizeof enc->trailer);
+            spec.trailer.data = enc->trailer;
+        }
         spec.trailer.size = 16U;
     }
     if (logical->has_reply_to) {
@@ -303,6 +315,15 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
         spec.fields.fragment.total_size = logical->total_size;
     }
     spec.payload = logical->payload;
+    if (out.data == NULL) {
+        uint8_t header[DMP_MAX_HEADER_BYTES];
+        dmp_buffer header_buf;
+        size_t header_len = 0U;
+        *written = 0U;
+        header_buf.data = header;
+        header_buf.capacity = sizeof header;
+        return dmp_core_encode_header(&spec, &enc->limits, header_buf, &header_len);
+    }
     return dmp_core_encode(&spec, &enc->limits, out, written);
 }
 
@@ -670,8 +691,11 @@ static int test_quota_and_validation(void)
     second.slot = 4U;
     second.generation = 8U;
     CHECK(dmp_reliability_submit_req(&side_a.engine, 0U, span(PING, sizeof PING), 0U, 0U, &second) ==
-          DMP_INVALID_ARGUMENT);
-    CHECK(second.slot == 4U && second.generation == 8U);
+          DMP_OK);
+    CHECK(second.slot == 0U && second.generation != 0U);
+    CHECK(dmp_reliability_cancel(&side_a.engine, second, 0U) == DMP_OK);
+    second.slot = 4U;
+    second.generation = 8U;
     CHECK(dmp_reliability_submit_req(&side_a.engine, 3U, span(PING, sizeof PING), 0U, 0U, &second) ==
           DMP_INVALID_ARGUMENT);
     CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING), 0U, JITTER_MS + 1U,
@@ -991,9 +1015,14 @@ static int test_duplicate_metadata_and_service(void)
     view.fields.options = DMP_OPT_SEQ;
     CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_UNSUPPORTED);
     view.fields.options = DMP_OPT_ROUTE | DMP_OPT_ACK_REQ | DMP_OPT_SEQ;
+    view.fields.route.mode = 1U;
+    view.fields.route.destination = 99U;
     input.frame = &view;
-    CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_UNSUPPORTED);
-    CHECK(dmp_reliability_reject_req(&side_b.engine, &input, 4U, 14U) == DMP_UNSUPPORTED);
+    CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_MALFORMED);
+    CHECK(dmp_reliability_reject_req(&side_b.engine, &input, 4U, 14U) == DMP_MALFORMED);
+    view.fields.route.destination = 20U;
+    CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_CONTEXT_REQUIRED);
+    CHECK(dmp_reliability_reject_req(&side_b.engine, &input, 4U, 14U) == DMP_CONTEXT_REQUIRED);
     CHECK(side_b.history[1].live == 0U);
     return 0;
 }
@@ -1875,6 +1904,37 @@ static int test_large_result_slices(void)
     return 0;
 }
 
+static int test_probe_rejection(void)
+{
+    dmp_reliability_handle handle;
+    int i;
+    int live;
+
+    handle.slot = 99U;
+    handle.generation = 99U;
+    CHECK(boot(&side_a, 0, 0) == 0);
+    side_a.enc.probe_status = (int)DMP_MALFORMED;
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING), 1000U, 0U, &handle) ==
+          DMP_MALFORMED);
+    CHECK(handle.slot == 99U);
+    CHECK(handle.generation == 99U);
+    CHECK(side_a.tx.submits == 0);
+    CHECK(event_count(&side_a.notes, DMP_REL_EVENT_LOCAL_UNSENT) == 1);
+    CHECK(side_a.notes.items[0].payload.size == 0U);
+    CHECK(side_a.notes.items[0].key.seq == 0U);
+    CHECK(side_a.notes.items[0].key.origin.origin_id == 10U);
+    live = 0;
+    for (i = 0; i < MAX_SLOTS; i++) {
+        live += side_a.senders[i].live != 0U ? 1 : 0;
+    }
+    CHECK(live == 0);
+    side_a.enc.probe_status = 0;
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING), 1000U, 0U, &handle) ==
+          DMP_OK);
+    CHECK(side_a.senders[handle.slot].live == 1U);
+    return 0;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -1890,6 +1950,7 @@ int main(void)
     failed |= test_secured_provisional();
     failed |= test_selective_and_retry_all();
     failed |= test_large_result_slices();
+    failed |= test_probe_rejection();
     if (failed != 0) {
         (void)fprintf(stderr, "reliability tests failed\n");
         return 1;

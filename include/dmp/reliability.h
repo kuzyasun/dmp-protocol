@@ -29,7 +29,11 @@ typedef enum {
     DMP_REL_EVENT_REJECTED,
     DMP_REL_EVENT_RECEIPT,
     DMP_REL_EVENT_RESULT,
-    DMP_REL_EVENT_LATE_RESULT
+    DMP_REL_EVENT_LATE_RESULT,
+    DMP_REL_EVENT_DATA_ACCEPTED,
+    DMP_REL_EVENT_DATA_DELIVERED,
+    DMP_REL_EVENT_DATA_UNKNOWN,
+    DMP_REL_EVENT_DATA_LOCAL_UNSENT
 } dmp_reliability_event;
 
 typedef enum {
@@ -76,11 +80,16 @@ typedef struct {
     uint32_t fragment_index;
     uint32_t chunk_size;
     uint32_t total_size;
+    dmp_bytes freshness_token;
 } dmp_reliability_logical;
 
 /* The encoder constructs one fresh direct logical frame per attempt. For a
  * secured identity context it must invoke the future SEC-1 protection path and
- * allocate a fresh PN; P10 does not protect or resend cached ciphertext. */
+ * allocate a fresh PN; P10 does not protect or resend cached ciphertext.
+ * When out.data is NULL and out.capacity is the encoded MTU, return DMP_OK if
+ * the exact non-FRAG frame fits that capacity and DMP_LIMIT_EXHAUSTED if it
+ * does not, without sealing or allocating a PN; any other status is a local
+ * failure. */
 typedef dmp_status (*dmp_reliability_encode_fn)(
     void *context, const dmp_reliability_logical *logical, dmp_buffer out,
     size_t *written);
@@ -148,6 +157,9 @@ typedef struct {
     uint8_t burst_inflight;
     uint8_t burst_counted;
     uint8_t probe_burst;
+    uint8_t freshness_live;
+    uint8_t message_type;
+    uint8_t freshness_token[16];
 } dmp_reliability_sender_slot;
 
 typedef struct {
@@ -301,6 +313,30 @@ dmp_status dmp_reliability_submit_req(dmp_reliability *engine,
                                       uint32_t service_id, dmp_bytes payload,
                                       dmp_time_ms now, uint32_t jitter_ms,
                                       dmp_reliability_handle *out);
+/* Freshness-bearing REQ variant. token is either empty or exactly 16 bytes. */
+dmp_status dmp_reliability_submit_req_fresh(dmp_reliability *engine,
+                                            uint32_t service_id, dmp_bytes payload,
+                                            dmp_bytes token, dmp_time_ms now,
+                                            uint32_t jitter_ms,
+                                            dmp_reliability_handle *out);
+/* Reliable DATA shares the peer/service stop-and-wait gate and is acknowledged
+ * as accepted delivery, without creating an application result exchange. */
+dmp_status dmp_reliability_submit_data(dmp_reliability *engine,
+                                       uint32_t service_id, dmp_bytes payload,
+                                       dmp_time_ms now,
+                                       dmp_reliability_handle *out);
+dmp_status dmp_reliability_submit_data_fresh(dmp_reliability *engine,
+                                             uint32_t service_id, dmp_bytes payload,
+                                             dmp_bytes token, dmp_time_ms now,
+                                             dmp_reliability_handle *out);
+dmp_status dmp_reliability_submit_event(dmp_reliability *engine,
+                                        uint32_t service_id, dmp_bytes payload,
+                                        dmp_time_ms now,
+                                        dmp_reliability_handle *out);
+dmp_status dmp_reliability_submit_event_fresh(dmp_reliability *engine,
+                                              uint32_t service_id, dmp_bytes payload,
+                                              dmp_bytes token, dmp_time_ms now,
+                                              dmp_reliability_handle *out);
 /* Cancellation is local only. Classify the whole exchange as follows:
  * - If no transport submission has been accepted, settle LOCAL_UNSENT.
  * - DMP_TX_CANCELLED_UNSENT and DMP_TX_FAILED_UNSENT prove that the respective
@@ -356,6 +392,12 @@ dmp_status dmp_reliability_complete(dmp_reliability *engine,
                                     bool application_err,
                                     uint32_t wire_status,
                                     dmp_bytes payload, dmp_time_ms now);
+/* Apply a shorter policy-defined result retention horizon. The lifetime must
+ * be nonzero and no greater than the admitted result_cache_ms. */
+dmp_status dmp_reliability_complete_for_lifetime(
+    dmp_reliability *engine, dmp_reliability_handle request, bool application_err,
+    uint32_t wire_status, dmp_bytes payload, uint32_t result_lifetime_ms,
+    dmp_time_ms now);
 
 /* Advances deadlines/retries and consumes delayed transport completions.
  * Transport callbacks only publish terminal outcomes; notices and later sends

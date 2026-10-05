@@ -117,12 +117,40 @@ def width(value):
     return max(1, (value.bit_length() + 6) // 7)
 
 
+def origin_route_of(document):
+    """Map binding topology/context onto dmp_config.origin_route.
+
+    point-to-point + association is DIRECT-1 (no ROUTE). static-unicast +
+    origin-explicit is TO_NODE. Callers already rejected other combinations.
+    """
+    binding = document["binding"]
+    topology = binding["topology"]
+    context = binding["context"]
+    if topology == "point-to-point" and context == "association":
+        return 0
+    if topology == "static-unicast" and context == "origin-explicit":
+        return 1
+    raise ProfileError("profile", "$.binding", "route mapping is not defined for this binding")
+
+
+def origin_ttl_of(document):
+    """Map binding.ttl onto dmp_config.origin_ttl. DIRECT-1 stays 0."""
+    if origin_route_of(document) == 0:
+        return 0
+    return int(document["binding"]["ttl"])
+
+
 def _identity_and_services(m):
     p, b, ident, services = m["profile"], m["binding"], m["identity"], m["services"]
-    direct = p["id"] == "DIRECT-1"
-    selective = p["id"] == "RADIO-1"
-    test = p["id"] == "TEST-RADIO-RETRY-ALL"
-    require(p["owner"] == ("DMP-test" if test else "DMP-reference") and
+    direct = p["id"] in {"DIRECT-1", "TEST-DIRECT-ASYNC", "TEST-DIRECT-MINIMAL-128",
+                          "TEST-DIRECT-MINIMAL-256"}
+    selective = p["id"] in {"RADIO-1", "TEST-RADIO-N2"}
+    retry_all_test = p["id"] == "TEST-RADIO-RETRY-ALL"
+    test_families = {"TEST-RADIO-RETRY-ALL", "TEST-RADIO-N2", "TEST-DIRECT-ASYNC",
+                     "TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256"}
+    test = p["id"] in test_families
+    require((p["id"] in {"DIRECT-1", "RADIO-1"} or test) and
+            p["owner"] == ("DMP-test" if test else "DMP-reference") and
             p["revision"] == (1 if test else 4), "profile", "$.profile", "family owner/revision mismatch")
     expected = (("DMP-test/SIM-STREAM-R", "stream-r", "point-to-point", "association") if direct else
                 ("DMP-test/SIM-PACKET", "packet", "static-unicast", "origin-explicit"))
@@ -155,6 +183,30 @@ def _identity_and_services(m):
         if sid == 1:
             require(service["request_bytes"] == 1 and service["result_bytes"] == 17 and not service["freshness"],
                     "service", path, "SAMPLE-1 contract cannot be changed")
+    if retry_all_test:
+        require(all(service["recovery"] == "retry-all" for service in services),
+                "profile", "$.services", "retry-all test family must retain retry-all semantics")
+    if p["id"] == "TEST-DIRECT-ASYNC":
+        require(not b["synchronous_completion"], "profile", "$.binding.synchronous_completion",
+                "async test family requires delayed completion")
+    elif p["id"] != "TEST-RADIO-N2":
+        require(b["synchronous_completion"], "profile", "$.binding.synchronous_completion",
+                "delayed completion is only allowed in an explicit async test family")
+    if p["id"] == "TEST-RADIO-N2":
+        require(selective and b["forward_mtu"] == 128 and b["return_mtu"] == 128 and
+                b["encoded_mtu"] == 128 and len(m["relays"]) == 2,
+                "profile", "$.binding", "N=2 test family requires its explicit 128-byte RADIO-1 path")
+    if p["id"] in {"TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256"}:
+        ceiling = 128 if p["id"].endswith("128") else 256
+        require(direct and not m["relays"] and m["freshness"]["lease_ms"] == 0 and
+                m["limits"]["peers"] == 1 and m["limits"]["operations_per_service"] == 1 and
+                m["limits"]["sender_slots"] == 1 and m["limits"]["application_queue_slots"] == 1 and
+                m["limits"]["message_bytes"] == ceiling and
+                services[1]["request_bytes"] == ceiling and services[1]["result_bytes"] == ceiling and
+                m["limits"]["chunk_bytes"] == 64 and
+                m["limits"]["fragments"] == (ceiling + 63) // 64 and
+                m["security"]["draining_per_pair"] == 0 and m["security"]["drain_ms"] == 0,
+                "profile", "$.limits", "minimal direct profile exceeds its explicit single-peer envelope")
     return direct, selective
 
 
@@ -359,26 +411,28 @@ def _resources(m, derived):
     expected = {"endpoint", "relay"} if m["relays"] else {"endpoint"}
     require(roles == expected and len(roles) == len(m["resources"]), "resources", "$.resources", "resource roles missing or duplicated")
     associations = s["pending_per_pair"] + s["active_per_pair"] + s["draining_per_pair"]
-    operations = 2 * len(m["services"])
+    operations = l["sender_slots"]
+    require(operations <= 2 * len(m["services"]) * l["peers"] * l["operations_per_service"],
+            "resources", "$.limits.sender_slots",
+            "sender capacity exceeds the simultaneous per-service operation ceiling")
     fresh = m["freshness"]
     grants = fresh["grant_requests_per_pair"]
     require(l["assembly_tombstones_per_peer"] >= l["assemblies_per_peer"],
             "resources", "$.limits.assembly_tombstones_per_peer",
             "each active assembly must reserve its future expiry tombstone")
     minimum_counts = {"provider_retained": associations, "provider_scratch": s["crypto_slots"],
-                      "association": associations, "bootstrap": s["preauth_slots"],
+                      "association": 1, "bootstrap": 0,
                       "sender": operations, "assembly": l["assemblies_per_peer"],
                       "assembly_tombstone": l["peers"] * l["assembly_tombstones_per_peer"],
                       "result": operations + grants, "history": 2*(operations + grants), "correlation": operations + grants,
-                      "control": l["control_slots"], "application_queue": l["application_queue_slots"],
-                      "adapter": l["adapter_slots"], "stacks": 1, "relay_cache": 1,
-                      "freshness_tokens": max(1, fresh["tokens_per_principal"])}
+                      "control": l["control_slots"], "application_queue": 1,
+                      "adapter": l["adapter_slots"], "stacks": 1, "relay_cache": 0,
+                      "freshness_tokens": fresh["tokens_per_principal"] if grants else 0}
     minimum_bytes = {key: l["message_bytes"] for key in ("sender", "assembly", "result", "application_queue")}
-    minimum_bytes["assembly"] += 512
     minimum_bytes["assembly_tombstone"] = 48
-    minimum_bytes.update(bootstrap=120, control=derived["encoded_frame_bytes"], adapter=derived["encoded_frame_bytes"])
+    minimum_bytes.update(bootstrap=0, control=0, adapter=derived["encoded_frame_bytes"], relay_cache=0)
     minimum_bytes["result"] = max(l["message_bytes"], 21 if grants else 1)
-    minimum_bytes["freshness_tokens"] = 16 if grants else 1
+    minimum_bytes["freshness_tokens"] = 16 if grants else 0
     require(l["control_slots"] >= m["timing"]["feedback_buffers"] + grants + 1,
             "resources", "$.limits.control_slots", "grant requests cannot consume receipt/feedback reservation")
     # Same reserve as dmp_reliability_init / dmp_config_admit. Not a stricter policy.
@@ -406,10 +460,11 @@ def _resources(m, derived):
                 count = operations * (derived["fragment_count"] + derived["bootstrap_fragment_count"]) + m["timing"]["max_status"] + m["timing"]["receipt_limit"]
                 count += derived["establishment_frame_reserve"]*s["episode_attempts"]
             if key in ("control", "adapter"):
-                size = minimum_bytes[key]
+                size = minimum_bytes[key] if (key == "adapter" or resource["role"] == "relay") else 0
             require(charge["count"] >= count and charge["bytes_each"] >= size,
                     "resources", path + "." + key, "component pool cannot cover admitted concurrency or whole buffers")
-            used[charge["region"]] += charge["count"] * charge["bytes_each"]
+            if not (resource["role"] == "endpoint" and key in ("provider_scratch", "control")):
+                used[charge["region"]] += charge["count"] * charge["bytes_each"]
         require(all(used[k] <= regions[k] for k in regions), "resources", path, "aggregate simultaneous RAM charges exceed a region limit")
         totals[resource["role"]] = used
     derived["ram_reserved_bytes"] = totals

@@ -2,6 +2,7 @@
  * public test material. Enrollment commit does not activate an association.
  */
 #include "handshake.h"
+#include "replay_window.h"
 #include "noise_fixture_probe.h"
 
 #include <noise/protocol.h>
@@ -1949,6 +1950,73 @@ done:
     return passed && !port.nonzero_release;
 }
 
+static int expect_replay_width(const noise_fixture_probe_fixture_t *fixture, uint32_t width,
+                              dmp_hs_status want, uint32_t stored)
+{
+    session env;
+    port_ctx port;
+    dmp_hs_config config;
+    dmp_hs_ports ports;
+    dmp_hs_status status;
+
+    memset(&env, 0, sizeof env);
+    env.now = 10000U;
+    if (!open_provider(&port, &env.provider)) {
+        return 0;
+    }
+    env.initiator = (dmp_hs *)calloc(1, dmp_hs_size());
+    if (env.initiator == NULL) {
+        close_session(&env);
+        return 0;
+    }
+    fill_config(&config, fixture, 1, NULL, 0, 0);
+    config.budget.replay_window = width;
+    env.init_box.now = &env.now;
+    env.init_box.entropy_script = &env.init_script;
+    env.init_box.pin_store = &env.init_store;
+    memset(&ports, 0, sizeof ports);
+    ports.now_ms = now_of;
+    ports.entropy = entropy_of;
+    ports.commit_pin = commit_of;
+    ports.ctx = &env.init_box;
+    status = dmp_hs_init(env.initiator, env.provider, &config, &ports);
+    if (status != want || (want == DMP_HS_OK && dmp_hs_replay_width(env.initiator) != stored)) {
+        fprintf(stderr, "replay width %u -> status %d stored %u\n", width, (int)status,
+                want == DMP_HS_OK ? dmp_hs_replay_width(env.initiator) : 0U);
+        close_session(&env);
+        return 0;
+    }
+    close_session(&env);
+    return 1;
+}
+
+static int test_replay_ceiling(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+
+    printf("P19 sizeof dmp_replay_window=%zu attempt=%zu dmp_hs=%zu\n",
+           sizeof(dmp_replay_window), dmp_hs_attempt_size(), dmp_hs_size());
+    if (sizeof(dmp_replay_window) != (size_t)DMP_REPLAY_WINDOW_BYTES + 16U) {
+        fprintf(stderr, "replay bitmap is not the build ceiling\n");
+        return 0;
+    }
+    if (fixture == NULL || !expect_replay_width(fixture, 0U, DMP_HS_OK, DMP_REPLAY_WINDOW_DEFAULT) ||
+        !expect_replay_width(fixture, 64U, DMP_HS_OK, 64U) ||
+        !expect_replay_width(fixture, DMP_REPLAY_WINDOW_MAX, DMP_HS_OK, DMP_REPLAY_WINDOW_MAX)) {
+        return 0;
+    }
+    /* 2*ceiling is outside this build. When the ceiling is already 65536 that
+     * product is not a SEC-1 width, so the rejection check stops there. */
+    if (DMP_REPLAY_WINDOW_MAX < 65536U &&
+        !expect_replay_width(fixture, DMP_REPLAY_WINDOW_MAX * 2U, DMP_HS_INVALID, 0U)) {
+        return 0;
+    }
+    /* PN behind W is dropped before AEAD in replay-window (failed_aead stays 0).
+     * A bad tag does not set the bit in failed-aead-limit: the same PN is
+     * accepted afterwards. */
+    return 1;
+}
+
 int main(void)
 {
     expect_case("nn-candidate", test_nn_candidate());
@@ -1967,6 +2035,7 @@ int main(void)
     expect_case("finish-ready", test_finish_ready());
     expect_case("confirmation-loss", test_confirmation_loss());
     expect_case("replay-window", test_replay_window());
+    expect_case("replay-ceiling", test_replay_ceiling());
     expect_case("enroll-not-active", test_enroll_not_active());
     expect_case("failed-aead-limit", test_failed_aead_limit());
     if (g_failures != 0) {

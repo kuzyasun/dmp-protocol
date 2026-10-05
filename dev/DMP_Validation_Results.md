@@ -83,6 +83,7 @@ do not qualify the composed DMP endpoint.
 - Embedded JSON admission and the 419936-byte scratch (unchanged in this stage).
 - P12 and every SEC-1/physical DMP transport gate.
 - `four_parallel` was never counted as a passed serialized test.
+- Endpoint RAM totals 78720 (direct) and 83584 (radio) in `profiles/deployments/README.md` are not valid. A 2026-10-05 sizeof audit on the 64-bit host build found `sizeof(dmp_hs)` = 39992 against the association row of 3×512, because four attempts each embedded an 8208-byte replay window sized for W=65536. After the P19 build ceiling `DMP_REPLAY_WINDOW_MAX` = 1024, the window is 144 bytes, one attempt 1768 and `dmp_hs` 7736, which still exceeds 3×512. History (8×375 versus 1024), correlation (4×359 versus 512), `dmp_endpoint` (2480), `receive_payload` (1024), fragment buffers (1287) and stream buffers (541) are also under-charged or uncharged. The approximate caller-allocated totals were 118259 bytes (direct) and 123436 bytes (radio) before the ceiling, and about 86003 and 91180 after subtracting the 32256 bytes of removed bitmap; these are derived, not re-measured. No test asserts `sizeof` against a charge row. Recharging the manifests changes PROFILE_HASH and awaits an owner decision. The stage 3 buffer-budget rows above count only payload, metadata and frame arrays and are not affected.
 
 ## Replay
 

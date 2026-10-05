@@ -36,7 +36,7 @@ class DeploymentTests(unittest.TestCase):
         if path is not None:
             self.assertEqual(path, raised.exception.path)
 
-    def test_six_manifest_inventory_digests_and_independent_derived_bounds(self):
+    def test_manifest_inventory_digests_and_independent_derived_bounds(self):
         inventory = {path.name for path in DEPLOYMENTS.glob("*.json")
                      if path.name not in {"digests.json", "resource-inputs.json"}}
         self.assertEqual(set(self.digests), inventory)
@@ -58,6 +58,10 @@ class DeploymentTests(unittest.TestCase):
             "radio-xx.json": ("DMP-reference", "RADIO-1", 4, "XX"),
             "test-radio-retry-all-nnpsk0.json": ("DMP-test", "TEST-RADIO-RETRY-ALL", 1, "NNpsk0"),
             "test-radio-retry-all-xx.json": ("DMP-test", "TEST-RADIO-RETRY-ALL", 1, "XX"),
+            "direct-nnpsk0-async.json": ("DMP-test", "TEST-DIRECT-ASYNC", 1, "NNpsk0"),
+            "radio-nnpsk0-n2.json": ("DMP-test", "TEST-RADIO-N2", 1, "NNpsk0"),
+            "test-direct-minimal-128.json": ("DMP-test", "TEST-DIRECT-MINIMAL-128", 1, "NNpsk0"),
+            "test-direct-minimal-256.json": ("DMP-test", "TEST-DIRECT-MINIMAL-256", 1, "NNpsk0"),
         }
         for name, expected in identities.items():
             with self.subTest(manifest=name):
@@ -75,9 +79,11 @@ class DeploymentTests(unittest.TestCase):
                                  (sample["schema"], sample["request_bytes"], sample["result_bytes"], sample["freshness"]))
                 self.assertEqual(16, manifest["sample"]["telemetry_bytes"])
                 self.assertEqual((1, 17), (manifest["sample"]["read_request_bytes"], manifest["sample"]["read_result_bytes"]))
-                self.assertEqual(1024, manifest["limits"]["message_bytes"])
-                self.assertEqual((1024, 1024), (services[2]["request_bytes"], services[2]["result_bytes"]))
-                expected_fragments = 16 if manifest["profile"]["id"] == "DIRECT-1" else 32
+                minimal = manifest["profile"]["id"] in {"TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256"}
+                maximum = manifest["limits"]["message_bytes"]
+                self.assertEqual((maximum, maximum), (services[2]["request_bytes"], services[2]["result_bytes"]))
+                self.assertEqual(1 if minimal else 4, manifest["limits"]["sender_slots"])
+                expected_fragments = (maximum + manifest["limits"]["chunk_bytes"] - 1) // manifest["limits"]["chunk_bytes"]
                 self.assertEqual(expected_fragments, manifest["limits"]["fragments"])
                 self.assertEqual(16, manifest["limits"]["assembly_tombstones_per_peer"])
                 endpoint = next(resource for resource in manifest["resources"]
@@ -85,6 +91,34 @@ class DeploymentTests(unittest.TestCase):
                 tombstones = next(charge for charge in endpoint["charges"]
                                   if charge["component"] == "assembly_tombstone")
                 self.assertEqual((16, 48), (tombstones["count"], tombstones["bytes_each"]))
+
+    def test_async_and_n2_are_separate_exact_profiles(self):
+        direct = self.manifests["direct-nnpsk0.json"]
+        async_direct = self.manifests["direct-nnpsk0-async.json"]
+        direct_differences = self.differing_paths(direct, async_direct)
+        self.assertEqual({"/profile/owner", "/profile/id", "/profile/revision",
+                          "/binding/synchronous_completion"}, direct_differences)
+        self.assertFalse(async_direct["binding"]["synchronous_completion"])
+        self.assertNotEqual(self.digests["direct-nnpsk0.json"],
+                            self.digests["direct-nnpsk0-async.json"])
+
+        radio = self.manifests["radio-nnpsk0.json"]
+        n2 = self.manifests["radio-nnpsk0-n2.json"]
+        n2_differences = self.differing_paths(radio, n2)
+        self.assertEqual({"/profile/owner", "/profile/id", "/profile/revision",
+                          "/binding/forward_mtu", "/binding/return_mtu",
+                          "/binding/encoded_mtu", "/binding/synchronous_completion",
+                          "/resources/0/charges/11/bytes_each",
+                          "/resources/0/charges/12/bytes_each"},
+                         n2_differences)
+        self.assertEqual((128, 128, 128), (n2["binding"]["forward_mtu"],
+                                           n2["binding"]["return_mtu"],
+                                           n2["binding"]["encoded_mtu"]))
+        self.assertFalse(n2["binding"]["synchronous_completion"])
+        self.assertEqual("selective-32", n2["services"][1]["recovery"])
+        self.assertTrue(n2["services"][1]["freshness"])
+        self.assertNotEqual(self.digests["radio-nnpsk0.json"],
+                            self.digests["radio-nnpsk0-n2.json"])
 
     @staticmethod
     def differing_paths(left, right, prefix=""):
@@ -139,13 +173,14 @@ class DeploymentTests(unittest.TestCase):
         small_assembly = copy.deepcopy(radio)
         endpoint = next(resource for resource in small_assembly["resources"] if resource["role"] == "endpoint")
         assembly = next(charge for charge in endpoint["charges"] if charge["component"] == "assembly")
-        assembly["bytes_each"] = small_assembly["limits"]["message_bytes"] + 511
+        assembly["bytes_each"] = small_assembly["limits"]["message_bytes"] - 1
         self.assert_rejected(small_assembly, "resources", "$.resources[endpoint].assembly")
 
         small_region = copy.deepcopy(radio)
         endpoint = next(resource for resource in small_region["resources"] if resource["role"] == "endpoint")
         ram = next(region for region in endpoint["regions"] if region["id"] == "RAM")
-        ram["limit_bytes"] = 81279
+        total = validator.validate_bytes(self.raw["radio-nnpsk0.json"])["derived"]["ram_reserved_bytes"]["endpoint"]["RAM"]
+        ram["limit_bytes"] = total - 1
         self.assert_rejected(small_region, "resources", "$.resources[endpoint]")
 
     def test_fragment_count_and_direct_chunk_boundaries(self):

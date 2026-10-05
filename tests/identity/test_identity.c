@@ -195,11 +195,35 @@ static int test_resolution(void)
     CHECK(key.seq == 4U);
 
     frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE), 4U, 20U, &ext);
+    frame.fields.route.mode = 1U;
+    frame.fields.route.destination = 10U;
+    key = sentinel;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_CONTEXT_REQUIRED);
+    CHECK(memcmp(&key, &sentinel, sizeof key) == 0);
+
+    memset(&ext, 0, sizeof ext);
+    memset(&value, 0, sizeof value);
+    add_uleb(&value, 1U);
+    add_u64le(&value, 9U);
+    add_tlv(&ext, 11U, &value);
+    frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_EXT), 4U, 20U, &ext);
+    frame.fields.route.mode = 1U;
+    frame.fields.route.destination = 10U;
     CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
-    frame.fields.route.source = 99U;
+    CHECK(key.origin.namespace_id == 1U);
+    CHECK(key.origin.origin_id == 20U);
+    CHECK(key.origin.epoch == 9U);
+    CHECK(key.seq == 4U);
+    frame.fields.route.mode = 0U;
     key = sentinel;
     CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_MALFORMED);
     CHECK(memcmp(&key, &sentinel, sizeof key) == 0);
+    frame.fields.route.mode = 1U;
+    frame.fields.route.destination = 99U;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_MALFORMED);
+    frame.fields.route.destination = 10U;
+    frame.fields.route.source = 99U;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_MALFORMED);
 
     memset(&value, 0, sizeof value);
     add_uleb(&value, 99U);
@@ -319,6 +343,10 @@ static int test_authenticated_compact(void)
     CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
     CHECK(key.origin.origin_id == 20U);
     CHECK(key.seq == 5U);
+    frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_SECURITY), 6U, 20U, NULL);
+    frame.fields.route.mode = 1U;
+    frame.fields.route.destination = 10U;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_CONTEXT_REQUIRED);
 
     handle.generation = 99U;
     CHECK(dmp_identity_reply_to(&frame, &table, handle, 0U, &key) == DMP_STALE_HANDLE);

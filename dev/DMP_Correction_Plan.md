@@ -525,3 +525,40 @@ cells, frozen contracts, wire format, or SAMPLE-1 rules.
    with jitter explicitly 0. Attempt, time, and load limits stay mandatory.
    Do not add a random delay source. A deployment that needs scatter defines
    it later.
+
+## Owner direction 2026-10-05: P19 closure and endpoint RAM
+
+Binding. All five items stay inside P19; S10 case 11 stays with P22/P23.
+
+1. **S7.1 freshness.** Real grants, token checks, quotas, expiry,
+   binding/consumption and duplicate/result retention on the existing reliable
+   request/result path and the existing entropy port. Optional per service;
+   services without freshness are unchanged. The 64-byte token charge is a
+   budget row, not a layout requirement; measure the actual slot.
+2. **ROUTE/CONTEXT/TTL.** Typed binding fields in `dmp_config`. The endpoint
+   emits routed RADIO-1 frames itself, including RSP, ACK and FRAG_STATUS. A
+   missing mandatory CONTEXT is rejected without substitution. AAD per S5:
+   routing identities and CONTEXT protected, TTL nibble zeroed.
+3. **Delayed completion.** A separate explicit async test configuration with
+   `synchronous_completion` false and its own digest when manifest-based. The
+   harness delays the ordinary completion callback; no product test bypass.
+4. **RADIO-1 N=2.** A separately named test deployment with a smaller MTU and
+   its own PROFILE_HASH, chosen after items 1 and 2 with the exact encoder.
+   RADIO-1 and TEST-RADIO-RETRY-ALL are unchanged.
+5. **RAM.** Re-measure after the functional changes, remove confirmed waste,
+   and update charges, PROFILE_HASH values, fixtures and checks together. The
+   131072 region limit is not raised. Automatic checks compare capacities and
+   allocation/layout requirements with charges and totals.
+
+A separately named minimal test configuration answers how much RAM one device
+needs for one protected NNpsk0 peer: one operation at a time, opaque payload up
+to 128 bytes (256 separately, showing fragmentation cost), reliable
+request/result with loss retry, no relay or freshness, explicit reconnect and
+rotation policy. It uses the same library and claims no family compatibility.
+Report one side, per phase (initial, handshake peak, active, exchange with
+loss, cleanup and reconnect), host ABI and MCU ABI separately.
+
+Sequence: (a) ROUTE/CONTEXT/TTL in parallel with single-device RAM measurement
+tooling; (b) freshness; (c) async test configuration and the N=2 test
+deployment; (d) waste removal, minimal configuration, recharged manifests and
+hashes; (e) independent security/lifecycle review, fixes, full host gate.

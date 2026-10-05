@@ -967,7 +967,9 @@ static int test_activation(void)
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) == DMP_OK);
     right.wire.now = now;
     status = dmp_endpoint_poll(&right.endpoint, now);
-    CHECK(status == DMP_AUTHENTICATION_FAILURE);
+    /* A live attempt that is not active yet keeps the admitted REQ.
+     * Poll stays DMP_OK because reliability treats that wait as DMP_BUSY. */
+    CHECK(status == DMP_OK);
     CHECK(right.wire.n == 0);
     CHECK(left.app.accepts == 0);
     CHECK(activate(&env, index) == 1);
@@ -1250,13 +1252,17 @@ static int test_ttl(void)
     port_ctx port;
     uint32_t index = 0U;
     uint8_t payload[2] = {0x11, 0x22};
+    uint8_t ext[16];
     uint8_t sealed[MTU];
+    uint8_t ttl_only[MTU];
     uint8_t wrapped[FRAME_CAP];
-    uint8_t core[MTU];
+    size_t ext_n = 0U;
     size_t sealed_n = 0U;
     size_t wrapped_n = 0U;
-    size_t core_n = 0U;
     size_t at;
+    unsigned b;
+    uint64_t epoch_i = 0U;
+    uint64_t epoch_r = 0U;
     dmp_frame_spec spec;
     dmp_time_ms now = 20000U;
     dmp_status status;
@@ -1267,6 +1273,8 @@ static int test_ttl(void)
     CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
     CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
     CHECK(bind_pair(&env, index) == 0);
+    CHECK(dmp_hs_epochs(env.initiator, index, &epoch_i, &epoch_r) == 1);
+    (void)epoch_r;
     memset(&spec, 0, sizeof spec);
     spec.fields.type = (uint8_t)DMP_TYPE_TELEM;
     spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE);
@@ -1278,29 +1286,39 @@ static int test_ttl(void)
     spec.payload = span(payload, sizeof payload);
     CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof sealed, &sealed_n) ==
           DMP_HS_OK);
-    CHECK(sealed_n > 4U);
-    at = 3U;
-    while (at < sealed_n && (sealed[at] & 0x80U) != 0U) {
-        at++;
-    }
-    at++;
-    CHECK(at < sealed_n);
-    sealed[at] = (uint8_t)((9U << 4) | (sealed[at] & 0x0fU));
     CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
     status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now);
-    CHECK(status == DMP_OK);
-    CHECK(right.app.telems == 1);
-    CHECK(unwrap_core(wrapped, wrapped_n, core, sizeof core, &core_n, now) == 1);
+    CHECK(status == DMP_CONTEXT_REQUIRED);
+    CHECK(right.app.telems == 0);
+    ext[ext_n++] = 11U;
+    ext[ext_n++] = 9U;
+    ext[ext_n++] = 1U;
+    for (b = 0U; b < 8U; b++) {
+        ext[ext_n++] = (uint8_t)(epoch_i >> (8U * b));
+    }
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_EXT);
+    spec.fields.seq = 2U;
+    spec.extensions = span(ext, ext_n);
+    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(sealed_n > 4U);
+    memcpy(ttl_only, sealed, sealed_n);
     at = 3U;
-    while (at < core_n && (core[at] & 0x80U) != 0U) {
+    while (at < sealed_n && (ttl_only[at] & 0x80U) != 0U) {
         at++;
     }
     at++;
-    CHECK(at + 2U < core_n);
-    core[at + 2U] ^= 0x01U;
-    CHECK(wrap_core(core, core_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(at + 2U < sealed_n);
+    ttl_only[at + 2U] ^= 0x01U;
+    CHECK(wrap_core(ttl_only, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
     status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now);
     CHECK(status == DMP_AUTHENTICATION_FAILURE);
+    CHECK(right.app.telems == 0);
+    ttl_only[at + 2U] ^= 0x01U;
+    ttl_only[at] = (uint8_t)((9U << 4) | (ttl_only[at] & 0x0fU));
+    CHECK(wrap_core(ttl_only, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now);
+    CHECK(status == DMP_OK);
     CHECK(right.app.telems == 1);
     close_session(&env);
     return 0;

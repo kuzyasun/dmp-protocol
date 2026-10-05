@@ -40,6 +40,11 @@ static const uint8_t META_B[] = {0x05, 0x0B, 0x01, 0x0A, 0x09, 0x00, 0x00, 0x00,
                                  0x00, 0x00, 0x00, 0x00, 0x05};
 static const uint8_t SVC1[] = {0x11, 0x01, 0x01};
 static const uint8_t SVC2[] = {0x11, 0x01, 0x02};
+/* Peer epoch 7, namespace 1. Routed fragments require this CONTEXT. */
+static const uint8_t ROUTE_CTX[] = {0x0b, 0x09, 0x01, 0x07, 0x00, 0x00, 0x00,
+                                    0x00, 0x00, 0x00, 0x00};
+static const uint8_t ROUTE_CTX_SVC2[] = {0x0b, 0x09, 0x01, 0x07, 0x00, 0x00, 0x00,
+                                         0x00, 0x00, 0x00, 0x00, 0x11, 0x01, 0x02};
 static const uint8_t SVC3[] = {0x11, 0x01, 0x03};
 
 static uint8_t frame_pad[160];
@@ -617,6 +622,8 @@ static int test_conflicts_and_retries(void)
     frame.ttl = 5U;
     frame.route_src = PEER_ID;
     frame.route_dst = LOCAL_ID;
+    frame.ext = ROUTE_CTX;
+    frame.next = (uint32_t)sizeof ROUTE_CTX;
     frame.trailer = trailer_a;
     frame.ntrailer = sizeof trailer_a;
     handle = sentinel();
@@ -693,13 +700,13 @@ static int test_conflicts_and_retries(void)
     frame.route_src = PEER_ID;
 
     frame.service = 2U;
-    frame.ext = SVC2;
-    frame.next = sizeof SVC2;
+    frame.ext = ROUTE_CTX_SVC2;
+    frame.next = (uint32_t)sizeof ROUTE_CTX_SVC2;
     CHECK(apply(&frame, 511U, &handle) == DMP_MALFORMED);
     CHECK(same_state());
     frame.service = 1U;
-    frame.ext = NULL;
-    frame.next = 0U;
+    frame.ext = ROUTE_CTX;
+    frame.next = (uint32_t)sizeof ROUTE_CTX;
 
     frame.index = 1U;
     frame.plain = rest;
@@ -1004,7 +1011,7 @@ static int test_expiry_and_fence(void)
     CHECK(apply(&frame, 100U, &handle) == DMP_INCOMPLETE);
     CHECK(g.assemblies[0].deadline == 1100U);
     save_state();
-    CHECK(apply(&frame, 1100U, &handle) == DMP_DUPLICATE);
+    CHECK(apply(&frame, 1100U, &handle) == DMP_DEADLINE_EXPIRED);
     CHECK(same_state());
     frame.index = 1U;
     frame.plain = rest;

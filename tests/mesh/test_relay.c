@@ -1,4 +1,5 @@
 #include "dmp/endpoint.h"
+#include "dmp/integrity.h"
 #include "dmp/mesh.h"
 #include "dmp/stream.h"
 #include "harness.h"
@@ -157,6 +158,115 @@ static int build_frame(uint8_t *out, size_t cap, size_t *written, uint32_t seq, 
     spec.extensions.size = n;
     spec.payload.data = payload;
     spec.payload.size = payload_n;
+    spec.trailer.data = tag;
+    spec.trailer.size = sizeof tag;
+    limits.max_frame_bytes = RADIO_MTU;
+    limits.max_message_bytes = RADIO_MESSAGE;
+    limits.max_fragments = 32U;
+    return dmp_core_encode(&spec, &limits, (dmp_buffer){out, cap}, written) == DMP_OK;
+}
+
+static int crc_matches(const uint8_t *frame, size_t n)
+{
+    dmp_bytes covered;
+    uint32_t actual = 0U;
+    uint32_t expect;
+    if (n < 4U) {
+        return 0;
+    }
+    covered.data = frame;
+    covered.size = n - 4U;
+    if (dmp_crc32c(covered, &actual) != DMP_OK) {
+        return 0;
+    }
+    expect = (uint32_t)frame[n - 4U] | ((uint32_t)frame[n - 3U] << 8) |
+             ((uint32_t)frame[n - 2U] << 16) | ((uint32_t)frame[n - 1U] << 24);
+    return actual == expect;
+}
+
+static void stamp_crc(uint8_t *frame, size_t n)
+{
+    dmp_bytes covered;
+    uint32_t crc = 0U;
+    covered.data = frame;
+    covered.size = n - 4U;
+    if (dmp_crc32c(covered, &crc) != DMP_OK) {
+        return;
+    }
+    frame[n - 4U] = (uint8_t)crc;
+    frame[n - 3U] = (uint8_t)(crc >> 8);
+    frame[n - 2U] = (uint8_t)(crc >> 16);
+    frame[n - 1U] = (uint8_t)(crc >> 24);
+}
+
+static int build_integrity(uint8_t *out, size_t cap, size_t *written, uint32_t seq, uint8_t ttl)
+{
+    uint8_t ext[24];
+    uint8_t context[9];
+    uint8_t trailer[4];
+    uint8_t payload[4] = {0x41U, 0x42U, 0x43U, 0x44U};
+    dmp_frame_spec spec;
+    dmp_core_limits limits;
+    size_t n = 0U;
+    unsigned i;
+    memset(context, 0, sizeof context);
+    memset(trailer, 0, sizeof trailer);
+    context[0] = 1U;
+    for (i = 0U; i < 8U; i++) {
+        context[1U + i] = (uint8_t)(0x10U + i);
+    }
+    n = put_uleb(ext, sizeof ext, 0U, 11U);
+    n = put_uleb(ext, sizeof ext, n, 9U);
+    memcpy(ext + n, context, sizeof context);
+    n += sizeof context;
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_DATA;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_INTEGRITY | DMP_OPT_EXT);
+    spec.fields.seq = seq;
+    spec.fields.route.ttl = ttl;
+    spec.fields.route.mode = 1U;
+    spec.fields.route.source = 10U;
+    spec.fields.route.destination = 20U;
+    spec.fields.integrity = 1U;
+    spec.extensions.data = ext;
+    spec.extensions.size = n;
+    spec.payload.data = payload;
+    spec.payload.size = sizeof payload;
+    spec.trailer.data = trailer;
+    spec.trailer.size = sizeof trailer;
+    limits.max_frame_bytes = RADIO_MTU;
+    limits.max_message_bytes = RADIO_MESSAGE;
+    limits.max_fragments = 32U;
+    if (dmp_core_encode(&spec, &limits, (dmp_buffer){out, cap}, written) != DMP_OK) {
+        return 0;
+    }
+    stamp_crc(out, *written);
+    return crc_matches(out, *written);
+}
+
+static int build_no_context(uint8_t *out, size_t cap, size_t *written)
+{
+    uint8_t payload[1] = {0x7EU};
+    uint8_t tag[16];
+    dmp_frame_spec spec;
+    dmp_core_limits limits;
+    unsigned i;
+    for (i = 0U; i < sizeof tag; i++) {
+        tag[i] = (uint8_t)i;
+    }
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_DATA;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_SECURITY);
+    spec.fields.seq = 40U;
+    spec.fields.route.ttl = 2U;
+    spec.fields.route.mode = 1U;
+    spec.fields.route.source = 10U;
+    spec.fields.route.destination = 20U;
+    spec.fields.security.cipher = 1U;
+    spec.fields.security.receive_cid = 7U;
+    spec.fields.security.pn = 4U;
+    spec.payload.data = payload;
+    spec.payload.size = sizeof payload;
     spec.trailer.data = tag;
     spec.trailer.size = sizeof tag;
     limits.max_frame_bytes = RADIO_MTU;
@@ -599,6 +709,94 @@ static int run(void)
     req.tx_complete_at = 64U + RADIO_FRAME_TX_MS;
     CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) == DMP_OK);
     CHECK(fwd.transmit_at == 64U);
+
+    CHECK(dmp_mesh_relay_init(&relay) == DMP_OK);
+    CHECK(build_integrity(frame, sizeof frame, &frame_n, 30U, 2U));
+    req.frame.data = frame;
+    req.frame.size = frame_n;
+    req.now = 192U;
+    req.tx_complete_at = 192U + RADIO_FRAME_TX_MS;
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) == DMP_OK);
+    CHECK(fwd.written == frame_n);
+    CHECK(crc_matches(outbuf, fwd.written));
+    CHECK(memcmp(frame + frame_n - 4U, outbuf + fwd.written - 4U, 4U) != 0);
+    result = dmp_core_parse((dmp_bytes){outbuf, fwd.written}, &limits, &parsed);
+    CHECK(result.status == DMP_OK);
+    CHECK(parsed.fields.route.ttl == 1U);
+    CHECK((parsed.fields.options & DMP_OPT_INTEGRITY) != 0U);
+    CHECK((parsed.fields.options & DMP_OPT_SECURITY) == 0U);
+
+    CHECK(build_frame(frame, sizeof frame, &frame_n, 31U, 0U, 10U, 20U, 8U, 0, payload, sizeof payload));
+    slots_before = occupied(cache, 8U);
+    req.frame.data = frame;
+    req.frame.size = frame_n;
+    req.now = 256U;
+    req.tx_complete_at = 256U + RADIO_FRAME_TX_MS;
+    memcpy(outbuf, sentinel, sizeof outbuf);
+    fwd.written = 55U;
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) ==
+          DMP_LIMIT_EXHAUSTED);
+    CHECK(fwd.written == 55U);
+    CHECK(memcmp(outbuf, sentinel, sizeof outbuf) == 0);
+    CHECK(occupied(cache, 8U) == slots_before);
+
+    CHECK(build_frame(frame, sizeof frame, &frame_n, 32U, 1U, 10U, 20U, 9U, 0, payload, sizeof payload));
+    req.frame.data = frame;
+    req.frame.size = frame_n;
+    req.now = 320U;
+    req.tx_complete_at = 320U + RADIO_FRAME_TX_MS;
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) == DMP_OK);
+    result = dmp_core_parse((dmp_bytes){outbuf, fwd.written}, &limits, &parsed);
+    CHECK(result.status == DMP_OK);
+    CHECK(parsed.fields.route.ttl == 0U);
+    memcpy(frame, outbuf, fwd.written);
+    frame_n = fwd.written;
+    req.frame.data = frame;
+    req.frame.size = frame_n;
+    req.now = 384U;
+    req.tx_complete_at = 384U + RADIO_FRAME_TX_MS;
+    memcpy(outbuf, sentinel, sizeof outbuf);
+    fwd.written = 55U;
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) ==
+          DMP_LIMIT_EXHAUSTED);
+    CHECK(memcmp(outbuf, sentinel, sizeof outbuf) == 0);
+
+    CHECK(build_frame(frame, sizeof frame, &frame_n, 33U, 15U, 10U, 20U, 10U, 0, payload,
+                      sizeof payload));
+    req.frame.data = frame;
+    req.frame.size = frame_n;
+    req.now = 448U;
+    req.tx_complete_at = 448U + RADIO_FRAME_TX_MS;
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) == DMP_OK);
+    result = dmp_core_parse((dmp_bytes){outbuf, fwd.written}, &limits, &parsed);
+    CHECK(result.status == DMP_OK);
+    CHECK(parsed.fields.route.ttl == 14U);
+
+    CHECK(build_frame(frame, sizeof frame, &frame_n, 34U, 2U, 10U, 20U, 11U, 0, payload,
+                      sizeof payload));
+    admitted.forward_mtu = (uint32_t)(frame_n - 1U);
+    slots_before = occupied(cache, 8U);
+    req.frame.data = frame;
+    req.frame.size = frame_n;
+    req.now = 512U;
+    req.tx_complete_at = 512U + RADIO_FRAME_TX_MS;
+    memcpy(outbuf, sentinel, sizeof outbuf);
+    fwd.written = 55U;
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) ==
+          DMP_LIMIT_EXHAUSTED);
+    CHECK(memcmp(outbuf, sentinel, sizeof outbuf) == 0);
+    CHECK(occupied(cache, 8U) == slots_before);
+    admitted.forward_mtu = RADIO_MTU;
+
+    CHECK(build_no_context(frame, sizeof frame, &frame_n));
+    req.frame.data = frame;
+    req.frame.size = frame_n;
+    req.now = 576U;
+    req.tx_complete_at = 576U + RADIO_FRAME_TX_MS;
+    memcpy(outbuf, sentinel, sizeof outbuf);
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) ==
+          DMP_CONTEXT_REQUIRED);
+    CHECK(memcmp(outbuf, sentinel, sizeof outbuf) == 0);
 
     harness_adapter_destroy(adapter);
     harness_adapter_destroy(endpoint_adapter);

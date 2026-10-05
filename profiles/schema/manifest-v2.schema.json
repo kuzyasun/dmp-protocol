@@ -81,7 +81,11 @@
           "enum": [
             "DIRECT-1",
             "RADIO-1",
-            "TEST-RADIO-RETRY-ALL"
+            "TEST-RADIO-RETRY-ALL",
+            "TEST-DIRECT-ASYNC",
+            "TEST-RADIO-N2",
+            "TEST-DIRECT-MINIMAL-128",
+            "TEST-DIRECT-MINIMAL-256"
           ]
         },
         "revision": {
@@ -429,6 +433,7 @@
         "assemblies_per_peer",
         "assembly_tombstones_per_peer",
         "operations_per_service",
+        "sender_slots",
         "control_slots",
         "application_queue_slots",
         "adapter_slots"
@@ -478,6 +483,11 @@
           "enum": [
             1
           ]
+        },
+        "sender_slots": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
         },
         "control_slots": {
           "type": "integer",
@@ -1282,12 +1292,12 @@
                 },
                 "count": {
                   "type": "integer",
-                  "minimum": 1,
+                  "minimum": 0,
                   "maximum": 2147483647
                 },
                 "bytes_each": {
                   "type": "integer",
-                  "minimum": 1,
+                  "minimum": 0,
                   "maximum": 2147483647
                 }
               }

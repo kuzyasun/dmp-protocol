@@ -182,6 +182,8 @@ static void normalize_fields(const dmp_header_fields *in, dmp_header_fields *out
     out->seq = in->seq;
     if ((out->options & DMP_OPT_ROUTE) != 0U) {
         out->route = in->route;
+        /* Main §11: TTL may differ along a path and is not an immutable
+         * reassembly field. Mode, source and destination still have to agree. */
         out->route.ttl = 0U;
     }
     if ((out->options & DMP_OPT_PAYLOAD_DESC) != 0U) {
@@ -474,6 +476,16 @@ static dmp_status accept_existing(dmp_reassembly *engine, size_t slot_index,
     if ((slot->received_bitmap & bit) != 0U) {
         if (memcmp(payload + offset, input->plaintext.data, input->plaintext.size) != 0) {
             return DMP_MALFORMED;
+        }
+        /* An accepted index after the assembly deadline is expiry, including
+         * before poll records the tombstone. Do not arm collection. */
+        if (slot->complete == 0U && dmp_deadline_reached(now, slot->deadline)) {
+            return DMP_DEADLINE_EXPIRED;
+        }
+        /* R4: after a feedback opportunity, a later probe re-arms collection.
+         * An already armed timer does not move. A complete transfer does not. */
+        if (slot->complete == 0U) {
+            note_collection(slot, &engine->profile, slot->service_id, now, 0);
         }
         return DMP_DUPLICATE;
     }

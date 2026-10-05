@@ -1057,6 +1057,27 @@ size_t dmp_hs_size(void)
     return sizeof(dmp_hs);
 }
 
+dmp_hs_status dmp_hs_entropy(dmp_hs *hs, uint8_t *bytes, size_t size)
+{
+    if (!live(hs) || (size != 0U && bytes == NULL)) {
+        return DMP_HS_INVALID;
+    }
+    if (size == 0U) {
+        return DMP_HS_OK;
+    }
+    return fill_entropy(hs, bytes, size) ? DMP_HS_OK : DMP_HS_ABORTED;
+}
+
+size_t dmp_hs_attempt_size(void)
+{
+    return sizeof(struct hs_attempt);
+}
+
+uint32_t dmp_hs_replay_width(const dmp_hs *hs)
+{
+    return live(hs) ? hs->replay_width : 0U;
+}
+
 dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_config *config,
                           const dmp_hs_ports *ports)
 {
@@ -1078,6 +1099,9 @@ dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_confi
     if (config->mode == 2U && (!config->has_static || config->key_hint != 0U)) {
         return DMP_HS_INVALID;
     }
+    /* SEC-1 allows W up to 65536. This build rejects anything above
+     * DMP_REPLAY_WINDOW_MAX (default 1024) because the bitmap is that size.
+     * Zero still selects the default 1024, which the ceiling must hold. */
     if (config->budget.replay_window != 0U &&
         (config->budget.replay_window < DMP_REPLAY_WINDOW_MIN ||
          config->budget.replay_window > DMP_REPLAY_WINDOW_MAX ||
@@ -2262,6 +2286,13 @@ uint32_t dmp_hs_rx_cid(const dmp_hs *hs, uint32_t index)
     const struct hs_attempt *attempt = attempt_at(hs, index);
 
     return attempt == NULL ? 0U : attempt->local_rx_cid;
+}
+
+uint32_t dmp_hs_remote_rx_cid(const dmp_hs *hs, uint32_t index)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+
+    return attempt == NULL ? 0U : attempt->remote_rx_cid;
 }
 
 uint32_t dmp_hs_retransmits(const dmp_hs *hs, uint32_t index)

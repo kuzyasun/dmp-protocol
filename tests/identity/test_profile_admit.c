@@ -119,6 +119,27 @@ static int test_arguments_and_copy(void)
     }
     CHECK(out.tx_borrow == true);
     CHECK(out.synchronous_completion == false);
+    CHECK(out.origin_route == 0U);
+    CHECK(out.origin_ttl == 0U);
+    in.origin_route = 1U;
+    in.origin_ttl = 0U;
+    memset(&out, 0x3C, sizeof out);
+    CHECK(dmp_config_admit(&in, &out) == DMP_OK);
+    CHECK(out.origin_route == 1U);
+    CHECK(out.origin_ttl == 0U);
+    in.origin_ttl = 15U;
+    CHECK(dmp_config_admit(&in, &out) == DMP_OK);
+    CHECK(out.origin_ttl == 15U);
+    in.origin_ttl = 16U;
+    memset(&out, 0x3C, sizeof out);
+    CHECK(dmp_config_admit(&in, &out) == DMP_INVALID_ARGUMENT);
+    CHECK(((uint8_t *)&out)[0] == 0x3C);
+    in.origin_route = 0U;
+    in.origin_ttl = 1U;
+    CHECK(dmp_config_admit(&in, &out) == DMP_UNSUPPORTED);
+    in.origin_route = 2U;
+    in.origin_ttl = 1U;
+    CHECK(dmp_config_admit(&in, &out) == DMP_UNSUPPORTED);
 
     REJECT(in_.message_bytes = 0U, DMP_INVALID_ARGUMENT);
     REJECT(in_.chunk_bytes = 0U, DMP_INVALID_ARGUMENT);
@@ -440,6 +461,17 @@ static dmp_status budget_encode(void *context, const dmp_reliability_logical *lo
         spec.extensions.size = ext_n;
     }
     spec.payload = logical->payload;
+    /* NULL output is the size probe. Answer fit from the header preflight;
+     * dmp_core_encode rejects a NULL buffer. */
+    if (out.data == NULL) {
+        uint8_t header[DMP_MAX_HEADER_BYTES];
+        dmp_buffer header_buf;
+        size_t header_len = 0U;
+        *written = 0U;
+        header_buf.data = header;
+        header_buf.capacity = sizeof header;
+        return dmp_core_encode_header(&spec, &enc->limits, header_buf, &header_len);
+    }
     return dmp_core_encode(&spec, &enc->limits, out, written);
 }
 
@@ -1108,6 +1140,14 @@ static int admit_config_stdio(void)
         return 2;
     }
     in.synchronous_completion = flag == 1U;
+    if (!expect_u32("origin_route", &flag) || flag > 1U) {
+        return 2;
+    }
+    in.origin_route = (uint8_t)flag;
+    if (!expect_u32("origin_ttl", &flag) || flag > 15U) {
+        return 2;
+    }
+    in.origin_ttl = (uint8_t)flag;
     in.recovery[0] = (dmp_profile_recovery)recovery0;
     in.recovery[1] = (dmp_profile_recovery)recovery1;
     status = dmp_config_admit(&in, &out);
@@ -1134,7 +1174,8 @@ static int admit_config_stdio(void)
         "tombstone_ms %u\nlate_result_ms %u\ncollect_ms %u\nassembly_ms %u\n"
         "burst_span_ms %u\nforward_delay_ms %u\nreturn_delay_ms %u\n"
         "feedback_guard_ms %u\nfeedback_delay_ms %u\nmax_probes %u\nmax_status %u\n"
-        "record_margin_ms %u\ntx_borrow %u\nsynchronous_completion %u\n",
+        "record_margin_ms %u\ntx_borrow %u\nsynchronous_completion %u\n"
+        "origin_route %u\norigin_ttl %u\n",
         out.namespace_id, out.node_id[0], out.node_id[1], out.default_service, out.service_id[0],
         out.service_id[1], (unsigned)out.recovery[0], (unsigned)out.recovery[1], out.peers,
         out.operations_per_service, out.assemblies_per_peer, out.assembly_tombstones_per_peer,
@@ -1147,7 +1188,7 @@ static int admit_config_stdio(void)
         out.tombstone_ms, out.late_result_ms, out.collect_ms, out.assembly_ms, out.burst_span_ms,
         out.forward_delay_ms, out.return_delay_ms, out.feedback_guard_ms, out.feedback_delay_ms,
         out.max_probes, out.max_status, out.record_margin_ms, out.tx_borrow ? 1U : 0U,
-        out.synchronous_completion ? 1U : 0U);
+        out.synchronous_completion ? 1U : 0U, out.origin_route, out.origin_ttl);
     return 0;
 }
 

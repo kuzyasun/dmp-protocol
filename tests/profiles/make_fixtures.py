@@ -190,6 +190,7 @@ def manifest(kind):
             "bootstrap_chunk_bytes": 60, "bootstrap_fragments": 2,
             "peers": 1, "assemblies_per_peer": 1,
             "assembly_tombstones_per_peer": 16, "operations_per_service": 1,
+            "sender_slots": 4,
             "control_slots": 4 if freshness_enabled else 2,
             "application_queue_slots": 2,
             "adapter_slots": (4 if freshness_enabled else 2) + 1,

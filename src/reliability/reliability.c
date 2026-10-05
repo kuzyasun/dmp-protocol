@@ -15,7 +15,8 @@
 enum {
     KIND_REQ = 0,
     KIND_RESULT = 1,
-    KIND_REJECT = 2
+    KIND_REJECT = 2,
+    KIND_DATA = 3
 };
 
 static int ready(const dmp_reliability *engine)
@@ -41,8 +42,18 @@ static int origin_eq(dmp_message_origin a, dmp_message_origin b)
 
 static int service_allowed(const dmp_admitted_profile *profile, uint32_t service)
 {
-    return service != 0U &&
-           (service == profile->service_id[0] || service == profile->service_id[1]);
+    return service == 0U || service == profile->service_id[0] || service == profile->service_id[1];
+}
+
+static int service_requires_freshness(const dmp_admitted_profile *profile, uint32_t service)
+{
+    if (service == profile->service_id[0]) {
+        return (profile->freshness_required_mask & 1U) != 0U;
+    }
+    if (service == profile->service_id[1]) {
+        return (profile->freshness_required_mask & 2U) != 0U;
+    }
+    return 0;
 }
 
 static int selective_service(const dmp_admitted_profile *profile, uint32_t service)
@@ -97,27 +108,36 @@ static int plan_fragments(const dmp_admitted_profile *profile, size_t payload, u
     return 1;
 }
 
-/* 48 matches the existing single-frame admission margin. A payload that still
- * fits with that margin stays one unfragmented attempt. The saved buffer is
- * not copied per slice. */
-static void arm_saved_fragments(dmp_reliability *engine, dmp_reliability_sender_slot *sender,
-                                size_t payload)
+/* *fits is 1 or 0 only when the return is DMP_OK. A NULL output buffer whose
+ * capacity is encoded_mtu asks whether this exact non-FRAG frame fits. The
+ * encoder must return DMP_OK or DMP_LIMIT_EXHAUSTED and must not seal or
+ * allocate a PN. Any other status is a local failure. */
+static dmp_status probe_unfragmented(dmp_reliability *engine,
+                                     const dmp_reliability_sender_slot *sender, int *fits);
+
+/* Empty and single-packet messages omit FRAG. There is no fixed header margin. */
+static dmp_status arm_saved_fragments(dmp_reliability *engine, dmp_reliability_sender_slot *sender,
+                                      size_t payload)
 {
     uint32_t frag_count = 0U;
+    int fits = 0;
+    dmp_status status;
 
+    status = probe_unfragmented(engine, sender, &fits);
+    if (status != DMP_OK) {
+        return status;
+    }
     sender->frag_count = 0U;
     sender->chunk_size = 0U;
     sender->total_size = 0U;
     sender->active_mask = 0U;
-    if ((payload > (size_t)engine->profile.encoded_mtu ||
-         (payload <= (size_t)UINT32_MAX - 48U &&
-          payload + 48U > (size_t)engine->profile.encoded_mtu)) &&
-        plan_fragments(&engine->profile, payload, &frag_count)) {
+    if (!fits && plan_fragments(&engine->profile, payload, &frag_count)) {
         sender->frag_count = frag_count;
         sender->chunk_size = engine->profile.chunk_bytes;
         sender->total_size = (uint32_t)payload;
         sender->active_mask = fragment_mask(frag_count);
     }
+    return DMP_OK;
 }
 
 static uint32_t control_reserve(const dmp_admitted_profile *profile)
@@ -299,7 +319,7 @@ static size_t queued_application(const dmp_reliability *engine)
     for (i = 0U; i < engine->storage.sender_capacity; i++) {
         const dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
         if (sender->live != 0U && sender->phase == DMP_REL_PHASE_QUEUED &&
-            (sender->kind == KIND_REQ || sender->kind == KIND_RESULT)) {
+            (sender->kind == KIND_REQ || sender->kind == KIND_RESULT || sender->kind == KIND_DATA)) {
             count++;
         }
     }
@@ -314,7 +334,7 @@ static int gate_held(const dmp_reliability *engine, uint32_t service, size_t sel
         if (i == self || sender->live == 0U || sender->service_id != service) {
             continue;
         }
-        if (sender->kind != KIND_REQ && sender->kind != KIND_RESULT) {
+        if (sender->kind != KIND_REQ && sender->kind != KIND_RESULT && sender->kind != KIND_DATA) {
             continue;
         }
         if (sender->phase == DMP_REL_PHASE_TRANSMITTING ||
@@ -331,7 +351,9 @@ static size_t operations_used(const dmp_reliability *engine, uint32_t service)
     size_t count = 0U;
     for (i = 0U; i < engine->storage.sender_capacity; i++) {
         const dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
-        if (sender->live != 0U && sender->kind == KIND_REQ && sender->service_id == service) {
+        if (sender->live != 0U &&
+            (sender->kind == KIND_REQ || sender->kind == KIND_DATA) &&
+            sender->service_id == service) {
             count++;
         }
     }
@@ -418,6 +440,64 @@ static dmp_reliability_result_slot *result_of_sender(dmp_reliability *engine,
     return result;
 }
 
+static dmp_status probe_unfragmented(dmp_reliability *engine, const dmp_reliability_sender_slot *sender,
+                                     int *fits)
+{
+    dmp_reliability_logical logical;
+    dmp_reliability_result_slot *result;
+    dmp_buffer probe;
+    size_t written = 0U;
+    dmp_status status;
+    size_t index;
+
+    if (fits == NULL || sender == NULL || engine->storage.encode == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    *fits = 0;
+    memset(&logical, 0, sizeof logical);
+    logical.service_id = sender->service_id;
+    logical.own = sender->own;
+    index = (size_t)(sender - engine->storage.senders);
+    if (sender->kind == KIND_REQ || sender->kind == KIND_DATA) {
+        logical.type = sender->kind == KIND_REQ ? DMP_TYPE_REQ : (dmp_type)sender->message_type;
+        logical.ack_req = true;
+        logical.payload.size = sender->payload_len;
+        logical.payload.data = sender->payload_len == 0U ? NULL : sender_bytes(engine, index);
+        if (sender->freshness_live != 0U) {
+            logical.freshness_token.data = (uint8_t *)sender->freshness_token;
+            logical.freshness_token.size = sizeof sender->freshness_token;
+        }
+    } else if (sender->kind == KIND_RESULT) {
+        result = result_of_sender(engine, sender);
+        if (result == NULL) {
+            return DMP_INVALID_ARGUMENT;
+        }
+        logical.type = result->application_err != 0U ? DMP_TYPE_ERR : DMP_TYPE_RSP;
+        logical.own = result->reserved != 0U ? result->result : sender->own;
+        logical.reply_to = result->request;
+        logical.has_reply_to = true;
+        logical.ack_req = true;
+        logical.wire_status = result->wire_status;
+        logical.payload.size = result->payload_len;
+        logical.payload.data = result->payload_len == 0U ? NULL
+                                                         : result_bytes(engine, sender->related_slot);
+    } else {
+        return DMP_INVALID_ARGUMENT;
+    }
+    probe.data = NULL;
+    probe.capacity = engine->profile.encoded_mtu;
+    status = engine->storage.encode(engine->storage.encode_context, &logical, probe, &written);
+    if (status == DMP_OK) {
+        *fits = 1;
+        return DMP_OK;
+    }
+    if (status == DMP_LIMIT_EXHAUSTED) {
+        *fits = 0;
+        return DMP_OK;
+    }
+    return status;
+}
+
 static dmp_reliability_history_slot *history_of_sender(dmp_reliability *engine,
                                                        const dmp_reliability_sender_slot *sender)
 {
@@ -470,12 +550,21 @@ static void settle_sender(dmp_reliability *engine, dmp_reliability_sender_slot *
     if (sender->live == 0U || sender->tx_live) {
         return;
     }
+    empty.data = NULL;
+    empty.size = 0U;
+    if (sender->kind == KIND_DATA) {
+        if (sender->phase == DMP_REL_PHASE_TERMINAL && !sender->result_seen) {
+            emit(engine, sender->possibly_sent != 0U ? DMP_REL_EVENT_DATA_UNKNOWN
+                                                     : DMP_REL_EVENT_DATA_LOCAL_UNSENT,
+                 sender_handle(engine, sender), sender->own, sender->service_id, 0U, empty);
+        }
+        release_sender(sender);
+        return;
+    }
     if (sender->kind != KIND_REQ) {
         release_sender(sender);
         return;
     }
-    empty.data = NULL;
-    empty.size = 0U;
     if (sender->phase == DMP_REL_PHASE_TERMINAL && !sender->result_seen) {
         correlation = correlation_of(engine, sender);
         unknown = sender->possibly_sent != 0U;
@@ -536,7 +625,8 @@ static void apply_tx(dmp_reliability *engine, dmp_reliability_sender_slot *sende
         sender->next_attempt = when;
         return;
     }
-    if ((sender->kind == KIND_REQ || sender->kind == KIND_RESULT) && sender->frag_count != 0U) {
+    if ((sender->kind == KIND_REQ || sender->kind == KIND_RESULT || sender->kind == KIND_DATA) &&
+        sender->frag_count != 0U) {
         if (sender->burst_counted == 0U) {
             sender->packet_count++;
             if (sender->probe_burst != 0U) {
@@ -701,7 +791,7 @@ static dmp_status resolve_service(const dmp_reliability *engine, const dmp_frame
         if (!read_uleb32(value, &at, &wire) || at != value.size || wire != claimed) {
             return DMP_MALFORMED;
         }
-    } else if (claimed != engine->profile.default_service) {
+    } else if (claimed != engine->profile.default_service || claimed == 0U) {
         return DMP_MALFORMED;
     }
     if (!service_allowed(&engine->profile, claimed)) {
@@ -974,12 +1064,16 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
     memset(&logical, 0, sizeof logical);
     logical.service_id = sender->service_id;
     logical.own = sender->own;
-    if (sender->kind == KIND_REQ) {
-        logical.type = DMP_TYPE_REQ;
+    if (sender->kind == KIND_REQ || sender->kind == KIND_DATA) {
+        logical.type = sender->kind == KIND_REQ ? DMP_TYPE_REQ : (dmp_type)sender->message_type;
         logical.destination = slot->peer;
         logical.ack_req = true;
         logical.payload.data = sender->payload_len == 0U ? NULL : sender_bytes(engine, index);
         logical.payload.size = sender->payload_len;
+        if (sender->freshness_live != 0U) {
+            logical.freshness_token.data = sender->freshness_token;
+            logical.freshness_token.size = sizeof sender->freshness_token;
+        }
     } else if (sender->kind == KIND_RESULT) {
         dmp_reliability_result_slot *result = result_of_sender(engine, sender);
         if (result == NULL) {
@@ -1019,7 +1113,8 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
         logical.ack_req = false;
         logical.wire_status = history->wire_status;
     }
-    if ((sender->kind == KIND_REQ || sender->kind == KIND_RESULT) && sender->frag_count != 0U) {
+    if ((sender->kind == KIND_REQ || sender->kind == KIND_RESULT || sender->kind == KIND_DATA) &&
+        sender->frag_count != 0U) {
         uint32_t frag_index = 0U;
         int starting = sender->burst_inflight == 0U;
 
@@ -1079,9 +1174,26 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
     out.data = frame_bytes(engine, (size_t)adapter_index);
     out.capacity = engine->profile.encoded_mtu;
     status = engine->storage.encode(engine->storage.encode_context, &logical, out, &written);
-    if (status != DMP_OK || written == 0U || written > out.capacity) {
+    if (status == DMP_BUSY) {
+        /* The attempt is alive but not active yet. Keep the admitted sender. */
         release_adapter(adapter);
-        return status == DMP_OK ? DMP_MALFORMED : status;
+        if (sender->live != 0U && sender->frag_count != 0U && sender->burst_counted == 0U) {
+            sender->burst_inflight = 0U;
+        }
+        return DMP_BUSY;
+    }
+    if (status != DMP_OK || written == 0U || written > out.capacity) {
+        dmp_status failed = status == DMP_OK ? DMP_MALFORMED : status;
+        /* A terminal seal or encode failure is local: no frame is submitted
+         * and the slot does not stay live until a later deadline.
+         * possibly_sent stays clear, so the outcome is unsent. */
+        release_adapter(adapter);
+        if (sender->live != 0U) {
+            sender->burst_inflight = 0U;
+            sender->phase = DMP_REL_PHASE_TERMINAL;
+            settle_sender(engine, sender);
+        }
+        return failed;
     }
     sender->tx_slot = adapter->token.slot;
     sender->tx_generation = adapter->token.generation;
@@ -1206,7 +1318,7 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
         if (sender->live == 0U) {
             continue;
         }
-        if (sender->kind == KIND_REQ && !sender->result_seen &&
+        if ((sender->kind == KIND_REQ || sender->kind == KIND_DATA) && !sender->result_seen &&
             dmp_deadline_reached(now, sender->result_deadline)) {
             sender->phase = DMP_REL_PHASE_TERMINAL;
             if (sender->tx_live) {
@@ -1216,7 +1328,8 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
             }
             continue;
         }
-        if (sender->kind == KIND_REQ && !sender->tx_live && sender->possibly_sent == 0U &&
+        if ((sender->kind == KIND_REQ || sender->kind == KIND_DATA) && !sender->tx_live &&
+            sender->possibly_sent == 0U &&
             sender->attempts == 0U && sender->phase == DMP_REL_PHASE_QUEUED &&
             (dmp_deadline_reached(now, sender->queue_deadline) ||
              dmp_deadline_reached(now, sender->send_deadline))) {
@@ -1224,7 +1337,7 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
             settle_sender(engine, sender);
             continue;
         }
-        if (sender->kind == KIND_REQ && !sender->tx_live &&
+        if ((sender->kind == KIND_REQ || sender->kind == KIND_DATA) && !sender->tx_live &&
             sender->phase == DMP_REL_PHASE_AWAIT_RECEIPT && !sender->receipt_seen &&
             !sender->result_seen && dmp_deadline_reached(now, sender->next_attempt) &&
             !dmp_deadline_reached(now, sender->send_deadline) &&
@@ -1396,10 +1509,19 @@ static dmp_status rearm_result(dmp_reliability *engine, int result_index, dmp_ti
     uint64_t generation;
     int index;
     dmp_status status;
-    if (!result_cached(result, now)) {
+    if (!result_cached(result, now) || result->acknowledged != 0U) {
         return DMP_OK;
     }
     if (existing != NULL) {
+        /* Freshness grants are short control results; an exact duplicate
+         * grant request immediately retries its retained response. Ordinary
+         * application results keep their existing receipt/recovery cadence. */
+        if (result->service_id == 0U && !existing->tx_live &&
+            existing->phase != DMP_REL_PHASE_TERMINAL &&
+            !dmp_deadline_reached(now, existing->send_deadline)) {
+            existing->phase = DMP_REL_PHASE_QUEUED;
+            existing->next_attempt = now;
+        }
         return DMP_OK;
     }
     index = find_unused_sender(engine);
@@ -1425,9 +1547,15 @@ static dmp_status rearm_result(dmp_reliability *engine, int result_index, dmp_ti
     sender->result_deadline = result->deadline;
     sender->next_attempt = now;
     sender->payload_len = result->payload_len;
-    arm_saved_fragments(engine, sender, result->payload_len);
     sender->related_slot = (uint32_t)result_index;
     sender->related_generation = result->generation;
+    status = arm_saved_fragments(engine, sender, result->payload_len);
+    if (status != DMP_OK) {
+        /* The encoder refused the size probe. No frame, and this new sender
+         * does not stay queued. */
+        release_sender(sender);
+        return status;
+    }
     result->sender_slot = (uint32_t)index;
     result->sender_generation = generation;
     return DMP_OK;
@@ -1540,9 +1668,29 @@ static dmp_status handle_ack(dmp_reliability *engine, dmp_message_key reply, uin
     empty.size = 0U;
     for (i = 0U; i < engine->storage.sender_capacity; i++) {
         dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
-        if (sender->live == 0U || sender->kind != KIND_REQ || sender->service_id != service ||
+        if (sender->live == 0U ||
+            (sender->kind != KIND_REQ && sender->kind != KIND_DATA) ||
+            sender->service_id != service ||
             !key_eq(sender->own, reply)) {
             continue;
+        }
+        if (sender->kind == KIND_DATA) {
+            if (!sender->result_seen) {
+                dmp_bytes empty;
+                empty.data = NULL;
+                empty.size = 0U;
+                sender->result_seen = true;
+                sender->phase = DMP_REL_PHASE_TERMINAL;
+                emit(engine, DMP_REL_EVENT_DATA_DELIVERED, sender_handle(engine, sender),
+                     sender->own, service, 0U, empty);
+            }
+            if (sender->tx_live) {
+                cancel_tx(engine, sender);
+                consume(engine);
+            } else {
+                release_sender(sender);
+            }
+            return DMP_OK;
         }
         if (!sender->receipt_seen && !sender->result_seen) {
             sender->receipt_seen = true;
@@ -1817,6 +1965,9 @@ static dmp_status handle_request(dmp_reliability *engine, const dmp_frame_view *
             result = &engine->storage.results[result_index];
         }
         if (result_cached(result, now)) {
+            if (result->acknowledged != 0U) {
+                return resend_receipt(engine, history, now);
+            }
             return rearm_result(engine, result_index, now);
         }
         return resend_receipt(engine, history, now);
@@ -1834,6 +1985,75 @@ static dmp_status handle_request(dmp_reliability *engine, const dmp_frame_view *
         return DMP_OK;
     }
     return accept_request(engine, frame, source, service, plaintext, metadata, destination, now);
+}
+
+static dmp_status handle_data(dmp_reliability *engine, const dmp_frame_view *frame,
+                              dmp_message_key source, uint32_t service, dmp_bytes plaintext,
+                              dmp_bytes metadata, dmp_time_ms now)
+{
+    dmp_message_origin destination = frame_destination(engine, frame);
+    dmp_reliability_history_slot *history;
+    dmp_reliability_handle handle;
+    dmp_time_ms deadline;
+    dmp_bytes payload;
+    uint64_t generation;
+    int history_index = find_history_key(engine, source);
+    dmp_status status;
+
+    if ((frame->fields.options & DMP_OPT_ACK_REQ) == 0U || metadata.size > DMP_RELIABILITY_METADATA_BYTES ||
+        plaintext.size > engine->profile.message_bytes) {
+        return DMP_UNSUPPORTED;
+    }
+    if (history_index >= 0) {
+        history = &engine->storage.history[history_index];
+        if (!metadata_match(engine, history, frame, service, metadata, destination)) {
+            return DMP_MALFORMED;
+        }
+        return resend_receipt(engine, history, now);
+    }
+    if (metadata.size != 0U && metadata.data == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    history_index = find_unused_history(engine);
+    if (history_index < 0) {
+        return DMP_QUOTA_EXHAUSTED;
+    }
+    history = &engine->storage.history[history_index];
+    status = dmp_deadline_after(now, engine->profile.dedup_ms, &deadline);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = dmp_generation_next(history->generation, &generation);
+    if (status != DMP_OK) {
+        return status;
+    }
+    memset(history, 0, sizeof *history);
+    history->generation = generation;
+    if (metadata.size != 0U) {
+        memcpy(history_meta(engine, (size_t)history_index), metadata.data, metadata.size);
+    }
+    history->live = 1U;
+    history->decision = DMP_REL_HISTORY_ACCEPTED;
+    history->type = frame->fields.type;
+    history->ack_req = 1U;
+    history->service_id = service;
+    history->metadata_len = (uint16_t)metadata.size;
+    history->source = source;
+    history->destination = destination;
+    history->deadline = deadline;
+    history->result_slot = UINT32_MAX;
+    remember_descriptor(history, frame);
+    handle.slot = (uint32_t)history_index;
+    handle.generation = generation;
+    payload = stage_bytes(engine, plaintext.data, plaintext.size);
+    emit(engine, DMP_REL_EVENT_DATA_ACCEPTED, handle, source, service, 0U, payload);
+    status = send_ack(engine, service, source, source.origin, now);
+    if (status == DMP_OK) {
+        history->receipt_count = 1U;
+    }
+    /* Delivery is accepted once its bounded history is installed. A full
+     * return slot is recovered by the sender's next fresh-PN retry. */
+    return DMP_OK;
 }
 
 static dmp_status validate_storage(const dmp_reliability_storage *storage,
@@ -2023,29 +2243,38 @@ dmp_status dmp_reliability_close(dmp_reliability *engine, dmp_time_ms now)
     return DMP_OK;
 }
 
-dmp_status dmp_reliability_submit_req(dmp_reliability *engine, uint32_t service_id,
-                                      dmp_bytes payload, dmp_time_ms now, uint32_t jitter_ms,
-                                      dmp_reliability_handle *out)
+static dmp_status submit_outbound(dmp_reliability *engine, uint32_t service_id,
+                                  dmp_bytes payload, dmp_bytes token, dmp_time_ms now,
+                                  uint32_t jitter_ms, uint8_t kind, uint8_t message_type,
+                                  dmp_reliability_handle *out)
 {
     const dmp_identity_slot *slot;
     dmp_reliability_sender_slot *sender;
-    dmp_reliability_correlation_slot *correlation;
+    dmp_reliability_correlation_slot *correlation = NULL;
     dmp_time_ms queue_deadline;
     dmp_time_ms send_deadline;
     dmp_time_ms result_deadline;
     dmp_time_ms correlation_deadline;
     dmp_time_ms tombstone_deadline;
     uint64_t sender_gen;
-    uint64_t correlation_gen;
+    uint64_t correlation_gen = 0U;
     uint32_t seq = 0U;
     int sender_index;
-    int correlation_index;
+    int correlation_index = -1;
     dmp_status status;
-    if (!ready(engine) || out == NULL || !bytes_ok(payload)) {
+    if (!ready(engine) || out == NULL || !bytes_ok(payload) || !bytes_ok(token) ||
+        (kind != KIND_REQ && kind != KIND_DATA) ||
+        (message_type != DMP_TYPE_REQ && message_type != DMP_TYPE_DATA &&
+         message_type != DMP_TYPE_EVENT) ||
+        ((kind == KIND_REQ) != (message_type == DMP_TYPE_REQ))) {
         return DMP_INVALID_ARGUMENT;
     }
     if (!service_allowed(&engine->profile, service_id) || jitter_ms > engine->profile.jitter_ms ||
-        payload.size > engine->profile.message_bytes) {
+        payload.size > engine->profile.message_bytes ||
+        (token.size != 0U && token.size != 16U) ||
+        (service_requires_freshness(&engine->profile, service_id) && token.size != 16U) ||
+        (token.size != 0U && !service_requires_freshness(&engine->profile, service_id)) ||
+        (service_id == 0U && token.size != 0U)) {
         return DMP_INVALID_ARGUMENT;
     }
     slot = bound(engine);
@@ -2057,8 +2286,10 @@ dmp_status dmp_reliability_submit_req(dmp_reliability *engine, uint32_t service_
         return DMP_BUSY;
     }
     sender_index = find_unused_sender(engine);
-    correlation_index = find_unused_correlation(engine);
-    if (sender_index < 0 || correlation_index < 0) {
+    if (kind == KIND_REQ) {
+        correlation_index = find_unused_correlation(engine);
+    }
+    if (sender_index < 0 || (kind == KIND_REQ && correlation_index < 0)) {
         return DMP_QUOTA_EXHAUSTED;
     }
     status = dmp_deadline_after(now, engine->profile.queue_ms, &queue_deadline);
@@ -2073,38 +2304,52 @@ dmp_status dmp_reliability_submit_req(dmp_reliability *engine, uint32_t service_
     if (status != DMP_OK) {
         return status;
     }
-    status = dmp_deadline_after(now, engine->profile.correlation_ms, &correlation_deadline);
-    if (status != DMP_OK) {
-        return status;
-    }
-    status = dmp_deadline_after(now, engine->profile.tombstone_ms, &tombstone_deadline);
-    if (status != DMP_OK) {
-        return status;
+    if (kind == KIND_REQ) {
+        status = dmp_deadline_after(now, engine->profile.correlation_ms, &correlation_deadline);
+        if (status != DMP_OK) {
+            return status;
+        }
+        status = dmp_deadline_after(now, engine->profile.tombstone_ms, &tombstone_deadline);
+        if (status != DMP_OK) {
+            return status;
+        }
+    } else {
+        correlation_deadline = 0U;
+        tombstone_deadline = result_deadline;
     }
     sender = &engine->storage.senders[sender_index];
-    correlation = &engine->storage.correlations[correlation_index];
     status = dmp_generation_next(sender->generation, &sender_gen);
     if (status != DMP_OK) {
         return status;
     }
-    status = dmp_generation_next(correlation->generation, &correlation_gen);
-    if (status != DMP_OK) {
-        return status;
+    if (kind == KIND_REQ) {
+        correlation = &engine->storage.correlations[correlation_index];
+        status = dmp_generation_next(correlation->generation, &correlation_gen);
+        if (status != DMP_OK) {
+            return status;
+        }
     }
     status = dmp_identity_next_seq(engine->storage.identity, engine->storage.context, &seq);
     if (status != DMP_OK) {
         return status;
     }
     memset(sender, 0, sizeof *sender);
-    memset(correlation, 0, sizeof *correlation);
+    if (correlation != NULL) {
+        memset(correlation, 0, sizeof *correlation);
+        correlation->generation = correlation_gen;
+    }
     sender->generation = sender_gen;
-    correlation->generation = correlation_gen;
     if (payload.size != 0U) {
         memcpy(sender_bytes(engine, (size_t)sender_index), payload.data, payload.size);
     }
+    if (token.size != 0U) {
+        memcpy(sender->freshness_token, token.data, sizeof sender->freshness_token);
+        sender->freshness_live = 1U;
+    }
     sender->live = 1U;
     sender->phase = DMP_REL_PHASE_QUEUED;
-    sender->kind = KIND_REQ;
+    sender->kind = kind;
+    sender->message_type = message_type;
     sender->service_id = service_id;
     sender->own.origin = slot->local;
     sender->own.seq = seq;
@@ -2115,19 +2360,81 @@ dmp_status dmp_reliability_submit_req(dmp_reliability *engine, uint32_t service_
     sender->next_attempt = now;
     sender->jitter_ms = jitter_ms;
     sender->payload_len = (uint32_t)payload.size;
-    arm_saved_fragments(engine, sender, payload.size);
-    sender->related_slot = (uint32_t)correlation_index;
-    sender->related_generation = correlation_gen;
-    correlation->live = 1U;
-    correlation->request.slot = (uint32_t)sender_index;
-    correlation->request.generation = sender_gen;
-    correlation->request_key = sender->own;
-    correlation->service_id = service_id;
-    correlation->correlation_deadline = correlation_deadline;
-    correlation->tombstone_deadline = tombstone_deadline;
+    status = arm_saved_fragments(engine, sender, payload.size);
+    if (status != DMP_OK) {
+        /* Nothing was submitted. Report the request's own key, then free it. */
+        sender->phase = DMP_REL_PHASE_TERMINAL;
+        settle_sender(engine, sender);
+        return status;
+    }
+    if (correlation != NULL) {
+        sender->related_slot = (uint32_t)correlation_index;
+        sender->related_generation = correlation_gen;
+        correlation->live = 1U;
+        correlation->request.slot = (uint32_t)sender_index;
+        correlation->request.generation = sender_gen;
+        correlation->request_key = sender->own;
+        correlation->service_id = service_id;
+        correlation->correlation_deadline = correlation_deadline;
+        correlation->tombstone_deadline = tombstone_deadline;
+    }
     out->slot = (uint32_t)sender_index;
     out->generation = sender_gen;
     return DMP_OK;
+}
+
+dmp_status dmp_reliability_submit_req(dmp_reliability *engine, uint32_t service_id,
+                                      dmp_bytes payload, dmp_time_ms now, uint32_t jitter_ms,
+                                      dmp_reliability_handle *out)
+{
+    dmp_bytes empty = {NULL, 0U};
+    return submit_outbound(engine, service_id, payload, empty, now, jitter_ms, KIND_REQ,
+                           DMP_TYPE_REQ, out);
+}
+
+dmp_status dmp_reliability_submit_req_fresh(dmp_reliability *engine, uint32_t service_id,
+                                            dmp_bytes payload, dmp_bytes token,
+                                            dmp_time_ms now, uint32_t jitter_ms,
+                                            dmp_reliability_handle *out)
+{
+    return submit_outbound(engine, service_id, payload, token, now, jitter_ms, KIND_REQ,
+                           DMP_TYPE_REQ, out);
+}
+
+dmp_status dmp_reliability_submit_data(dmp_reliability *engine, uint32_t service_id,
+                                       dmp_bytes payload, dmp_time_ms now,
+                                       dmp_reliability_handle *out)
+{
+    dmp_bytes empty = {NULL, 0U};
+    return submit_outbound(engine, service_id, payload, empty, now, 0U, KIND_DATA,
+                           DMP_TYPE_DATA, out);
+}
+
+dmp_status dmp_reliability_submit_data_fresh(dmp_reliability *engine, uint32_t service_id,
+                                             dmp_bytes payload, dmp_bytes token,
+                                             dmp_time_ms now,
+                                             dmp_reliability_handle *out)
+{
+    return submit_outbound(engine, service_id, payload, token, now, 0U, KIND_DATA,
+                           DMP_TYPE_DATA, out);
+}
+
+dmp_status dmp_reliability_submit_event(dmp_reliability *engine, uint32_t service_id,
+                                        dmp_bytes payload, dmp_time_ms now,
+                                        dmp_reliability_handle *out)
+{
+    dmp_bytes empty = {NULL, 0U};
+    return submit_outbound(engine, service_id, payload, empty, now, 0U, KIND_DATA,
+                           DMP_TYPE_EVENT, out);
+}
+
+dmp_status dmp_reliability_submit_event_fresh(dmp_reliability *engine, uint32_t service_id,
+                                              dmp_bytes payload, dmp_bytes token,
+                                              dmp_time_ms now,
+                                              dmp_reliability_handle *out)
+{
+    return submit_outbound(engine, service_id, payload, token, now, 0U, KIND_DATA,
+                           DMP_TYPE_EVENT, out);
 }
 
 dmp_status dmp_reliability_cancel(dmp_reliability *engine, dmp_reliability_handle handle,
@@ -2254,11 +2561,13 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
         return DMP_OK;
     }
     if (frame->fields.type != DMP_TYPE_REQ && frame->fields.type != DMP_TYPE_RSP &&
-        frame->fields.type != DMP_TYPE_ERR && frame->fields.type != DMP_TYPE_ACK) {
+        frame->fields.type != DMP_TYPE_ERR && frame->fields.type != DMP_TYPE_ACK &&
+        frame->fields.type != DMP_TYPE_DATA && frame->fields.type != DMP_TYPE_EVENT) {
         return DMP_UNSUPPORTED;
     }
-    if ((frame->fields.options & (DMP_OPT_FRAG | DMP_OPT_ROUTE)) != 0U ||
-        (frame->fields.type == DMP_TYPE_REQ && !ack_req)) {
+    if ((frame->fields.options & DMP_OPT_FRAG) != 0U ||
+        ((frame->fields.type == DMP_TYPE_REQ || frame->fields.type == DMP_TYPE_DATA ||
+          frame->fields.type == DMP_TYPE_EVENT) && !ack_req)) {
         return DMP_UNSUPPORTED;
     }
     expire(engine, now);
@@ -2274,6 +2583,10 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
     if (frame->fields.type == DMP_TYPE_REQ) {
         return handle_request(engine, frame, source, service, input->plaintext,
                               input->immutable_metadata, now);
+    }
+    if (frame->fields.type == DMP_TYPE_DATA || frame->fields.type == DMP_TYPE_EVENT) {
+        return handle_data(engine, frame, source, service, input->plaintext,
+                           input->immutable_metadata, now);
     }
     if (frame->fields.type == DMP_TYPE_ACK) {
         dmp_message_key reply;
@@ -2334,7 +2647,7 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
     }
     frame = input->frame;
     ack_req = (frame->fields.options & DMP_OPT_ACK_REQ) != 0U;
-    if ((frame->fields.options & (DMP_OPT_FRAG | DMP_OPT_ROUTE)) != 0U ||
+    if ((frame->fields.options & DMP_OPT_FRAG) != 0U ||
         frame->fields.type != DMP_TYPE_REQ || !ack_req) {
         return DMP_UNSUPPORTED;
     }
@@ -2402,9 +2715,9 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
     return DMP_OK;
 }
 
-dmp_status dmp_reliability_complete(dmp_reliability *engine, dmp_reliability_handle request,
-                                    bool application_err, uint32_t wire_status, dmp_bytes payload,
-                                    dmp_time_ms now)
+dmp_status dmp_reliability_complete_for_lifetime(
+    dmp_reliability *engine, dmp_reliability_handle request, bool application_err,
+    uint32_t wire_status, dmp_bytes payload, uint32_t result_lifetime_ms, dmp_time_ms now)
 {
     dmp_reliability_history_slot *history;
     dmp_reliability_result_slot *result;
@@ -2415,7 +2728,8 @@ dmp_status dmp_reliability_complete(dmp_reliability *engine, dmp_reliability_han
     int suppress;
     int defer_sequence;
     dmp_status status;
-    if (!ready(engine) || !bytes_ok(payload)) {
+    if (!ready(engine) || !bytes_ok(payload) || result_lifetime_ms == 0U ||
+        result_lifetime_ms > engine->profile.result_cache_ms) {
         return DMP_INVALID_ARGUMENT;
     }
     if (request.slot >= engine->storage.history_capacity) {
@@ -2453,7 +2767,7 @@ dmp_status dmp_reliability_complete(dmp_reliability *engine, dmp_reliability_han
     if (slot == NULL) {
         return DMP_STALE_HANDLE;
     }
-    status = dmp_deadline_after(now, engine->profile.result_cache_ms, &cache_deadline);
+    status = dmp_deadline_after(now, result_lifetime_ms, &cache_deadline);
     if (status != DMP_OK) {
         return status;
     }
@@ -2481,10 +2795,17 @@ dmp_status dmp_reliability_complete(dmp_reliability *engine, dmp_reliability_han
         result->result.seq = seq;
         result->reserved = 1U;
     }
-    result->deadline = cache_deadline;
     sender->own = result->result;
     sender->payload_len = result->payload_len;
-    arm_saved_fragments(engine, sender, payload.size);
+    status = arm_saved_fragments(engine, sender, payload.size);
+    if (status != DMP_OK) {
+        /* No result frame. Drop the sender; the deadline stays unset so this
+         * is not reported as a duplicate completion. */
+        sender->phase = DMP_REL_PHASE_TERMINAL;
+        release_sender(sender);
+        return status;
+    }
+    result->deadline = cache_deadline;
     sender->repair_mask = 0U;
     sender->feedback_seq = 0U;
     sender->packet_count = 0U;
@@ -2507,4 +2828,16 @@ dmp_status dmp_reliability_complete(dmp_reliability *engine, dmp_reliability_han
         sender->receipt_seen = true;
     }
     return DMP_OK;
+}
+
+dmp_status dmp_reliability_complete(dmp_reliability *engine, dmp_reliability_handle request,
+                                    bool application_err, uint32_t wire_status, dmp_bytes payload,
+                                    dmp_time_ms now)
+{
+    if (!ready(engine)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    return dmp_reliability_complete_for_lifetime(
+        engine, request, application_err, wire_status, payload,
+        engine->profile.result_cache_ms, now);
 }

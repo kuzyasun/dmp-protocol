@@ -8,8 +8,11 @@
  *
  * Protected FINISH/READY uses the P01B cipher with S5 AAD and an explicit PN.
  * The S6 window rejects a replay or a PN that has fallen at least W behind
- * the highest authenticated PN. W is the configured power of two in
- * [64, 65536]; zero selects the specified default 1024. Candidate keys and a
+ * the highest authenticated PN. W is a power of two in
+ * [64, DMP_REPLAY_WINDOW_MAX]; zero selects the specified default 1024.
+ * The protocol maximum is 65536. The compilable bitmap ceiling is a power
+ * of two in [1024, 65536] because the default W must fit, and this build
+ * defaults that ceiling to 1024. A larger W is rejected. Candidate keys and a
  * committed pin do not activate an association. Application send is refused
  * until the S4 confirmation transition.
  *
@@ -45,8 +48,13 @@ extern "C" {
 #define DMP_HS_ATTEMPT_MAX 4u
 #define DMP_HS_ASSOCIATION_MAX 4u
 #define DMP_HS_PAYLOAD_MAX 120u
-/* P14 application record plaintext bound. Endpoint slices use this same limit. */
-#define DMP_HS_APP_PLAIN_MAX 32u
+/* Maximum application plaintext accepted by the protected-record seal APIs.
+ * This is not a promise that every endpoint frame can carry 240 bytes in one
+ * packet: ROUTE, CONTEXT, REPLY_TO, SERVICE, STATUS and FRAG consume header
+ * space. The endpoint probes the exact encoded header against its admitted
+ * MTU and fragments when needed; the protected-record encoder also enforces
+ * the caller's actual output capacity. */
+#define DMP_HS_APP_PLAIN_MAX 240u
 
 typedef enum dmp_hs_status {
     DMP_HS_OK = 0,
@@ -92,7 +100,9 @@ typedef struct dmp_hs_budget {
     uint32_t admit_burst;
     uint32_t admit_window_ms;
     uint32_t provisional_bytes;
-    /* Zero selects the specified default 1024. Otherwise a power of two in [64, 65536]. */
+    /* Zero selects the specified default 1024. Otherwise a power of two in
+     * [64, DMP_REPLAY_WINDOW_MAX]. The default ceiling is 1024. A value above
+     * that build ceiling is rejected even though SEC-1 allows up to 65536. */
     uint32_t replay_window;
     /* Zero selects the specified hard ceiling 65536. A larger value is rejected. */
     uint32_t failed_aead_limit;
@@ -192,9 +202,16 @@ typedef struct dmp_hs_protected {
 typedef struct dmp_hs dmp_hs;
 
 size_t dmp_hs_size(void);
+size_t dmp_hs_attempt_size(void);
+uint32_t dmp_hs_replay_width(const dmp_hs *hs);
+uint32_t dmp_hs_remote_rx_cid(const dmp_hs *hs, uint32_t attempt_index);
 dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider,
                           const dmp_hs_config *config, const dmp_hs_ports *ports);
 void dmp_hs_cleanup(dmp_hs *hs);
+/* Draw cryptographic randomness from the same configured entropy port used by
+ * SEC-1 handshakes. Failure wipes the requested output and never substitutes a
+ * fallback source. */
+dmp_hs_status dmp_hs_entropy(dmp_hs *hs, uint8_t *bytes, size_t size);
 
 dmp_hs_status dmp_hs_begin_episode(dmp_hs *hs);
 dmp_hs_status dmp_hs_schedule(dmp_hs *hs, uint32_t *attempt_index);

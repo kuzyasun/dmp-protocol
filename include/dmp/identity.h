@@ -117,6 +117,16 @@ typedef struct dmp_config {
     uint32_t default_service;
     uint32_t service_id[DMP_PROFILE_SERVICE_COUNT];
     dmp_profile_recovery recovery[DMP_PROFILE_SERVICE_COUNT];
+    /* Bit i requires the SEC-1 S7 freshness extension on application service
+     * service_id[i]. Zero omits the optional freshness component. */
+    uint8_t freshness_required_mask;
+    uint32_t freshness_lease_ms;
+    uint32_t freshness_grant_delivery_age_ms;
+    uint32_t freshness_tokens_per_association;
+    uint32_t freshness_tokens_per_principal;
+    uint32_t freshness_grant_requests_per_pair;
+    uint32_t freshness_token_record_ms;
+    uint32_t freshness_grant_result_ms;
     uint32_t peers;
     uint32_t operations_per_service;
     uint32_t assemblies_per_peer;
@@ -165,6 +175,14 @@ typedef struct dmp_config {
     uint32_t record_margin_ms;
     bool tx_borrow;
     bool synchronous_completion;
+    /* 0 omits ROUTE (DIRECT-1). 1 emits ROUTE mode TO_NODE. */
+    uint8_t origin_route;
+    /* Remaining forwarding operations placed by the origin. Origin
+     * transmission does not decrement this nibble. 0 with origin_route 1 is
+     * a single-hop radio frame: the addressed endpoint may consume it and a
+     * relay must not forward it. Values 1..15 are ordinary hop counts.
+     * A RADIO-1 manifest still fixes a value of at most 4. */
+    uint8_t origin_ttl;
 } dmp_config;
 
 typedef dmp_config dmp_admitted_profile;
@@ -187,6 +205,10 @@ typedef dmp_config dmp_admitted_profile;
  * assembly_ms below send_horizon+forward_delay+record_margin or below
  * collect_ms+record_margin. Overflow of those sums is DMP_INVALID_ARGUMENT.
  * collect_ms stays T_collect. Retry-all does not require the R3 fields.
+ * origin_route above 1, or origin_route 0 with a non-zero origin_ttl, is
+ * DMP_UNSUPPORTED. origin_ttl above 15 is DMP_INVALID_ARGUMENT.
+ * origin_route 1 accepts origin_ttl 0..15. TTL 0 is a direct radio hop:
+ * the destination may consume the frame and no relay can forward it.
  * JSON syntax and digest mismatch are not admission results. */
 dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out);
 

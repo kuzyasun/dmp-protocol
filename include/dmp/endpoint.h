@@ -32,7 +32,16 @@ typedef enum {
     DMP_ENDPOINT_TELEMETRY = 3,
     DMP_ENDPOINT_ASSEMBLED = 4,
     /* Local reliable REQ ended without a result. possibly-sent is unknown. */
-    DMP_ENDPOINT_UNKNOWN = 5
+    DMP_ENDPOINT_UNKNOWN = 5,
+    /* Local reliable REQ ended before any byte of any attempt could have
+     * reached the peer. Empty body. Carries that request's own key. Makes
+     * no claim about remote cancellation. */
+    DMP_ENDPOINT_LOCAL_UNSENT = 6,
+    /* Reliable DATA was accepted by the remote endpoint / acknowledged locally. */
+    DMP_ENDPOINT_DATA = 7,
+    DMP_ENDPOINT_DATA_DELIVERED = 8,
+    DMP_ENDPOINT_DATA_UNKNOWN = 9,
+    DMP_ENDPOINT_DATA_LOCAL_UNSENT = 10
 } dmp_endpoint_event;
 
 typedef struct {
@@ -88,6 +97,8 @@ typedef struct {
     size_t assembly_capacity;
     dmp_reassembly_tombstone *tombstones;
     size_t tombstone_capacity;
+    struct dmp_endpoint_freshness_slot *freshness_slots;
+    size_t freshness_capacity;
     uint8_t *assembly_payload;
     size_t assembly_payload_capacity;
     uint8_t *assembly_metadata;
@@ -126,6 +137,32 @@ typedef struct {
     uint32_t service_id;
     uint32_t permit;
 } dmp_endpoint_grant;
+
+typedef struct dmp_endpoint_freshness_slot {
+    uint8_t token[16];
+    dmp_time_ms expires_at;
+    dmp_time_ms record_until;
+    uint64_t peer_epoch;
+    uint64_t result_generation;
+    uint32_t principal;
+    uint32_t attempt;
+    uint32_t bound_seq;
+    uint32_t service_id;
+    uint32_t result_slot;
+    uint32_t granted_lifetime_ms;
+    uint32_t grant_request_seq;
+    uint32_t grant_request_lifetime_ms;
+    uint8_t state;
+    uint8_t grant_request_live;
+} dmp_endpoint_freshness_slot;
+
+enum {
+    DMP_ENDPOINT_FRESHNESS_EMPTY = 0,
+    DMP_ENDPOINT_FRESHNESS_RESERVED = 1,
+    DMP_ENDPOINT_FRESHNESS_ISSUED = 2,
+    DMP_ENDPOINT_FRESHNESS_BOUND = 3,
+    DMP_ENDPOINT_FRESHNESS_CONSUMED = 4
+};
 
 typedef struct {
     uint8_t live;
@@ -168,6 +205,13 @@ typedef struct {
     uint32_t telem_service;
     uint32_t telem_seq;
     uint8_t ext_scratch[DMP_MAX_HEADER_BYTES];
+    uint8_t encode_freshness_live;
+    uint8_t encode_freshness_token[16];
+    dmp_reliability_handle pending_grant_request;
+    dmp_message_key prepared_grant_key;
+    uint32_t pending_grant_slot;
+    uint8_t prepared_grant_live;
+    uint8_t pending_grant_live;
     struct dmp_hs *association;
     uint32_t association_attempt;
     uint8_t association_bound;
@@ -227,6 +271,21 @@ dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now);
 dmp_status dmp_endpoint_submit_req(dmp_endpoint *endpoint, uint32_t service_id,
                                    dmp_bytes payload, dmp_time_ms now,
                                    dmp_reliability_handle *out);
+/* Freshness-bearing reliable REQ. token must be exactly 16 bytes. */
+dmp_status dmp_endpoint_submit_req_fresh(dmp_endpoint *endpoint, uint32_t service_id,
+                                         dmp_bytes payload, dmp_bytes token,
+                                         dmp_time_ms now,
+                                         dmp_reliability_handle *out);
+/* Reliable DATA delivery. token is empty for an unprotected-freshness service
+ * or exactly 16 bytes for a service requiring S7 freshness. */
+dmp_status dmp_endpoint_submit_data(dmp_endpoint *endpoint, uint32_t service_id,
+                                    dmp_bytes payload, dmp_bytes token,
+                                    dmp_time_ms now,
+                                    dmp_reliability_handle *out);
+dmp_status dmp_endpoint_submit_event(dmp_endpoint *endpoint, uint32_t service_id,
+                                     dmp_bytes payload, dmp_bytes token,
+                                     dmp_time_ms now,
+                                     dmp_reliability_handle *out);
 
 /* RSP, or terminal application ERR when application_err is true and
  * wire_status >= 64. Payload is copied on success. */

@@ -34,7 +34,9 @@ SCHEMA = obj(
     revisions=obj(core=enum(10), security=enum(5), bootstrap=enum(2),
                   recovery=enum(1), application=enum(2)),
     profile=obj(owner=enum("DMP-reference", "DMP-test"),
-                id=enum("DIRECT-1", "RADIO-1", "TEST-RADIO-RETRY-ALL"), revision=integer(1, 4)),
+                id=enum("DIRECT-1", "RADIO-1", "TEST-RADIO-RETRY-ALL",
+                        "TEST-DIRECT-ASYNC", "TEST-RADIO-N2",
+                        "TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256"), revision=integer(1, 4)),
     identity=obj(namespace=U32, nodes=array(U32, 2, 2), default_service=enum(1),
                  epoch_source=enum("sec1-association"), restart=enum("fresh-handshake"),
                  sample_epoch=enum("persistent-never-reused-u64"), sample_producer=U32),
@@ -63,6 +65,7 @@ SCHEMA = obj(
                bootstrap_chunk_bytes=integer(1, 119), bootstrap_fragments=integer(2, 120),
                peers=enum(1), assemblies_per_peer=enum(1),
                assembly_tombstones_per_peer=integer(1, 64), operations_per_service=enum(1),
+               sender_slots=integer(1, 64),
                control_slots=integer(2, 64), application_queue_slots=POS, adapter_slots=POS),
     security=obj(mode=enum("NNpsk0", "XX"), cipher=enum(1),
                  credential=enum("provisioned-pairwise-psk", "authenticated-oob-xx"),
@@ -114,7 +117,7 @@ SCHEMA = obj(
                         flash_limit_bytes=POS, flash_reserved_bytes=POS,
                         regions=array(obj(id=TEXT, limit_bytes=POS), 1, 8),
                         charges=array(obj(component=enum(*COMPONENTS), region=TEXT,
-                                          count=POS, bytes_each=POS), 1, 112)), 1, 2),
+                                          count=integer(0), bytes_each=integer(0)), 1, 112)), 1, 2),
 )
 SCHEMA = {"$schema": "https://json-schema.org/draft/2020-12/schema",
           "$id": "urn:dmp:test-manifest:2", **SCHEMA}

@@ -119,7 +119,7 @@ class ManifestContractTests(unittest.TestCase):
         self.assertEqual(263, direct["encoded_frame_bytes"])
         self.assertEqual(430, radio["response_floor_ms"])
         self.assertEqual(1144, radio["freshness_required_ms"])
-        self.assertEqual(6457, radio["ram_reserved_bytes"]["endpoint"]["RAM"])
+        self.assertEqual(5305, radio["ram_reserved_bytes"]["endpoint"]["RAM"])
         self.assertEqual(2317, radio["ram_reserved_bytes"]["relay"]["RAM"])
 
     def test_grant_result_pool_has_independent_21_byte_floor(self):

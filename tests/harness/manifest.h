@@ -19,6 +19,9 @@ typedef struct manifest_view {
     uint32_t width_ms;
     uint32_t queue_ms;
     uint32_t adapter_slots;
+    /* 0 = DIRECT-1, no ROUTE. 1 = RADIO-1 TO_NODE. origin_ttl is binding.ttl. */
+    uint8_t origin_route;
+    uint8_t origin_ttl;
     char sha256[65];
 } manifest_view;
 

@@ -606,26 +606,26 @@
       "expected_path": "$.relays[node=30]"
     },
     {
-      "name": "endpoint-bootstrap-buffer-meets-120-byte-floor",
+      "name": "endpoint-association-layout-is-reserved",
       "fixture": "direct.json",
       "mutations": [
         {
           "op": "set",
-          "path": "/resources/0/charges/3/bytes_each",
-          "value": 119
+          "path": "/resources/0/charges/2/count",
+          "value": 0
         }
       ],
       "expected_code": "resources",
-      "expected_path": "$.resources[endpoint].bootstrap"
+      "expected_path": "$.resources[endpoint].association"
     },
     {
-      "name": "endpoint-assembly-reserves-metadata-and-slot",
+      "name": "endpoint-assembly-covers-message-payload",
       "fixture": "direct.json",
       "mutations": [
         {
           "op": "set",
           "path": "/resources/0/charges/5/bytes_each",
-          "value": 575
+          "value": 63
         }
       ],
       "expected_code": "resources",

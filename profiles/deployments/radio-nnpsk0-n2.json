@@ -9,7 +9,7 @@
   },
   "profile": {
     "owner": "DMP-test",
-    "id": "TEST-RADIO-RETRY-ALL",
+    "id": "TEST-RADIO-N2",
     "revision": 1
   },
   "identity": {
@@ -33,13 +33,13 @@
     "topology": "static-unicast",
     "context": "origin-explicit",
     "ttl": 2,
-    "forward_mtu": 256,
-    "return_mtu": 256,
-    "encoded_mtu": 256,
+    "forward_mtu": 128,
+    "return_mtu": 128,
+    "encoded_mtu": 128,
     "frame_tx_ms": 1,
     "tx_ownership": "borrow",
     "completion": "exactly-once-generation-tagged",
-    "synchronous_completion": true,
+    "synchronous_completion": false,
     "cancellation": "terminal-event-releases-buffer",
     "disconnect": "settle-all-submissions-fail-transfers",
     "access": "reserved-half-duplex-slots",
@@ -56,7 +56,7 @@
       "service_encoding": "omitted",
       "schema": "DMP-reference/SAMPLE-1/2",
       "payload_desc": "omitted",
-      "recovery": "retry-all",
+      "recovery": "selective-32",
       "security": "SEC-1",
       "freshness": false,
       "idempotent": true,
@@ -86,12 +86,12 @@
       "service_encoding": "explicit",
       "schema": "DMP-test/OPAQUE-1/1",
       "payload_desc": "omitted",
-      "recovery": "retry-all",
+      "recovery": "selective-32",
       "security": "SEC-1",
       "freshness": true,
       "idempotent": true,
-      "request_bytes": 64,
-      "result_bytes": 64,
+      "request_bytes": 1024,
+      "result_bytes": 1024,
       "processing_ms": 10,
       "acl": [
         {
@@ -112,19 +112,19 @@
     }
   ],
   "limits": {
-    "message_bytes": 64,
-    "fragments": 4,
-    "chunk_bytes": 16,
+    "message_bytes": 1024,
+    "fragments": 32,
+    "chunk_bytes": 32,
     "bootstrap_chunk_bytes": 60,
     "bootstrap_fragments": 2,
     "peers": 1,
     "assemblies_per_peer": 1,
-    "assembly_tombstones_per_peer": 16,
     "operations_per_service": 1,
     "sender_slots": 4,
     "control_slots": 4,
     "application_queue_slots": 2,
-    "adapter_slots": 5
+    "adapter_slots": 5,
+    "assembly_tombstones_per_peer": 16
   },
   "security": {
     "mode": "NNpsk0",
@@ -146,21 +146,21 @@
     "pairing_timeout_ms": 500,
     "preauth_slots": 1,
     "preauth_bytes": 120,
-    "attempt_ms": 1000000,
+    "attempt_ms": 20000,
     "episode_attempts": 2,
     "flight_attempts": 2,
     "flight_retry_ms": 1856,
     "confirmation_attempts": 2,
-    "confirmation_timeout_ms": 320,
+    "confirmation_timeout_ms": 512,
     "duplicate_responses_per_attempt": 1,
     "response_window_ms": 1000,
     "responses_per_window": 16,
-    "response_bytes_per_window": 10000,
-    "episode_ms": 2100000,
+    "response_bytes_per_window": 8192,
+    "episode_ms": 41000,
     "episode_crypto_ms": 2000,
     "crypto_per_attempt_ms": 1000,
-    "episode_tx_bytes": 20000,
-    "attempt_tx_bytes": 10000,
+    "episode_tx_bytes": 16384,
+    "attempt_tx_bytes": 8192,
     "restart_backoff_ms": 1000,
     "later_episodes_per_window": 2,
     "later_window_ms": 10000000,
@@ -173,37 +173,38 @@
     "forward_delay_ms": 20,
     "return_delay_ms": 20,
     "receipt_delay_ms": 110,
-    "burst_span_ms": 256,
+    "burst_span_ms": 2048,
     "feedback_guard_ms": 4,
     "feedback_delay_ms": 110,
-    "response_timeout_ms": 448,
+    "response_timeout_ms": 2304,
     "deadline_order": "available-terminal-or-feedback-first",
-    "send_horizon_ms": 960,
-    "max_bursts": 2,
-    "max_probes": 0,
-    "max_status": 0,
+    "send_horizon_ms": 10752,
+    "max_bursts": 3,
+    "max_probes": 2,
+    "max_status": 3,
     "burst_starts_ms": [
       0,
-      704
+      4352,
+      8704
     ],
     "jitter_ms": 0,
     "record_margin_ms": 5,
-    "collect_ms": 980,
-    "assembly_ms": 985,
+    "collect_ms": 10772,
+    "assembly_ms": 10777,
     "inactivity_ms": 0,
-    "dedup_ms": 1069,
-    "rejection_ms": 1069,
-    "result_cache_ms": 1069,
-    "result_deadline_ms": 2240,
-    "correlation_ms": 2304,
-    "tombstone_ms": 2304,
-    "late_result_ms": 10,
+    "dedup_ms": 11000,
+    "rejection_ms": 11000,
+    "result_cache_ms": 11000,
+    "result_deadline_ms": 22000,
+    "correlation_ms": 23040,
+    "tombstone_ms": 23040,
+    "late_result_ms": 64,
     "max_transfer_airtime_ms": 10000,
-    "receipt_limit": 2,
+    "receipt_limit": 3,
     "feedback_buffers": 1
   },
   "freshness": {
-    "lease_ms": 2000,
+    "lease_ms": 12000,
     "grant_delivery_age_ms": 100,
     "grant_nodes": [
       10,
@@ -213,13 +214,13 @@
     "tokens_per_association": 4,
     "tokens_per_principal": 8,
     "grant_requests_per_pair": 2,
-    "token_record_ms": 2000,
-    "grant_result_ms": 1069
+    "token_record_ms": 12000,
+    "grant_result_ms": 11000
   },
   "sample": {
     "init_attempts": 1,
     "init_retry_ms": 5,
-    "init_deadline_ms": 2240,
+    "init_deadline_ms": 22000,
     "synchronization": "correlated-read-current-generation",
     "no_sample_status": 64,
     "telemetry_bytes": 16,
@@ -235,7 +236,7 @@
       "cooldown_anchor": "last-forward-completion",
       "cooldown_ms": 50,
       "expiry_ms": 20000,
-      "max_forwards_per_key": 8,
+      "max_forwards_per_key": 12,
       "frame_tx_ms": 1,
       "per_origin_airtime_ms": 10000,
       "global_airtime_ms": 20000,
@@ -252,7 +253,7 @@
       "cooldown_anchor": "last-forward-completion",
       "cooldown_ms": 50,
       "expiry_ms": 20000,
-      "max_forwards_per_key": 8,
+      "max_forwards_per_key": 12,
       "frame_tx_ms": 1,
       "per_origin_airtime_ms": 10000,
       "global_airtime_ms": 20000,
@@ -267,13 +268,13 @@
   "resources": [
     {
       "role": "endpoint",
-      "target": "host.endpoint",
-      "flash_limit_bytes": 1000000,
-      "flash_reserved_bytes": 500000,
+      "target": "portable-host.endpoint.v1",
+      "flash_limit_bytes": 524288,
+      "flash_reserved_bytes": 262144,
       "regions": [
         {
           "id": "RAM",
-          "limit_bytes": 10000
+          "limit_bytes": 131072
         }
       ],
       "charges": [
@@ -281,37 +282,37 @@
           "component": "provider_retained",
           "region": "RAM",
           "count": 3,
-          "bytes_each": 64
+          "bytes_each": 1325
         },
         {
           "component": "provider_scratch",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 128
+          "bytes_each": 16384
         },
         {
           "component": "association",
           "region": "RAM",
-          "count": 3,
-          "bytes_each": 128
+          "count": 1,
+          "bytes_each": 11912
         },
         {
           "component": "bootstrap",
           "region": "RAM",
-          "count": 1,
-          "bytes_each": 120
+          "count": 0,
+          "bytes_each": 0
         },
         {
           "component": "sender",
           "region": "RAM",
           "count": 4,
-          "bytes_each": 64
+          "bytes_each": 1240
         },
         {
           "component": "assembly",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 576
+          "bytes_each": 1455
         },
         {
           "component": "assembly_tombstone",
@@ -323,67 +324,67 @@
           "component": "result",
           "region": "RAM",
           "count": 6,
-          "bytes_each": 64
+          "bytes_each": 1160
         },
         {
           "component": "history",
           "region": "RAM",
           "count": 12,
-          "bytes_each": 32
+          "bytes_each": 375
         },
         {
           "component": "correlation",
           "region": "RAM",
           "count": 6,
-          "bytes_each": 32
+          "bytes_each": 359
         },
         {
           "component": "control",
           "region": "RAM",
           "count": 4,
-          "bytes_each": 256
+          "bytes_each": 0
         },
         {
           "component": "application_queue",
           "region": "RAM",
-          "count": 2,
-          "bytes_each": 64
+          "count": 1,
+          "bytes_each": 6669
         },
         {
           "component": "adapter",
           "region": "RAM",
           "count": 5,
-          "bytes_each": 256
+          "bytes_each": 216
         },
         {
           "component": "stacks",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 512
+          "bytes_each": 12288
         },
         {
           "component": "relay_cache",
           "region": "RAM",
-          "count": 1,
-          "bytes_each": 1
+          "count": 0,
+          "bytes_each": 0
         },
         {
           "component": "freshness_tokens",
           "region": "RAM",
           "count": 8,
-          "bytes_each": 16
+          "bytes_each": 88
         }
       ]
     },
     {
       "role": "relay",
-      "target": "host.relay",
-      "flash_limit_bytes": 1000000,
-      "flash_reserved_bytes": 500000,
+      "target": "portable-host.relay.v1",
+      "flash_limit_bytes": 131072,
+      "flash_reserved_bytes": 65536,
       "regions": [
         {
           "id": "RAM",
-          "limit_bytes": 10000
+          "limit_bytes": 65536
         }
       ],
       "charges": [
@@ -391,34 +392,40 @@
           "component": "provider_retained",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "provider_scratch",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "association",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "bootstrap",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "sender",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "assembly",
+          "region": "RAM",
+          "count": 1,
+          "bytes_each": 256
+        },
+        {
+          "component": "assembly_tombstone",
           "region": "RAM",
           "count": 1,
           "bytes_each": 1
@@ -427,61 +434,55 @@
           "component": "result",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "history",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "correlation",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "control",
           "region": "RAM",
-          "count": 1,
-          "bytes_each": 256
+          "count": 4,
+          "bytes_each": 512
         },
         {
           "component": "application_queue",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         },
         {
           "component": "adapter",
           "region": "RAM",
-          "count": 1,
-          "bytes_each": 256
+          "count": 4,
+          "bytes_each": 512
         },
         {
           "component": "stacks",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 4096
         },
         {
           "component": "relay_cache",
           "region": "RAM",
-          "count": 54,
-          "bytes_each": 32
+          "count": 192,
+          "bytes_each": 96
         },
         {
           "component": "freshness_tokens",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
-        },
-        {
-          "component": "assembly_tombstone",
-          "region": "RAM",
-          "count": 1,
-          "bytes_each": 1
+          "bytes_each": 256
         }
       ]
     }

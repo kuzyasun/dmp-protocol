@@ -77,6 +77,36 @@ static dmp_status admit_selective(const dmp_config *in)
     return DMP_OK;
 }
 
+static dmp_status admit_freshness(const dmp_config *in)
+{
+    const uint8_t allowed = (uint8_t)((1U << DMP_PROFILE_SERVICE_COUNT) - 1U);
+
+    if ((in->freshness_required_mask & (uint8_t)~allowed) != 0U) {
+        return DMP_UNSUPPORTED;
+    }
+    if (in->freshness_required_mask == 0U) {
+        return in->freshness_lease_ms == 0U && in->freshness_grant_delivery_age_ms == 0U &&
+                       in->freshness_tokens_per_association == 0U &&
+                       in->freshness_tokens_per_principal == 0U &&
+                       in->freshness_grant_requests_per_pair == 0U &&
+                       in->freshness_token_record_ms == 0U &&
+                       in->freshness_grant_result_ms == 0U
+                   ? DMP_OK
+                   : DMP_UNSUPPORTED;
+    }
+    if (in->freshness_lease_ms == 0U || in->freshness_lease_ms > 60000U ||
+        in->freshness_grant_delivery_age_ms > in->freshness_lease_ms ||
+        in->freshness_grant_requests_per_pair == 0U ||
+        in->freshness_grant_requests_per_pair > in->freshness_tokens_per_association ||
+        in->freshness_tokens_per_association > in->freshness_tokens_per_principal ||
+        in->freshness_token_record_ms < in->freshness_lease_ms ||
+        in->freshness_grant_result_ms == 0U ||
+        in->freshness_grant_result_ms > in->result_cache_ms) {
+        return DMP_UNSUPPORTED;
+    }
+    return DMP_OK;
+}
+
 dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
 {
     uint64_t tombstones;
@@ -117,6 +147,21 @@ dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
         if (selective != DMP_OK) {
             return selective;
         }
+    }
+    {
+        dmp_status freshness = admit_freshness(in);
+        if (freshness != DMP_OK) {
+            return freshness;
+        }
+    }
+    /* TO_NODE is the only origin route this core emits. TTL 0 stays legal
+     * on that route: a relay refuses to forward it, and the destination may
+     * still consume the frame. */
+    if (in->origin_route > 1U || (in->origin_route == 0U && in->origin_ttl != 0U)) {
+        return DMP_UNSUPPORTED;
+    }
+    if (in->origin_ttl > 15U) {
+        return DMP_INVALID_ARGUMENT;
     }
     admitted = *in;
     *out = admitted;

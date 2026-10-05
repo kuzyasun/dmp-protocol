@@ -389,6 +389,15 @@ static dmp_status source_identity(const dmp_frame_view *frame, const dmp_identit
         return DMP_MALFORMED;
     }
     if (routed) {
+        /* SEC-1 and RADIO-1 require explicit CONTEXT and TO_NODE. A missing
+         * CONTEXT is not filled from the association epoch. */
+        if (frame->fields.route.mode != 1U ||
+            frame->fields.route.destination != slot->local.origin_id) {
+            return DMP_MALFORMED;
+        }
+        if (!ext->have_context) {
+            return DMP_CONTEXT_REQUIRED;
+        }
         origin = frame->fields.route.source;
     } else if (ext->have_origin) {
         origin = ext->origin;
@@ -400,6 +409,8 @@ static dmp_status source_identity(const dmp_frame_view *frame, const dmp_identit
     }
     key->origin.namespace_id = slot->peer.namespace_id;
     key->origin.origin_id = origin;
+    /* Direct frames may use the association epoch. Routed frames already
+     * required CONTEXT above, so this does not substitute on a routed path. */
     key->origin.epoch = ext->have_context ? ext->context_epoch : slot->peer.epoch;
     key->seq = frame->fields.seq;
     return DMP_OK;

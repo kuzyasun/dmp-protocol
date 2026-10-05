@@ -81,6 +81,8 @@ FIELDS = (
     "record_margin_ms",
     "tx_borrow",
     "synchronous_completion",
+    "origin_route",
+    "origin_ttl",
 )
 
 
@@ -159,6 +161,8 @@ def typed_fields(raw, document):
         "record_margin_ms": int(timing["record_margin_ms"]),
         "tx_borrow": 1 if binding["tx_ownership"] == "borrow" else 0,
         "synchronous_completion": 1 if binding["synchronous_completion"] else 0,
+        "origin_route": validator.origin_route_of(document),
+        "origin_ttl": validator.origin_ttl_of(document),
     }
 
 

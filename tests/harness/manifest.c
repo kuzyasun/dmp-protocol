@@ -1413,21 +1413,24 @@ static void check_relays(vstate *st, const json_value *m, derived *d)
 }
 
 static uint64_t count_for(const char *key, int endpoint, uint64_t associations, uint64_t crypto,
-                          uint64_t preauth, uint64_t operations, uint64_t assemblies,
+                          uint64_t operations, uint64_t assemblies,
                           uint64_t assembly_tombstones, uint64_t grants, uint64_t control,
-                          uint64_t app_queue, uint64_t adapter, uint64_t tokens)
+                          uint64_t adapter, uint64_t tokens)
 {
     if (!endpoint && strcmp(key, "relay_cache") != 0) {
         return 1U;
     }
-    if (strcmp(key, "provider_retained") == 0 || strcmp(key, "association") == 0) {
+    if (strcmp(key, "provider_retained") == 0) {
         return associations;
+    }
+    if (strcmp(key, "association") == 0) {
+        return 1U;
     }
     if (strcmp(key, "provider_scratch") == 0) {
         return crypto;
     }
     if (strcmp(key, "bootstrap") == 0) {
-        return preauth;
+        return endpoint ? 0U : 1U;
     }
     if (strcmp(key, "sender") == 0) {
         return operations;
@@ -1448,16 +1451,16 @@ static uint64_t count_for(const char *key, int endpoint, uint64_t associations, 
         return control;
     }
     if (strcmp(key, "application_queue") == 0) {
-        return app_queue;
+        return 1U;
     }
     if (strcmp(key, "adapter") == 0) {
         return adapter;
     }
     if (strcmp(key, "stacks") == 0 || strcmp(key, "relay_cache") == 0) {
-        return 1U;
+        return strcmp(key, "relay_cache") == 0 && endpoint ? 0U : 1U;
     }
     if (strcmp(key, "freshness_tokens") == 0) {
-        return tokens > 1U ? tokens : 1U;
+        return endpoint ? tokens : 1U;
     }
     return 0U;
 }
@@ -1507,7 +1510,7 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
     }
     associations = fu(st, security, "pending_per_pair") + fu(st, security, "active_per_pair") +
                    fu(st, security, "draining_per_pair");
-    operations = 4U;
+    operations = fu(st, limits, "sender_slots");
     grants = fu(st, fresh, "grant_requests_per_pair");
     message = fu(st, limits, "message_bytes");
     encoded = d->encoded_frame_bytes;
@@ -1593,11 +1596,11 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
             }
             seen[component_index] = 1;
             need_count = count_for(key, endpoint, associations, fu(st, security, "crypto_slots"),
-                                   fu(st, security, "preauth_slots"), operations,
+                                   operations,
                                    fu(st, limits, "assemblies_per_peer"),
                                    fu(st, limits, "peers") *
                                        fu(st, limits, "assembly_tombstones_per_peer"), grants,
-                                   fu(st, limits, "control_slots"), fu(st, limits, "application_queue_slots"),
+                                   fu(st, limits, "control_slots"),
                                    fu(st, limits, "adapter_slots"), fu(st, fresh, "tokens_per_principal"));
             if (!endpoint && strcmp(key, "relay_cache") == 0) {
                 need_count = operations * (d->fragment_count + d->bootstrap_fragment_count) +
@@ -1608,24 +1611,24 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
                 strcmp(key, "application_queue") == 0) {
                 need_bytes = endpoint ? message : 1U;
             }
-            if (strcmp(key, "assembly") == 0 && endpoint) {
-                need_bytes += 512U;
-            }
             if (strcmp(key, "result") == 0) {
                 uint64_t floor = grants != 0U ? 21U : 1U;
                 need_bytes = endpoint ? (message > floor ? message : floor) : 1U;
             }
             if (strcmp(key, "bootstrap") == 0) {
-                need_bytes = endpoint ? 120U : 1U;
+                need_bytes = endpoint ? 0U : 1U;
             }
             if (strcmp(key, "freshness_tokens") == 0) {
-                need_bytes = endpoint ? (grants != 0U ? 16U : 1U) : 1U;
+                need_bytes = endpoint ? (grants != 0U ? 16U : 0U) : 1U;
+            }
+            if (strcmp(key, "relay_cache") == 0 && endpoint) {
+                need_bytes = 0U;
             }
             if (strcmp(key, "assembly_tombstone") == 0) {
                 need_bytes = endpoint ? 48U : 1U;
             }
             if (strcmp(key, "control") == 0 || strcmp(key, "adapter") == 0) {
-                need_bytes = encoded;
+                need_bytes = endpoint && strcmp(key, "control") == 0 ? 0U : encoded;
             }
             snprintf(cpath, sizeof cpath, "%s.%s", path, key);
             if (!need(st, have_count >= need_count && have_bytes >= need_bytes, "resources", cpath)) {
@@ -1640,7 +1643,11 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
                 fail(st, "resources", path);
                 return;
             }
-            region_used[region_index] = nadd(region_used[region_index], nmul(nu(have_count), nu(have_bytes)));
+            if (!(endpoint && (strcmp(key, "provider_scratch") == 0 ||
+                               strcmp(key, "control") == 0))) {
+                region_used[region_index] = nadd(region_used[region_index],
+                                                 nmul(nu(have_count), nu(have_bytes)));
+            }
             if (region_used[region_index].big || region_used[region_index].v > region_limit[region_index]) {
                 fail(st, "resources", path);
                 return;
@@ -1785,6 +1792,22 @@ int manifest_validate(const uint8_t *bytes, size_t length, const char *expected_
             view->return_delay_ms = (uint32_t)fu(&st, timing, "return_delay_ms");
             view->queue_ms = (uint32_t)fu(&st, timing, "queue_ms");
             view->adapter_slots = (uint32_t)fu(&st, limits_of(root), "adapter_slots");
+            {
+                const char *topology = fs(&st, binding, "topology");
+                const char *context = fs(&st, binding, "context");
+                uint64_t ttl = fu(&st, binding, "ttl");
+                if (!st.failed && strcmp(topology, "point-to-point") == 0 &&
+                    strcmp(context, "association") == 0) {
+                    view->origin_route = 0U;
+                    view->origin_ttl = 0U;
+                } else if (!st.failed && strcmp(topology, "static-unicast") == 0 &&
+                           strcmp(context, "origin-explicit") == 0 && ttl <= 15U) {
+                    view->origin_route = 1U;
+                    view->origin_ttl = (uint8_t)ttl;
+                } else if (!st.failed) {
+                    fail(&st, "profile", "$.binding");
+                }
+            }
         }
     }
     json_arena_destroy(schema_arena);
