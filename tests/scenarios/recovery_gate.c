@@ -1846,6 +1846,67 @@ static int pn_reserve_boundary(session *env, port_ctx *port, dmp_time_ms now)
     return 0;
 }
 
+static int test_pn_limit(session *env, port_ctx *port)
+{
+    const uint64_t pn_max = UINT64_C(0x00ffffff);
+    const uint64_t pn_limit = UINT64_C(0x01000000);
+    uint32_t index = 0U;
+    uint32_t seq = 0U;
+    uint32_t failed_before;
+    uint64_t pn = 0U;
+    dmp_time_ms now = 24000U;
+    dmp_status status = DMP_OK;
+    uint8_t telemetry = 0x63U;
+    uint8_t burn[MTU];
+    captured initial[2];
+    captured valid_max;
+    captured at_limit;
+    int count;
+
+    reset_measures();
+    CHECK(open_pair(env, port, PROF_RADIO, now, 0, &index) == 0);
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(&telemetry, 1U), now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    count = take_queue(&left, initial, 2, now);
+    CHECK(count == 1 && initial[0].type == DMP_TYPE_TELEM);
+    CHECK(frame_seq_pn(&initial[0], now, &seq, &pn) == 1 && seq == 0U && pn < pn_max);
+
+    /* Advance the real send counter with protected records. Do not alter its
+     * internal state: every PN below 2^24 is actually sealed by SEC-1. */
+    failed_before = dmp_hs_failed_aead(env->responder, 0U);
+    CHECK(burn_to_pn(&left, pn_max, burn, sizeof burn) == 1);
+    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) ==
+          pn_max);
+    CHECK(reseal_new_pn(env, index, &initial[0], span(&telemetry, 1U), now + 1U, &valid_max));
+    CHECK(frame_seq_pn(&valid_max, now + 1U, &seq, &pn) == 1 && seq == 0U && pn == pn_max);
+    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) ==
+          pn_limit);
+    CHECK(deliver_one(&right, &valid_max, now + 1U, &status) == 0);
+    CHECK(status == DMP_OK);
+    CHECK(dmp_hs_failed_aead(env->responder, 0U) == failed_before);
+    CHECK(right.wire.n == 0 && right.assemblies[0].live == 0U && right.app.accepts == 0);
+
+    /* A header-only PN=2^24 mutation has the stale tag from the low-PN frame;
+     * the endpoint rejects it before AEAD accounting. */
+    CHECK(captured_with_pn(&initial[0], now + 2U, pn_limit, &at_limit));
+    CHECK(deliver_one(&right, &at_limit, now + 2U, &status) == 0);
+    CHECK(status == DMP_AUTHENTICATION_FAILURE);
+    CHECK(dmp_hs_failed_aead(env->responder, 0U) == failed_before);
+    CHECK(right.wire.n == 0 && right.assemblies[0].live == 0U);
+
+    /* Endpoint-origin traffic cannot allocate or encrypt beyond the PN cap. */
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(&telemetry, 1U), now + 3U) ==
+          DMP_OK);
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 3U) == DMP_LIMIT_EXHAUSTED);
+    CHECK(left.wire.n == 0);
+    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) ==
+          pn_limit);
+    report("pn-valid-max-and-send-limit", port, "pass");
+    close_session(env);
+    return 0;
+}
+
 static int make_status_variant(node *sender, const dmp_frame_view *base, unsigned variant,
                                captured *out)
 {
@@ -4913,6 +4974,10 @@ int main(int argc, char **argv)
         failed |= test_gaps(&env, &port);
         close_session(&env);
     }
+    if (failed == 0 && (strcmp(name, "pn_limit") == 0 || strcmp(name, "all") == 0)) {
+        failed |= test_pn_limit(&env, &port);
+        close_session(&env);
+    }
     if (failed == 0 && (strcmp(name, "async") == 0 || strcmp(name, "all") == 0)) {
         failed |= test_async(&env, &port);
         close_session(&env);
@@ -4928,6 +4993,7 @@ int main(int argc, char **argv)
     if (strcmp(name, "geometry") != 0 && strcmp(name, "r6") != 0 && strcmp(name, "r7") != 0 &&
         strcmp(name, "retry_all") != 0 && strcmp(name, "relay_sample") != 0 &&
         strcmp(name, "feedback") != 0 && strcmp(name, "gaps") != 0 &&
+        strcmp(name, "pn_limit") != 0 &&
         strcmp(name, "async") != 0 && strcmp(name, "async_radio") != 0 &&
         strcmp(name, "freshness") != 0 &&
         strcmp(name, "all") != 0) {

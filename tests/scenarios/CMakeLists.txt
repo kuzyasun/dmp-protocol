@@ -29,7 +29,7 @@ if(MSVC)
     target_compile_definitions(dmp_test_recovery_gate PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
-foreach(name geometry r6 r7 retry_all relay_sample feedback gaps async async_radio freshness)
+foreach(name geometry r6 r7 retry_all relay_sample feedback gaps pn_limit async async_radio freshness)
     add_test(NAME scenarios.${name} COMMAND dmp_test_recovery_gate ${name})
     set_tests_properties(scenarios.${name} PROPERTIES TIMEOUT 120 LABELS "recovery;scenario")
 endforeach()

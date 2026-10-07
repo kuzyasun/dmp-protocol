@@ -1775,3 +1775,16 @@ Checks:
 - Independent read-only review found the capped `take_queue` could hide extra terminal frames. Added `CHECK(left.wire.n == 1)` before draining the queue; rebuilt and reran the same CTest/direct scenario. The reviewer follow-up confirmed the counterexample now fails and reported no new findings; it did not rerun tests.
 
 The test starts at the terminal counter value rather than iterating through all 2^32 SEQs. Endpoint SEQ exhaustion is covered; authenticated receipt of a valid PN near 2^24 and recovery-specific invalid-profile behavior remain open. P19 remains running and unaccepted pending those rows, independent final review and the applicable host gate.
+
+## 2026-10-07 — Valid SEC-1 PN boundary
+
+Added `scenarios.pn_limit` as a separate recovery test. It opens an authenticated RADIO-1 pair, advances the initiator's real SEC-1 PN counter by sealing every intervening record, reseals an endpoint-origin TELEMETRY at PN `0xFFFFFF`, and delivers that frame to the peer. The receive returns `DMP_OK` without a failed-AEAD increment. A header-only PN `2^24` mutation retaining the stale original tag is rejected without an AEAD failure increment; an endpoint-origin telemetry send at the exhausted limit returns `DMP_LIMIT_EXHAUSTED` and leaves next PN at `2^24`.
+
+Checks:
+
+- `cmake --build build/host --target dmp_test_recovery_gate --parallel 2` — passed.
+- `ctest --test-dir build/host --output-on-failure -R "^scenarios\.pn_limit$"` — 1/1 passed in 38.27 seconds.
+- `build/host/Testing/Temporary/LastTest.log` records `pn-valid-max-and-send-limit ... outcome=pass`.
+- `git diff --check` — passed after the evidence update; only Git LF-to-CRLF notices were emitted.
+
+The test actually seals the intervening PNs but does not transport them; only the valid max-PN frame is received. This is host evidence, not MCU or physical transport evidence. The `sel-r7-pn-seq` row is now closed for the covered replay, reservation, max-PN and SEQ-exhaustion boundaries. Independent read-only review found no actionable issue and did not rerun the tests. Recovery-specific invalid-profile behavior, RAM accounting, independent final review and the applicable host gate remain open; P19 remains running and unaccepted.
