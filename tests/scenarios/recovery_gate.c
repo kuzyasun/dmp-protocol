@@ -3347,9 +3347,15 @@ static int test_r6(session *env, port_ctx *port)
     {
         dmp_config input;
         dmp_admitted_profile admitted;
+        uint8_t admitted_before[sizeof admitted];
         fill_radio_numbers(&input, 0);
+        CHECK(input.recovery[0] == DMP_PROFILE_RECOVERY_SELECTIVE32);
+        CHECK(input.recovery[1] == DMP_PROFILE_RECOVERY_SELECTIVE32);
         input.return_mtu = 0U;
+        memset(&admitted, 0xA5, sizeof admitted);
+        memcpy(admitted_before, &admitted, sizeof admitted);
         CHECK(dmp_config_admit(&input, &admitted) == DMP_UNSUPPORTED);
+        CHECK(memcmp(&admitted, admitted_before, sizeof admitted) == 0);
     }
     report("r6-mtu", port, "pass");
     return 0;

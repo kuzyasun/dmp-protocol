@@ -1788,3 +1788,15 @@ Checks:
 - `git diff --check` — passed after the evidence update; only Git LF-to-CRLF notices were emitted.
 
 The test actually seals the intervening PNs but does not transport them; only the valid max-PN frame is received. This is host evidence, not MCU or physical transport evidence. The `sel-r7-pn-seq` row is now closed for the covered replay, reservation, max-PN and SEQ-exhaustion boundaries. Independent read-only review found no actionable issue and did not rerun the tests. Recovery-specific invalid-profile behavior, RAM accounting, independent final review and the applicable host gate remain open; P19 remains running and unaccepted.
+
+## 2026-10-07 — Static recovery-profile admission boundary
+
+Strengthened `scenarios.r6` `r6-mtu`: an otherwise admitted SELECTIVE-32 RADIO profile with `return_mtu=0` returns `DMP_UNSUPPORTED`, retains both configured SELECTIVE-32 modes and leaves the caller's admitted output unchanged. Existing `identity.profile_admit` checks invalid R3 timing combinations and a valid boundary tuple. Normative R1 fixes recovery mode before traffic and forbids changes during an association, so live policy mutation is not a supported API case; admission rejection is the applicable recovery-specific gate.
+
+Checks:
+
+- `cmake --build build/host --target dmp_test_recovery_gate dmp_test_profile_admit --parallel 2` — passed.
+- `ctest --test-dir build/host --output-on-failure -R "^(scenarios\.r6|identity\.profile_admit)$"` — 2/2 passed.
+- `git diff --check` — passed, with only Git line-ending notices.
+
+The `sel-r7-profile` matrix row is closed under this static-profile contract. RAM full-profile reconciliation, final P19 independent review and the applicable full host gate remain open; P19 remains running and unaccepted.
