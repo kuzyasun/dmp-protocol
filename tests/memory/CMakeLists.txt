@@ -26,9 +26,8 @@ if(MSVC)
     target_compile_definitions(dmp_ram_measure PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
-# Runnable endpoint initialization milestone. This does not claim lifecycle
-# memory phases beyond initial construction; those remain in the report tool's
-# fail-closed not_measured state until the process-isolated peer harness lands.
+# Process-isolated lifecycle probe: one manifest-bound endpoint is measured;
+# the real peer endpoint runs in another process and is excluded from its totals.
 add_executable(dmp_ram_endpoint_initial ram_endpoint_measure.c)
 add_dependencies(dmp_ram_endpoint_initial dmp_test_provider)
 target_include_directories(dmp_ram_endpoint_initial PRIVATE
@@ -70,41 +69,77 @@ endif()
 foreach(_profile test-direct-minimal-128 test-direct-minimal-256)
     add_test(NAME memory.${_profile}.endpoint_lifecycle
         COMMAND dmp_ram_endpoint_process
-            --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/${_profile}.json")
+            --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/${_profile}.json"
+            --output "${CMAKE_CURRENT_BINARY_DIR}/${_profile}-endpoint-runtime.json")
     set_tests_properties(memory.${_profile}.endpoint_lifecycle PROPERTIES
         TIMEOUT 60 LABELS memory)
 endforeach()
+add_test(NAME memory.direct-nnpsk0.endpoint_lifecycle
+    COMMAND dmp_ram_endpoint_process
+        --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/direct-nnpsk0.json"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/direct-nnpsk0-endpoint-runtime.json")
+set_tests_properties(memory.direct-nnpsk0.endpoint_lifecycle PROPERTIES
+    TIMEOUT 90 LABELS memory)
+add_test(NAME memory.radio-nnpsk0.endpoint_lifecycle
+    COMMAND dmp_ram_endpoint_process
+        --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/radio-nnpsk0.json"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/radio-nnpsk0-endpoint-runtime.json")
+set_tests_properties(memory.radio-nnpsk0.endpoint_lifecycle PROPERTIES
+    TIMEOUT 180 LABELS memory)
 
 set(_profiles direct-nnpsk0 direct-nnpsk0-async radio-nnpsk0 radio-nnpsk0-n2
     test-radio-retry-all-nnpsk0 test-direct-minimal-128 test-direct-minimal-256)
+set(_lifecycle_profiles direct-nnpsk0 radio-nnpsk0 test-direct-minimal-128 test-direct-minimal-256)
 foreach(_profile IN LISTS _profiles)
     set(_measure "${CMAKE_CURRENT_BINARY_DIR}/${_profile}.json")
     set(_report "${CMAKE_CURRENT_BINARY_DIR}/${_profile}-report.json")
     set(_layout "${CMAKE_CURRENT_BINARY_DIR}/${_profile}-layout.json")
+    set(_measure_for_checks "${_measure}")
+    set(_check_arg --check-budget-only)
+    set(_report_deps "memory.${_profile}")
+    set(_layout_deps "memory.${_profile};memory.mcu_abi")
     add_test(NAME memory.${_profile}
         COMMAND dmp_ram_measure
             --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/${_profile}.json"
             --output "${_measure}")
+    if(_profile IN_LIST _lifecycle_profiles)
+        set(_endpoint_measure "${CMAKE_CURRENT_BINARY_DIR}/${_profile}-endpoint-runtime.json")
+        set(_merged_measure "${CMAKE_CURRENT_BINARY_DIR}/${_profile}-combined.json")
+        add_test(NAME memory.${_profile}.merge
+            COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tools/ram_merge.py"
+                --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/${_profile}.json"
+                --provider-measurement "${_measure}"
+                --endpoint-measurement "${_endpoint_measure}"
+                --output "${_merged_measure}")
+        set_tests_properties(memory.${_profile}.merge PROPERTIES
+            TIMEOUT 30 LABELS memory
+            DEPENDS "memory.${_profile};memory.${_profile}.endpoint_lifecycle")
+        set(_measure_for_checks "${_merged_measure}")
+        set(_check_arg --check)
+        set(_report_deps "memory.${_profile}.merge")
+        set(_layout_deps "memory.${_profile}.merge;memory.mcu_abi")
+    endif()
     add_test(NAME memory.${_profile}.report
         COMMAND "${Python3_EXECUTABLE}"
             "${PROJECT_SOURCE_DIR}/tools/ram_report.py"
             --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/${_profile}.json"
-            --measurement "${_measure}"
+            --measurement "${_measure_for_checks}"
             --output "${_report}"
-            --check)
+            ${_check_arg})
     add_test(NAME memory.${_profile}.layout
         COMMAND "${Python3_EXECUTABLE}"
             "${PROJECT_SOURCE_DIR}/tools/ram_layout.py"
             --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/${_profile}.json"
-            --measurement "${_measure}"
+            --measurement "${_measure_for_checks}"
             --mcu-abi "${CMAKE_CURRENT_BINARY_DIR}/mcu-abi.json"
             --output "${_layout}"
-            --check)
+            ${_check_arg})
     set_tests_properties(memory.${_profile} PROPERTIES
         TIMEOUT 120 LABELS memory
         ENVIRONMENT "RAM_BUILD_TYPE=${CMAKE_BUILD_TYPE};RAM_C_FLAGS=${CMAKE_C_FLAGS}")
     set_tests_properties(memory.${_profile}.report PROPERTIES
-        TIMEOUT 30 LABELS memory DEPENDS memory.${_profile})
+        TIMEOUT 30 LABELS memory DEPENDS "${_report_deps}")
     set_tests_properties(memory.${_profile}.layout PROPERTIES
         TIMEOUT 30 LABELS memory)
 endforeach()
@@ -125,6 +160,10 @@ add_test(NAME memory.mcu_abi
         --cc "${_mcu_cc}")
 set_tests_properties(memory.mcu_abi PROPERTIES TIMEOUT 180 LABELS memory)
 foreach(_profile IN LISTS _profiles)
+    set(_layout_deps "memory.${_profile};memory.mcu_abi")
+    if(_profile IN_LIST _lifecycle_profiles)
+        list(APPEND _layout_deps "memory.${_profile}.merge")
+    endif()
     set_tests_properties(memory.${_profile}.layout PROPERTIES
-        DEPENDS "memory.${_profile};memory.mcu_abi")
+        DEPENDS "${_layout_deps}")
 endforeach()

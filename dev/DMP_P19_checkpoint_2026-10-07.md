@@ -3,10 +3,10 @@
 ## Snapshot
 
 - Repository: `C:\projects\gemslibe\dmp-protocol`
-- Branch / published base: `feat/initial-version` at `0918802` on `origin/feat/initial-version`.
-- The user authorized that commit and push. Subsequent matrix, work-board and execution-log reconciliation is in the current working tree; check `git status` before resuming.
+- Branch / published base before this continuation: `feat/initial-version` at `b9b0b56050bd2b97a453bd25a77e76cc1b102c21` on `origin/feat/initial-version`.
+- New implementation and evidence changes are based on that commit. Final independent review is complete; the user has authorized committing and pushing this package.
 - RAM worker `/root/ram_tooling` completed the manifest-bound process-isolated lifecycle harness under `tests/memory/`. After two reviewer-identified evidence defects were fixed, coordinator build and CTest pass 2/2; final focused independent review found no actionable findings. Earlier pre-fix lifecycle outputs remain invalid.
-- P19 remains `running`, not accepted. The approved routes remain GPT-6-Luna High for implementation and GPT-6.1-sol High for independent review.
+- P19 is accepted for its host/simulation scope after the full host gate and final independent review. The approved routes used were GPT-6-Luna High for implementation and GPT-6.1-sol High for independent review.
 
 ## Completed step
 
@@ -14,15 +14,15 @@
 - Corrected the N=2 geometry/async expectations. The 64-byte payload emits exactly two 32-byte fragments; loss of index 0 yields missing mask `0x01` and repairs only index 0.
 - Extended `scenarios.r6` `r6-all-loss`: after all eight initial slices are lost, probe index 7 is admitted, status mask `0x7f` repairs indices 0–6, the receiver accepts once, and the sender receives its ACK with no unknown outcome.
 - The separate initial-phase probe constructs one real `dmp_endpoint` with libdmp and the P01B provider for minimal 128- and 256-byte profiles. Its reported caller-owned endpoint bundle is `10,096` requested bytes and provider state is `1,328` requested bytes; provider retained current/peak/largest-allocation are `0` bytes. Keep these host-requested values distinct from lifecycle measurements and MCU evidence.
-- Manifest RAM charge totals remain reservations: minimal-128 endpoint `32,590` bytes; minimal-256 endpoint `33,614` bytes. The region cap remains `131,072` bytes. These initial-phase values are not lifecycle peaks or MCU measurements.
+- Manifest RAM charge totals are reservations: minimal-128 `32,590` bytes, minimal-256 `33,614`, DIRECT-1 `53,154`, RADIO-1 `59,035`; the region cap remains `131,072` bytes. Lifecycle high-water is recorded below; charges and measurements are separate.
 - Added async TEST-RADIO-N2 one-slot exhaustion/result-before-repair-completion and fragmented-RSP/FRAG_STATUS overlap. The independent read-only follow-up found no issues in those scenarios.
 - Added endpoint-origin TTL=0 and narrow-egress refusal/cache-preservation cases; existing relay tests cover integrity-only CRC recomputation and missing on-wire CONTEXT. Independent review found no issue in the TTL=0/narrow-egress assertions.
-- Other recovery-matrix rows still require a complete source/evidence reconciliation.
+- At the time this checkpoint was first written, remaining matrix rows still needed source/evidence reconciliation; subsequent dated sections below record the added checks and current open P21D/P22/P23/physical boundaries.
 
 ## Continued after push
 
 - Reconciled additional matrix rows from the current named tests: service-2 freshness, routed host relay traffic, reliable DATA/EVENT, fragmented result loss and duplicate requests, authenticated feedback identity mismatch, and the distinct-key second-association check.
-- Kept unsupported claims partial/open: fragmented RSP/FRAG_STATUS overlap, a valid PN near 2^24 and SEQ wrap, explicit endpoint origin TTL 0, CRC after TTL mutation, narrower egress, independent peer, and physical radio.
+- At the time of this earlier entry, fragmented RSP/FRAG_STATUS overlap, PN/SEQ boundaries, explicit endpoint origin TTL 0, CRC after TTL mutation, and narrower egress remained open; later dated sections below record the added coverage. Independent peer remains P21D, case 11 remains P22/P23, and physical radio is not claimed.
 - Independent review of `e173b3a` found a best-effort fragmented-frame admission defect. The coordinator fixed it by probing a full-size slice before SEQ allocation/admission; the 99-byte/chunk-98 regression, targeted geometry build/CTest, and read-only follow-up review all pass.
 - `ctest --test-dir build/host --output-on-failure -R "^scenarios\.(freshness|relay_sample|feedback|r7)$"` — 4/4 passed.
 - `ctest --test-dir build/host --output-on-failure -R "^(scenarios\.(async|gaps)|identity\.profile_admit)$"` — 3/3 passed.
@@ -44,16 +44,15 @@
 - `git diff --check` — passed before the final documentation/checkpoint edits; rerun before the next handoff.
 - The first sandboxed CMake regeneration was denied access to Windows system temp. A workspace-local temp was rejected by the checked-Sodium script because it is inside the Git worktree. The successful host build used the approved build escalation for that temporary write.
 
-## Remaining acceptance work
+## Later gates and boundaries
 
-- Reconcile the accepted host lifecycle evidence into remaining accounting dependencies. The harness pins each manifest digest into config and handshake profile hash, uses distinct deterministic entropy for a fresh reconnect handshake, checks changed initiator/responder traffic epochs and rejection of the old protected DATA frame, and passes full-size 128/256-byte REQ loss/retry. It requires no assembly for the one-frame 128 case and one 256-byte assembly from four fragments for the 256 case. Its result payload is 17 bytes, not the profile's maximum. Focused independent RAM review found no actionable findings. The earlier pre-fix lifecycle metrics are invalid. No full-profile endpoint RAM run, MCU ABI/map/runtime peak, or physical peak is established. Keep the `131,072` cap and do not treat host sizes as MCU evidence.
-- The PN/SEQ boundary row is closed for the covered cases by `scenarios.pn_limit` and `scenarios.gaps` `seq-exhaustion-endpoint`. The invalid-profile row is now closed at static admission: SELECTIVE-32 with no return MTU fails without publishing an admitted profile or falling back; live recovery-policy mutation is forbidden by R1. S10 case 11 stays with P22/P23; independent peer and physical radio also remain later gates.
-- Independent follow-up review found no issue in the fragmented-RSP/status overlap or the TTL=0/narrow-egress assertions. Full P19 final review and the applicable full host gate remain pending; close the remaining matrix rows and corrected RAM/accounting checks before any P19 acceptance.
-- Do not flash or integrate into DTrack. The initial P19 package is already pushed; confirm current Git state before publishing any later checkpoint.
+- P19 is accepted for its host/simulation scope. Its six-phase endpoint RAM lifecycle and full-profile RADIO-1 freshness/route path are detailed below; MCU runtime peaks and physical transport are not claimed.
+- P21D owns independent-peer recovery/routing coverage. P22/P23 own the multi-binding S10 case 11. Physical MCU peaks and transport remain separate evidence gates.
+- The user authorized committing and pushing the reviewed P19 package. Do not flash hardware or integrate this library into DTrack.
 
 ## Resume point
 
-Read this checkpoint, `dev/DMP_Recovery_Matrix.md`, `dev/DMP_Work_Packages.md`, and the P19 owner direction in `dev/DMP_Correction_Plan.md`. Check live agent status, current Git state and test artifacts. The corrected RAM harness has passed focused independent review; its host-only evidence and limits are recorded above. Reconcile RAM accounting, then complete final independent review and the applicable host gate. Keep the recorded build directories and permission-protected temp directories intact.
+Read this checkpoint, `dev/DMP_Recovery_Matrix.md`, `dev/DMP_Work_Packages.md`, and the P19 owner direction in `dev/DMP_Correction_Plan.md`. Check current Git state and test artifacts. P19 is accepted and its reviewed package is authorized for commit/push. The next dependency-ready package is P20; preserve the recorded build directories and permission-protected temp directories.
 
 ## 2026-10-07 — Endpoint SEQ exhaustion boundary
 
@@ -85,4 +84,21 @@ Strengthened `scenarios.r6` `r6-mtu`: an otherwise admitted SELECTIVE-32 RADIO p
 - `ctest --test-dir build/host --output-on-failure -R "^(scenarios\\.r6|identity\\.profile_admit)$"` — 2/2 passed.
 - `git diff --check` — passed with only Git line-ending notices.
 
-The `sel-r7-profile` matrix row is closed under this static-profile contract. RAM full-profile reconciliation, final P19 independent review and the applicable full host gate remain open; P19 remains running and unaccepted.
+At this checkpoint, the `sel-r7-profile` row had closed, while full-profile RAM, final review and the full host gate remained open. The continuation below records the closure work.
+
+## 2026-10-07 — Full RADIO-1 and minimal endpoint RAM lifecycle
+
+Extended the process-isolated harness to exercise the exact `radio-nnpsk0.json` bytes/digest and admitted RADIO-1 configuration, including a real S7 service-0 grant, fresh service-2 token, endpoint-origin routed frames, reliable 1,024-byte request/result, a lost frame with fresh-PN retry, cleanup and a fresh reconnect. The harness records actual initiator/responder traffic epochs and excludes the peer process from the measured endpoint. The manifest-bound minimal-128 and minimal-256 profiles now report all six lifecycle phases as well.
+
+Host requested-byte results (includes caller-owned state and provider retained high-water; excludes peer, allocator metadata/alignment and stack high-water):
+
+- `RADIO-1` (`fe18d3c7...40a36`): 40,669 B caller-owned current; 42,146 B lifecycle high-water; provider retained peak 1,477 B. Service 2 transferred 1,024-byte request/result in 32 fragments with a fresh-PN retry; 80/80 route frames were valid, and the 21-byte freshness grant/token binding passed.
+- `DIRECT-1` (`d541555e...c77f7`): 36,265 B lifecycle high-water; 1,024-byte request/result in 16 fragments with retry.
+- `TEST-DIRECT-MINIMAL-128` (`e0a9ac98...ac831`): 19,466 B high-water; one-frame 128-byte exchange with retry.
+- `TEST-DIRECT-MINIMAL-256` (`d64c6ee6...d7ef`): 20,362 B high-water; four-fragment 256-byte exchange with retry and one exact peer assembly.
+
+Thus measured host requested-byte high-water is 22,680 B lower for minimal-128 and 21,784 B lower for minimal-256 than RADIO-1. This comparison is workload-specific host evidence, not MCU or physical savings. Provider retained charge was corrected from 1,325 to 1,477 B in RADIO-1, TEST-RADIO-N2 and TEST-RADIO-RETRY-ALL manifests; dependent exact-byte digests/fixtures/checks were synchronized. Reservations remain 32,590/33,614 B for minimal-128/256, 53,154 B DIRECT-1 and 59,035 B RADIO-1 under the unchanged 131,072 B cap. Compile-only MCU layout is separate; MCU stack/dynamic peak, allocator metadata/alignment and physical runtime peak remain unknown.
+
+The follow-up fixes the independent review's two findings: the reconnect capture now selects and reparses only `DMP_TYPE_DATA`; RAM report/layout reject lifecycle evidence whose profile ID or exact manifest SHA-256 differs. The recovery matrix's live arrival-gap row also has `collection-window-receive-gap` coverage.
+
+Validation on the corrected snapshot: deployment Python tests 14/14; contract Python tests 11/11; RAM report Python tests 26/26; full CMake build passed; focused lifecycle/recovery CTest 5/5; full CTest 97/97 passed with access to Windows `%TEMP%` for `harness.subprocess`; `git diff --check` passed. RADIO runtime JSON verifies stale `DMP_TYPE_DATA` is rejected as `DMP_AUTHENTICATION_FAILURE` without dispatch. The final independent review found no actionable code findings and did not rerun tests. Its documentation note about the matrix row referred to an earlier version; the current row names `collection-window-receive-gap` and records the passing 1,500 ms receive-gap check. P19 is accepted for its host/simulation scope. P21D independent-peer coverage, P22/P23 case 11, MCU runtime peaks and physical transport remain out of scope.

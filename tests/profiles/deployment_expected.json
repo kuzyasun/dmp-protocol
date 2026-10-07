@@ -15,7 +15,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 52698
+        "RAM": 53154
       }
     }
   },
@@ -35,7 +35,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 52698
+        "RAM": 53154
       }
     }
   },
@@ -75,7 +75,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 57425
+        "RAM": 57800
       },
       "relay": {
         "RAM": 29441
@@ -98,7 +98,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 58579
+        "RAM": 59035
       },
       "relay": {
         "RAM": 29441
@@ -144,7 +144,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 32590
+        "RAM": 32894
       }
     }
   },
@@ -164,7 +164,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 33614
+        "RAM": 33918
       }
     }
   },
@@ -184,7 +184,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 58579
+        "RAM": 59035
       },
       "relay": {
         "RAM": 29441

@@ -181,7 +181,7 @@ def validate_measurement(data):
     return objects
 
 
-def evaluate(manifest, measurement):
+def evaluate(manifest, measurement, manifest_hash=None):
     resource = endpoint_resource(manifest)
     limit = region_limit(resource)
     charges = charge_table(resource)
@@ -196,10 +196,27 @@ def evaluate(manifest, measurement):
         reason = workload.get("endpoint_runtime_reason")
         suffix = f": {reason}" if isinstance(reason, str) and reason else ""
         issues.append("one-device endpoint lifecycle is not measured" + suffix)
-    if workload.get("reconnect_overlap_status") != "measured":
+    else:
+        expected_profile = manifest.get("profile", {}).get("id")
+        if workload.get("endpoint_runtime_profile_id") != expected_profile:
+            issues.append("endpoint lifecycle profile ID does not match the manifest")
+        if (not isinstance(manifest_hash, str) or
+                workload.get("endpoint_runtime_manifest_digest_sha256") != manifest_hash):
+            issues.append("endpoint lifecycle manifest digest does not match the exact manifest SHA-256")
+    overlap_status = workload.get("reconnect_overlap_status")
+    if overlap_status == "budgeted_not_measured":
+        security = manifest.get("security", {})
+        required_slots = sum(nonnegative(security.get(key), f"security {key}")
+                             for key in ("pending_per_pair", "active_per_pair", "draining_per_pair"))
+        provider_charge = charges.get("provider_retained", {})
+        provider_peak = max((phase.get("provider_retained_peak_bytes", 0)
+                             for phase in measurement["phases"]), default=0)
+        if provider_charge.get("count", 0) < required_slots or provider_charge.get("bytes_each", 0) < provider_peak:
+            issues.append("provider rotation charges do not cover the manifest association slots and observed provider peak")
+    elif overlap_status != "measured":
         reason = workload.get("reconnect_overlap_reason")
         suffix = f": {reason}" if isinstance(reason, str) and reason else ""
-        issues.append("reconnect overlap is not measured" + suffix)
+        issues.append("reconnect overlap runtime is not measured" + suffix)
     for phase in measurement["phases"]:
         if phase["status"] != "measured":
             issues.append(f"required phase {phase['name']} is explicitly not measured")
@@ -260,7 +277,8 @@ def evaluate(manifest, measurement):
               "scratch_limit_is_per_allocation": True,
               "scratch_included_in_physical": False,
               "scratch_limit_max_bytes_non_additive": charges.get("provider_scratch", {}).get("configured_bytes", 0),
-              "control_slots_share_adapter_pool": True}
+              "control_slots_share_adapter_pool": True,
+              "reconnect_overlap_status": overlap_status}
     return rows, totals, issues
 
 
@@ -269,16 +287,28 @@ def main():
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--measurement", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--check", action="store_true")
+    checks = parser.add_mutually_exclusive_group()
+    checks.add_argument("--check", action="store_true",
+                        help="require lifecycle evidence and all profile-budget checks")
+    checks.add_argument("--check-budget-only", action="store_true",
+                        help="check profile budgets while preserving unmeasured lifecycle status")
     args = parser.parse_args()
     try:
         raw, manifest = load(args.manifest)
         _, measurement = load(args.measurement)
-        rows, totals, issues = evaluate(manifest, measurement)
-        report = {"ok": not issues, "profile_hash": hashlib.sha256(raw).hexdigest(),
+        manifest_hash = hashlib.sha256(raw).hexdigest()
+        rows, totals, issues = evaluate(manifest, measurement, manifest_hash)
+        lifecycle_prefixes = ("one-device endpoint lifecycle is not measured",
+                              "reconnect overlap runtime is not measured", "required phase ")
+        check_issues = ([issue for issue in issues if not issue.startswith(lifecycle_prefixes)]
+                        if args.check_budget_only else issues)
+        report = {"ok": not check_issues, "check_scope": "profile-budget-only" if args.check_budget_only else "lifecycle-and-profile-budget",
+                  "profile_hash": manifest_hash,
                   "manifest_bytes": len(raw), "rows": rows, "totals": totals,
                   "issues": issues, "phases": measurement["phases"],
                   "workload": measurement.get("workload", {}),
+                  "host_runtime": measurement.get("host_runtime", {}),
+                  "host_runtime_unknowns": measurement.get("host_runtime_unknowns", []),
                   "target_only_unknowns": measurement["target_only_unknowns"],
                   "host_abi": measurement.get("host_abi", []),
                   "compile_only_abi_separate": measurement.get("compile_only_abi_separate", True)}
@@ -293,7 +323,7 @@ def main():
               "physical={physical_bytes} charged={charged_bytes} unknown={unknown_count}".format(**totals))
         for issue in issues:
             print(f"ERROR: {issue}", file=sys.stderr)
-        return 1 if args.check and issues else 0
+        return 1 if (args.check and issues) or (args.check_budget_only and check_issues) else 0
     except (OSError, json.JSONDecodeError, Invalid, TypeError) as error:
         print(f"invalid RAM report input: {error}", file=sys.stderr)
         try:
@@ -302,7 +332,7 @@ def main():
                 handle.write("\n")
         except OSError as output_error:
             print(f"could not write error report: {output_error}", file=sys.stderr)
-        return 1 if args.check else 2
+        return 1 if args.check or args.check_budget_only else 2
 
 
 if __name__ == "__main__":

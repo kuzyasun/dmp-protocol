@@ -1,6 +1,6 @@
 # P19 recovery case-to-test matrix
 
-Host simulation only. These runs are not physical transport evidence. P19 is not accepted. P12 stays running. S10 case 11 stays pending for P23.
+Host simulation only. These runs are not physical transport evidence. P19 is accepted for its host/simulation scope. P12 stays running. Independent-peer coverage remains P21D; S10 case 11 stays pending for P22/P23.
 
 Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset` at the start of that process. `retained_payload` is the high-water of live sender, result and assembly payload lengths scanned in the test. `provider_peak` is the high-water of the test allocator passed to `dmp_provider_setup`. `caller_node` is `sizeof` of one caller-owned endpoint node (63872). The provider peak in every passing run was 2826.
 
@@ -80,6 +80,19 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | AES-GCM FRAG_STATUS | — | Out of this suite, as in P18. |
 | Physical transport | — | Not claimed. |
 
+## One-device endpoint RAM lifecycle (2026-10-07)
+
+The process-isolated harness measures one manifest-bound endpoint in the parent process and runs a real libdmp/P01B peer in a separate process. Peer memory is excluded. Each profile records initial, handshake peak, active steady state, request/result with loss and retry, cleanup, and fresh reconnect. Values below are host requested-byte high-water (caller-owned payload/state plus provider retained high-water), not physical MCU peaks.
+
+| Profile | Manifest SHA-256 | Request / retry | Host requested-byte high-water | Evidence |
+|---|---|---|---:|---|
+| `TEST-DIRECT-MINIMAL-128` | `e0a9ac9847c2f1b7dc9d53204e0035ee6e712f9f6b0b0844006e1caae0eac831` | 128 B, one frame, retry observed | 19,466 B | no relay/freshness; reliable result and reconnect phases measured |
+| `TEST-DIRECT-MINIMAL-256` | `d64c6ee69690b6785d317a7438c559243a78a2a112c0e8bcc8d3bc0d38b7d7ef` | 256 B, four fragments, retry and one exact peer assembly | 20,362 B | no relay/freshness; reliable result and reconnect phases measured |
+| `DIRECT-1` | `d541555e85872e6ca96c4e718557c7479312a5ff21c90981500e432c013c77f7` | 1,024 B, 16 fragments, retry observed | 36,265 B | direct full profile; reliable result and reconnect phases measured |
+| `RADIO-1` | `fe18d3c7fee76305a0669596bc812b9972110f1d7ec67ff4f9329e1d82c40a36` | 1,024 B, 32 fragments, retry observed | 42,146 B | 80/80 routed frames valid; one 21-byte S7 grant verified and fresh token bound to service-2 REQ |
+
+The minimal-128/256 host high-water is lower than RADIO-1 by 22,680/21,784 bytes (53.8%/51.7%) for these measured workloads. Provider retained peak is 1,477 B and largest allocation 256 B. The 16,384 B scratch limit is a maximum single allocation, not an additive arena. Stack high-water, allocator metadata/alignment, peer process memory and physical MCU runtime peaks remain unknown. Compile-only MCU layout is reported separately. The exact manifest RAM charges remain reservations under the unchanged 131,072-byte region cap.
+
 ## Defect fixes proven by a P19 test
 
 1. `src/endpoint/endpoint.c` `take_fragment`. A completed ACK_REQ REQ was only an `ASSEMBLED` notice. R4.4 requires the reliable acceptance path. `scenarios.r6` now sees one REQUEST and an ACK. `ASSEMBLED` is still emitted so the existing endpoint fragment tests keep their byte notice. The workload executes on REQUEST only.
@@ -104,7 +117,7 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | §18.2/§22.8 deadline while the attempt is not active | `scenarios.gaps` `deadline-before-activation` | Pass. A poll before the queue deadline keeps the admitted REQ and sends nothing (`DMP_BUSY` until activation). At the deadline the same request is one `LOCAL_UNSENT`, `unknowns` stays 0, and no frame was queued. |
 | §22.8 deadline after a possibly transmitted fragment | `scenarios.r7` `r7-expiry` | Pass. `unknowns == 1`, `local_unsents == 0`, and a later poll adds no frame. |
 | §22.8 quota exhaustion mid-transfer | `scenarios.r7` `r7-tombstone-pressure` | Pass. The 17th slice is `DMP_QUOTA_EXHAUSTED`. |
-| §22.8 schedule gap inside the collection timer | `scenarios.gaps` due-time check | Pass for the admitted sum `burst_span+forward_delay+feedback_guard` (2048+20+4). A separate airtime gap injected into a live transfer was not added. |
+| §22.8 schedule gap inside the collection timer | `scenarios.gaps` `collection-window-receive-gap` | Pass for the admitted sum `burst_span+forward_delay+feedback_guard` (2048+20+4): after the first slice, a 1,500 ms in-burst arrival gap does not move the due time; no status is emitted before the bound, and the due status reports missing mask `0x80`. |
 | R1 DATA/EVENT with ACK_REQ | `scenarios.async` `async-data-event-result-cancel-stale` | Pass for tested direct-profile unfragmented and fragmented DATA/EVENT: receiver accepts once and returns ACK; sender reports delivery. |
 | §22.8 TTL=0 / TTL=1 | `scenarios.relay_sample` `s10-06-relay`; `relay.transparent` | Pass for tested host paths. Endpoint-origin TTL 0 is emitted with ROUTE/CONTEXT and relay forwarding is refused without cache reservation. TTL 1 is decremented to 0 and a second forward is refused; TTL 15 becomes 14. |
 | §22.8 CRC after a TTL change | `relay.transparent` | Pass for an integrity-only frame: the relay changes TTL, recomputes CRC32C, the output CRC validates and differs from the input trailer. This is not a protected endpoint frame; SEC-1 frames do not carry core CRC. |

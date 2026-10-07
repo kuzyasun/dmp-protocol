@@ -241,3 +241,51 @@ block accounting, not stack and not the 419936-byte JSON scratch:
 Both high-water totals sit inside one endpoint's 36864-byte retained charge.
 The largest allocation sits inside the 4096-byte scratch charge. This is host
 provider accounting, not an MCU budget. The 2^24 frame ceiling was not moved.
+
+## P19 one-device endpoint lifecycle — 2026-10-07
+
+`tests/memory/ram_endpoint_process.c` runs the measured endpoint and provider in
+one process and a real libdmp/P01B peer in a separate process. The harness pins
+the exact manifest bytes/digest, checks fresh association epochs on reconnect,
+and records initial, handshake peak, active, request/result with loss and retry,
+cleanup and reconnect. The peer's allocations are excluded. Host requested-byte
+high-water includes caller-owned state and provider retained peak, but excludes
+allocator metadata/alignment and task stack high-water. Provider scratch is a
+per-allocation maximum, not an additive arena.
+
+| Profile | Exact manifest SHA-256 | Request | Host requested-byte high-water | Relevant evidence |
+|---|---|---:|---:|---|
+| `TEST-DIRECT-MINIMAL-128` | `e0a9ac9847c2f1b7dc9d53204e0035ee6e712f9f6b0b0844006e1caae0eac831` | 128 B, 1 frame | 19,466 B | reliable result, lost-frame retry, cleanup and fresh reconnect |
+| `TEST-DIRECT-MINIMAL-256` | `d64c6ee69690b6785d317a7438c559243a78a2a112c0e8bcc8d3bc0d38b7d7ef` | 256 B, 4 fragments | 20,362 B | reliable result, retry, one exact 256 B peer assembly, cleanup and reconnect |
+| `DIRECT-1` | `d541555e85872e6ca96c4e718557c7479312a5ff21c90981500e432c013c77f7` | 1,024 B, 16 fragments | 36,265 B | reliable request/result, retry, cleanup and reconnect |
+| `RADIO-1` | `fe18d3c7fee76305a0669596bc812b9972110f1d7ec67ff4f9329e1d82c40a36` | 1,024 B, 32 fragments | 42,146 B | request/result, retry, cleanup/reconnect; 80/80 route frames valid; verified 21 B service-0 freshness grant and token binding |
+
+All modified manifest digests, SHA-256 of the exact manifest bytes:
+
+- `direct-nnpsk0-async.json`: `47effe448a769565c716d722718c0a0e850c53b828eb261af27a8c9864acbe12`
+- `direct-nnpsk0.json`: `d541555e85872e6ca96c4e718557c7479312a5ff21c90981500e432c013c77f7`
+- `radio-nnpsk0-n2.json`: `155482e5fa55f8987cb2d740a8d6390a02a3279c9e0350fee736c5e1309fb6a5`
+- `radio-nnpsk0.json`: `fe18d3c7fee76305a0669596bc812b9972110f1d7ec67ff4f9329e1d82c40a36`
+- `test-direct-minimal-128.json`: `e0a9ac9847c2f1b7dc9d53204e0035ee6e712f9f6b0b0844006e1caae0eac831`
+- `test-direct-minimal-256.json`: `d64c6ee69690b6785d317a7438c559243a78a2a112c0e8bcc8d3bc0d38b7d7ef`
+- `test-radio-retry-all-nnpsk0.json`: `2a220828cc4b9a79d2c7eea95f925d4a3ebd62bf98c7e30908f319a9d8b9cf3d`
+
+Compared with RADIO-1, the minimal profiles have 22,680 B (128) and 21,784 B
+(256) lower measured host requested-byte high-water for these workloads. The
+provider retained peak is 1,477 B; largest allocation is 256 B; the scratch
+limit is 16,384 B and is not added to the total. Manifest charges remain
+reservations: minimal-128 32,590 B, minimal-256 33,614 B, DIRECT-1 53,154 B,
+RADIO-1 59,035 B. The region cap remains 131,072 B. Compile-only MCU layout is
+reported separately; MCU dynamic/stack and physical peaks remain unknown.
+
+Validation on the current code snapshot:
+
+- `python -B tests/profiles/test_deployments.py -v` — 14/14 passed.
+- `python -B tests/profiles/test_contract.py -v` — 11/11 passed.
+- `python -B tests/memory/test_ram_report.py -v` — 26/26 passed.
+- `cmake --build build/p19-ram-endpoint-gcc --parallel 4` — passed.
+- Focused CTest for four lifecycle profiles and `scenarios.gaps` — 5/5 passed, including the RADIO stale-DATA reconnect and in-burst receive-gap check.
+- `ctest --test-dir build/p19-ram-endpoint-gcc --output-on-failure` — 97/97 passed.
+- `git diff --check` — passed; Git emitted only line-ending notices and warnings for permission-protected temporary directories.
+
+Final independent read-only review of the corrected P19 snapshot found no actionable code findings. The reviewer did not rerun tests. Its documentation note about the arrival-gap row was checked against the current matrix, which names `collection-window-receive-gap` and records the passing 1,500 ms receive-gap evidence. P19 is accepted for host/simulation scope; MCU runtime and physical transport remain unclaimed.

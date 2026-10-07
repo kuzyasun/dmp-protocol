@@ -244,7 +244,7 @@
           "component": "provider_retained",
           "region": "RAM",
           "count": 3,
-          "bytes_each": 1325
+          "bytes_each": 1477
         },
         {
           "component": "provider_scratch",

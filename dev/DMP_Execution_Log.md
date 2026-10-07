@@ -1,8 +1,10 @@
 # DMP execution log
 
-**Current status (2026-09-26):** implementation paused by the owner; only review
-verification and documentation corrections are authorized. P00 remains partial
-and unaccepted. The confirmed target is ESP32-S3 / ESP-IDF 6.x, portable C core.
+**Current status (2026-10-07):** DMP implementation is active under the owner's
+authorization. P19 is accepted for its host/simulation scope after the full
+host gate and final independent review. No hardware operation or DTrack
+integration is authorized by the current task. P00 remains partial and
+unaccepted. The confirmed target is ESP32-S3 / ESP-IDF 6.x, portable C core.
 
 ## 2026-09-25 — P00 initial baseline
 
@@ -1800,3 +1802,14 @@ Checks:
 - `git diff --check` — passed, with only Git line-ending notices.
 
 The `sel-r7-profile` matrix row is closed under this static-profile contract. RAM full-profile reconciliation, final P19 independent review and the applicable full host gate remain open; P19 remains running and unaccepted.
+## 2026-10-07 — P19 RADIO-1 lifecycle RAM and host gate
+
+Completed the missing one-device full-profile RAM path in the process-isolated endpoint harness. It pins and parses the exact `radio-nnpsk0.json` bytes and digest, admits a real endpoint, performs NNpsk0, obtains an S7 service-0 grant, binds a fresh token to service-2, sends endpoint-origin routed control/data frames, completes a reliable 1,024-byte request/result with one dropped frame and fresh-PN retry, then checks cleanup and fresh reconnect. The independent peer runs in a separate process and is excluded from the endpoint RAM accounting. The minimal-128/256 profile lifecycle is also present; all six named phases are reported.
+
+Measured host requested-byte high-water (not physical MCU RAM): RADIO-1 42,146 B (caller-owned current 40,669 B; provider retained peak 1,477 B); DIRECT-1 36,265 B; minimal-128 19,466 B; minimal-256 20,362 B. The minimal profiles are lower than RADIO-1 by 22,680 B / 21,784 B for these workloads. RADIO-1 reported 80/80 routed frames valid, a verified 21-byte freshness grant, and a token bound to the 1,024-byte service-2 request. The peer, allocator metadata/alignment, stack high-water and physical MCU peak are excluded or unknown. MCU compile-only layout remains a separate evidence class.
+
+The 1,477 B provider retained charge is synchronized across RADIO-1, TEST-RADIO-N2 and TEST-RADIO-RETRY-ALL; exact manifest digests and fixtures were updated. Reservations: minimal-128 32,590 B, minimal-256 33,614 B, DIRECT-1 53,154 B, RADIO-1 59,035 B. The 131,072 B RAM region limit is unchanged.
+
+Independent review found that the reconnect capture could select the second service-0 freshness REQ instead of stale DATA, and that downstream report/layout gates did not bind measured lifecycle evidence to the exact current manifest SHA/profile. The capture now filters and validates `DMP_TYPE_DATA`; report/layout require matching profile ID and exact manifest digest, with stale-manifest CLI regression cases. Added `collection-window-receive-gap` to assert that a 1,500 ms in-burst receive gap leaves the first-slice collection deadline unchanged and yields the expected `0x80` missing mask.
+
+Checks on the corrected code: `python -B tests/profiles/test_deployments.py -v` 14/14; `python -B tests/profiles/test_contract.py -v` 11/11; `python -B tests/memory/test_ram_report.py -v` 26/26; `cmake --build build/p19-ram-endpoint-gcc --parallel 4` passed; focused endpoint lifecycle/recovery CTest 5/5; full `ctest --test-dir build/p19-ram-endpoint-gcc --output-on-failure` 97/97 with approved Windows `%TEMP%` access; `git diff --check` passed. RADIO runtime JSON verifies stale `DMP_TYPE_DATA` rejection as `DMP_AUTHENTICATION_FAILURE` without dispatch. The final independent follow-up review found no actionable code findings and did not rerun tests. Its matrix documentation note was checked against the current file; the current row includes `collection-window-receive-gap` and its passing receive-gap evidence. P19 is accepted for host/simulation scope; P21D, P22/P23, MCU runtime peaks and physical transport remain separate. No hardware was flashed and no DTrack integration was made.

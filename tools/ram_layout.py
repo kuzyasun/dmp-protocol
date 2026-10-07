@@ -196,8 +196,14 @@ def calculate(manifest, measurement, mcu, manifest_hash):
         raise ram_report.Invalid("host layout sizes are incomplete")
     if host_sizes["encoded_mtu"] != manifest["binding"]["encoded_mtu"]:
         raise ram_report.Invalid("provider probe encoded MTU differs from manifest binding")
-    host_peak = checked_side_measurements(measurement)
+    provider_probe_peak = checked_side_measurements(measurement)
+    endpoint_runtime_peak = workload.get("one_device_provider_retained_peak_bytes", 0)
+    if isinstance(endpoint_runtime_peak, bool) or not isinstance(endpoint_runtime_peak, int) or endpoint_runtime_peak < 0:
+        raise ram_report.Invalid("one-device endpoint provider peak must be a nonnegative integer")
+    host_peak = max(provider_probe_peak, endpoint_runtime_peak)
     layout = components(manifest, host_sizes, host_peak)
+    layout["details"]["provider_one_association_peak_p01b_probe"] = provider_probe_peak
+    layout["details"]["provider_one_association_peak_endpoint_runtime"] = endpoint_runtime_peak
     mcu_sizes = abi_maps(mcu)
     mcu_sizes.update({
         "reliability_metadata_bytes": host_sizes["reliability_metadata_bytes"],
@@ -233,11 +239,16 @@ def calculate(manifest, measurement, mcu, manifest_hash):
     expected_charges = {name: (layout["counts"][name], layout["bytes_each"][name])
                         for name in layout["counts"]}
     charge_gaps = []
+    charge_headroom = []
     for name, expected in expected_charges.items():
         actual = charges.get(name)
-        if actual != expected:
+        if actual is None or actual[0] < expected[0] or actual[1] < expected[1]:
             charge_gaps.append({"component": name, "expected_count_bytes_each": expected,
                                 "manifest_count_bytes_each": actual})
+        elif actual != expected:
+            charge_headroom.append({"component": name, "minimum_count_bytes_each": expected,
+                                    "manifest_count_bytes_each": actual,
+                                    "surplus_bytes": actual[0] * actual[1] - expected[0] * expected[1]})
 
     host_static = sum(row["bytes"] for row in object_rows
                       if row["classification"] == "host_abi_calculated")
@@ -260,6 +271,8 @@ def calculate(manifest, measurement, mcu, manifest_hash):
         "host_budget_projection_bytes": host_budget,
         "manifest_additive_charged_bytes": manifest_additive,
         "host_projection_minus_manifest_charge_bytes": projection_gap,
+        "manifest_charge_headroom_bytes": max(-projection_gap, 0),
+        "manifest_undercoverage_bytes": max(projection_gap, 0),
         "mcu_static_layout_compile_only_bytes": mcu_static,
         "mcu_provider_dynamic_bytes": None,
         "mcu_stack_peak_bytes": None,
@@ -268,6 +281,7 @@ def calculate(manifest, measurement, mcu, manifest_hash):
         "mcu_layout_is_not_physical_peak": True,
         "scratch_limit_additive_bytes": 0,
         "control_pool_additive_bytes": 0,
+        "reconnect_overlap_status": workload.get("reconnect_overlap_status"),
     }
     issues = [
         f"required endpoint lifecycle phase {phase['name']} is not measured"
@@ -275,17 +289,31 @@ def calculate(manifest, measurement, mcu, manifest_hash):
     ]
     if workload.get("endpoint_runtime_status") != "measured":
         issues.append("endpoint lifecycle runtime is not measured; layout is a charge projection only")
-    if workload.get("reconnect_overlap_status") != "measured":
+    else:
+        if workload.get("endpoint_runtime_profile_id") != manifest.get("profile", {}).get("id"):
+            issues.append("endpoint lifecycle profile ID does not match the manifest")
+        if workload.get("endpoint_runtime_manifest_digest_sha256") != manifest_hash:
+            issues.append("endpoint lifecycle manifest digest does not match the exact manifest SHA-256")
+    overlap_status = workload.get("reconnect_overlap_status")
+    if overlap_status == "budgeted_not_measured":
+        provider_charge = charges.get("provider_retained", (0, 0))
+        if (provider_charge[0] < layout["counts"]["provider_retained"] or
+                provider_charge[1] < host_peak):
+            issues.append("reconnect overlap is not measured and provider rotation charges do not cover the manifest association slots")
+    elif overlap_status != "measured":
         issues.append("reconnect overlap runtime is not measured; draining/new association concurrency is unknown")
     if host_budget > CAP:
         issues.append(f"host budget projection {host_budget} exceeds {CAP}")
     if charge_gaps:
-        issues.append(f"{len(charge_gaps)} manifest RAM charge rows differ from the reconciled host layout")
-    if projection_gap != 0:
+        issues.append(f"{len(charge_gaps)} manifest RAM charge rows under-cover the reconciled host layout")
+    if projection_gap > 0:
         issues.append(f"host projection and additive manifest charges differ by {projection_gap} bytes")
+    if manifest_additive > CAP:
+        issues.append(f"manifest additive RAM charges {manifest_additive} exceed {CAP}")
     return {"ok": not issues, "profile_id": manifest["profile"]["id"],
             "manifest_hash": manifest_hash, "objects": object_rows,
             "expected_charges": expected_charges, "charge_gaps": charge_gaps,
+            "charge_headroom": charge_headroom,
             "details": layout["details"], "mcu_layout_projection": {
                 "classification": "Cortex-M compile-only sizeof/alignof; no allocator, stack, or runtime claim",
                 "static_bytes": mcu_static,
@@ -298,7 +326,11 @@ def main():
     parser.add_argument("--measurement", required=True)
     parser.add_argument("--mcu-abi", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--check", action="store_true")
+    checks = parser.add_mutually_exclusive_group()
+    checks.add_argument("--check", action="store_true",
+                        help="require lifecycle evidence and all profile-layout checks")
+    checks.add_argument("--check-budget-only", action="store_true",
+                        help="check profile layout while preserving unmeasured lifecycle status")
     args = parser.parse_args()
     try:
         with open(args.manifest, "rb") as handle:
@@ -307,6 +339,14 @@ def main():
         measurement = load(args.measurement)
         mcu = load(args.mcu_abi)
         report = calculate(manifest, measurement, mcu, hashlib.sha256(manifest_raw).hexdigest())
+        lifecycle_prefixes = ("required endpoint lifecycle phase ",
+                              "endpoint lifecycle runtime is not measured",
+                              "reconnect overlap runtime is not measured")
+        check_issues = ([issue for issue in report["issues"]
+                         if not issue.startswith(lifecycle_prefixes)]
+                        if args.check_budget_only else report["issues"])
+        report["ok"] = not check_issues
+        report["check_scope"] = "profile-budget-only" if args.check_budget_only else "lifecycle-and-profile-budget"
         with open(args.output, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(report, handle, indent=2)
             handle.write("\n")
@@ -315,14 +355,20 @@ def main():
               f"mcu_static_layout={report['totals']['mcu_static_layout_compile_only_bytes']} "
               f"limit={CAP}")
         for gap in report["charge_gaps"]:
-            print(f"RAM CHARGE GAP {gap['component']}: expected {gap['expected_count_bytes_each']} "
+            print(f"RAM CHARGE UNDERCOVERAGE {gap['component']}: minimum {gap['expected_count_bytes_each']} "
                   f"manifest {gap['manifest_count_bytes_each']}", file=sys.stderr)
+        for surplus in report["charge_headroom"]:
+            print(f"RAM CHARGE HEADROOM {surplus['component']}: minimum {surplus['minimum_count_bytes_each']} "
+                  f"manifest {surplus['manifest_count_bytes_each']} surplus={surplus['surplus_bytes']} bytes")
         for issue in report["issues"]:
-            print(f"ERROR: {issue}", file=sys.stderr)
-        return 1 if args.check and report["issues"] else 0
+            if args.check_budget_only and issue.startswith(lifecycle_prefixes):
+                print(f"UNMEASURED: {issue}", file=sys.stderr)
+            else:
+                print(f"ERROR: {issue}", file=sys.stderr)
+        return 1 if (args.check and report["issues"]) or (args.check_budget_only and check_issues) else 0
     except (OSError, json.JSONDecodeError, ram_report.Invalid, KeyError, TypeError, ValueError) as error:
         print(f"invalid RAM layout input: {error}", file=sys.stderr)
-        return 1 if args.check else 2
+        return 1 if args.check or args.check_budget_only else 2
 
 
 if __name__ == "__main__":
