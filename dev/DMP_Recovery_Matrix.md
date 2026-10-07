@@ -40,25 +40,25 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | sel-r7-protected-vector | `fixtures.recovery`, `recovery.frag_status` | Pass. P18 fixtures. Not re-derived here. |
 | sel-r7-type8 | `scenarios.r6` stale SEQ; `scenarios.feedback` `feedback-ineligible`; `scenarios.gaps` `negative-status` | Pass for zero, all-N (`ff 00 00 00` at N=8), out-of-range (`00 01 00 00`), wrong service, and payload length 3. Length 3 is refused by `dmp_hs_seal_logical` before a frame exists. The live sender mask does not change and no repair is queued. |
 | sel-r7-determinism | `scenarios.feedback` `r7-determinism` | Pass. Seed `0x0d19` drives three distinct drops. Two runs compare dropped indices, repair indices, status frames and burst wire bytes. |
-| sel-r7-profile | `scenarios.r6` `r6-mtu`; existing `identity.profile_admit` | Partial. Zero return MTU rejects. The rest of R3 admission stays with the existing admit tests. |
+| sel-r7-profile | `scenarios.r6` `r6-mtu`; `identity.profile_admit` | Partial. Zero return MTU rejects; profile admission tests pass. This row still lacks a recovery-specific invalid-profile/live-transfer check. |
 | sel-r7-full-loss | `scenarios.r6` `r6-all-loss` | Pass. All eight initial slices are lost; probe index 7 is admitted (`DMP_INCOMPLETE`), status mask `0x7f` repairs indices 0–6, the body is accepted once, and the ACK clears the sender without an unknown outcome. |
 | sel-r7-delayed-status | `scenarios.async_radio` `async-radio-delayed-status` | Pass on the explicit asynchronous test profile. FRAG_STATUS arrives while an ordinary local completion is pending; the sender applies feedback after finishing the in-flight frame. |
 | sel-r7-no-storm | `scenarios.r6` `r6-status-loss` | Pass for the extra-poll bound above. |
 | sel-r7-tombstone-pressure | `scenarios.r7` | Pass. 16 expired tombstones, the 17th slice is `DMP_QUOTA_EXHAUSTED`, `accepts` stays 0. |
-| sel-r7-result-race | — | Open. `synchronous_completion` is true, so a burst is finished before a status and a result can be in flight together. Needs the delayed-completion seam. Not invented here. |
-| sel-r7-pn-seq | `scenarios.r6` replayed status | Partial. Old PN fails authentication. A PN near 2^24 and a SEQ wrap were not driven. |
-| sel-r7-mismatch | `scenarios.gaps` `negative-status`, `status-wrong-association` | Partial. Wrong service does not schedule a repair. A status sealed to the initiator CID is `DMP_AUTHENTICATION_FAILURE` on the responder, and the replay is an old PN. A second association with different keys was not built: this fixture repeats the same PSK, CID and entropy. |
-| sel-r7-relay-cooldown | `scenarios.relay_sample` | Partial. See S10 case 6. Cooldown on the sealed frame returns `DMP_BUSY`. |
+| sel-r7-result-race | — | Open. The explicit asynchronous profile exists, but no case yet delivers a terminal result while recovery feedback for the same logical exchange is pending or in flight. |
+| sel-r7-pn-seq | `scenarios.r6` replayed status; `scenarios.feedback` `pn-reserve-boundary`; `scenarios.gaps` `pn-limit-receive-guard` | Partial. Replay/old PN is rejected. The send retry crosses PN 127→128 while maximum-PN sizing preserves geometry, and receive rejects PN 2^24 before AEAD accounting. A valid frame near 2^24 and SEQ wrap are not driven. |
+| sel-r7-mismatch | `scenarios.feedback` `feedback-identity`; `scenarios.gaps` `negative-status`, `status-wrong-association`, `distinct-key-association-mismatch` | Pass for tested cases. Wrong service does not schedule repair; authenticated source, destination, missing/mismatched CONTEXT, namespace and epoch variants are rejected before sender feedback state changes. A status sealed to the wrong CID fails authentication, replay is rejected, and a real second association with a different PSK cannot reassemble the first association's frame. |
+| sel-r7-relay-cooldown | `scenarios.relay_sample` `s10-06-relay`, `routed-repair` | Pass for tested host routes. Relay cache and cooldown are exercised with endpoint-generated protected traffic; a duplicate forward during cooldown returns `DMP_BUSY`. |
 | sel-r7-expiry | `scenarios.r7` `r7-expiry`; `scenarios.retry_all` expiry | Pass. After the result deadline the sender does not emit more frames. A late slice is `DMP_DEADLINE_EXPIRED`. |
-| sel-r7-acl-freshness | `scenarios.r7` `r7-acl` | Partial. Service 2 submit without `DMP_ENDPOINT_PERMIT_REQ` is `DMP_UNSUPPORTED` and sends nothing. Freshness tokens are not implemented. |
-| sel-r7-no-slot | — | Not run. The admitted binding completes synchronously, so a return slot cannot be removed while a status is due. |
+| sel-r7-acl-freshness | `scenarios.r7` `r7-acl`; `scenarios.freshness` `freshness-grant-duplicate-consume` | Pass for tested cases. Service 2 ACL refusal sends nothing; service-2 grants cover required/missing token, single use, expiry, quotas, duplicate/result retention, and association fencing. |
+| sel-r7-no-slot | — | Not run. The async seam now exists, but the matrix has no scenario exhausting the receiver/reply slot while a status opportunity is due. |
 | sel-r7-independent | — | Not run. Independent peer is P21D. |
 
 ## Other required rows
 
 | Item | Test | Outcome |
 |---|---|---|
-| Service 2 opaque lengths | `workloads.opaque_len` | Pass for the length helper. 64 is no longer an N=2 transfer at MTU 256. |
+| Service 2 opaque lengths | `workloads.opaque_len`; `scenarios.geometry`; `scenarios.async_radio` | Pass for length helper and exact wire geometry: 64 bytes is one RADIO-1 frame at MTU 256 and exactly two 32-byte fragments in TEST-RADIO-N2 at MTU 119. |
 | TEST-RADIO-N2, 64-byte service 2 | `scenarios.geometry` and `scenarios.async_radio` | Pass at the exact 119-byte path MTU, with a separate manifest digest. The protected encoder emits exactly indices 0 and 1 at 32 bytes each; both deliver one matching request. Async recovery also repairs missing index 0 with status mask `0x01`. RADIO-1 and retry-all manifests are unchanged. |
 | RADIO-1 64-byte service 2 | `scenarios.geometry` | Pass. One frame, `index == 0xffffffff` (no FRAG), one acceptance, bytes match. |
 | RADIO-1 intermediate N=8 and N=16 | `scenarios.geometry` | Pass. 256 bytes is 8 frames and the body matches. 512 bytes is 16 frames and the body matches. |
@@ -68,9 +68,9 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | DIRECT-1 N=16 exact/short | `scenarios.geometry` | Pass. 1024 bytes and 961 bytes, 16 frames of 64, both bodies match. `DMP_HS_APP_PLAIN_MAX` is 240. |
 | Large REQ fixture | the 256/512/993/1024 bodies above | Pass on RADIO-1, including byte compare of 512 and 1024. |
 | Large result fixture | `scenarios.gaps` `large-result` | Pass. 512-byte service-2 result, 16 frames, one result callback, bytes match. |
-| S7 grants | — | Not run. Service 2 on the radio manifest has `freshness` true and `lease_ms` 12000. libdmp has no freshness token table and `dmp_endpoint` has no grant-token field. Adding one needs `include/dmp/endpoint.h`. The radio service-2 accepts in this package did not carry a token. That is not an S7 pass. |
+| S7 grants | `scenarios.freshness` `freshness-grant-duplicate-consume` | Pass for tested service-2 REQ path: endpoint issues a real grant, validates and consumes a token, enforces expiry and quotas, retains duplicate/result identity, and fences tokens across association changes. Host deterministic entropy only. |
 | SAMPLE-1 regression | `scenarios.relay_sample` `sample1` | Pass on RADIO-1 service 1 (freshness false). One READ. The 17 result bytes match `sample1_read_rsp` for epoch 1, index 2, value 300. |
-| S10 case 6 relay state | `scenarios.relay_sample` | Partial pass. An endpoint TELEM frame is refused by `dmp_mesh_relay_forward` and the cache stays empty. A frame sealed by the live association with origin-explicit CONTEXT and TTL 2 occupies one relay slot while endpoint `accepts` stays 0. A second forward inside cooldown is `DMP_BUSY`. The endpoint encoder still does not emit ROUTE or CONTEXT. `dmp_config` has no TTL. `dmp_reliability_on_rx` still rejects `DMP_OPT_ROUTE`. End-to-end radio delivery is open. |
+| S10 case 6 relay state | `scenarios.relay_sample` `s10-06-relay`, `routed-repair` | Pass for host static unicast routing. Endpoint-generated REQ, RSP, ACK, FRAG_STATUS and TELEM carry ROUTE/CONTEXT; request/result and selective repair traverse the relay, TTL 1 decrements to 0 and a second forward is refused, and TTL 15 decrements to 14. Relay cache/cooldown is exercised. Physical radio is not tested. |
 | S10 case 11 | — | Pending for P23. |
 | TEST-RADIO-RETRY-ALL loss | `scenarios.retry_all` | Pass. Dropped index 3, no FRAG_STATUS, the timeout resends 8 slices, one acceptance, bytes match. |
 | TEST-RADIO-RETRY-ALL expiry | `scenarios.retry_all` | Pass. Unknown local outcome, late slice does not assemble, no further send. |
@@ -86,6 +86,7 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 3. `src/reliability/reliability.c` `begin_send`. A seal or encode failure after admission frees the sender. `scenarios.gaps` `seal-after-admit` is the failing case: cancel the attempt, poll returns `DMP_AUTHENTICATION_FAILURE`, `wire.n` stays 0, and a later poll does not emit a frame.
 4. `src/reassembly/reassembly.c` `accept_existing`. A duplicate of an accepted index at the deadline returned `DMP_DUPLICATE` and could arm collection. The deadline is checked first. `scenarios.gaps` `duplicate-after-deadline` reseals index 0 with a fresh PN and expects `DMP_DEADLINE_EXPIRED` with `collection_armed` still 0.
 5. `src/reassembly/reassembly.c` `accept_existing`. A duplicate probe of an incomplete transfer did not arm the next collection, so a lost FRAG_STATUS produced no later status. `scenarios.r6` `r6-status-loss` is the failing case. An armed timer is not moved. A completed transfer is not re-armed.
+6. `src/endpoint/endpoint.c` `dmp_endpoint_submit_fragmented`. Admission probed only the short final slice, so a transfer could be accepted even when its full-sized first slice exceeded the protected MTU, leaving `frag_live` stuck after poll. `scenarios.geometry` now uses the 99-byte payload / 98-byte chunk boundary and requires early `DMP_LIMIT_EXHAUSTED`, no TX/live transfer, and no consumed SEQ.
 
 ## Added rows
 
@@ -103,13 +104,13 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | §22.8 deadline after a possibly transmitted fragment | `scenarios.r7` `r7-expiry` | Pass. `unknowns == 1`, `local_unsents == 0`, and a later poll adds no frame. |
 | §22.8 quota exhaustion mid-transfer | `scenarios.r7` `r7-tombstone-pressure` | Pass. The 17th slice is `DMP_QUOTA_EXHAUSTED`. |
 | §22.8 schedule gap inside the collection timer | `scenarios.gaps` due-time check | Pass for the admitted sum `burst_span+forward_delay+feedback_guard` (2048+20+4). A separate airtime gap injected into a live transfer was not added. |
-| R1 DATA/EVENT with ACK_REQ | — | Open. Unfragmented DATA/EVENT is `DMP_UNSUPPORTED` in `take_frame`. There is no reliable DATA submit. Not one of the four owner decisions. |
-| §22.8 TTL=0 / TTL=1 | — | Open. Endpoint does not emit ROUTE or TTL. Owner decision. |
+| R1 DATA/EVENT with ACK_REQ | `scenarios.async` `async-data-event-result-cancel-stale` | Pass for tested direct-profile unfragmented and fragmented DATA/EVENT: receiver accepts once and returns ACK; sender reports delivery. |
+| §22.8 TTL=0 / TTL=1 | `scenarios.relay_sample` `s10-06-relay` | Partial. Origin TTL 1 is emitted, decremented to 0, and a second forward is refused; origin TTL 15 becomes 14. Explicit endpoint origin TTL 0 and CRC recomputation on a TTL-mutated integrity frame are not separately exercised. |
 | §22.8 CRC after a TTL change | — | Open. Same ROUTE/TTL decision. The relay recomputes CRC only when INTEGRITY is present; this path is not an endpoint-originated frame. |
-| §22.8 narrower egress, refused transparent refragmentation, missing egress context | — | Open. Needs endpoint ROUTE/CONTEXT. `dmp_reliability_on_rx` still rejects `DMP_OPT_ROUTE`. |
-| §22.8 immediate RSP, lost RSP, lost result ACK, duplicate REQ during processing and after result release, for a fragmented exchange | — | Open for the fragmented form. SAMPLE-1 covers one immediate 17-byte result. Lost acceptance ACK is `lost-ack`. The fragmented result/ACK/duplicate-REQ set was not isolated. |
+| §22.8 narrower egress, refused transparent refragmentation, missing egress context | — | Open. Endpoint ROUTE/CONTEXT is implemented, but no scenario yet combines a narrower egress MTU, refusal to refragment transparent traffic, and missing egress CONTEXT. |
+| §22.8 immediate RSP, lost RSP, lost result ACK, duplicate REQ during processing and after result release, for a fragmented exchange | `scenarios.gaps` `fragmented-result-loss-duplicate-req` | Pass for fragmented exchange: one RSP slice and its result ACK are lost; fresh-PN duplicate REQs during processing and after result release do not redispatch; repair delivers one matching result and the receipt retry releases the sender. |
 | §22.8 result/status race and delayed status | `scenarios.async_radio` `async-radio-delayed-status` | Delayed status passes while one local TX completion is pending. The separate fragmented result/status overlap remains open. |
-| S7 freshness for service 2 | — | Open. Needs a public header. Owner decision. |
+| S7 freshness for service 2 | `scenarios.freshness` `freshness-grant-duplicate-consume` | Pass for tested service-2 REQ path: real grant, token binding and single consumption, missing/expired token refusal, quota enforcement, duplicate/result retention, and association fencing. Host deterministic entropy only. |
 
 ## Review findings, 2026-10-05
 

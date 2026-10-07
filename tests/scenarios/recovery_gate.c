@@ -1983,6 +1983,15 @@ static int test_fragment_geometry_refusal(session *env, port_ctx *port, dmp_time
     CHECK(left.endpoint.profile.encoded_mtu == 128U);
     CHECK(left.endpoint.profile.chunk_bytes == 98U);
     dmp_test_opaque_fill(body, sizeof body, 0x39U);
+    {
+        size_t slot = left.endpoint.context.slot;
+        uint32_t seq_before = left.endpoint.identity.slots[slot].next_seq;
+        CHECK(dmp_endpoint_submit_fragmented(&left.endpoint, 2U, span(body, 99U), now) ==
+              DMP_LIMIT_EXHAUSTED);
+        CHECK(left.endpoint.frag_live == 0U && left.endpoint.frag_tx == 0U);
+        CHECK(left.endpoint.identity.slots[slot].next_seq == seq_before);
+        CHECK(left.wire.n == 0 && left.wire.delayed_count == 0);
+    }
     status = dmp_endpoint_submit_req(&left.endpoint, 2U, span(body, sizeof body), now, &handle);
     CHECK(status == DMP_LIMIT_EXHAUSTED);
     CHECK(left.wire.n == 0 && left.wire.delayed_count == 0);

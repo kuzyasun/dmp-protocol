@@ -1648,3 +1648,53 @@ delayed-status, TEST-RADIO-N2, and initial-RAM progress. Other stale matrix
 rows still require reconciliation. Independent final review and the full host
 gate remain pending; P19 remains `running` and unaccepted. See
 `dev/DMP_P19_checkpoint_2026-10-07.md` for the precise resume point.
+
+## 2026-10-07 — P19 matrix reconciliation after publication
+
+The user authorized committing and pushing the initial-RAM/N=2/full-loss step.
+Commit `e173b3a` (`feat(p19): add recovery and initial RAM evidence`) is on
+`origin/feat/initial-version`. Work continued from that pushed snapshot; no
+hardware or DTrack integration was performed.
+
+Reconciled stale matrix rows against the current endpoint, recovery tests and
+the binding 2026-10-05 owner direction. Freshness grant/expiry/quota/duplicate
+coverage, routed REQ/RSP/ACK/FRAG_STATUS/TELEM over the host relay, reliable
+DATA/EVENT, fragmented result loss/duplicate requests, distinct-key association
+mismatch, and the PN/SEQ boundary limits are now stated from their named tests.
+R7 no-slot, fragmented result/status overlap, a valid PN near 2^24, SEQ wrap,
+explicit origin TTL 0, CRC after a TTL edit, narrower egress and independent
+peer coverage remain open or partial; no physical-radio claim is made.
+
+Checks run on the committed code before these evidence-only matrix updates:
+
+- `ctest --test-dir build/host --output-on-failure -R "^scenarios\.(freshness|relay_sample|feedback|r7)$"` — 4/4 passed.
+- `ctest --test-dir build/host --output-on-failure -R "^(scenarios\.(async|gaps)|identity\.profile_admit)$"` — 3/3 passed.
+
+P19 remains `running` and unaccepted. Independent review of `e173b3a` found the
+best-effort fragment geometry defect recorded below; follow-up review confirmed
+the fix. The next implementation milestone is a process-isolated peer/provider
+path for the single-device endpoint RAM phases; keep lifecycle phases
+`not_measured` until they are actually observed, and retain the existing
+131,072-byte cap.
+
+## 2026-10-07 — P19 best-effort fragment geometry review fix
+
+Independent review of pushed commit `e173b3a` found that
+`dmp_endpoint_submit_fragmented` checked only the short final slice. A 99-byte
+message at chunk size 98 could therefore be admitted although its first
+protected 98-byte slice exceeded MTU 128; the later poll failed and left the
+best-effort transfer live. The endpoint now probes a full-size first slice
+before allocating SEQ or retaining transfer state. The geometry regression
+asserts early `DMP_LIMIT_EXHAUSTED`, no transmission or live fragment transfer,
+and unchanged SEQ.
+
+Checks:
+
+- `cmake --build build/host --target dmp_test_recovery_gate --parallel 2` — passed; sandboxed invocation stalled during CMake regeneration, then the same exact command passed with approved temporary-file access.
+- `ctest --test-dir build/host --output-on-failure -R "^scenarios\.geometry$"` — 1/1 passed.
+- Independent follow-up review of `src/endpoint/endpoint.c` and
+  `tests/scenarios/recovery_gate.c` confirmed the finding resolved and found no
+  new actionable issue.
+
+This closes that geometry defect only. P19 remains `running` and unaccepted;
+the lifecycle RAM harness and remaining recovery cases are still pending.

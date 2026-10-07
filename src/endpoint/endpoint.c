@@ -1553,7 +1553,6 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     size_t written = 0U;
     uint32_t chunk;
     uint32_t count;
-    uint32_t last;
     uint32_t seq = 0U;
     dmp_status status;
     (void)now;
@@ -1604,21 +1603,23 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     if (count < 2U || count > endpoint->profile.fragments || count > 32U) {
         return DMP_LIMIT_EXHAUSTED;
     }
-    status = dmp_identity_next_seq(&endpoint->identity, endpoint->context, &seq);
-    if (status != DMP_OK) {
-        return status;
-    }
-    endpoint->frag_attempt = endpoint->association_attempt;
-    last = count - 1U;
-    slice.data = payload.data + (size_t)last * (size_t)chunk;
-    slice.size = payload.size - (size_t)last * (size_t)chunk;
-    status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, seq, 0, 1, last, chunk,
-                         (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U,
+    /* Every non-final slice is full-sized. Admission must check one before
+     * retaining the message or consuming its SEQ; probing only the short tail
+     * can accept a transfer whose first frame cannot fit the protected MTU. */
+    slice.data = payload.data;
+    slice.size = chunk;
+    status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, slot->next_seq, 0, 1, 0U,
+                         chunk, (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U,
                          secured(endpoint), secured(endpoint), endpoint->association_attempt,
                          probe, &written);
     if (status != DMP_OK) {
         return status;
     }
+    status = dmp_identity_next_seq(&endpoint->identity, endpoint->context, &seq);
+    if (status != DMP_OK) {
+        return status;
+    }
+    endpoint->frag_attempt = endpoint->association_attempt;
     memcpy(endpoint->mem.fragment_message, payload.data, payload.size);
     endpoint->frag_service = service_id;
     endpoint->frag_seq = seq;
