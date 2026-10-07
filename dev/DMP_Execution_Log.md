@@ -1698,3 +1698,66 @@ Checks:
 
 This closes that geometry defect only. P19 remains `running` and unaccepted;
 the lifecycle RAM harness and remaining recovery cases are still pending.
+
+## 2026-10-07 — P19 async no-slot and result/repair race
+
+Added `scenarios.async_radio` case `async-radio-no-slot-result-race` on the
+explicit asynchronous TEST-RADIO-N2 profile. A real protected service-1 REQ
+occupies the receiver's only assembly slot; a distinct authenticated REQ is
+refused with `DMP_QUOTA_EXHAUSTED` without replacing the live transfer. The
+receiver still emits the due FRAG_STATUS with mask `0x04`, repairs the missing
+last slice, and dispatches the request once. Its RSP reaches the origin while
+the repair's local TX-completion callback remains outstanding; the result is
+reported exactly once and no `UNKNOWN` is emitted. The RSP is unfragmented, so
+fragmented-response/FRAG_STATUS overlap remains open.
+
+Checks:
+
+- `cmake --build build/host --target dmp_test_recovery_gate --parallel 2` — passed after CMake regeneration required approved temporary-file access.
+- `ctest --test-dir build/host --output-on-failure -R "^scenarios\.async_radio$"` — 1/1 passed.
+- `git diff --check` — passed for the current worktree.
+
+RAM worker `/root/ram_tooling` extended the separate-process probe to send the
+full manifest-sized reliable request (128 or 256 bytes) with a dropped frame
+and fresh-PN retry; the 256-byte request is reassembled by the peer. The first
+independent lifecycle review then found that the harness did not use the exact
+manifest digest/security budget and repeated deterministic handshake entropy
+on reconnect. Those findings invalidate the current profile/reconnect claims;
+the worker is repairing the harness before its RAM output is accepted.
+
+## 2026-10-07 — P19 async result/status and route boundary coverage
+
+Added `async-radio-fragmented-rsp-status-overlap` to the explicit TEST-RADIO-N2
+scenario. It emits a three-fragment RSP, drops the last slice, delivers
+FRAG_STATUS mask `0x04` while the sender's local completion for that slice is
+pending, then proves only index 2 is repaired and the exact result is delivered
+once. The earlier no-slot/result race now reserves its synthetic second SEQ
+through the endpoint identity allocator.
+
+Added endpoint-origin TTL=0 coverage and a routed endpoint request rejected by
+a narrower egress MTU without relay-cache reservation. Existing
+`relay.transparent` assertions prove the integrity-only CRC is recomputed after
+TTL decrement and the missing-frame-CONTEXT/narrow-egress failures preserve
+output state.
+
+Checks:
+
+- `cmake --build build/host --target dmp_test_recovery_gate dmp_test_relay --parallel 2` — passed.
+- `ctest --test-dir build/host --output-on-failure -R "^(scenarios\.(async_radio|relay_sample)|relay\.transparent)$"` — 3/3 passed.
+- `ctest --test-dir build/host --output-on-failure -R "^scenarios\.async_radio$"` — 1/1 passed after adding fragmented-RSP overlap.
+- Independent read-only review confirmed the SEQ reservation fix and the TTL=0/narrow-egress assertions. A separate fragmented-RSP follow-up found no issues in that scenario.
+- Earlier RAM lifecycle CTests were 2/2, but that run does not close RAM acceptance because the subsequent independent review found the profile/config and repeated-entropy defects above. No MCU peak is established.
+
+P19 remains `running` and unaccepted. The manifest-bound RAM harness repair, valid fresh-handshake reconnect evidence, remaining PN/SEQ/profile cases, final independent review and full host gate are still open.
+
+## 2026-10-07 — P19 RAM evidence fixes and independent recheck
+
+The first review of the corrected process-isolated RAM harness found two evidence defects: it reported the bootstrap hash as the association epoch, and its 256-byte peer-assembly assertion allowed a zero-assembly pass. The coordinator now records the actual traffic epochs returned by `dmp_hs_epochs` separately for initiator and responder, requires both to change on reconnect, requires the 256-byte request to produce exactly four fragments and one exact 256-byte assembly, and requires the 128-byte request to remain one unfragmented frame.
+
+After those changes:
+
+- `cmake --build build/p19-ram-endpoint-gcc --target dmp_ram_endpoint_process --parallel 4` — passed.
+- `ctest --test-dir build/p19-ram-endpoint-gcc --output-on-failure -R endpoint_lifecycle` — 2/2 passed.
+- Direct JSON parsing confirmed both manifest digests, full request sizes, retry, fragment/assembly counts, four distinct old/new traffic epochs, and stale-frame `DMP_AUTHENTICATION_FAILURE` without dispatch.
+
+Corrected host measurements: caller-owned current requested bytes are 18,328 (128) and 19,224 (256); requested high-water including provider peak is 19,805 and 20,701; provider current after handshake is 408, lifetime peak 1,477, and largest allocation 256. The 256-byte request assembles once at the peer. The response fixture is 17 bytes. Peer memory, allocator metadata/alignment, task stack high-water, scratch allocation origin and physical MCU peak remain outside the measured total or unknown. No manifest charge or 131,072-byte cap changed. The focused independent read-only review of the final RAM source found no actionable findings; it did not rerun the build or CTests.

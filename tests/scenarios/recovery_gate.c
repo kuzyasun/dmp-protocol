@@ -1254,6 +1254,38 @@ static int reseal_new_pn(session *env, uint32_t attempt, const captured *origina
     return classify(out->frame, out->len, now, &out->type, &out->index);
 }
 
+/* Re-protect a logical packet with a distinct SEQ. This lets capacity tests
+ * present a second authenticated transfer while the endpoint's own sender is
+ * still retaining the first one. */
+static int reseal_with_seq(session *env, uint32_t attempt, const captured *original,
+                           uint32_t seq, dmp_bytes plaintext, dmp_time_ms now, captured *out)
+{
+    uint8_t core[MTU];
+    uint8_t sealed[MTU];
+    dmp_frame_view view;
+    dmp_frame_spec spec;
+    size_t core_n = 0U;
+    size_t sealed_n = 0U;
+    if (env == NULL || out == NULL ||
+        (plaintext.size != 0U && plaintext.data == NULL) ||
+        !captured_view(original, now, core, &core_n, &view)) {
+        return 0;
+    }
+    memset(&spec, 0, sizeof spec);
+    spec.fields = view.fields;
+    spec.fields.seq = seq;
+    spec.fields.options = (uint8_t)(spec.fields.options & (uint8_t)~DMP_OPT_SECURITY);
+    memset(&spec.fields.security, 0, sizeof spec.fields.security);
+    spec.extensions = view.extensions;
+    spec.payload = plaintext;
+    if (dmp_hs_seal_logical(env->initiator, attempt, &spec, sealed, sizeof sealed, &sealed_n) !=
+            DMP_HS_OK ||
+        !wrap_core(sealed, sealed_n, out->frame, sizeof out->frame, &out->len)) {
+        return 0;
+    }
+    return classify(out->frame, out->len, now, &out->type, &out->index);
+}
+
 static int open_captured(session *env, uint32_t attempt, const captured *frame, dmp_time_ms now,
                          dmp_frame_view *view, uint8_t *plain, size_t plain_cap,
                          size_t *plain_n)
@@ -2439,6 +2471,211 @@ static int test_async_radio(session *env, port_ctx *port)
     CHECK(memcmp(right.app.req_body, payload, sizeof payload) == 0);
     report("async-radio-n2-index0-repair", port, "pass");
     close_session(env);
+
+    /* One assembly slot is occupied by the incomplete request. A second
+     * authenticated logical transfer must not displace it or suppress its
+     * delayed status. The request is then repaired while the origin's local
+     * completion is still pending; its terminal result remains authoritative. */
+    {
+        uint8_t request_body[96];
+        uint8_t reply[9];
+        captured first;
+        captured second;
+        captured status_frame[2];
+        captured repair[2];
+        captured responses[4];
+        dmp_frame_view first_view;
+        uint8_t core[MTU];
+        size_t core_n = 0U;
+        uint32_t second_seq = 0U;
+        dmp_time_ms case_now = now + 20U;
+        dmp_time_ms status_at = case_now + RADIO_COLLECT_MS;
+        dmp_time_ms response_at = status_at + RADIO_RECEIPT_MS + 8U;
+        int nstatus;
+        int nrepair;
+        int nresponses;
+        int saw_result = 0;
+        size_t i;
+
+        CHECK(open_pair(env, port, PROF_RADIO_N2, case_now, 0, &index) == 0);
+        CHECK(allow_service1_request(&left) == 0 && allow_service1_result(&left) == 0);
+        CHECK(allow_service1_request(&right) == 0 && allow_service1_result(&right) == 0);
+        dmp_test_opaque_fill(request_body, sizeof request_body, 0x6bU);
+        dmp_test_opaque_fill(reply, sizeof reply, 0x7cU);
+        CHECK(submit_req(&left, 1U, span(request_body, sizeof request_body), case_now, &handle) ==
+              DMP_OK);
+        CHECK(dmp_endpoint_poll(&left.endpoint, case_now) == DMP_OK);
+        CHECK(left.wire.delayed_count == 1);
+        count = take_queue(&left, frames, QUEUE, case_now);
+        CHECK(count == 1 && frames[0].type == DMP_TYPE_REQ && frames[0].index == 0U);
+        first = frames[0];
+        CHECK(deliver_one(&right, &first, case_now, &status) == 0);
+        CHECK(status == DMP_INCOMPLETE && right.app.accepts == 0);
+
+        CHECK(wire_complete_delayed(&left, case_now + 1U) == 1);
+        CHECK(dmp_endpoint_poll(&left.endpoint, case_now + 1U) == DMP_OK);
+        count = take_queue(&left, frames, QUEUE, case_now + 1U);
+        CHECK(count == 1 && frames[0].type == DMP_TYPE_REQ && frames[0].index == 1U);
+        CHECK(deliver_one(&right, &frames[0], case_now + 1U, &status) == 0);
+        CHECK(status == DMP_INCOMPLETE && right.app.accepts == 0);
+
+        CHECK(unwrap_core(first.frame, first.len, core, sizeof core, &core_n, case_now) == 1);
+        CHECK(captured_view(&first, case_now, core, &core_n, &first_view));
+        CHECK(dmp_identity_next_seq(&left.endpoint.identity, left.endpoint.context, &second_seq) ==
+              DMP_OK);
+        CHECK(second_seq == first_view.fields.seq + 1U);
+        CHECK(reseal_with_seq(env, index, &first, second_seq,
+                              span(request_body, 32U), case_now + 2U, &second));
+        CHECK(second.type == DMP_TYPE_REQ && second.index == 0U);
+        CHECK(deliver_one(&right, &second, case_now + 2U, &status) == 0);
+        CHECK(status == DMP_QUOTA_EXHAUSTED);
+        CHECK(right.app.accepts == 0 && right.assemblies[0].live != 0U);
+        CHECK(right.assemblies[0].source.seq == first_view.fields.seq);
+
+        /* Let the last original slice be lost. The occupied assembly must
+         * still own the slot and produce mask 0x04. */
+        CHECK(wire_complete_delayed(&left, case_now + 3U) == 1);
+        CHECK(dmp_endpoint_poll(&left.endpoint, case_now + 3U) == DMP_OK);
+        count = take_queue(&left, frames, QUEUE, case_now + 3U);
+        CHECK(count == 1 && frames[0].type == DMP_TYPE_REQ && frames[0].index == 2U);
+        CHECK(left.wire.delayed_count == 1);
+        CHECK(dmp_endpoint_poll(&right.endpoint, status_at) == DMP_OK);
+        nstatus = take_queue(&right, status_frame, 2, status_at);
+        CHECK(nstatus == 1 && status_frame[0].type == DMP_TYPE_FRAG_STATUS);
+        CHECK(right.assemblies[0].status_mask == 0x04U);
+        CHECK(right.wire.delayed_count == 1 && right.endpoint.wire_busy != 0U);
+        CHECK(deliver_one(&left, &status_frame[0], status_at, &status) == 0);
+        CHECK(status == DMP_OK || status == DMP_DUPLICATE);
+
+        CHECK(wire_complete_delayed(&left, status_at + 1U) == 1);
+        CHECK(dmp_endpoint_poll(&left.endpoint, status_at + 1U) == DMP_OK);
+        nrepair = take_queue(&left, repair, 2, status_at + 1U);
+        CHECK(nrepair == 1 && repair[0].type == DMP_TYPE_REQ && repair[0].index == 2U);
+        CHECK(left.wire.delayed_count == 1);
+        CHECK(deliver_one(&right, &repair[0], status_at + 1U, &status) == 0);
+        CHECK(status == DMP_OK);
+        CHECK(right.app.accepts == 1 && right.app.req_n == sizeof request_body);
+        CHECK(memcmp(right.app.req_body, request_body, sizeof request_body) == 0);
+        CHECK(dmp_endpoint_complete(&right.endpoint, right.app.pending, false, 0U,
+                                    span(reply, sizeof reply), response_at) == DMP_OK);
+
+        /* Release the FRAG_STATUS TX slot. The resulting ACK and RSP are
+         * transmitted under the async manifest while the repair callback on
+         * the origin is still outstanding. */
+        CHECK(wire_complete_delayed(&right, response_at) == 1);
+        CHECK(pump_sender_complete(&right, response_at, 2) == 0);
+        nresponses = take_queue(&right, responses, 4, response_at);
+        CHECK(nresponses >= 1 && nresponses <= 2);
+        for (i = 0U; i < (size_t)nresponses; i++) {
+            if (responses[i].type == DMP_TYPE_RSP) {
+                saw_result = 1;
+            }
+            CHECK(responses[i].type == DMP_TYPE_ACK || responses[i].type == DMP_TYPE_RSP);
+            CHECK(deliver_one(&left, &responses[i], response_at, &status) == 0);
+            CHECK(status == DMP_OK || status == DMP_DUPLICATE);
+        }
+        CHECK(saw_result != 0 && left.app.results == 1);
+        CHECK(left.app.result_n == sizeof reply &&
+              memcmp(left.app.result_body, reply, sizeof reply) == 0);
+        CHECK(left.app.unknowns == 0 && left.app.local_unsents == 0);
+        CHECK(left.wire.delayed_count == 1);
+        CHECK(wire_complete_delayed(&left, response_at + 1U) == 1);
+        CHECK(dmp_endpoint_poll(&left.endpoint, response_at + 1U) == DMP_OK);
+        CHECK(left.app.results == 1 && left.app.unknowns == 0);
+        report("async-radio-no-slot-result-race", port, "pass");
+        close_session(env);
+    }
+
+    /* A fragmented RSP can receive its own repair status while the sender's
+     * ordinary completion callback for the last initial slice is still
+     * pending. The status must be retained and applied after that callback. */
+    {
+        uint8_t request_body[1] = {0x31U};
+        uint8_t reply[96];
+        captured outbound[4];
+        captured status_frame[2];
+        captured repair[2];
+        dmp_time_ms case_now = now + 40U;
+        dmp_time_ms receipt_at = case_now + RADIO_RECEIPT_MS;
+        dmp_time_ms result_at = receipt_at + 8U;
+        dmp_time_ms status_at = result_at + RADIO_COLLECT_MS;
+        dmp_time_ms ack_at = status_at + RADIO_RECEIPT_MS + 8U;
+        int nstatus;
+        int nrepair;
+
+        CHECK(open_pair(env, port, PROF_RADIO_N2, case_now, 0, &index) == 0);
+        CHECK(allow_service1_request(&left) == 0);
+        CHECK(allow_service1_request(&right) == 0);
+        CHECK(allow_service1_result(&left) == 0);
+        CHECK(allow_service1_result(&right) == 0);
+        dmp_test_opaque_fill(reply, sizeof reply, 0x42U);
+        CHECK(submit_req(&left, 1U, span(request_body, sizeof request_body), case_now, &handle) ==
+              DMP_OK);
+        CHECK(dmp_endpoint_poll(&left.endpoint, case_now) == DMP_OK);
+        count = take_queue(&left, outbound, 4, case_now);
+        CHECK(count == 1 && outbound[0].type == DMP_TYPE_REQ &&
+              outbound[0].index == 0xffffffffU);
+        CHECK(deliver_one(&right, &outbound[0], case_now, &status) == 0);
+        CHECK(status == DMP_OK && right.app.accepts == 1 && right.app.have_pending != 0);
+        CHECK(wire_complete_delayed(&left, case_now + 1U) == 1);
+
+        CHECK(dmp_endpoint_poll(&right.endpoint, receipt_at) == DMP_OK);
+        count = take_queue(&right, outbound, 4, receipt_at);
+        CHECK(count == 1 && outbound[0].type == DMP_TYPE_ACK);
+        CHECK(deliver_one(&left, &outbound[0], receipt_at, &status) == 0);
+        CHECK(status == DMP_OK);
+        CHECK(wire_complete_delayed(&right, receipt_at + 1U) == 1);
+        CHECK(dmp_endpoint_complete(&right.endpoint, right.app.pending, false, 0U,
+                                    span(reply, sizeof reply), result_at) == DMP_OK);
+
+        CHECK(dmp_endpoint_poll(&right.endpoint, result_at) == DMP_OK);
+        count = take_queue(&right, outbound, 4, result_at);
+        CHECK(count == 1 && outbound[0].type == DMP_TYPE_RSP && outbound[0].index == 0U);
+        CHECK(deliver_one(&left, &outbound[0], result_at, &status) == 0);
+        CHECK((status == DMP_OK || status == DMP_INCOMPLETE) && left.app.results == 0 &&
+              left.assemblies[0].live != 0U);
+
+        CHECK(wire_complete_delayed(&right, result_at + 1U) == 1);
+        CHECK(dmp_endpoint_poll(&right.endpoint, result_at + 1U) == DMP_OK);
+        count = take_queue(&right, outbound, 4, result_at + 1U);
+        CHECK(count == 1 && outbound[0].type == DMP_TYPE_RSP && outbound[0].index == 1U);
+        CHECK(deliver_one(&left, &outbound[0], result_at + 1U, &status) == 0);
+        CHECK((status == DMP_OK || status == DMP_INCOMPLETE) && left.app.results == 0 &&
+              left.assemblies[0].live != 0U);
+
+        CHECK(wire_complete_delayed(&right, result_at + 2U) == 1);
+        CHECK(dmp_endpoint_poll(&right.endpoint, result_at + 2U) == DMP_OK);
+        count = take_queue(&right, outbound, 4, result_at + 2U);
+        CHECK(count == 1 && outbound[0].type == DMP_TYPE_RSP && outbound[0].index == 2U);
+        CHECK(right.wire.delayed_count == 1);
+        /* Drop the last initial result slice; the receiver asks for index 2. */
+        CHECK(dmp_endpoint_poll(&left.endpoint, status_at) == DMP_OK);
+        nstatus = take_queue(&left, status_frame, 2, status_at);
+        CHECK(nstatus == 1 && status_frame[0].type == DMP_TYPE_FRAG_STATUS);
+        CHECK(left.assemblies[0].status_mask == 0x04U);
+        CHECK(left.wire.delayed_count == 1 && left.endpoint.wire_busy != 0U);
+        CHECK(deliver_one(&right, &status_frame[0], status_at, &status) == 0);
+        CHECK(status == DMP_OK || status == DMP_DUPLICATE);
+        CHECK(right.wire.delayed_count == 1 && right.wire.n == 0);
+
+        CHECK(wire_complete_delayed(&right, status_at + 1U) == 1);
+        CHECK(dmp_endpoint_poll(&right.endpoint, status_at + 1U) == DMP_OK);
+        nrepair = take_queue(&right, repair, 2, status_at + 1U);
+        CHECK(nrepair == 1 && repair[0].type == DMP_TYPE_RSP && repair[0].index == 2U);
+        CHECK(deliver_one(&left, &repair[0], status_at + 1U, &status) == 0);
+        CHECK(status == DMP_OK && left.app.results == 1);
+        CHECK(left.app.result_n == sizeof reply &&
+              memcmp(left.app.result_body, reply, sizeof reply) == 0);
+        CHECK(left.app.unknowns == 0 && right.app.unknowns == 0);
+
+        CHECK(wire_complete_delayed(&left, ack_at) == 1);
+        CHECK(dmp_endpoint_poll(&left.endpoint, ack_at) == DMP_OK);
+        CHECK(wire_complete_delayed(&right, ack_at + 1U) >= 1);
+        CHECK(dmp_endpoint_poll(&right.endpoint, ack_at + 1U) == DMP_OK);
+        CHECK(left.app.results == 1 && right.app.unknowns == 0);
+        report("async-radio-fragmented-rsp-status-overlap", port, "pass");
+        close_session(env);
+    }
     return 0;
 }
 
@@ -3485,6 +3722,22 @@ static int test_relay_sample(session *env, port_ctx *port)
     CHECK(admitted.origin_ttl == 2U);
     CHECK(arm_radio_relay(&relay, &admitted, routes, cache, air) == 0);
     CHECK(dmp_hs_epochs(env->initiator, index, &epoch_i, &epoch_r) == 1);
+    input.origin_ttl = 0U;
+    CHECK(dmp_config_admit(&input, &admitted) == DMP_OK);
+    CHECK(admitted.origin_route == 1U && admitted.origin_ttl == 0U);
+    left.endpoint.profile.origin_ttl = admitted.origin_ttl;
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now) == DMP_OK);
+    CHECK(pump_sender(&left, now, 1) == 0);
+    CHECK(unwrap_core(left.wire.q[0].frame, left.wire.q[0].len, core, sizeof core, &core_n, now) ==
+          1);
+    left.wire.n = 0;
+    CHECK(parse_core(core, core_n, &view) == 1);
+    CHECK(view.fields.route.ttl == 0U && view.fields.route.source == ID_INIT &&
+          view.fields.route.destination == ID_RESP);
+    CHECK(context_epoch_of(&view, &wire_epoch) == 1 && wire_epoch == epoch_i);
+    CHECK(forward_core(&relay, core, core_n, now, forwarded, sizeof forwarded, &fwd) ==
+          DMP_LIMIT_EXHAUSTED);
+    CHECK(cache[0].occupied == 0U);
     left.endpoint.profile.origin_ttl = 1U;
     CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now) == DMP_OK);
     CHECK(pump_sender(&left, now, 1) == 0);
@@ -3536,6 +3789,11 @@ static int test_relay_sample(session *env, port_ctx *port)
     CHECK(context_epoch_of(&view, &wire_epoch) == 1);
     CHECK(wire_epoch == epoch_i);
     print_core_header("route-req-header", core, core_n);
+    admitted.forward_mtu = (uint32_t)(core_n - 1U);
+    CHECK(forward_core(&relay, core, core_n, now, forwarded, sizeof forwarded, &fwd) ==
+          DMP_LIMIT_EXHAUSTED);
+    CHECK(cache[0].occupied == 0U);
+    admitted.forward_mtu = 256U;
     relay_status = forward_core(&relay, core, core_n, now, forwarded, sizeof forwarded, &fwd);
     CHECK(relay_status == DMP_OK);
     CHECK(cache[0].occupied == 1U);
