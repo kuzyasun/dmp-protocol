@@ -1761,3 +1761,17 @@ After those changes:
 - Direct JSON parsing confirmed both manifest digests, full request sizes, retry, fragment/assembly counts, four distinct old/new traffic epochs, and stale-frame `DMP_AUTHENTICATION_FAILURE` without dispatch.
 
 Corrected host measurements: caller-owned current requested bytes are 18,328 (128) and 19,224 (256); requested high-water including provider peak is 19,805 and 20,701; provider current after handshake is 408, lifetime peak 1,477, and largest allocation 256. The 256-byte request assembles once at the peer. The response fixture is 17 bytes. Peer memory, allocator metadata/alignment, task stack high-water, scratch allocation origin and physical MCU peak remain outside the measured total or unknown. No manifest charge or 131,072-byte cap changed. The focused independent read-only review of the final RAM source found no actionable findings; it did not rerun the build or CTests.
+
+## 2026-10-07 — Endpoint SEQ exhaustion boundary
+
+Added `seq-exhaustion-endpoint` to `scenarios.gaps`. It seeds the active authenticated endpoint identity at `UINT32_MAX` as a bounded boundary injection, then sends a real protected TELEMETRY frame and checks the wire SEQ. The next two telemetry polls and a reliable service-1 REQ return `DMP_LIMIT_EXHAUSTED`; no additional frame or live sender is left, and the identity remains exhausted without wrapping.
+
+Checks:
+
+- `cmake --build build/host --target dmp_test_recovery_gate --parallel 2` — passed.
+- `ctest --test-dir build/host --output-on-failure -R "^scenarios\.gaps$"` — 1/1 passed.
+- `build/host/tests/scenarios/dmp_test_recovery_gate.exe gaps` — emitted `seq-exhaustion-endpoint ... outcome=pass`; the existing `pn-limit-receive-guard` also passed.
+- `git diff --check` — passed; only Git LF-to-CRLF notices were emitted.
+- Independent read-only review found the capped `take_queue` could hide extra terminal frames. Added `CHECK(left.wire.n == 1)` before draining the queue; rebuilt and reran the same CTest/direct scenario. The reviewer follow-up confirmed the counterexample now fails and reported no new findings; it did not rerun tests.
+
+The test starts at the terminal counter value rather than iterating through all 2^32 SEQs. Endpoint SEQ exhaustion is covered; authenticated receipt of a valid PN near 2^24 and recovery-specific invalid-profile behavior remain open. P19 remains running and unaccepted pending those rows, independent final review and the applicable host gate.

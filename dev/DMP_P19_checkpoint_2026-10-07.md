@@ -47,10 +47,22 @@
 ## Remaining acceptance work
 
 - Reconcile the accepted host lifecycle evidence into remaining accounting dependencies. The harness pins each manifest digest into config and handshake profile hash, uses distinct deterministic entropy for a fresh reconnect handshake, checks changed initiator/responder traffic epochs and rejection of the old protected DATA frame, and passes full-size 128/256-byte REQ loss/retry. It requires no assembly for the one-frame 128 case and one 256-byte assembly from four fragments for the 256 case. Its result payload is 17 bytes, not the profile's maximum. Focused independent RAM review found no actionable findings. The earlier pre-fix lifecycle metrics are invalid. No full-profile endpoint RAM run, MCU ABI/map/runtime peak, or physical peak is established. Keep the `131,072` cap and do not treat host sizes as MCU evidence.
-- Remaining recovery rows include a valid PN near 2^24, endpoint SEQ exhaustion/wrap, and recovery-specific invalid-profile behavior. S10 case 11 stays with P22/P23; independent peer and physical radio also remain later gates.
+- Remaining recovery rows include a valid PN near 2^24 and recovery-specific invalid-profile behavior. Endpoint SEQ exhaustion/wrap is now covered by `scenarios.gaps` `seq-exhaustion-endpoint`. S10 case 11 stays with P22/P23; independent peer and physical radio also remain later gates.
 - Independent follow-up review found no issue in the fragmented-RSP/status overlap or the TTL=0/narrow-egress assertions. Full P19 final review and the applicable full host gate remain pending; close the remaining matrix rows and corrected RAM/accounting checks before any P19 acceptance.
 - Do not flash or integrate into DTrack. The initial P19 package is already pushed; confirm current Git state before publishing any later checkpoint.
 
 ## Resume point
 
-Read this checkpoint, `dev/DMP_Recovery_Matrix.md`, `dev/DMP_Work_Packages.md`, and the P19 owner direction in `dev/DMP_Correction_Plan.md`. Check live agent status, current Git state and test artifacts. Finish independent review of the corrected RAM harness, reconcile its host-only metrics and any findings, then close the remaining PN/SEQ/profile rows and final gate. Keep the recorded build directories and permission-protected temp directories intact.
+Read this checkpoint, `dev/DMP_Recovery_Matrix.md`, `dev/DMP_Work_Packages.md`, and the P19 owner direction in `dev/DMP_Correction_Plan.md`. Check live agent status, current Git state and test artifacts. The corrected RAM harness has passed focused independent review; its host-only evidence and limits are recorded above. Close the valid-PN and recovery-specific invalid-profile rows, then complete final independent review and the applicable host gate. Keep the recorded build directories and permission-protected temp directories intact.
+
+## 2026-10-07 — Endpoint SEQ exhaustion boundary
+
+`tests/scenarios/recovery_gate.c` now adds `seq-exhaustion-endpoint` to `scenarios.gaps`. The test injects the terminal SEQ value into one active authenticated endpoint identity, emits a protected TELEMETRY frame carrying `UINT32_MAX`, then confirms repeated telemetry polls and a reliable REQ fail with `DMP_LIMIT_EXHAUSTED`, without a frame, live sender, or wrap. This is a boundary injection rather than a run through all 2^32 values.
+
+- `cmake --build build/host --target dmp_test_recovery_gate --parallel 2` — passed.
+- `ctest --test-dir build/host --output-on-failure -R "^scenarios\.gaps$"` — 1/1 passed.
+- Direct `gaps` scenario output reported `seq-exhaustion-endpoint`, `pn-limit-receive-guard`, and `gaps` as passing.
+- `git diff --check` — passed with only line-ending notices.
+- The first independent review found that `take_queue` could hide an extra frame when called with capacity 1; the scenario now asserts the wire queue count is exactly 1 before draining. Rebuild and CTest passed again, and the read-only follow-up confirmed the counterexample is closed with no new findings; the reviewer did not rerun tests.
+
+The `sel-r7-pn-seq` row remains partial until a valid authenticated frame near PN 2^24 is received. Recovery-specific invalid-profile behavior, independent final review, and the applicable host gate remain open. P19 is still running and unaccepted.

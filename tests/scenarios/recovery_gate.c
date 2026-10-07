@@ -4196,6 +4196,58 @@ static int test_gaps(session *env, port_ctx *port)
     reset_measures();
     dmp_test_opaque_fill(body, 256U, 0x61U);
 
+    /* Drive the real endpoint through UINT32_MAX, then prove the shared SEQ
+     * allocator fails closed for both best-effort and reliable traffic. The
+     * slot is seeded at the terminal boundary because exhausting 2^32 values
+     * is not practical in a bounded host scenario. */
+    CHECK(open_pair(env, port, PROF_RADIO, now, 0, &index) == 0);
+    {
+        dmp_identity_slot *slot;
+        dmp_reliability_handle exhausted_handle;
+        uint8_t telemetry = 0x5aU;
+        uint8_t request = 0xa5U;
+        captured terminal;
+        uint32_t emitted_seq = 0U;
+        size_t i;
+
+        CHECK(left.endpoint.context.slot < left.endpoint.identity.capacity);
+        slot = &left.endpoint.identity.slots[left.endpoint.context.slot];
+        CHECK(slot->generation == left.endpoint.context.generation);
+        CHECK(slot->state == DMP_IDENTITY_SLOT_ACTIVE);
+        slot->next_seq = UINT32_MAX;
+        slot->seq_exhausted = false;
+
+        CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(&telemetry, 1U), now) == DMP_OK);
+        CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+        CHECK(left.wire.n == 1);
+        count = take_queue(&left, &terminal, 1, now);
+        CHECK(count == 1 && terminal.type == DMP_TYPE_TELEM);
+        CHECK(captured_seq(&terminal, now, &emitted_seq) && emitted_seq == UINT32_MAX);
+        CHECK(slot->seq_exhausted && slot->next_seq == UINT32_MAX);
+        CHECK(left.endpoint.telem_pending == 0U && left.endpoint.telem_tx == 0U);
+        CHECK(left.wire.delayed_count == 0);
+
+        /* A second staged telemetry remains unsent on repeated polls; it must
+         * neither wrap nor reuse UINT32_MAX. */
+        CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(&telemetry, 1U), now + 1U) ==
+              DMP_OK);
+        CHECK(dmp_endpoint_poll(&left.endpoint, now + 1U) == DMP_LIMIT_EXHAUSTED);
+        CHECK(left.wire.n == 0 && slot->seq_exhausted && slot->next_seq == UINT32_MAX);
+        CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_LIMIT_EXHAUSTED);
+        CHECK(left.wire.n == 0 && slot->seq_exhausted && slot->next_seq == UINT32_MAX);
+
+        CHECK(allow_service1_request(&left) == 0);
+        CHECK(dmp_endpoint_submit_req(&left.endpoint, 1U, span(&request, 1U), now + 3U,
+                                      &exhausted_handle) == DMP_LIMIT_EXHAUSTED);
+        CHECK(left.wire.n == 0);
+        for (i = 0U; i < SENDERS; i++) {
+            CHECK(left.senders[i].live == 0U);
+        }
+        CHECK(slot->seq_exhausted && slot->next_seq == UINT32_MAX);
+    }
+    report("seq-exhaustion-endpoint", port, "pass");
+    close_session(env);
+
     /* Seal/encode failure after admission frees the sender and sends nothing. */
     CHECK(open_pair(env, port, PROF_RADIO, now, 0, &index) == 0);
     CHECK(submit_req(&left, 2U, span(body, 256U), now, &handle) == DMP_OK);
