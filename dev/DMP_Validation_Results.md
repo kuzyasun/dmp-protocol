@@ -242,7 +242,7 @@ Both high-water totals sit inside one endpoint's 36864-byte retained charge.
 The largest allocation sits inside the 4096-byte scratch charge. This is host
 provider accounting, not an MCU budget. The 2^24 frame ceiling was not moved.
 
-## P19 one-device endpoint lifecycle — 2026-10-07
+## P19 one-device endpoint lifecycle — original run 2026-10-07; manifest revalidation 2026-10-08
 
 `tests/memory/ram_endpoint_process.c` runs the measured endpoint and provider in
 one process and a real libdmp/P01B peer in a separate process. The harness pins
@@ -255,30 +255,30 @@ per-allocation maximum, not an additive arena.
 
 | Profile | Exact manifest SHA-256 | Request | Host requested-byte high-water | Relevant evidence |
 |---|---|---:|---:|---|
-| `TEST-DIRECT-MINIMAL-128` | `e0a9ac9847c2f1b7dc9d53204e0035ee6e712f9f6b0b0844006e1caae0eac831` | 128 B, 1 frame | 19,466 B | reliable result, lost-frame retry, cleanup and fresh reconnect |
-| `TEST-DIRECT-MINIMAL-256` | `d64c6ee69690b6785d317a7438c559243a78a2a112c0e8bcc8d3bc0d38b7d7ef` | 256 B, 4 fragments | 20,362 B | reliable result, retry, one exact 256 B peer assembly, cleanup and reconnect |
-| `DIRECT-1` | `d541555e85872e6ca96c4e718557c7479312a5ff21c90981500e432c013c77f7` | 1,024 B, 16 fragments | 36,265 B | reliable request/result, retry, cleanup and reconnect |
-| `RADIO-1` | `fe18d3c7fee76305a0669596bc812b9972110f1d7ec67ff4f9329e1d82c40a36` | 1,024 B, 32 fragments | 42,146 B | request/result, retry, cleanup/reconnect; 80/80 route frames valid; verified 21 B service-0 freshness grant and token binding |
+| `TEST-DIRECT-MINIMAL-128` | `3bbcce998d664fa74970f503a39b28474de9291d453373810d641b2b662fb6e4` | 128 B, 1 frame | 24,617 B | reliable result, lost-frame retry, cleanup and fresh reconnect |
+| `TEST-DIRECT-MINIMAL-256` | `4dc75347343c209c1ed12ab67e60eba83ff974beaa9f351c121da87e7b18b946` | 256 B, 4 fragments | 26,281 B | reliable result, retry, one exact 256 B peer assembly, cleanup and reconnect |
+| `DIRECT-1` | `29f7895ab3f8dadfbe7331f1981fa35dcad2bec59139464e29bddc4e841e5285` | 1,024 B, 16 fragments | 36,265 B | reliable request/result, retry, cleanup and reconnect |
+| `RADIO-1` | `9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9` | 1,024 B, 32 fragments | 42,146 B | request/result, retry, cleanup/reconnect; 80/80 route frames valid; verified 21 B service-0 freshness grant and token binding |
 
 All modified manifest digests, SHA-256 of the exact manifest bytes:
 
-- `direct-nnpsk0-async.json`: `47effe448a769565c716d722718c0a0e850c53b828eb261af27a8c9864acbe12`
-- `direct-nnpsk0.json`: `d541555e85872e6ca96c4e718557c7479312a5ff21c90981500e432c013c77f7`
-- `radio-nnpsk0-n2.json`: `155482e5fa55f8987cb2d740a8d6390a02a3279c9e0350fee736c5e1309fb6a5`
-- `radio-nnpsk0.json`: `fe18d3c7fee76305a0669596bc812b9972110f1d7ec67ff4f9329e1d82c40a36`
-- `test-direct-minimal-128.json`: `e0a9ac9847c2f1b7dc9d53204e0035ee6e712f9f6b0b0844006e1caae0eac831`
-- `test-direct-minimal-256.json`: `d64c6ee69690b6785d317a7438c559243a78a2a112c0e8bcc8d3bc0d38b7d7ef`
-- `test-radio-retry-all-nnpsk0.json`: `2a220828cc4b9a79d2c7eea95f925d4a3ebd62bf98c7e30908f319a9d8b9cf3d`
+- `direct-nnpsk0-async.json`: `f39204f1340debf9da99fbf985dda7af7150d1b4ea5e92a7ebdf86fe7f2187c6`
+- `direct-nnpsk0.json`: `29f7895ab3f8dadfbe7331f1981fa35dcad2bec59139464e29bddc4e841e5285`
+- `radio-nnpsk0-n2.json`: `1d11940b8905261bab2974d266435a04dcedac1a4775f5304406e59852e9bb96`
+- `radio-nnpsk0.json`: `9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9`
+- `test-direct-minimal-128.json`: `3bbcce998d664fa74970f503a39b28474de9291d453373810d641b2b662fb6e4`
+- `test-direct-minimal-256.json`: `4dc75347343c209c1ed12ab67e60eba83ff974beaa9f351c121da87e7b18b946`
+- `test-radio-retry-all-nnpsk0.json`: `bc8bba7c929c6d0fe9ad39dbe66a6699d342304ae8485ddf5cac9e32605b55f1`
 
 Compared with RADIO-1, the minimal profiles have 22,680 B (128) and 21,784 B
 (256) lower measured host requested-byte high-water for these workloads. The
 provider retained peak is 1,477 B; largest allocation is 256 B; the scratch
-limit is 16,384 B and is not added to the total. Manifest charges remain
-reservations: minimal-128 32,590 B, minimal-256 33,614 B, DIRECT-1 53,154 B,
-RADIO-1 59,035 B. The region cap remains 131,072 B. Compile-only MCU layout is
+limit is 16,384 B and is not added to the total. Current manifest charges are
+reservations: minimal-128 38,167 B, minimal-256 39,959 B, DIRECT-1 60,488 B,
+RADIO-1 66,340 B. The region cap remains 131,072 B. Compile-only MCU layout is
 reported separately; MCU dynamic/stack and physical peaks remain unknown.
 
-Validation on the current code snapshot:
+Validation on the 2026-10-07 P19 code snapshot:
 
 - `python -B tests/profiles/test_deployments.py -v` — 14/14 passed.
 - `python -B tests/profiles/test_contract.py -v` — 11/11 passed.
@@ -289,3 +289,17 @@ Validation on the current code snapshot:
 - `git diff --check` — passed; Git emitted only line-ending notices and warnings for permission-protected temporary directories.
 
 Final independent read-only review of the corrected P19 snapshot found no actionable code findings. The reviewer did not rerun tests. Its documentation note about the arrival-gap row was checked against the current matrix, which names `collection-window-receive-gap` and records the passing 1,500 ms receive-gap evidence. P19 is accepted for host/simulation scope; MCU runtime and physical transport remain unclaimed.
+
+### 2026-10-08 owner-directed manifest/resource revalidation
+
+The owner selected profile correction while retaining the `sender_slots >= 2 * service_count` contract. The two minimal DIRECT profiles now use four sender slots; NNpsk0 association charges cover pending + active + draining slots, with per-slot RAM layout charges sharing the fixed endpoint manager conservatively. The profile hashes, P20 frozen hash table and P19 lifecycle pins were synchronized. The four measured lifecycle high-waters did not change; the four exact manifest-bound outputs and reports have no budget issues and remain below 131,072 B.
+
+- RBO job `job_01M4C3XHKZ8GY3M41NBNSX2VSJ` — profile suite 27/27.
+- RBO job `job_01M4C40G805DZVN807HMEZRH0K` — independent P21A peer suite 33/33.
+- RBO job `job_01M4C40XN839EC7YQVXA2ES2AX` — RAM-report suite 27/27.
+- `cmake --build build/p19-ram-endpoint-gcc --target dmp_ram_endpoint_process --parallel 4` — passed.
+- `ctest --test-dir build/p19-ram-endpoint-gcc --output-on-failure -R endpoint_lifecycle` — 4/4 passed after rerun with local peer IPC access.
+- Focused provider measurement, merge, report, layout and MCU ABI CTest — 17/17 passed.
+- Independent final P21A read-only review — no actionable code findings; exact frozen manifest hashes and schema copy confirmed.
+
+The first sandboxed attempts to run the peer IPC lifecycle and ARM compiler process were blocked by the local execution context; the same lifecycle cases and full focused 17-case set passed on the approved reruns. These results establish host/process-isolated lifecycle and compile-only ABI evidence only. They do not establish physical MCU RAM peaks, stack high-water, hardware behavior or transport. No commit or push was made for this continuation.

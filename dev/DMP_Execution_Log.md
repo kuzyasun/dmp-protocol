@@ -1813,3 +1813,24 @@ The 1,477 B provider retained charge is synchronized across RADIO-1, TEST-RADIO-
 Independent review found that the reconnect capture could select the second service-0 freshness REQ instead of stale DATA, and that downstream report/layout gates did not bind measured lifecycle evidence to the exact current manifest SHA/profile. The capture now filters and validates `DMP_TYPE_DATA`; report/layout require matching profile ID and exact manifest digest, with stale-manifest CLI regression cases. Added `collection-window-receive-gap` to assert that a 1,500 ms in-burst receive gap leaves the first-slice collection deadline unchanged and yields the expected `0x80` missing mask.
 
 Checks on the corrected code: `python -B tests/profiles/test_deployments.py -v` 14/14; `python -B tests/profiles/test_contract.py -v` 11/11; `python -B tests/memory/test_ram_report.py -v` 26/26; `cmake --build build/p19-ram-endpoint-gcc --parallel 4` passed; focused endpoint lifecycle/recovery CTest 5/5; full `ctest --test-dir build/p19-ram-endpoint-gcc --output-on-failure` 97/97 with approved Windows `%TEMP%` access; `git diff --check` passed. RADIO runtime JSON verifies stale `DMP_TYPE_DATA` rejection as `DMP_AUTHENTICATION_FAILURE` without dispatch. The final independent follow-up review found no actionable code findings and did not rerun tests. Its matrix documentation note was checked against the current file; the current row includes `collection-window-receive-gap` and its passing receive-gap evidence. P19 is accepted for host/simulation scope; P21D, P22/P23, MCU runtime peaks and physical transport remain separate. No hardware was flashed and no DTrack integration was made.
+
+## 2026-10-08 — Owner-directed resource correction and P21A acceptance
+
+The owner chose to keep sender_slots >= 2 * service_count = 4 and correct the profiles. The two minimal DIRECT manifests now reserve four sender slots; endpoint association charges cover pending + active + draining slots. The validator and fixtures also enforce nonzero reserves for each declared component, complete bootstrap/control/adapter buffers, and per-association RAM charging with a conservative share of fixed endpoint manager state. Seven NNpsk0 manifests changed; exact hashes are synchronized in digests.json, the P20 frozen brief and P19 lifecycle pins.
+
+The four manifest-bound lifecycle runs were repeated after the hash changes. Host requested-byte high-water is unchanged: minimal-128 24,617 B, minimal-256 26,281 B, DIRECT-1 36,265 B and RADIO-1 42,146 B. Current reservations are 38,167 B, 39,959 B, 60,488 B and 66,340 B respectively under the unchanged 131,072 B cap. RADIO-1 again reports 80/80 routed frames valid and a verified 21 B S7 grant/token binding. These are host requested-payload measurements and reservations; stack high-water, allocator metadata/alignment, peer memory and physical MCU peaks remain unknown.
+
+P21A closes with eight manifest/codec/Stream R findings fixed in the independent parser and regression tests. The exact final snapshot passes the frozen peer suite and final independent read-only review found no actionable code findings. P21B direct delivery/reassembly is the next dependency-ready package and has not started.
+
+Validation:
+
+- RBO Agent Broker profile suite, job job_01M4C3XHKZ8GY3M41NBNSX2VSJ: 27/27.
+- RBO Agent Broker P21A peer suite, job job_01M4C40G805DZVN807HMEZRH0K: 33/33.
+- RBO Agent Broker RAM-report suite, job job_01M4C40XN839EC7YQVXA2ES2AX: 27/27.
+- cmake --build build/p19-ram-endpoint-gcc --target dmp_ram_endpoint_process --parallel 4: passed.
+- Focused endpoint lifecycle CTest: 4/4 passed.
+- Focused provider measurement, merge, report, layout and MCU ABI CTest: 17/17 passed.
+- Recomputed every profile manifest SHA-256 against `profiles/deployments/digests.json`: all matched.
+- `git diff --check` with submodule diff disabled: passed; peer package whitespace scan found no trailing whitespace.
+
+The first sandboxed lifecycle attempt was blocked at peer IPC connect, and one sandboxed ARM compiler launch returned WinError 623. The same lifecycle cases and the complete focused 17-case set passed in the approved local execution context. The earlier 97/97 full host CTest belongs to the preceding P19 snapshot; this continuation re-ran only the changed profile/RAM and lifecycle gates. No commit, push, hardware flash or DTrack integration was made. Routine suites used the available RBO Agent Broker command jobs; a separate Antigravity coding-agent dispatch tool was not exposed in this session.

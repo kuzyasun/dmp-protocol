@@ -120,7 +120,7 @@
     "peers": 1,
     "assemblies_per_peer": 1,
     "operations_per_service": 1,
-    "sender_slots": 1,
+    "sender_slots": 4,
     "control_slots": 2,
     "application_queue_slots": 1,
     "adapter_slots": 3,
@@ -255,19 +255,19 @@
         {
           "component": "association",
           "region": "RAM",
-          "count": 1,
-          "bytes_each": 11848
+          "count": 2,
+          "bytes_each": 5924
         },
         {
           "component": "bootstrap",
           "region": "RAM",
-          "count": 0,
-          "bytes_each": 0
+          "count": 1,
+          "bytes_each": 120
         },
         {
           "component": "sender",
           "region": "RAM",
-          "count": 1,
+          "count": 4,
           "bytes_each": 344
         },
         {
@@ -285,26 +285,26 @@
         {
           "component": "result",
           "region": "RAM",
-          "count": 1,
+          "count": 4,
           "bytes_each": 264
         },
         {
           "component": "history",
           "region": "RAM",
-          "count": 2,
+          "count": 8,
           "bytes_each": 375
         },
         {
           "component": "correlation",
           "region": "RAM",
-          "count": 1,
+          "count": 4,
           "bytes_each": 359
         },
         {
           "component": "control",
           "region": "RAM",
           "count": 2,
-          "bytes_each": 0
+          "bytes_each": 263
         },
         {
           "component": "application_queue",
@@ -327,14 +327,14 @@
         {
           "component": "relay_cache",
           "region": "RAM",
-          "count": 0,
-          "bytes_each": 0
+          "count": 1,
+          "bytes_each": 1
         },
         {
           "component": "freshness_tokens",
           "region": "RAM",
-          "count": 0,
-          "bytes_each": 0
+          "count": 1,
+          "bytes_each": 1
         }
       ]
     }

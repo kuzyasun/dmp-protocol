@@ -209,10 +209,13 @@ def evaluate(manifest, measurement, manifest_hash=None):
         required_slots = sum(nonnegative(security.get(key), f"security {key}")
                              for key in ("pending_per_pair", "active_per_pair", "draining_per_pair"))
         provider_charge = charges.get("provider_retained", {})
+        association_charge = charges.get("association", {})
         provider_peak = max((phase.get("provider_retained_peak_bytes", 0)
                              for phase in measurement["phases"]), default=0)
         if provider_charge.get("count", 0) < required_slots or provider_charge.get("bytes_each", 0) < provider_peak:
             issues.append("provider rotation charges do not cover the manifest association slots and observed provider peak")
+        if association_charge.get("count", 0) < required_slots:
+            issues.append("association charges do not cover the manifest pending, active, and draining slots")
     elif overlap_status != "measured":
         reason = workload.get("reconnect_overlap_reason")
         suffix = f": {reason}" if isinstance(reason, str) and reason else ""

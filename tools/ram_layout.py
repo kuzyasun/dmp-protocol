@@ -99,14 +99,16 @@ def components(manifest, sizes, observed_provider_peak):
     stream_bound = (encoded + 4) + (encoded + 4) // 254 + 2
     work_buffers = 4 * message + 2 * encoded + stream_bound + (stream_bound + 1)
     queue_reserved = limits["application_queue_slots"] * message
-    association_group = (sizes["dmp_endpoint"] + sizes["dmp_hs"] + sizes["dmp_provider"] +
-                         associations * sizes["identity_slot"])
+    association_shared_bytes = sizes["dmp_endpoint"] + sizes["dmp_hs"] + sizes["dmp_provider"]
+    association_shared_bytes_each = (association_shared_bytes + associations - 1) // associations
+    association_bytes_each = association_shared_bytes_each + sizes["identity_slot"]
+    association_group_bytes = associations * association_bytes_each
     freshness_count = freshness["tokens_per_principal"] if any(s["freshness"] for s in services) else 0
     return {
         "counts": {
             "provider_retained": associations,
             "provider_scratch": 1,
-        "association": 1,
+            "association": associations,
             "bootstrap": 0,
             "sender": operations,
             "assembly": limits["assemblies_per_peer"],
@@ -124,7 +126,7 @@ def components(manifest, sizes, observed_provider_peak):
         "bytes_each": {
             "provider_retained": observed_provider_peak,
             "provider_scratch": SCRATCH_LIMIT,
-            "association": association_group,
+            "association": association_bytes_each,
             "bootstrap": 0,
             "sender": sizes["sender_slot"] + message,
             "assembly": sizes["reassembly_slot"] + message + sizes["reassembly_metadata_bytes"],
@@ -142,6 +144,10 @@ def components(manifest, sizes, observed_provider_peak):
         "details": {
             "operation_limit_global": operations,
             "provider_association_slots_reserved": associations,
+            "association_slot_bytes_include_shared_endpoint_manager_share": True,
+            "association_shared_endpoint_manager_bytes": association_shared_bytes,
+            "association_shared_endpoint_manager_bytes_each": association_shared_bytes_each,
+            "association_slot_group_reserved_bytes": association_group_bytes,
             "provider_one_association_peak_observed_host": observed_provider_peak,
             "provider_scratch_observed_largest_single": None,
             "provider_scratch_limit_per_allocation": SCRATCH_LIMIT,
@@ -220,7 +226,9 @@ def calculate(manifest, measurement, mcu, manifest_hash):
     for name in ("association", "sender", "assembly", "assembly_tombstone", "result",
                  "history", "correlation", "adapter"):
         add(name, layout["counts"][name], layout["bytes_each"][name], "host_abi_calculated",
-            "Exact GCC host sizeof values plus caller-owned capacity from this manifest.")
+            ("One per-association identity slot plus an equal conservative share of fixed endpoint, "
+             "handshake, and provider structs; shared bytes are rounded up per slot." if name == "association"
+             else "Exact GCC host sizeof values plus caller-owned capacity from this manifest."))
     if layout["counts"]["freshness_tokens"]:
         add("freshness_tokens", layout["counts"]["freshness_tokens"],
             layout["bytes_each"]["freshness_tokens"], "host_abi_calculated",

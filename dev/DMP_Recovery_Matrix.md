@@ -1,6 +1,6 @@
 # P19 recovery case-to-test matrix
 
-Host simulation only. These runs are not physical transport evidence. P19 is accepted for its host/simulation scope. P12 stays running. Independent-peer coverage remains P21D; S10 case 11 stays pending for P22/P23.
+Host simulation only. These runs are not physical transport evidence. P19 is accepted for its host/simulation scope; its profile-charge and one-device RAM evidence was revalidated on 2026-10-08 against the owner-directed manifest revisions below. P12 stays running. Independent-peer coverage remains P21D; S10 case 11 stays pending for P22/P23.
 
 Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset` at the start of that process. `retained_payload` is the high-water of live sender, result and assembly payload lengths scanned in the test. `provider_peak` is the high-water of the test allocator passed to `dmp_provider_setup`. `caller_node` is `sizeof` of one caller-owned endpoint node (63872). The provider peak in every passing run was 2826.
 
@@ -80,18 +80,18 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | AES-GCM FRAG_STATUS | — | Out of this suite, as in P18. |
 | Physical transport | — | Not claimed. |
 
-## One-device endpoint RAM lifecycle (2026-10-07)
+## One-device endpoint RAM lifecycle (2026-10-07; manifest evidence revalidated 2026-10-08)
 
 The process-isolated harness measures one manifest-bound endpoint in the parent process and runs a real libdmp/P01B peer in a separate process. Peer memory is excluded. Each profile records initial, handshake peak, active steady state, request/result with loss and retry, cleanup, and fresh reconnect. Values below are host requested-byte high-water (caller-owned payload/state plus provider retained high-water), not physical MCU peaks.
 
 | Profile | Manifest SHA-256 | Request / retry | Host requested-byte high-water | Evidence |
 |---|---|---|---:|---|
-| `TEST-DIRECT-MINIMAL-128` | `e0a9ac9847c2f1b7dc9d53204e0035ee6e712f9f6b0b0844006e1caae0eac831` | 128 B, one frame, retry observed | 19,466 B | no relay/freshness; reliable result and reconnect phases measured |
-| `TEST-DIRECT-MINIMAL-256` | `d64c6ee69690b6785d317a7438c559243a78a2a112c0e8bcc8d3bc0d38b7d7ef` | 256 B, four fragments, retry and one exact peer assembly | 20,362 B | no relay/freshness; reliable result and reconnect phases measured |
-| `DIRECT-1` | `d541555e85872e6ca96c4e718557c7479312a5ff21c90981500e432c013c77f7` | 1,024 B, 16 fragments, retry observed | 36,265 B | direct full profile; reliable result and reconnect phases measured |
-| `RADIO-1` | `fe18d3c7fee76305a0669596bc812b9972110f1d7ec67ff4f9329e1d82c40a36` | 1,024 B, 32 fragments, retry observed | 42,146 B | 80/80 routed frames valid; one 21-byte S7 grant verified and fresh token bound to service-2 REQ |
+| `TEST-DIRECT-MINIMAL-128` | `3bbcce998d664fa74970f503a39b28474de9291d453373810d641b2b662fb6e4` | 128 B, one frame, retry observed | 24,617 B | initial 23,292 B; current active/retry/reconnect 23,140 B; cleanup 0 B; no fragmentation, relay or freshness |
+| `TEST-DIRECT-MINIMAL-256` | `4dc75347343c209c1ed12ab67e60eba83ff974beaa9f351c121da87e7b18b946` | 256 B, four fragments, retry and one exact peer assembly | 26,281 B | initial 24,956 B; current active/retry/reconnect 24,804 B; cleanup 0 B; one 256-byte peer assembly |
+| `DIRECT-1` | `29f7895ab3f8dadfbe7331f1981fa35dcad2bec59139464e29bddc4e841e5285` | 1,024 B, 16 fragments, retry observed | 36,265 B | initial 34,940 B; current active/retry/reconnect 34,788 B; cleanup 0 B |
+| `RADIO-1` | `9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9` | 1,024 B, 32 fragments, retry observed | 42,146 B | initial 40,821 B; current active/retry/reconnect 40,669 B; cleanup 0 B; 80/80 routed frames valid and a 21-byte S7 grant/token binding verified |
 
-The minimal-128/256 host high-water is lower than RADIO-1 by 22,680/21,784 bytes (53.8%/51.7%) for these measured workloads. Provider retained peak is 1,477 B and largest allocation 256 B. The 16,384 B scratch limit is a maximum single allocation, not an additive arena. Stack high-water, allocator metadata/alignment, peer process memory and physical MCU runtime peaks remain unknown. Compile-only MCU layout is reported separately. The exact manifest RAM charges remain reservations under the unchanged 131,072-byte region cap.
+The minimal-128/256 host high-water is lower than RADIO-1 by 17,529/15,865 bytes (41.6%/37.6%) for these measured workloads. The handshake peak is 1,477 B of retained provider payload; current retained provider payload after handshake is 408 B, and the largest single allocation is 256 B. The 16,384 B scratch limit is a maximum single allocation, not an additive arena. Current manifest reservations are 38,167/39,959 B for minimal-128/256, 60,488 B for DIRECT-1 and 66,340 B for RADIO-1; the 131,072-byte region cap is unchanged. The 2026-10-08 manifest hashes and association charge revisions were rechecked through all four lifecycle tests and the dependent RAM report/layout gates. Stack high-water, allocator metadata/alignment, peer process memory and physical MCU runtime peaks remain unknown. Compile-only MCU layout is reported separately.
 
 ## Defect fixes proven by a P19 test
 

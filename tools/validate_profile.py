@@ -200,13 +200,13 @@ def _identity_and_services(m):
         ceiling = 128 if p["id"].endswith("128") else 256
         require(direct and not m["relays"] and m["freshness"]["lease_ms"] == 0 and
                 m["limits"]["peers"] == 1 and m["limits"]["operations_per_service"] == 1 and
-                m["limits"]["sender_slots"] == 1 and m["limits"]["application_queue_slots"] == 1 and
+                m["limits"]["sender_slots"] == 4 and m["limits"]["application_queue_slots"] == 1 and
                 m["limits"]["message_bytes"] == ceiling and
                 services[1]["request_bytes"] == ceiling and services[1]["result_bytes"] == ceiling and
                 m["limits"]["chunk_bytes"] == 64 and
                 m["limits"]["fragments"] == (ceiling + 63) // 64 and
                 m["security"]["draining_per_pair"] == 0 and m["security"]["drain_ms"] == 0,
-                "profile", "$.limits", "minimal direct profile exceeds its explicit single-peer envelope")
+                "profile", "$.limits", "minimal direct profile violates its bounded envelope or contract slot minima")
     return direct, selective
 
 
@@ -421,18 +421,19 @@ def _resources(m, derived):
             "resources", "$.limits.assembly_tombstones_per_peer",
             "each active assembly must reserve its future expiry tombstone")
     minimum_counts = {"provider_retained": associations, "provider_scratch": s["crypto_slots"],
-                      "association": 1, "bootstrap": 0,
+                      "association": associations, "bootstrap": 1,
                       "sender": operations, "assembly": l["assemblies_per_peer"],
                       "assembly_tombstone": l["peers"] * l["assembly_tombstones_per_peer"],
                       "result": operations + grants, "history": 2*(operations + grants), "correlation": operations + grants,
                       "control": l["control_slots"], "application_queue": 1,
-                      "adapter": l["adapter_slots"], "stacks": 1, "relay_cache": 0,
-                      "freshness_tokens": fresh["tokens_per_principal"] if grants else 0}
+                      "adapter": l["adapter_slots"], "stacks": 1, "relay_cache": 1,
+                      "freshness_tokens": max(1, fresh["tokens_per_principal"] if grants else 0)}
     minimum_bytes = {key: l["message_bytes"] for key in ("sender", "assembly", "result", "application_queue")}
     minimum_bytes["assembly_tombstone"] = 48
-    minimum_bytes.update(bootstrap=0, control=0, adapter=derived["encoded_frame_bytes"], relay_cache=0)
+    minimum_bytes.update(bootstrap=120, control=derived["encoded_frame_bytes"],
+                         adapter=derived["encoded_frame_bytes"], relay_cache=1)
     minimum_bytes["result"] = max(l["message_bytes"], 21 if grants else 1)
-    minimum_bytes["freshness_tokens"] = 16 if grants else 0
+    minimum_bytes["freshness_tokens"] = max(16 if grants else 0, 1)
     require(l["control_slots"] >= m["timing"]["feedback_buffers"] + grants + 1,
             "resources", "$.limits.control_slots", "grant requests cannot consume receipt/feedback reservation")
     # Same reserve as dmp_reliability_init / dmp_config_admit. Not a stricter policy.
@@ -454,13 +455,11 @@ def _resources(m, derived):
             require(charge["region"] in regions, "resources", path, "unknown charged memory region")
             # A relay-only role does not instantiate endpoint state, but keeps
             # explicit nonzero module reservations for its eventual layout.
-            count = minimum_counts[key] if resource["role"] == "endpoint" else 1
-            size = minimum_bytes.get(key, 1) if resource["role"] == "endpoint" else 1
+            count = max(1, minimum_counts[key]) if resource["role"] == "endpoint" else 1
+            size = max(1, minimum_bytes.get(key, 1)) if resource["role"] == "endpoint" else 1
             if resource["role"] == "relay" and key == "relay_cache":
                 count = operations * (derived["fragment_count"] + derived["bootstrap_fragment_count"]) + m["timing"]["max_status"] + m["timing"]["receipt_limit"]
                 count += derived["establishment_frame_reserve"]*s["episode_attempts"]
-            if key in ("control", "adapter"):
-                size = minimum_bytes[key] if (key == "adapter" or resource["role"] == "relay") else 0
             require(charge["count"] >= count and charge["bytes_each"] >= size,
                     "resources", path + "." + key, "component pool cannot cover admitted concurrency or whole buffers")
             if not (resource["role"] == "endpoint" and key in ("provider_scratch", "control")):

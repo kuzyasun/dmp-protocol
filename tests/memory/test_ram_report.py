@@ -293,6 +293,27 @@ class RamReportTests(unittest.TestCase):
         _, _, issues = self.evaluate(data, manifest)
         self.assertTrue(any("provider rotation charges do not cover" in issue for issue in issues), issues)
 
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        endpoint = next(item for item in manifest["resources"] if item["role"] == "endpoint")
+        association = next(row for row in endpoint["charges"] if row["component"] == "association")
+        association["count"] = 2
+        _, _, issues = self.evaluate(data, manifest)
+        self.assertTrue(any("association charges do not cover" in issue for issue in issues), issues)
+
+    def test_layout_association_charge_covers_each_lifecycle_slot(self):
+        manifest, measurement, mcu = layout_inputs(set())
+        sizes = measurement["host_layout_sizes"]
+        slots = sum(manifest["security"][key] for key in (
+            "pending_per_pair", "active_per_pair", "draining_per_pair"))
+        layout = ram_layout.components(manifest, sizes, 1325)
+        shared = sizes["dmp_endpoint"] + sizes["dmp_hs"] + sizes["dmp_provider"]
+        required = shared + slots * sizes["identity_slot"]
+        self.assertEqual(slots, layout["counts"]["association"])
+        self.assertGreaterEqual(layout["counts"]["association"] *
+                                layout["bytes_each"]["association"], required)
+        self.assertLess(layout["counts"]["association"] *
+                        layout["bytes_each"]["association"] - required, slots)
+
     def test_budget_only_cli_preserves_unmeasured_lifecycle_but_checks_budget(self):
         data = good_measurement()
         for phase in data["phases"]:

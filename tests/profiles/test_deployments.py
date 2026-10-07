@@ -79,10 +79,9 @@ class DeploymentTests(unittest.TestCase):
                                  (sample["schema"], sample["request_bytes"], sample["result_bytes"], sample["freshness"]))
                 self.assertEqual(16, manifest["sample"]["telemetry_bytes"])
                 self.assertEqual((1, 17), (manifest["sample"]["read_request_bytes"], manifest["sample"]["read_result_bytes"]))
-                minimal = manifest["profile"]["id"] in {"TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256"}
                 maximum = manifest["limits"]["message_bytes"]
                 self.assertEqual((maximum, maximum), (services[2]["request_bytes"], services[2]["result_bytes"]))
-                self.assertEqual(1 if minimal else 4, manifest["limits"]["sender_slots"])
+                self.assertEqual(4, manifest["limits"]["sender_slots"])
                 expected_fragments = (maximum + manifest["limits"]["chunk_bytes"] - 1) // manifest["limits"]["chunk_bytes"]
                 self.assertEqual(expected_fragments, manifest["limits"]["fragments"])
                 self.assertEqual(16, manifest["limits"]["assembly_tombstones_per_peer"])
@@ -108,6 +107,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual({"/profile/owner", "/profile/id", "/profile/revision",
                           "/binding/forward_mtu", "/binding/return_mtu",
                           "/binding/encoded_mtu", "/binding/synchronous_completion",
+                          "/resources/0/charges/10/bytes_each",
                           "/resources/0/charges/11/bytes_each",
                           "/resources/0/charges/12/bytes_each"},
                          n2_differences)
@@ -182,6 +182,46 @@ class DeploymentTests(unittest.TestCase):
         total = validator.validate_bytes(self.raw["radio-nnpsk0.json"])["derived"]["ram_reserved_bytes"]["endpoint"]["RAM"]
         ram["limit_bytes"] = total - 1
         self.assert_rejected(small_region, "resources", "$.resources[endpoint]")
+
+    def test_every_component_keeps_a_nonzero_reserve_when_disabled(self):
+        for name, manifest in self.manifests.items():
+            for resource in manifest["resources"]:
+                for charge in resource["charges"]:
+                    with self.subTest(manifest=name, role=resource["role"], component=charge["component"]):
+                        self.assertGreaterEqual(charge["count"], 1)
+                        self.assertGreaterEqual(charge["bytes_each"], 1)
+
+        minimal = self.manifests["test-direct-minimal-128.json"]
+        for component in ("relay_cache", "freshness_tokens"):
+            for field in ("count", "bytes_each"):
+                with self.subTest(component=component, field=field):
+                    underfunded = copy.deepcopy(minimal)
+                    endpoint = next(resource for resource in underfunded["resources"]
+                                    if resource["role"] == "endpoint")
+                    charge = next(item for item in endpoint["charges"]
+                                  if item["component"] == component)
+                    charge[field] = 0
+                    self.assert_rejected(underfunded, "resources", f"$.resources[endpoint].{component}")
+
+    def test_association_charge_covers_pending_active_and_draining_slots(self):
+        for name, manifest in self.manifests.items():
+            required = sum(manifest["security"][key] for key in (
+                "pending_per_pair", "active_per_pair", "draining_per_pair"))
+            endpoint = next(resource for resource in manifest["resources"]
+                            if resource["role"] == "endpoint")
+            charge = next(item for item in endpoint["charges"]
+                          if item["component"] == "association")
+            with self.subTest(manifest=name):
+                self.assertGreaterEqual(charge["count"], required)
+
+        direct = copy.deepcopy(self.manifests["direct-nnpsk0.json"])
+        endpoint = next(resource for resource in direct["resources"]
+                        if resource["role"] == "endpoint")
+        association = next(item for item in endpoint["charges"]
+                           if item["component"] == "association")
+        association["count"] = sum(direct["security"][key] for key in (
+            "pending_per_pair", "active_per_pair", "draining_per_pair")) - 1
+        self.assert_rejected(direct, "resources", "$.resources[endpoint].association")
 
     def test_fragment_count_and_direct_chunk_boundaries(self):
         radio = copy.deepcopy(self.manifests["radio-nnpsk0.json"])

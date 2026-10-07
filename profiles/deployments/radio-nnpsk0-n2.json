@@ -293,14 +293,14 @@
         {
           "component": "association",
           "region": "RAM",
-          "count": 1,
-          "bytes_each": 11912
+          "count": 3,
+          "bytes_each": 3971
         },
         {
           "component": "bootstrap",
           "region": "RAM",
-          "count": 0,
-          "bytes_each": 0
+          "count": 1,
+          "bytes_each": 120
         },
         {
           "component": "sender",
@@ -342,12 +342,12 @@
           "component": "control",
           "region": "RAM",
           "count": 4,
-          "bytes_each": 0
+          "bytes_each": 119
         },
         {
           "component": "application_queue",
           "region": "RAM",
-          "count": 1,
+          "count": 2,
           "bytes_each": 6633
         },
         {
@@ -365,8 +365,8 @@
         {
           "component": "relay_cache",
           "region": "RAM",
-          "count": 0,
-          "bytes_each": 0
+          "count": 1,
+          "bytes_each": 1
         },
         {
           "component": "freshness_tokens",

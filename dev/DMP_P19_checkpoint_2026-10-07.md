@@ -4,7 +4,8 @@
 
 - Repository: `C:\projects\gemslibe\dmp-protocol`
 - Branch / published base before this continuation: `feat/initial-version` at `b9b0b56050bd2b97a453bd25a77e76cc1b102c21` on `origin/feat/initial-version`.
-- New implementation and evidence changes are based on that commit. Final independent review is complete; the user has authorized committing and pushing this package.
+- P19 acceptance commit: `46be3ca89bbba75e03dff6fef16f2a314bbc45f9`, pushed to `origin/feat/initial-version`.
+- P19 was committed and pushed as noted above. Changes in the 2026-10-08 continuation remain uncommitted and unpushed; no commit or push was requested for them.
 - RAM worker `/root/ram_tooling` completed the manifest-bound process-isolated lifecycle harness under `tests/memory/`. After two reviewer-identified evidence defects were fixed, coordinator build and CTest pass 2/2; final focused independent review found no actionable findings. Earlier pre-fix lifecycle outputs remain invalid.
 - P19 is accepted for its host/simulation scope after the full host gate and final independent review. The approved routes used were GPT-6-Luna High for implementation and GPT-6.1-sol High for independent review.
 
@@ -14,7 +15,7 @@
 - Corrected the N=2 geometry/async expectations. The 64-byte payload emits exactly two 32-byte fragments; loss of index 0 yields missing mask `0x01` and repairs only index 0.
 - Extended `scenarios.r6` `r6-all-loss`: after all eight initial slices are lost, probe index 7 is admitted, status mask `0x7f` repairs indices 0–6, the receiver accepts once, and the sender receives its ACK with no unknown outcome.
 - The separate initial-phase probe constructs one real `dmp_endpoint` with libdmp and the P01B provider for minimal 128- and 256-byte profiles. Its reported caller-owned endpoint bundle is `10,096` requested bytes and provider state is `1,328` requested bytes; provider retained current/peak/largest-allocation are `0` bytes. Keep these host-requested values distinct from lifecycle measurements and MCU evidence.
-- Manifest RAM charge totals are reservations: minimal-128 `32,590` bytes, minimal-256 `33,614`, DIRECT-1 `53,154`, RADIO-1 `59,035`; the region cap remains `131,072` bytes. Lifecycle high-water is recorded below; charges and measurements are separate.
+- Manifest RAM charge totals are reservations after the 2026-10-08 owner-directed reconciliation: minimal-128 `38,167` bytes, minimal-256 `39,959`, DIRECT-1 `60,488`, RADIO-1 `66,340`; the region cap remains `131,072` bytes. Lifecycle high-water is recorded below; charges and measurements are separate.
 - Added async TEST-RADIO-N2 one-slot exhaustion/result-before-repair-completion and fragmented-RSP/FRAG_STATUS overlap. The independent read-only follow-up found no issues in those scenarios.
 - Added endpoint-origin TTL=0 and narrow-egress refusal/cache-preservation cases; existing relay tests cover integrity-only CRC recomputation and missing on-wire CONTEXT. Independent review found no issue in the TTL=0/narrow-egress assertions.
 - At the time this checkpoint was first written, remaining matrix rows still needed source/evidence reconciliation; subsequent dated sections below record the added checks and current open P21D/P22/P23/physical boundaries.
@@ -50,9 +51,26 @@
 - P21D owns independent-peer recovery/routing coverage. P22/P23 own the multi-binding S10 case 11. Physical MCU peaks and transport remain separate evidence gates.
 - The user authorized committing and pushing the reviewed P19 package. Do not flash hardware or integrate this library into DTrack.
 
-## Resume point
+## Current continuation state — 2026-10-08
 
-Read this checkpoint, `dev/DMP_Recovery_Matrix.md`, `dev/DMP_Work_Packages.md`, and the P19 owner direction in `dev/DMP_Correction_Plan.md`. Check current Git state and test artifacts. P19 is accepted and its reviewed package is authorized for commit/push. The next dependency-ready package is P20; preserve the recorded build directories and permission-protected temp directories.
+P19's owner-directed profile/resource reconciliation is complete. The two minimal DIRECT profiles now meet `sender_slots >= 2 * service_count = 4`; endpoint association charges cover pending + active + draining slots. The validator also checks nonzero component reserves, the full bootstrap reserve and encoded-frame control/adapter minima. Seven NNpsk0 manifest hashes are synchronized across `profiles/deployments/digests.json`, the P20 frozen brief and the P19 lifecycle digest pins.
+
+Current host requested-byte lifecycle high-water remains minimal-128 24,617 B, minimal-256 26,281 B, DIRECT-1 36,265 B and RADIO-1 42,146 B. Reservations are 38,167/39,959/60,488/66,340 B under the unchanged 131,072-byte region cap. RADIO-1 measured 80/80 routed frames valid and verified its 21-byte freshness grant/token binding. These are process-isolated host payload-request measurements and manifest reservations; stack high-water, allocator metadata/alignment, peer memory and physical MCU peaks remain unmeasured.
+
+P20 and P21A are accepted. The P21A peer suite passes 33/33; its final independent review found no actionable code findings and confirmed the exact frozen manifest hashes and schema copy. Eight findings across the codec/manifest/Stream R package are closed with regression coverage. P21B direct delivery/reassembly is the next dependency-ready step and has not started.
+
+Validation after the profile/resource correction:
+
+- RBO profile suite — 27/27 (`job_01M4C3XHKZ8GY3M41NBNSX2VSJ`).
+- RBO P21A peer suite — 33/33 (`job_01M4C40G805DZVN807HMEZRH0K`).
+- RBO RAM-report suite — 27/27 (`job_01M4C40XN839EC7YQVXA2ES2AX`).
+- `cmake --build build/p19-ram-endpoint-gcc --target dmp_ram_endpoint_process --parallel 4` — passed.
+- `ctest --test-dir build/p19-ram-endpoint-gcc --output-on-failure -R endpoint_lifecycle` — 4/4 passed with local peer IPC access.
+- Focused provider measurement, merge, report, layout and MCU ABI CTest — 17/17 passed.
+
+Routine Python suites were run through the available RBO Agent Broker command jobs. The exposed broker tools in this session did not provide a separate Antigravity coding-agent dispatch route. No commit, push, hardware flash, or DTrack integration was made for this continuation. Preserve existing changes and the `build/p19-ram-endpoint-gcc` evidence when resuming at P21B.
+
+## Historical P19 work log entries (2026-10-07)
 
 ## 2026-10-07 — Endpoint SEQ exhaustion boundary
 
