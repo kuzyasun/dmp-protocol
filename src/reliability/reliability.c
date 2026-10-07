@@ -109,13 +109,17 @@ static int plan_fragments(const dmp_admitted_profile *profile, size_t payload, u
 }
 
 /* *fits is 1 or 0 only when the return is DMP_OK. A NULL output buffer whose
- * capacity is encoded_mtu asks whether this exact non-FRAG frame fits. The
- * encoder must return DMP_OK or DMP_LIMIT_EXHAUSTED and must not seal or
- * allocate a PN. Any other status is a local failure. */
+ * capacity is encoded_mtu asks whether this exact logical frame fits, including
+ * its fragment geometry when present. The encoder must return DMP_OK or
+ * DMP_LIMIT_EXHAUSTED and must not seal or allocate a PN. Any other status is a
+ * local failure. */
 static dmp_status probe_unfragmented(dmp_reliability *engine,
                                      const dmp_reliability_sender_slot *sender, int *fits);
+static dmp_status probe_saved_fragment(dmp_reliability *engine,
+                                      const dmp_reliability_sender_slot *sender, int *fits);
 
-/* Empty and single-packet messages omit FRAG. There is no fixed header margin. */
+/* Empty and single-packet messages omit FRAG. For a multi-frame message, probe
+ * its first full-size slice before admitting the fixed chunk geometry. */
 static dmp_status arm_saved_fragments(dmp_reliability *engine, dmp_reliability_sender_slot *sender,
                                       size_t payload)
 {
@@ -131,11 +135,21 @@ static dmp_status arm_saved_fragments(dmp_reliability *engine, dmp_reliability_s
     sender->chunk_size = 0U;
     sender->total_size = 0U;
     sender->active_mask = 0U;
-    if (!fits && plan_fragments(&engine->profile, payload, &frag_count)) {
+    if (!fits) {
+        if (!plan_fragments(&engine->profile, payload, &frag_count)) {
+            return DMP_LIMIT_EXHAUSTED;
+        }
         sender->frag_count = frag_count;
         sender->chunk_size = engine->profile.chunk_bytes;
         sender->total_size = (uint32_t)payload;
         sender->active_mask = fragment_mask(frag_count);
+        status = probe_saved_fragment(engine, sender, &fits);
+        if (status != DMP_OK) {
+            return status;
+        }
+        if (!fits) {
+            return DMP_LIMIT_EXHAUSTED;
+        }
     }
     return DMP_OK;
 }
@@ -440,49 +454,75 @@ static dmp_reliability_result_slot *result_of_sender(dmp_reliability *engine,
     return result;
 }
 
-static dmp_status probe_unfragmented(dmp_reliability *engine, const dmp_reliability_sender_slot *sender,
-                                     int *fits)
+static dmp_status sender_logical(dmp_reliability *engine,
+                                 const dmp_reliability_sender_slot *sender,
+                                 dmp_reliability_logical *logical)
 {
-    dmp_reliability_logical logical;
     dmp_reliability_result_slot *result;
-    dmp_buffer probe;
-    size_t written = 0U;
-    dmp_status status;
     size_t index;
 
-    if (fits == NULL || sender == NULL || engine->storage.encode == NULL) {
+    if (engine == NULL || sender == NULL || logical == NULL) {
         return DMP_INVALID_ARGUMENT;
     }
-    *fits = 0;
-    memset(&logical, 0, sizeof logical);
-    logical.service_id = sender->service_id;
-    logical.own = sender->own;
+    memset(logical, 0, sizeof *logical);
+    logical->service_id = sender->service_id;
+    logical->own = sender->own;
     index = (size_t)(sender - engine->storage.senders);
     if (sender->kind == KIND_REQ || sender->kind == KIND_DATA) {
-        logical.type = sender->kind == KIND_REQ ? DMP_TYPE_REQ : (dmp_type)sender->message_type;
-        logical.ack_req = true;
-        logical.payload.size = sender->payload_len;
-        logical.payload.data = sender->payload_len == 0U ? NULL : sender_bytes(engine, index);
+        logical->type = sender->kind == KIND_REQ ? DMP_TYPE_REQ : (dmp_type)sender->message_type;
+        logical->ack_req = true;
+        logical->payload.size = sender->payload_len;
+        logical->payload.data = sender->payload_len == 0U ? NULL : sender_bytes(engine, index);
         if (sender->freshness_live != 0U) {
-            logical.freshness_token.data = (uint8_t *)sender->freshness_token;
-            logical.freshness_token.size = sizeof sender->freshness_token;
+            logical->freshness_token.data = (uint8_t *)sender->freshness_token;
+            logical->freshness_token.size = sizeof sender->freshness_token;
         }
     } else if (sender->kind == KIND_RESULT) {
         result = result_of_sender(engine, sender);
         if (result == NULL) {
             return DMP_INVALID_ARGUMENT;
         }
-        logical.type = result->application_err != 0U ? DMP_TYPE_ERR : DMP_TYPE_RSP;
-        logical.own = result->reserved != 0U ? result->result : sender->own;
-        logical.reply_to = result->request;
-        logical.has_reply_to = true;
-        logical.ack_req = true;
-        logical.wire_status = result->wire_status;
-        logical.payload.size = result->payload_len;
-        logical.payload.data = result->payload_len == 0U ? NULL
-                                                         : result_bytes(engine, sender->related_slot);
+        logical->type = result->application_err != 0U ? DMP_TYPE_ERR : DMP_TYPE_RSP;
+        logical->own = result->reserved != 0U ? result->result : sender->own;
+        logical->reply_to = result->request;
+        logical->has_reply_to = true;
+        logical->ack_req = true;
+        logical->wire_status = result->wire_status;
+        logical->payload.size = result->payload_len;
+        logical->payload.data = result->payload_len == 0U ? NULL
+                                                          : result_bytes(engine, sender->related_slot);
     } else {
         return DMP_INVALID_ARGUMENT;
+    }
+    return DMP_OK;
+}
+
+static dmp_status probe_sender_frame(dmp_reliability *engine,
+                                     const dmp_reliability_sender_slot *sender,
+                                     int fragmented, int *fits)
+{
+    dmp_reliability_logical logical;
+    dmp_buffer probe;
+    size_t written = 0U;
+    dmp_status status;
+
+    if (fits == NULL || sender == NULL || engine->storage.encode == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    *fits = 0;
+    status = sender_logical(engine, sender, &logical);
+    if (status != DMP_OK) {
+        return status;
+    }
+    if (fragmented != 0) {
+        if (engine->profile.chunk_bytes == 0U ||
+            logical.payload.size <= (size_t)engine->profile.chunk_bytes) {
+            return DMP_INVALID_ARGUMENT;
+        }
+        logical.fragment_index = 0U;
+        logical.chunk_size = engine->profile.chunk_bytes;
+        logical.total_size = (uint32_t)logical.payload.size;
+        logical.payload.size = engine->profile.chunk_bytes;
     }
     probe.data = NULL;
     probe.capacity = engine->profile.encoded_mtu;
@@ -496,6 +536,18 @@ static dmp_status probe_unfragmented(dmp_reliability *engine, const dmp_reliabil
         return DMP_OK;
     }
     return status;
+}
+
+static dmp_status probe_unfragmented(dmp_reliability *engine,
+                                     const dmp_reliability_sender_slot *sender, int *fits)
+{
+    return probe_sender_frame(engine, sender, 0, fits);
+}
+
+static dmp_status probe_saved_fragment(dmp_reliability *engine,
+                                      const dmp_reliability_sender_slot *sender, int *fits)
+{
+    return probe_sender_frame(engine, sender, 1, fits);
 }
 
 static dmp_reliability_history_slot *history_of_sender(dmp_reliability *engine,

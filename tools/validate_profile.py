@@ -193,9 +193,9 @@ def _identity_and_services(m):
         require(b["synchronous_completion"], "profile", "$.binding.synchronous_completion",
                 "delayed completion is only allowed in an explicit async test family")
     if p["id"] == "TEST-RADIO-N2":
-        require(selective and b["forward_mtu"] == 128 and b["return_mtu"] == 128 and
-                b["encoded_mtu"] == 128 and len(m["relays"]) == 2,
-                "profile", "$.binding", "N=2 test family requires its explicit 128-byte RADIO-1 path")
+        require(selective and b["forward_mtu"] == 119 and b["return_mtu"] == 119 and
+                b["encoded_mtu"] == 119 and len(m["relays"]) == 2,
+                "profile", "$.binding", "N=2 test family requires its exact-fit 119-byte RADIO-1 path")
     if p["id"] in {"TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256"}:
         ceiling = 128 if p["id"].endswith("128") else 256
         require(direct and not m["relays"] and m["freshness"]["lease_ms"] == 0 and

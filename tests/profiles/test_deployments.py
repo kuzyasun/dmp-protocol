@@ -111,7 +111,7 @@ class DeploymentTests(unittest.TestCase):
                           "/resources/0/charges/11/bytes_each",
                           "/resources/0/charges/12/bytes_each"},
                          n2_differences)
-        self.assertEqual((128, 128, 128), (n2["binding"]["forward_mtu"],
+        self.assertEqual((119, 119, 119), (n2["binding"]["forward_mtu"],
                                            n2["binding"]["return_mtu"],
                                            n2["binding"]["encoded_mtu"]))
         self.assertFalse(n2["binding"]["synchronous_completion"])

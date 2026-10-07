@@ -269,7 +269,10 @@ def calculate(manifest, measurement, mcu, manifest_hash):
         "scratch_limit_additive_bytes": 0,
         "control_pool_additive_bytes": 0,
     }
-    issues = []
+    issues = [
+        f"required endpoint lifecycle phase {phase['name']} is not measured"
+        for phase in measurement["phases"] if phase["status"] != "measured"
+    ]
     if workload.get("endpoint_runtime_status") != "measured":
         issues.append("endpoint lifecycle runtime is not measured; layout is a charge projection only")
     if workload.get("reconnect_overlap_status") != "measured":

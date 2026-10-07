@@ -371,10 +371,14 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
             spec.fields.security.receive_cid = 0U;
             spec.fields.security.pn = 0U;
             spec.trailer.size = 16U;
+            /* S5 admission and geometry use the largest permitted PN width,
+             * regardless of the association's current counter. Protected
+             * retries can cross a ULEB boundary while the logical frame and
+             * path remain unchanged. */
+            spec.fields.security.pn = (UINT64_C(1) << 24) - 1U;
             if (endpoint->association_bound != 0U && endpoint->association != NULL) {
                 uint32_t cid = dmp_hs_remote_rx_cid(endpoint->association, seal_attempt);
                 spec.fields.security.receive_cid = cid;
-                spec.fields.security.pn = dmp_hs_next_pn(endpoint->association, seal_attempt);
             }
         }
         limits = limits_of(endpoint);
@@ -1240,6 +1244,74 @@ dmp_status dmp_endpoint_submit_req_fresh(dmp_endpoint *endpoint, uint32_t servic
     return submit_req_with_token(endpoint, service_id, payload, token, now, out);
 }
 
+static dmp_status probe_reliable_unfragmented(dmp_endpoint *endpoint, uint8_t type,
+                                              uint32_t service_id, dmp_bytes payload,
+                                              dmp_bytes token)
+{
+    dmp_buffer probe = {secured(endpoint) != 0 ? NULL : endpoint->mem.fragment_frame,
+                        endpoint->profile.encoded_mtu};
+    size_t written = 0U;
+    dmp_status status;
+    endpoint->encode_freshness_live = token.size == 16U ? 1U : 0U;
+    if (endpoint->encode_freshness_live != 0U) {
+        memcpy(endpoint->encode_freshness_token, token.data,
+               sizeof endpoint->encode_freshness_token);
+    }
+    status = encode_core(endpoint, type, service_id, 0U, 1, 0, 0U, 0U, 0U, payload, 0,
+                         (dmp_message_key){0}, 0, 0U, secured(endpoint), secured(endpoint),
+                         endpoint->association_attempt, probe, &written);
+    endpoint->encode_freshness_live = 0U;
+    memset(endpoint->encode_freshness_token, 0, sizeof endpoint->encode_freshness_token);
+    return status;
+}
+
+static dmp_status submit_reliable_data_type(dmp_endpoint *endpoint, uint8_t type,
+                                            uint32_t service_id, dmp_bytes payload,
+                                            dmp_bytes token, dmp_time_ms now,
+                                            dmp_reliability_handle *out)
+{
+    uint32_t count;
+    dmp_status status;
+    if (payload.size > endpoint->profile.message_bytes) {
+        return DMP_LIMIT_EXHAUSTED;
+    }
+    status = probe_reliable_unfragmented(endpoint, type, service_id, payload, token);
+    if (status == DMP_LIMIT_EXHAUSTED && endpoint->profile.chunk_bytes != 0U &&
+        payload.size > endpoint->profile.chunk_bytes) {
+        count = 1U + ((uint32_t)payload.size - 1U) / endpoint->profile.chunk_bytes;
+        if (count < 2U || count > 32U || count > endpoint->profile.fragments) {
+            return DMP_LIMIT_EXHAUSTED;
+        }
+        if (type == DMP_TYPE_DATA) {
+            return token.size == 16U
+                       ? dmp_reliability_submit_data_fresh(&endpoint->reliability, service_id,
+                                                           payload, token, now, out)
+                       : dmp_reliability_submit_data(&endpoint->reliability, service_id, payload,
+                                                     now, out);
+        }
+        return token.size == 16U
+                   ? dmp_reliability_submit_event_fresh(&endpoint->reliability, service_id,
+                                                        payload, token, now, out)
+                   : dmp_reliability_submit_event(&endpoint->reliability, service_id, payload,
+                                                  now, out);
+    }
+    if (status != DMP_OK) {
+        return status;
+    }
+    if (type == DMP_TYPE_DATA) {
+        return token.size == 16U
+                   ? dmp_reliability_submit_data_fresh(&endpoint->reliability, service_id,
+                                                       payload, token, now, out)
+                   : dmp_reliability_submit_data(&endpoint->reliability, service_id, payload,
+                                                 now, out);
+    }
+    return token.size == 16U
+               ? dmp_reliability_submit_event_fresh(&endpoint->reliability, service_id, payload,
+                                                    token, now, out)
+               : dmp_reliability_submit_event(&endpoint->reliability, service_id, payload, now,
+                                              out);
+}
+
 dmp_status dmp_endpoint_submit_data(dmp_endpoint *endpoint, uint32_t service_id,
                                     dmp_bytes payload, dmp_bytes token, dmp_time_ms now,
                                     dmp_reliability_handle *out)
@@ -1258,11 +1330,8 @@ dmp_status dmp_endpoint_submit_data(dmp_endpoint *endpoint, uint32_t service_id,
     if (!local_action(endpoint, service_id, DMP_ENDPOINT_PERMIT_REQ)) {
         return DMP_UNSUPPORTED;
     }
-    return token.size == 16U
-               ? dmp_reliability_submit_data_fresh(&endpoint->reliability, service_id, payload,
-                                                   token, now, out)
-               : dmp_reliability_submit_data(&endpoint->reliability, service_id, payload, now,
-                                             out);
+    return submit_reliable_data_type(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, payload,
+                                     token, now, out);
 }
 
 dmp_status dmp_endpoint_submit_event(dmp_endpoint *endpoint, uint32_t service_id,
@@ -1283,11 +1352,8 @@ dmp_status dmp_endpoint_submit_event(dmp_endpoint *endpoint, uint32_t service_id
     if (!local_action(endpoint, service_id, DMP_ENDPOINT_PERMIT_REQ)) {
         return DMP_UNSUPPORTED;
     }
-    return token.size == 16U
-               ? dmp_reliability_submit_event_fresh(&endpoint->reliability, service_id, payload,
-                                                    token, now, out)
-               : dmp_reliability_submit_event(&endpoint->reliability, service_id, payload, now,
-                                              out);
+    return submit_reliable_data_type(endpoint, (uint8_t)DMP_TYPE_EVENT, service_id, payload,
+                                     token, now, out);
 }
 
 static dmp_status endpoint_complete_for_lifetime(dmp_endpoint *endpoint,
@@ -1519,10 +1585,11 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     if (slot->generation != endpoint->context.generation || slot->seq_exhausted) {
         return DMP_STALE_HANDLE;
     }
-    probe.data = endpoint->mem.fragment_frame;
+    probe.data = secured(endpoint) != 0 ? NULL : endpoint->mem.fragment_frame;
     probe.capacity = endpoint->profile.encoded_mtu;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, slot->next_seq, 0, 0, 0U, 0U,
-                         0U, payload, 0, (dmp_message_key){0}, 0, 0U, 0, 0, 0U, probe, &written);
+                         0U, payload, 0, (dmp_message_key){0}, 0, 0U, secured(endpoint),
+                         secured(endpoint), endpoint->association_attempt, probe, &written);
     if (status == DMP_OK) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -1546,7 +1613,8 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     slice.data = payload.data + (size_t)last * (size_t)chunk;
     slice.size = payload.size - (size_t)last * (size_t)chunk;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, seq, 0, 1, last, chunk,
-                         (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U, 0, 0, 0U,
+                         (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U,
+                         secured(endpoint), secured(endpoint), endpoint->association_attempt,
                          probe, &written);
     if (status != DMP_OK) {
         return status;
@@ -2633,8 +2701,18 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
         }
     }
     if (view.fields.type == DMP_TYPE_FRAG_STATUS) {
+        dmp_message_key source;
         empty.data = NULL;
         empty.size = 0U;
+        /* AEAD authenticates the bytes, but recovery is scoped to the
+         * endpoint's complete peer identity. In particular, routed feedback
+         * must carry the matching source, destination and CONTEXT. Validate
+         * before reliability can advance its feedback sequence or queue a
+         * repair burst. */
+        status = dmp_identity_source_key(&view, &endpoint->identity, rx_context, now, &source);
+        if (status != DMP_OK) {
+            return status;
+        }
         memset(&input, 0, sizeof input);
         input.frame = &view;
         input.service_id = service;

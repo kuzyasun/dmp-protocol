@@ -36,6 +36,7 @@ enum {
     STREAM_CAP = 640,
     QUEUE = 64,
     FRAME_CAP = 512,
+    N2_MTU = 119,
     LOCAL_NS = 1,
     ID_INIT = 0x0a,
     ID_RESP = 0x14,
@@ -49,7 +50,14 @@ enum {
     RADIO_RESULT_MS = 22000
 };
 
-enum { PROF_RADIO = 0, PROF_RETRY = 1, PROF_DIRECT = 2, PROF_RADIO_N2 = 3, PROF_DIRECT_ASYNC = 4 };
+enum {
+    PROF_RADIO = 0,
+    PROF_RETRY = 1,
+    PROF_DIRECT = 2,
+    PROF_RADIO_N2 = 3,
+    PROF_DIRECT_ASYNC = 4,
+    PROF_RADIO_BAD_CHUNK = 5
+};
 
 typedef struct node node;
 
@@ -178,6 +186,14 @@ typedef struct {
     size_t peak_one;
 } port_ctx;
 
+static int parse_core(const uint8_t *core, size_t n, dmp_frame_view *view);
+static int context_epoch_of(const dmp_frame_view *view, uint64_t *epoch);
+static int arm_radio_relay(dmp_mesh_relay *relay, const dmp_admitted_profile *profile,
+                           dmp_mesh_route *routes, dmp_mesh_cache_slot *cache,
+                           dmp_mesh_airtime *air);
+static int hop_deliver(dmp_mesh_relay *relay, const captured *frame, node *to, dmp_time_ms now,
+                       dmp_status *rx_status);
+
 static node left;
 static node right;
 static uint32_t g_peak;
@@ -202,10 +218,10 @@ static const uint8_t DIRECT_SHA[32] = {
     0x9c, 0xcf, 0xa8, 0x68, 0xf4, 0xca, 0xb2, 0xb0,
     0x5f, 0x22, 0xf0, 0xcd, 0x96, 0x16, 0xc5, 0x48};
 static const uint8_t N2_SHA[32] = {
-    0xdd, 0xa9, 0xc4, 0x3b, 0xbf, 0xd7, 0xb0, 0x51,
-    0x4b, 0x26, 0x3e, 0x15, 0xed, 0x7b, 0xcd, 0xc7,
-    0xff, 0xe4, 0x50, 0x80, 0xfe, 0x0e, 0x74, 0xa0,
-    0x7f, 0x49, 0x33, 0x73, 0x12, 0x0a, 0xdf, 0x84};
+    0x46, 0xef, 0x7a, 0x08, 0xf2, 0xb6, 0xca, 0xf5,
+    0x3d, 0x13, 0xd7, 0xc2, 0xc9, 0x00, 0xe5, 0x22,
+    0xc8, 0x72, 0x86, 0xaf, 0x31, 0x3e, 0x49, 0xa7,
+    0x0f, 0x52, 0x49, 0xa0, 0x77, 0xfb, 0x73, 0x76};
 static const uint8_t ASYNC_SHA[32] = {
     0x8c, 0x7e, 0x88, 0x52, 0x03, 0xe2, 0x4e, 0x6e,
     0x94, 0xe5, 0xae, 0xe6, 0xae, 0x31, 0x9a, 0x0a,
@@ -533,12 +549,27 @@ static int boot_node(node *self, int producer, int profile, dmp_time_ms now, int
             memcpy(input.sha256, ASYNC_SHA, sizeof ASYNC_SHA);
             input.synchronous_completion = false;
         }
+    } else if (profile == PROF_RADIO_BAD_CHUNK) {
+        fill_radio_numbers(&input, 0);
+        input.message_bytes = 196U;
+        input.chunk_bytes = 98U;
+        input.encoded_mtu = 128U;
+        input.forward_mtu = 128U;
+        input.return_mtu = 128U;
+        input.freshness_required_mask = 0U;
+        input.freshness_lease_ms = 0U;
+        input.freshness_grant_delivery_age_ms = 0U;
+        input.freshness_tokens_per_association = 0U;
+        input.freshness_tokens_per_principal = 0U;
+        input.freshness_grant_requests_per_pair = 0U;
+        input.freshness_token_record_ms = 0U;
+        input.freshness_grant_result_ms = 0U;
     } else if (profile == PROF_RADIO_N2) {
         fill_radio_numbers(&input, 0);
         memcpy(input.sha256, N2_SHA, sizeof N2_SHA);
-        input.forward_mtu = 128U;
-        input.return_mtu = 128U;
-        input.encoded_mtu = 128U;
+        input.forward_mtu = N2_MTU;
+        input.return_mtu = N2_MTU;
+        input.encoded_mtu = N2_MTU;
         input.synchronous_completion = false;
     } else {
         fill_radio_numbers(&input, profile == PROF_RETRY);
@@ -1600,17 +1631,29 @@ static int captured_core_len(const captured *frame, dmp_time_ms now, size_t *out
     return 1;
 }
 
+static size_t uleb64_size(uint64_t value)
+{
+    size_t size = 1U;
+    while (value >= 128U) {
+        value >>= 7U;
+        size++;
+    }
+    return size;
+}
+
 /* Largest service-2 body that is one protected frame, then that body plus one
- * byte, which must carry FRAG. The limit is measured from a one-byte frame
- * the encoder actually emitted. */
+ * byte, which must carry FRAG. The limit reserves the SEC-1 four-byte PN even
+ * though the frame emitted by this early handshake uses a shorter PN. */
 static int fit_boundary(session *env, port_ctx *port, int profile, uint32_t mtu, uint32_t chunk,
                         dmp_time_ms now)
 {
     uint32_t index = 0U;
     uint8_t tiny[1] = {0x5aU};
     uint8_t body[512];
+    uint8_t core[MTU];
     captured frames[8];
     dmp_reliability_handle handle;
+    dmp_frame_view view;
     size_t core_n = 0U;
     size_t overhead;
     size_t fit;
@@ -1624,9 +1667,11 @@ static int fit_boundary(session *env, port_ctx *port, int profile, uint32_t mtu,
     count = take_queue(&left, frames, 8, now);
     CHECK(count == 1);
     CHECK(frames[0].index == 0xffffffffU);
-    CHECK(captured_core_len(&frames[0], now, &core_n) == 1);
+    CHECK(unwrap_core(frames[0].frame, frames[0].len, core, sizeof core, &core_n, now) == 1);
+    CHECK(parse_core(core, core_n, &view) == 1);
+    CHECK((view.fields.options & DMP_OPT_SECURITY) != 0U);
     CHECK(core_n > 1U && core_n < (size_t)mtu);
-    overhead = core_n - 1U;
+    overhead = core_n - 1U + 4U - uleb64_size(view.fields.security.pn);
     fit = (size_t)mtu - overhead;
     CHECK(fit >= 1U && fit + 1U <= sizeof body);
     close_session(env);
@@ -1638,8 +1683,9 @@ static int fit_boundary(session *env, port_ctx *port, int profile, uint32_t mtu,
     count = take_queue(&left, frames, 8, now);
     CHECK(count == 1);
     CHECK(frames[0].index == 0xffffffffU);
-    CHECK(captured_core_len(&frames[0], now, &core_n) == 1);
-    CHECK(core_n == (size_t)mtu);
+    CHECK(unwrap_core(frames[0].frame, frames[0].len, core, sizeof core, &core_n, now) == 1);
+    CHECK(parse_core(core, core_n, &view) == 1);
+    CHECK(core_n + 4U - uleb64_size(view.fields.security.pn) == (size_t)mtu);
     close_session(env);
 
     dmp_test_opaque_fill(body, fit + 1U, 0x72U);
@@ -1653,6 +1699,298 @@ static int fit_boundary(session *env, port_ctx *port, int profile, uint32_t mtu,
     CHECK(count == (int)pieces);
     CHECK(frames[0].index == 0U);
     close_session(env);
+    return 0;
+}
+
+static int burn_to_pn(node *self, uint64_t target, uint8_t *out, size_t out_capacity)
+{
+    dmp_frame_spec spec;
+    uint64_t next;
+    size_t written = 0U;
+    static const uint8_t tiny = 0x5aU;
+
+    if (self == NULL || self->endpoint.association == NULL || out == NULL) {
+        return 0;
+    }
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_TELEM;
+    spec.fields.options = DMP_OPT_SEQ;
+    spec.fields.security.cipher = 1U;
+    spec.fields.security.receive_cid = CID_RESP;
+    spec.payload = span(&tiny, sizeof tiny);
+    next = dmp_hs_next_pn(self->endpoint.association, self->endpoint.association_attempt);
+    if (next > target) {
+        return 0;
+    }
+    while (next < target) {
+        spec.fields.seq = (uint32_t)next;
+        if (dmp_hs_seal_logical(self->endpoint.association,
+                                self->endpoint.association_attempt, &spec, out,
+                                out_capacity, &written) != DMP_HS_OK) {
+            return 0;
+        }
+        next = dmp_hs_next_pn(self->endpoint.association, self->endpoint.association_attempt);
+    }
+    return next == target;
+}
+
+static int pn_reserve_boundary(session *env, port_ctx *port, dmp_time_ms now)
+{
+    uint32_t index = 0U;
+    uint8_t tiny[1] = {0x5aU};
+    uint8_t body[256];
+    uint8_t burn[MTU];
+    uint8_t token[16];
+    captured frames[8];
+    dmp_reliability_handle handle;
+    dmp_frame_view view;
+    size_t written;
+    size_t core_n = 0U;
+    size_t overhead;
+    size_t max_pn_fit;
+    int count;
+    int initial_count;
+    int pending_callbacks;
+    size_t i;
+    dmp_time_ms retry_at;
+
+    /* Measure the one-byte-PN geometry at the 127 -> 128 boundary, then
+     * recreate the association at PN 127 for the admission case. */
+    CHECK(open_pair(env, port, PROF_RADIO_N2, now, 0, &index) == 0);
+    CHECK(request_freshness_token(&left, now, 12000U, token, NULL, NULL, 1));
+    CHECK(burn_to_pn(&left, 127U, burn, sizeof burn) == 1);
+    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) == 127U);
+    CHECK(dmp_endpoint_submit_req_fresh(&left.endpoint, 2U, span(tiny, sizeof tiny),
+                                        span(token, sizeof token), now, &handle) == DMP_OK);
+    memset(token, 0, sizeof token);
+    CHECK(pump_sender_complete(&left, now, 1) == 0);
+    count = take_queue(&left, frames, 8, now);
+    CHECK(count == 1 && frames[0].index == 0xffffffffU);
+    CHECK(captured_core_len(&frames[0], now, &core_n) == 1);
+    CHECK(unwrap_core(frames[0].frame, frames[0].len, burn, sizeof burn, &written, now) == 1);
+    CHECK(parse_core(burn, written, &view) == 1);
+    CHECK(view.fields.security.pn == 127U);
+    overhead = core_n - sizeof tiny + 4U - uleb64_size(view.fields.security.pn);
+    close_session(env);
+
+    max_pn_fit = N2_MTU - overhead;
+    CHECK(max_pn_fit >= 1U && max_pn_fit + 1U <= sizeof body);
+    dmp_test_opaque_fill(body, max_pn_fit + 1U, 0x6bU);
+    CHECK(open_pair(env, port, PROF_RADIO_N2, now, 0, &index) == 0);
+    CHECK(request_freshness_token(&left, now, 12000U, token, NULL, NULL, 1));
+    CHECK(burn_to_pn(&left, 127U, burn, sizeof burn) == 1);
+    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) == 127U);
+    CHECK(dmp_endpoint_submit_req_fresh(&left.endpoint, 2U, span(body, max_pn_fit + 1U),
+                                        span(token, sizeof token), now, &handle) == DMP_OK);
+    memset(token, 0, sizeof token);
+    CHECK(pump_sender_complete(&left, now, 2) == 0);
+    count = take_queue(&left, frames, 8, now);
+    CHECK(count >= 2);
+    CHECK(frames[0].index == 0U);
+    /* The first slice is protected at PN 127; fixed geometry leaves room for
+     * the subsequent fresh-PN retry at 128 without changing the path. */
+    CHECK(unwrap_core(frames[0].frame, frames[0].len, burn, sizeof burn, &written, now) == 1);
+    CHECK(parse_core(burn, written, &view) == 1);
+    CHECK(view.fields.security.pn == 127U);
+    CHECK(view.fields.fragment.chunk_size <= 32U);
+    initial_count = count;
+    pending_callbacks = left.wire.delayed_count;
+    CHECK(pending_callbacks > 0 && pending_callbacks <= initial_count);
+    CHECK(wire_complete_delayed(&left, now + 1U) == pending_callbacks);
+    CHECK(left.wire.delayed_count == 0);
+    retry_at = now + left.endpoint.profile.response_timeout_ms + 1U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, retry_at) == DMP_OK);
+    count = take_queue(&left, frames, 8, retry_at);
+    CHECK(count > 0 && count <= initial_count);
+    for (i = 0U; i < (size_t)count; i++) {
+        CHECK(unwrap_core(frames[i].frame, frames[i].len, burn, sizeof burn, &written,
+                          retry_at) == 1);
+        CHECK(parse_core(burn, written, &view) == 1);
+        CHECK(view.fields.security.pn >= 128U);
+        CHECK(written <= N2_MTU);
+    }
+    close_session(env);
+    report("pn-reserve-boundary", port, "pass");
+    return 0;
+}
+
+static int make_status_variant(node *sender, const dmp_frame_view *base, unsigned variant,
+                               captured *out)
+{
+    dmp_frame_spec spec;
+    static const uint8_t received_mask[4] = {0xbbU, 0U, 0U, 0U};
+    uint8_t extensions[64];
+    uint8_t core[MTU];
+    uint32_t seq;
+    size_t cursor = 0U;
+    size_t ext_n = 0U;
+    size_t context_start = SIZE_MAX;
+    size_t written = 0U;
+    size_t wrapped_n = 0U;
+
+    if (base->extensions.size > sizeof extensions ||
+        dmp_identity_next_seq(&sender->endpoint.identity, sender->endpoint.context, &seq) !=
+            DMP_OK) {
+        return 1;
+    }
+    while (cursor < base->extensions.size) {
+        dmp_extension_view extension;
+        size_t start = cursor;
+        dmp_status status = dmp_extension_next(base->extensions, &cursor, &extension);
+        if (status != DMP_OK) {
+            return 1;
+        }
+        if ((extension.tag >> 2) == 2U) {
+            context_start = start;
+            if (variant == 0U) {
+                continue;
+            }
+        }
+        memcpy(extensions + ext_n, base->extensions.data + start, cursor - start);
+        ext_n += cursor - start;
+    }
+    if (variant == 0U) {
+        if (context_start == SIZE_MAX) {
+            return 1;
+        }
+    } else if (context_start == SIZE_MAX) {
+        return 1;
+    }
+    if (variant == 3U) {
+        /* CONTEXT = tag, one-byte length, one-byte namespace, u64 epoch. */
+        extensions[context_start + 2U] = (uint8_t)(extensions[context_start + 2U] + 1U);
+    } else if (variant == 4U) {
+        extensions[context_start + 3U] ^= 0x01U;
+    }
+    memset(&spec, 0, sizeof spec);
+    spec.fields = base->fields;
+    spec.fields.seq = seq;
+    if (variant == 1U) {
+        spec.fields.route.source = ID_RESP + 1U;
+    } else if (variant == 2U) {
+        /* The relay routes this to the real destination node, while the
+         * endpoint binding must reject the authenticated destination ID. */
+        spec.fields.route.destination = ID_RESP;
+    }
+    spec.extensions = span(extensions, ext_n);
+    spec.payload = span(received_mask, sizeof received_mask);
+    if (dmp_hs_seal_logical(sender->endpoint.association,
+                            sender->endpoint.association_attempt, &spec, core, sizeof core,
+                            &written) != DMP_HS_OK ||
+        wrap_core(core, written, out->frame, sizeof out->frame, &wrapped_n) != 1) {
+        return 1;
+    }
+    out->len = wrapped_n;
+    out->type = (uint8_t)DMP_TYPE_FRAG_STATUS;
+    return 0;
+}
+
+static int test_feedback_identity(session *env, port_ctx *port)
+{
+    dmp_time_ms now = 20500U;
+    uint32_t index = 0U;
+    uint8_t body[256];
+    captured burst[QUEUE];
+    captured held[QUEUE];
+    captured valid_status[2];
+    captured rejected;
+    uint8_t core[MTU];
+    size_t core_n = 0U;
+    dmp_frame_view base;
+    dmp_mesh_relay relay;
+    dmp_mesh_route routes[2];
+    dmp_mesh_cache_slot cache[16];
+    dmp_mesh_airtime air[4];
+    const dmp_reliability_sender_slot *sender;
+    uint32_t drop[2] = {2U, 6U};
+    dmp_reliability_handle handle;
+    int count;
+    int held_n = 0;
+    int before_wire;
+    unsigned variant;
+    dmp_status status = DMP_OK;
+
+    reset_measures();
+    dmp_test_opaque_fill(body, sizeof body, 0x4cU);
+    CHECK(open_pair(env, port, PROF_RADIO, now, 0, &index) == 0);
+    CHECK(arm_radio_relay(&relay, &right.endpoint.profile, routes, cache, air) == 0);
+    CHECK(submit_req(&left, 2U, span(body, sizeof body), now, &handle) == DMP_OK);
+    CHECK(pump_sender(&left, now, 8) == 0);
+    count = take_queue(&left, burst, QUEUE, now);
+    CHECK(count == 8);
+    CHECK(deliver_mask(burst, count, &right, now, drop, 2, held, &held_n, 0) == 0);
+    right.wire.now = now + RADIO_COLLECT_MS;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + RADIO_COLLECT_MS) == DMP_OK);
+    count = take_queue(&right, valid_status, 2, now + RADIO_COLLECT_MS);
+    CHECK(count == 1 && valid_status[0].type == DMP_TYPE_FRAG_STATUS);
+    CHECK(unwrap_core(valid_status[0].frame, valid_status[0].len, core, sizeof core, &core_n,
+                      now + RADIO_COLLECT_MS) == 1);
+    CHECK(parse_core(core, core_n, &base) == 1);
+    CHECK((base.fields.options & DMP_OPT_ROUTE) != 0U);
+    {
+        uint64_t epoch;
+        CHECK(context_epoch_of(&base, &epoch) == 1);
+    }
+    sender = live_frag_sender(&left);
+    CHECK(sender != NULL);
+    CHECK(deliver_one(&left, &valid_status[0], now + RADIO_COLLECT_MS, &status) == 0);
+    CHECK(status == DMP_OK);
+    sender = live_frag_sender(&left);
+    CHECK(sender != NULL && sender->feedback_valid != 0U);
+
+    /* Missing CONTEXT is refused by the relay and by direct endpoint delivery.
+     * The other authenticated identity mismatches are checked at the endpoint,
+     * where they cannot mutate the live selective sender. */
+    for (variant = 0U; variant < 5U; variant++) {
+        dmp_reliability_sender_slot before;
+        sender = live_frag_sender(&left);
+        CHECK(sender != NULL);
+        before = *sender;
+        before_wire = left.wire.n;
+        CHECK(make_status_variant(&right, &base, variant, &rejected) == 0);
+        if (variant == 0U) {
+            int relay_status = hop_deliver(&relay, &rejected, &left,
+                                           now + RADIO_COLLECT_MS + 1U + variant, &status);
+            CHECK(relay_status != 0 || status != DMP_OK);
+        }
+        CHECK(deliver_one(&left, &rejected, now + RADIO_COLLECT_MS + 1U + variant,
+                          &status) == 0);
+        CHECK(status != DMP_OK);
+        sender = live_frag_sender(&left);
+        CHECK(sender != NULL);
+        CHECK(sender->feedback_seq == before.feedback_seq);
+        CHECK(sender->feedback_valid == before.feedback_valid);
+        CHECK(sender->active_mask == before.active_mask);
+        CHECK(sender->repair_mask == before.repair_mask);
+        CHECK(sender->phase == before.phase);
+        CHECK(sender->next_attempt == before.next_attempt);
+        CHECK(left.wire.n == before_wire);
+    }
+    close_session(env);
+    report("feedback-identity", port, "pass");
+    return 0;
+}
+
+static int test_fragment_geometry_refusal(session *env, port_ctx *port, dmp_time_ms now)
+{
+    uint32_t index = 0U;
+    uint8_t body[196];
+    dmp_reliability_handle handle;
+    dmp_status status;
+    size_t i;
+
+    CHECK(open_pair(env, port, PROF_RADIO_BAD_CHUNK, now, 0, &index) == 0);
+    CHECK(left.endpoint.profile.encoded_mtu == 128U);
+    CHECK(left.endpoint.profile.chunk_bytes == 98U);
+    dmp_test_opaque_fill(body, sizeof body, 0x39U);
+    status = dmp_endpoint_submit_req(&left.endpoint, 2U, span(body, sizeof body), now, &handle);
+    CHECK(status == DMP_LIMIT_EXHAUSTED);
+    CHECK(left.wire.n == 0 && left.wire.delayed_count == 0);
+    for (i = 0U; i < left.endpoint.reliability.storage.sender_capacity; i++) {
+        CHECK(left.endpoint.reliability.storage.senders[i].live == 0U);
+    }
+    close_session(env);
+    report("fragment-max-pn-geometry-refusal", port, "pass");
     return 0;
 }
 
@@ -1805,30 +2143,65 @@ static int test_geometry(session *env, port_ctx *port)
     close_session(env);
     CHECK(fit_boundary(env, port, PROF_RADIO, 256U, 32U, now) == 0);
     CHECK(open_pair(env, port, PROF_RADIO_N2, now, 0, &index) == 0);
-    dmp_test_opaque_fill(body, 96U, 0x61U);
-    CHECK(submit_req(&left, 2U, span(body, 96U), now, &handle) == DMP_OK);
+    dmp_test_opaque_fill(body, n2, 0x61U);
+    CHECK(submit_req(&left, 2U, span(body, n2), now, &handle) == DMP_OK);
     CHECK(pump_sender_complete(&left, now, 2) == 0);
     count = take_queue(&left, frames, QUEUE, now);
     CHECK(count == 2);
     CHECK(frames[0].index == 0U && frames[1].index == 1U);
     g_hold = 0;
     CHECK(deliver_mask(frames, count, &right, now, NULL, 0, NULL, &g_hold, 0) == 0);
-    CHECK(right.app.accepts == 0);
-    CHECK(wire_complete_delayed(&left, now + 1U) >= 1);
-    CHECK(dmp_endpoint_poll(&left.endpoint, now + 1U) == DMP_OK);
-    count = take_queue(&left, frames, QUEUE, now + 1U);
-    CHECK(count == 1 && frames[0].index == 2U);
-    CHECK(deliver_one(&right, &frames[0], now + 1U, NULL) == 0);
     CHECK(right.app.accepts == 1);
-    CHECK(right.app.req_n == 96U);
-    CHECK(memcmp(right.app.req_body, body, 96U) == 0);
+    CHECK(right.app.req_n == n2);
+    CHECK(memcmp(right.app.req_body, body, n2) == 0);
     close_session(env);
-    CHECK(fit_boundary(env, port, PROF_RADIO_N2, 128U, 32U, now) == 0);
+    CHECK(fit_boundary(env, port, PROF_RADIO_N2, N2_MTU, 32U, now) == 0);
+    CHECK(pn_reserve_boundary(env, port, now) == 0);
     CHECK(fit_boundary(env, port, PROF_DIRECT, 263U, 64U, now) == 0);
+    CHECK(test_fragment_geometry_refusal(env, port, now) == 0);
     note_peak();
     CHECK(g_provider > 0U && g_provider <= 3U * 12288U);
     CHECK(g_peak > 0U && g_peak <= 4U * 1536U + 1536U + 1536U);
     report("geometry", port, "direct-n16");
+    close_session(env);
+    return 0;
+}
+
+static int test_fragmented_reliable_data_event(session *env, port_ctx *port, uint8_t type,
+                                               dmp_time_ms now)
+{
+    uint32_t index = 0U;
+    uint8_t payload[512];
+    dmp_bytes empty = {NULL, 0U};
+    dmp_reliability_handle handle;
+    const dmp_reliability_sender_slot *sender;
+    captured frames[QUEUE];
+    captured held[QUEUE];
+    dmp_status status = DMP_OK;
+    int held_n = 0;
+    int count;
+
+    CHECK(open_pair(env, port, PROF_DIRECT, now, 0, &index) == 0);
+    dmp_test_opaque_fill(payload, sizeof payload, type == DMP_TYPE_DATA ? 0x81U : 0x92U);
+    if (type == DMP_TYPE_DATA) {
+        CHECK(dmp_endpoint_submit_data(&left.endpoint, 2U, span(payload, sizeof payload), empty,
+                                       now, &handle) == DMP_OK);
+    } else {
+        CHECK(dmp_endpoint_submit_event(&left.endpoint, 2U, span(payload, sizeof payload), empty,
+                                        now, &handle) == DMP_OK);
+    }
+    sender = live_frag_sender(&left);
+    CHECK(sender != NULL && sender->frag_count == 8U && sender->chunk_size == 64U);
+    CHECK(pump_sender_complete(&left, now, 8) == 0);
+    count = take_queue(&left, frames, QUEUE, now);
+    CHECK(count == 8);
+    CHECK(frames[0].type == type && frames[0].index == 0U);
+    CHECK(deliver_mask(frames, count, &right, now, NULL, 0, held, &held_n, 0) == 0);
+    CHECK(right.app.data_accepted == 1);
+    count = take_queue(&right, frames, QUEUE, now);
+    CHECK(count == 1 && frames[0].type == DMP_TYPE_ACK);
+    CHECK(deliver_one(&left, &frames[0], now, &status) == 0);
+    CHECK(status == DMP_OK && left.app.data_delivered == 1);
     close_session(env);
     return 0;
 }
@@ -1949,8 +2322,10 @@ static int test_async(session *env, port_ctx *port)
     CHECK(left.wire.delayed_count == 1);
     CHECK(wire_complete_delayed(&left, now + 35U) == 1);
     CHECK(dmp_endpoint_poll(&left.endpoint, now + 35U) == DMP_OK);
-    report("async-data-event-result-cancel-stale", port, "pass");
     close_session(env);
+    CHECK(test_fragmented_reliable_data_event(env, port, DMP_TYPE_DATA, now + 40U) == 0);
+    CHECK(test_fragmented_reliable_data_event(env, port, DMP_TYPE_EVENT, now + 50U) == 0);
+    report("async-data-event-result-cancel-stale", port, "pass");
     return 0;
 }
 
@@ -1958,7 +2333,7 @@ static int test_async_radio(session *env, port_ctx *port)
 {
     dmp_time_ms now = 40000U;
     uint32_t index = 0U;
-    uint8_t payload[96];
+    uint8_t payload[64];
     dmp_reliability_handle handle;
     captured frames[QUEUE];
     dmp_status status = DMP_OK;
@@ -1971,7 +2346,8 @@ static int test_async_radio(session *env, port_ctx *port)
     CHECK(right.endpoint.profile.synchronous_completion == 0U);
     CHECK(submit_req(&left, 2U, span(payload, sizeof payload), now, &handle) == DMP_OK);
 
-    /* The first fragment is physically delivered, while its ordinary local
+    /* This 64-byte body is exactly two fragments at this manifest's MTU. The
+     * first fragment is physically delivered, while its ordinary local
      * completion callback is still pending. The receiver's delayed FRAG_STATUS
      * must update the live sender without requiring synchronous completion. */
     CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
@@ -1995,12 +2371,6 @@ static int test_async_radio(session *env, port_ctx *port)
     count = take_queue(&left, frames, QUEUE, now + RADIO_COLLECT_MS + 1U);
     CHECK(count == 1 && frames[0].type == DMP_TYPE_REQ && frames[0].index == 1U);
     CHECK(deliver_one(&right, &frames[0], now + RADIO_COLLECT_MS + 1U, &status) == 0);
-    CHECK(status == DMP_INCOMPLETE && right.app.accepts == 0);
-    CHECK(wire_complete_delayed(&left, now + RADIO_COLLECT_MS + 2U) == 1);
-    CHECK(dmp_endpoint_poll(&left.endpoint, now + RADIO_COLLECT_MS + 2U) == DMP_OK);
-    count = take_queue(&left, frames, QUEUE, now + RADIO_COLLECT_MS + 2U);
-    CHECK(count == 1 && frames[0].type == DMP_TYPE_REQ && frames[0].index == 2U);
-    CHECK(deliver_one(&right, &frames[0], now + RADIO_COLLECT_MS + 2U, &status) == 0);
     CHECK(status == DMP_OK);
     CHECK(right.app.accepts == 1 && right.app.req_n == sizeof payload);
     CHECK(memcmp(right.app.req_body, payload, sizeof payload) == 0);
@@ -2043,26 +2413,19 @@ static int test_async_radio(session *env, port_ctx *port)
     CHECK(dmp_endpoint_poll(&right.endpoint, now + 11U + RADIO_COLLECT_MS) == DMP_OK);
     count = take_queue(&right, frames, QUEUE, now + 11U + RADIO_COLLECT_MS);
     CHECK(count == 1 && frames[0].type == DMP_TYPE_FRAG_STATUS);
-    CHECK(right.assemblies[0].status_mask == 0x05U);
+    CHECK(right.assemblies[0].status_mask == 0x01U);
     CHECK(deliver_one(&left, &frames[0], now + 11U + RADIO_COLLECT_MS, &status) == 0);
     CHECK(status == DMP_OK || status == DMP_DUPLICATE);
     CHECK(wire_complete_delayed(&right, now + 11U + RADIO_COLLECT_MS + 1U) == 1);
     CHECK(live_frag_sender(&left) != NULL);
     /* The sender finishes the current burst before applying the requested
-     * repair mask. */
+     * repair mask. The only repair is index 0. */
     CHECK(wire_complete_delayed(&left, now + 12U + RADIO_COLLECT_MS) == 1);
     CHECK(dmp_endpoint_poll(&left.endpoint, now + 12U + RADIO_COLLECT_MS) == DMP_OK);
     count = take_queue(&left, frames, QUEUE, now + 12U + RADIO_COLLECT_MS);
-    CHECK(count == 1 && frames[0].type == DMP_TYPE_REQ && frames[0].index == 2U);
-    CHECK(deliver_one(&right, &frames[0], now + 12U + RADIO_COLLECT_MS, &status) == 0);
-    CHECK(status == DMP_INCOMPLETE && right.app.accepts == 0);
-    CHECK(wire_complete_delayed(&left, now + 13U + RADIO_COLLECT_MS) == 1);
-    CHECK(dmp_endpoint_poll(&left.endpoint, now + 13U + RADIO_COLLECT_MS) == DMP_OK);
-    count = take_queue(&left, frames, QUEUE, now + 13U + RADIO_COLLECT_MS);
     CHECK(count == 1 && frames[0].type == DMP_TYPE_REQ && frames[0].index == 0U);
-    CHECK(deliver_one(&right, &frames[0], now + 13U + RADIO_COLLECT_MS, &status) == 0);
+    CHECK(deliver_one(&right, &frames[0], now + 12U + RADIO_COLLECT_MS, &status) == 0);
     CHECK(status == DMP_OK);
-    CHECK(right.app.accepts == 1 && right.app.req_n == sizeof payload);
     CHECK(right.app.accepts == 1 && right.app.req_n == sizeof payload);
     CHECK(memcmp(right.app.req_body, payload, sizeof payload) == 0);
     report("async-radio-n2-index0-repair", port, "pass");
@@ -2544,7 +2907,8 @@ static int test_r6(session *env, port_ctx *port)
     report("r6-final-loss", port, "pass");
     close_session(env);
 
-    /* Entire initial burst lost. The probe admits the transfer. */
+    /* Entire initial burst lost. The final probe admits the transfer, then
+     * selective feedback repairs the seven unheard slices to acceptance. */
     CHECK(open_pair(env, port, PROF_RADIO, now, 0, &index) == 0);
     CHECK(submit_req(&left, 2U, span(body, sizeof body), now, &handle) == DMP_OK);
     CHECK(pump_sender(&left, now, 8) == 0);
@@ -2558,6 +2922,38 @@ static int test_r6(session *env, port_ctx *port)
     CHECK(deliver_one(&right, &repair[0], now + RADIO_RESPONSE_MS, &status) == 0);
     CHECK(status == DMP_INCOMPLETE);
     CHECK(right.app.accepts == 0);
+    right.wire.now = now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS) == DMP_OK);
+    nstatus = take_queue(&right, status_frames, QUEUE,
+                         now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS);
+    CHECK(nstatus == 1 && status_frames[0].type == DMP_TYPE_FRAG_STATUS);
+    CHECK(right.assemblies[0].status_mask == 0x7fU);
+    CHECK(deliver_one(&left, &status_frames[0], now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS,
+                      &status) == 0);
+    CHECK(status == DMP_OK);
+    CHECK(pump_sender(&left, now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS, 7) == 0);
+    nrepair = take_queue(&left, repair, QUEUE,
+                         now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS);
+    CHECK(nrepair == 7);
+    for (i = 0; i < nrepair; i++) {
+        CHECK(repair[i].index < 7U);
+    }
+    CHECK(deliver_mask(repair, nrepair, &right,
+                       now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS, NULL, 0,
+                       NULL, &g_hold, 0) == 0);
+    CHECK(right.app.accepts == 1 && right.app.req_n == sizeof body);
+    CHECK(memcmp(right.app.req_body, body, sizeof body) == 0);
+    right.wire.now = now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS + RADIO_RECEIPT_MS;
+    CHECK(dmp_endpoint_poll(&right.endpoint,
+                            now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS + RADIO_RECEIPT_MS) ==
+          DMP_OK);
+    nack = take_queue(&right, ack, QUEUE,
+                      now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS + RADIO_RECEIPT_MS);
+    CHECK(nack >= 1 && ack[0].type == DMP_TYPE_ACK);
+    CHECK(deliver_one(&left, &ack[0],
+                      now + RADIO_RESPONSE_MS + RADIO_COLLECT_MS + RADIO_RECEIPT_MS,
+                      &status) == 0);
+    CHECK(status == DMP_OK && left.app.unknowns == 0);
     report("r6-all-loss", port, "pass");
     close_session(env);
 
@@ -4186,6 +4582,9 @@ int main(int argc, char **argv)
     if (failed == 0 && (strcmp(name, "relay_sample") == 0 || strcmp(name, "all") == 0)) {
         failed |= test_relay_sample(&env, &port);
         close_session(&env);
+    }
+    if (failed == 0 && (strcmp(name, "feedback") == 0 || strcmp(name, "all") == 0)) {
+        failed |= test_feedback_identity(&env, &port);
     }
     if (failed == 0 && (strcmp(name, "feedback") == 0 || strcmp(name, "all") == 0)) {
         failed |= test_feedback(&env, &port);

@@ -26,6 +26,29 @@ if(MSVC)
     target_compile_definitions(dmp_ram_measure PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
+# Runnable endpoint initialization milestone. This does not claim lifecycle
+# memory phases beyond initial construction; those remain in the report tool's
+# fail-closed not_measured state until the process-isolated peer harness lands.
+add_executable(dmp_ram_endpoint_initial ram_endpoint_measure.c)
+add_dependencies(dmp_ram_endpoint_initial dmp_test_provider)
+target_include_directories(dmp_ram_endpoint_initial PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/security")
+target_link_libraries(dmp_ram_endpoint_initial PRIVATE
+    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+set_target_properties(dmp_ram_endpoint_initial PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+dmp_strict_target(dmp_ram_endpoint_initial)
+if(MSVC)
+    target_compile_definitions(dmp_ram_endpoint_initial PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+foreach(_profile test-direct-minimal-128 test-direct-minimal-256)
+    add_test(NAME memory.${_profile}.endpoint_initial
+        COMMAND dmp_ram_endpoint_initial
+            --manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/${_profile}.json")
+    set_tests_properties(memory.${_profile}.endpoint_initial PROPERTIES
+        TIMEOUT 30 LABELS memory)
+endforeach()
+
 set(_profiles direct-nnpsk0 direct-nnpsk0-async radio-nnpsk0 radio-nnpsk0-n2
     test-radio-retry-all-nnpsk0 test-direct-minimal-128 test-direct-minimal-256)
 foreach(_profile IN LISTS _profiles)

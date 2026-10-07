@@ -41,8 +41,8 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | sel-r7-type8 | `scenarios.r6` stale SEQ; `scenarios.feedback` `feedback-ineligible`; `scenarios.gaps` `negative-status` | Pass for zero, all-N (`ff 00 00 00` at N=8), out-of-range (`00 01 00 00`), wrong service, and payload length 3. Length 3 is refused by `dmp_hs_seal_logical` before a frame exists. The live sender mask does not change and no repair is queued. |
 | sel-r7-determinism | `scenarios.feedback` `r7-determinism` | Pass. Seed `0x0d19` drives three distinct drops. Two runs compare dropped indices, repair indices, status frames and burst wire bytes. |
 | sel-r7-profile | `scenarios.r6` `r6-mtu`; existing `identity.profile_admit` | Partial. Zero return MTU rejects. The rest of R3 admission stays with the existing admit tests. |
-| sel-r7-full-loss | `scenarios.r6` `r6-all-loss` | Pass for the probe admission. The following gap-fill to acceptance was not completed in that case. |
-| sel-r7-delayed-status | — | Not run. RADIO-1 `synchronous_completion` is true, so a burst is not still in flight when status arrives. |
+| sel-r7-full-loss | `scenarios.r6` `r6-all-loss` | Pass. All eight initial slices are lost; probe index 7 is admitted (`DMP_INCOMPLETE`), status mask `0x7f` repairs indices 0–6, the body is accepted once, and the ACK clears the sender without an unknown outcome. |
+| sel-r7-delayed-status | `scenarios.async_radio` `async-radio-delayed-status` | Pass on the explicit asynchronous test profile. FRAG_STATUS arrives while an ordinary local completion is pending; the sender applies feedback after finishing the in-flight frame. |
 | sel-r7-no-storm | `scenarios.r6` `r6-status-loss` | Pass for the extra-poll bound above. |
 | sel-r7-tombstone-pressure | `scenarios.r7` | Pass. 16 expired tombstones, the 17th slice is `DMP_QUOTA_EXHAUSTED`, `accepts` stays 0. |
 | sel-r7-result-race | — | Open. `synchronous_completion` is true, so a burst is finished before a status and a result can be in flight together. Needs the delayed-completion seam. Not invented here. |
@@ -59,7 +59,7 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | Item | Test | Outcome |
 |---|---|---|
 | Service 2 opaque lengths | `workloads.opaque_len` | Pass for the length helper. 64 is no longer an N=2 transfer at MTU 256. |
-| RADIO-1 N=2 | — | Open. Owner decision. Plan line 113 says choose MTUs and lengths that exercise N=2. The fixed 73-byte margin is gone. A service-2 protected REQ at MTU 256 still fits as one frame through the measured one-frame body (the geometry boundary test). The next byte fragments, and at chunk 32 that count is 8, not 2. N=2 stays unreachable without a different MTU or chunk. Not invented here. |
+| TEST-RADIO-N2, 64-byte service 2 | `scenarios.geometry` and `scenarios.async_radio` | Pass at the exact 119-byte path MTU, with a separate manifest digest. The protected encoder emits exactly indices 0 and 1 at 32 bytes each; both deliver one matching request. Async recovery also repairs missing index 0 with status mask `0x01`. RADIO-1 and retry-all manifests are unchanged. |
 | RADIO-1 64-byte service 2 | `scenarios.geometry` | Pass. One frame, `index == 0xffffffff` (no FRAG), one acceptance, bytes match. |
 | RADIO-1 intermediate N=8 and N=16 | `scenarios.geometry` | Pass. 256 bytes is 8 frames and the body matches. 512 bytes is 16 frames and the body matches. |
 | RADIO-1 N=32 exact and short | `scenarios.geometry` | Pass. 1024 bytes and 993 bytes, 32 frames, both bodies match. A second submit while the first is live is `DMP_BUSY` or `DMP_QUOTA_EXHAUSTED`. |
@@ -93,7 +93,7 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 |---|---|---|
 | R4.2 later slice does not move an armed due time | `scenarios.gaps` `duplicate-after-deadline` | Pass. Slice 1 at `now+10` leaves `collection_due` at `now+2072`. |
 | R6 N=32 missing index 31 | `scenarios.gaps` `mask-n32-index31` | Pass. Mask `0x80000000`, bytes `00 00 00 80`. |
-| R6 N=2 missing index 0 | — | Open. N=2 is still unreachable at MTU 256 and chunk 32 after the exact-fit change. Owner chooses the MTU or length. |
+| R6 N=2 missing index 0 | `scenarios.async_radio` `async-radio-n2-index0-repair` | Pass on TEST-RADIO-N2: after index 0 is lost and index 1 arrives, mask `0x01` requests only index 0; completion accepts the exact 64-byte body once. |
 | Replay / old PN FRAG_STATUS | `scenarios.gaps` `status-wrong-association`; `scenarios.r6` replayed status | Pass. The second delivery is `DMP_AUTHENTICATION_FAILURE` and queues nothing further. |
 | Feedback silence for a wholly unheard transfer | `scenarios.gaps` `feedback-silence` | Pass. Eight dropped slices, receiver poll emits no FRAG_STATUS. |
 | §22.8 out-of-order completion | `scenarios.gaps` `out-of-order` | Pass. Order 7,0,3,1,2,4,5,6. One acceptance, body matches. |
@@ -108,7 +108,7 @@ Printed `tx_bytes` / `rx_bytes` inside one ctest process accumulate from `reset`
 | §22.8 CRC after a TTL change | — | Open. Same ROUTE/TTL decision. The relay recomputes CRC only when INTEGRITY is present; this path is not an endpoint-originated frame. |
 | §22.8 narrower egress, refused transparent refragmentation, missing egress context | — | Open. Needs endpoint ROUTE/CONTEXT. `dmp_reliability_on_rx` still rejects `DMP_OPT_ROUTE`. |
 | §22.8 immediate RSP, lost RSP, lost result ACK, duplicate REQ during processing and after result release, for a fragmented exchange | — | Open for the fragmented form. SAMPLE-1 covers one immediate 17-byte result. Lost acceptance ACK is `lost-ack`. The fragmented result/ACK/duplicate-REQ set was not isolated. |
-| §22.8 result/status race and delayed status | — | Open. `synchronous_completion: true`. Needs the delayed-completion seam. |
+| §22.8 result/status race and delayed status | `scenarios.async_radio` `async-radio-delayed-status` | Delayed status passes while one local TX completion is pending. The separate fragmented result/status overlap remains open. |
 | S7 freshness for service 2 | — | Open. Needs a public header. Owner decision. |
 
 ## Review findings, 2026-10-05

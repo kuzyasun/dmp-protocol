@@ -1,8 +1,11 @@
 import copy
+import contextlib
+import io
 import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +42,77 @@ def good_measurement():
             "reconnect_overlap_status": "measured",
         },
     }
+
+
+def layout_inputs(unmeasured_phases):
+    with MANIFEST.open(encoding="utf-8") as stream:
+        manifest = json.load(stream)
+    limits = manifest["limits"]
+    phases = []
+    for name in sorted(ram_report.REQUIRED_PHASES):
+        status = "not_measured" if name in unmeasured_phases else "measured"
+        phases.append({
+            "name": name,
+            "status": status,
+            "provider_retained_current_bytes": None if status == "not_measured" else 0,
+            "provider_retained_peak_bytes": None if status == "not_measured" else 0,
+            "provider_largest_single_allocation_bytes": None if status == "not_measured" else 0,
+            "provider_largest_scratch_bytes": None,
+        })
+    measurement = {
+        "schema_version": 1,
+        "ok": True,
+        "device_count": 1,
+        "phases": phases,
+        "side_measurements": [
+            {"role": role, "provider_phases": [
+                {"name": name, "status": "measured",
+                 "provider_retained_current_bytes": 0,
+                 "provider_retained_peak_bytes": 0,
+                 "provider_largest_single_allocation_bytes": 0}
+                for name in sorted(ram_report.PROVIDER_PHASES)
+            ]}
+            for role in ("initiator", "responder")
+        ],
+        "workload": {
+            "provider_sized_plaintext_bytes": limits["message_bytes"],
+            "provider_encrypt_sequence_count": limits["sender_slots"],
+            "provider_plaintext_chunk_bytes": limits["chunk_bytes"],
+            "provider_encrypt_calls_per_sequence": limits["fragments"],
+            "endpoint_runtime_status": "measured",
+            "reconnect_overlap_status": "measured",
+        },
+        "objects": [{"name": "provider payload", "charge": "provider_retained",
+                     "check_bytes": 0, "physical_bytes": 0,
+                     "classification": "observed", "overlap": False}],
+        "target_only_unknowns": [],
+        "host_layout_sizes": {
+            name: 1 for name in (
+                "dmp_endpoint", "dmp_hs", "dmp_provider", "identity_slot", "sender_slot",
+                "result_slot", "history_slot", "correlation_slot", "adapter_slot",
+                "reassembly_slot", "tombstone", "freshness_slot", "stream_decoder",
+                "reliability_metadata_bytes", "reassembly_metadata_bytes", "stream_encoded_bound",
+            )
+        },
+    }
+    measurement["host_layout_sizes"]["encoded_mtu"] = manifest["binding"]["encoded_mtu"]
+    mcu_objects = {
+        name: 1 for name in (
+            "endpoint", "identity_slot", "sender_slot", "result_slot", "history_slot",
+            "correlation_slot", "adapter_slot", "reassembly_slot", "reassembly_tombstone",
+            "freshness_slot", "stream_decoder",
+        )
+    }
+    mcu = {
+        "runtime_executed": False,
+        "abi_class": "mcu_compile_only",
+        "objects": [{"name": name, "sizeof": size} for name, size in mcu_objects.items()],
+        "private_sizes": [
+            {"symbol": "dmp_hs_size", "sizeof": 1},
+            {"symbol": "dmp_provider_size", "sizeof": 1},
+        ],
+    }
+    return manifest, measurement, mcu
 
 
 class RamReportTests(unittest.TestCase):
@@ -113,6 +187,67 @@ class RamReportTests(unittest.TestCase):
         data["side_measurements"][0]["provider_phases"][0]["name"] = "request_result_retry"
         with self.assertRaisesRegex(ram_report.Invalid, "P01B provider phase"):
             ram_layout.checked_side_measurements(data)
+
+    def test_layout_calculate_rejects_unmeasured_endpoint_phases_despite_workload_flags(self):
+        cases = [
+            set(ram_report.REQUIRED_PHASES),
+            {"request_result_retry"},
+        ]
+        for unmeasured in cases:
+            with self.subTest(unmeasured=unmeasured):
+                manifest, measurement, mcu = layout_inputs(unmeasured)
+                report = ram_layout.calculate(manifest, measurement, mcu, "test-hash")
+                self.assertFalse(report["ok"])
+                for phase_name in unmeasured:
+                    self.assertIn(
+                        f"required endpoint lifecycle phase {phase_name} is not measured",
+                        report["issues"],
+                    )
+
+    def test_layout_cli_check_rejects_unmeasured_endpoint_phases_despite_workload_flags(self):
+        cases = [
+            set(ram_report.REQUIRED_PHASES),
+            {"handshake_peak"},
+        ]
+        for unmeasured in cases:
+            with self.subTest(unmeasured=unmeasured):
+                manifest, measurement, mcu = layout_inputs(unmeasured)
+                source_files = {
+                    "manifest.json": json.dumps(manifest).encode("utf-8"),
+                    "measurement.json": json.dumps(measurement).encode("utf-8"),
+                    "mcu-abi.json": json.dumps(mcu).encode("utf-8"),
+                }
+                class CaptureOutput(io.StringIO):
+                    def close(self):
+                        self.flush()
+
+                output = CaptureOutput()
+
+                def open_virtual(path, mode="r", *args, **kwargs):
+                    if mode == "rb":
+                        return io.BytesIO(source_files[str(path)])
+                    if mode == "w":
+                        return output
+                    raise AssertionError(f"unexpected open: {path} {mode}")
+
+                argv = [
+                    "ram_layout.py", "--manifest", "manifest.json",
+                    "--measurement", "measurement.json", "--mcu-abi", "mcu-abi.json",
+                    "--output", "layout-report.json", "--check",
+                ]
+                with (mock.patch.object(sys, "argv", argv),
+                      mock.patch("builtins.open", open_virtual),
+                      contextlib.redirect_stdout(io.StringIO()),
+                      contextlib.redirect_stderr(io.StringIO())):
+                    return_code = ram_layout.main()
+                self.assertEqual(1, return_code)
+                report = json.loads(output.getvalue())
+                self.assertFalse(report["ok"])
+                for phase_name in unmeasured:
+                    self.assertIn(
+                        f"required endpoint lifecycle phase {phase_name} is not measured",
+                        report["issues"],
+                    )
 
     def test_rejects_boolean_schema_device_count_and_overlap(self):
         data = good_measurement()

@@ -1608,3 +1608,43 @@ index tree remains `bf267a3107329d1ca9e927cf484369bc2d46f454`; no stage, commit,
 push, hardware operation or DTrack integration was performed. P19 functional
 review, full host gate, recovery-matrix reconciliation and final acceptance
 remain pending.
+
+## 2026-10-07 — P19 N=2/full-loss corrections and initial endpoint RAM phase
+
+Resumed on `feat/initial-version` at `bd1d5c9e631a9d9a817d1c2844ff0976c92da6e3`;
+the index remained unchanged. The RAM worker completed a bounded handoff and
+stopped writing. No changes were staged, committed, pushed, flashed, or
+integrated into DTrack.
+
+The exact encoder showed that a 64-byte service-2 body at MTU 128 is still one
+protected frame. TEST-RADIO-N2 now uses a 119-byte forward/return/encoded MTU;
+the manifest digest and expected derivation were updated. The 64-byte workload
+then emits two 32-byte fragments. Its index-0-loss case receives mask `0x01`
+and repairs only index 0. The all-initial-loss R6 case now continues from probe
+index 7 (`DMP_INCOMPLETE`) through missing mask `0x7f`, repair indices 0–6,
+one acceptance and ACK. RADIO-1 and retry-all manifests did not change.
+
+RAM worker added a real endpoint-initialization executable for minimal 128- and
+256-byte profiles. Coordinator rebuilt and reran it after adding checked
+provider allocation counters. Both outputs report a 10,096-byte caller-owned
+endpoint bundle, 1,328-byte caller-owned provider state, zero provider-retained
+current/peak/largest-allocation bytes at the unassociated initial phase, and
+all later phases `not_measured`. Manifest RAM charges are 32,590 and 33,614
+bytes for these profiles; those are reservations, not measured peaks. No
+handshake, protected exchange/retry, cleanup/reconnect, MCU, or physical RAM
+result is claimed. Keep fail-closed RAM checks and the 131,072-byte cap.
+
+Checks run by the coordinator:
+
+- `python -B tests/profiles/test_deployments.py` — 14/14 passed.
+- `python tools/validate_profile.py --expect-sha256 46ef7a08f2b6caf53d13d7c2c900e522c87286af313e49a70f5249a077fb7376 profiles/deployments/radio-nnpsk0-n2.json` — valid; encoded frame 119 bytes, establishment traffic 1,666 bytes.
+- `cmake --build build/host --target dmp_test_recovery_gate --parallel 2` — passed after the checked-Sodium configure step.
+- `ctest --test-dir build/host --output-on-failure -R "^scenarios\\.(geometry|r6|async_radio)$"` — 3/3 passed.
+- `cmake --build build/p19-ram-endpoint-gcc --target dmp_ram_endpoint_initial --parallel 4` — passed.
+- `ctest --test-dir build/p19-ram-endpoint-gcc -V -R "^memory\\.test-direct-minimal-(128|256)\\.endpoint_initial$"` — 2/2 passed.
+
+The recovery matrix and work board now reflect only the verified R6 full-loss,
+delayed-status, TEST-RADIO-N2, and initial-RAM progress. Other stale matrix
+rows still require reconciliation. Independent final review and the full host
+gate remain pending; P19 remains `running` and unaccepted. See
+`dev/DMP_P19_checkpoint_2026-10-07.md` for the precise resume point.
