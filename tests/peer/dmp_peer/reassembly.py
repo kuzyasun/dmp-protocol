@@ -78,6 +78,7 @@ class CompletedAssemblyRecord:
     expires_at_ms: int
     endpoint_accepted: bool = False
     result_ack_replays: int = 0
+    result_ack_seq: int | None = None
 
 
 class ReassemblyManager:

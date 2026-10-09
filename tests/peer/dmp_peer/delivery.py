@@ -23,6 +23,7 @@ class OutgoingExchange:
     result_deadline_ms: int
     max_attempts: int
     request_payload: bytes = b""
+    freshness_token: bytes | None = None
     attempts_used: int = 1
     next_retry_ms: int = 0
     received_ack: bool = False
@@ -62,6 +63,7 @@ class RetainedResult:
     bursts_sent: int = 1
     gate_destination: Optional[int] = None
     immutable_metadata: tuple = ()
+    result_payload: bytes | None = None
 
     def __post_init__(self):
         if not self.result_frames and self.result_frame_bytes:
@@ -93,14 +95,16 @@ class RejectionRecord:
     replay_bursts: int = 0
     payload: bytes = b""
     immutable_metadata: tuple = ()
+    err_seq: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass
 class CallerTombstone:
     expires_at_ms: int
     responder: int
     service_id: int
     request_payload: bytes
+    result_ack_seq: int | None = None
 
 
 class EnqueueResult:
@@ -314,7 +318,7 @@ class DeliveryManager:
                 del self.result_gates[gate]
 
     def admit_result_replay(self, result: RetainedResult, now_ms: int) -> bool:
-        if result.acknowledged or result.attempts_left <= 0:
+        if result.acknowledged or result.attempts_left <= 0 or now_ms >= result.expires_at_ms:
             return False
         result.attempts_left -= 1
         result.bursts_sent += 1

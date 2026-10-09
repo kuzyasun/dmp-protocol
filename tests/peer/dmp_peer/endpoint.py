@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import struct
+import time
 from typing import Any, Callable, Optional
 
 from .delivery import DeliveryManager, OutgoingExchange, RetainedResult, AcceptedRecord, RejectionRecord
@@ -21,10 +23,32 @@ from .events import (
     TxSubmit,
     TxTerminal,
 )
-from .frame import CoreFrame, Extension, Fragment, decode_uleb, encode_frame, encode_uleb, parse_frame
+from .frame import CoreFrame, Extension, Fragment, FrameError, Security, decode_uleb, encode_frame, encode_uleb, parse_frame
 from .manifest import Manifest, ManifestError, identify_frozen_manifest
 from .reassembly import ConflictError, QuotaError, ReassemblyError, ReassemblyManager
 from .sample1 import Sample, SampleConsumer, SampleEpochStore, SampleProducer
+from .security import (
+    BOOT_VERSION,
+    CIPHER_CHACHAPOLY,
+    MODE_NNPSK0,
+    MODE_XX,
+    MAX_PLAINTEXT_BYTES,
+    PAYLOAD_FINISH,
+    PAYLOAD_READY,
+    AuthenticationError,
+    AuthorizationError,
+    BootstrapManager,
+    FreshnessManager,
+    FreshnessError,
+    HandshakeError,
+    ReplayError,
+    SecurityAssociation,
+    SecurityError,
+    compute_bootstrap_epoch,
+    compute_canonical_header,
+    compute_origin_epoch,
+    compute_prologue,
+)
 from .stream_r import StreamRDecoder, encode_stream_r
 
 
@@ -37,7 +61,11 @@ class PeerEndpoint:
         test_credentials: Any,
         entropy_source: Callable[[int], bytes],
         test_services: Any,
+        *,
+        test_only_disable_sec1: bool = False,
     ) -> None:
+        # Legacy P21B plaintext unit fixtures opt into this explicitly. P21C uses
+        # the default secure path and cannot claim evidence from this bypass.
         self.manifest = identify_frozen_manifest(bytes(manifest_bytes))
         self.manifest_bytes = bytes(manifest_bytes)
         self.test_credentials = test_credentials
@@ -166,12 +194,120 @@ class PeerEndpoint:
             "dropped_samples": 0,
         }
 
+        # SEC-1 security configuration
+        sec_cfg = self.manifest.values.get("security", {})
+        self.test_only_disable_sec1 = test_only_disable_sec1
+        self.sec_mode_str = None if test_only_disable_sec1 else sec_cfg.get("mode")
+        if self.sec_mode_str == "NNpsk0":
+            self.sec_mode = MODE_NNPSK0
+        elif self.sec_mode_str == "XX":
+            self.sec_mode = MODE_XX
+        else:
+            self.sec_mode = None
+
+        self.sec_cipher = sec_cfg.get("cipher", CIPHER_CHACHAPOLY)
+        self.psk: bytes | None = None
+        self.key_hint: int | None = None
+        self.static_private_key: bytes | None = None
+        self.peer_static_public_key: bytes | None = None
+        self.local_rx_cid: int = 0
+
+        if isinstance(test_credentials, dict):
+            self.psk = test_credentials.get("psk")
+            self.key_hint = test_credentials.get("key_hint")
+            self.static_private_key = test_credentials.get("static_private_key")
+            self.peer_static_public_key = test_credentials.get("peer_static_public_key")
+            self.local_rx_cid = test_credentials.get("local_rx_cid", 0)
+
+        if self.sec_mode == MODE_NNPSK0 and (not isinstance(self.psk, bytes) or len(self.psk) != 32):
+            raise SecurityError("NNpsk0 requires a provisioned 32-byte pairwise PSK")
+        if self.sec_mode == MODE_XX:
+            if not isinstance(self.static_private_key, bytes) or len(self.static_private_key) != 32:
+                raise SecurityError("XX requires a provisioned 32-byte local static private key")
+            if self.peer_static_public_key is not None and (
+                not isinstance(self.peer_static_public_key, bytes) or len(self.peer_static_public_key) != 32
+            ):
+                raise SecurityError("XX peer pin must be exactly 32 bytes")
+        if self.sec_mode is not None and self.sec_cipher != CIPHER_CHACHAPOLY:
+            raise SecurityError("This peer enables mandatory ChaChaPoly only")
+
+        if self.sec_mode is not None:
+            m_digest = bytes.fromhex(self.manifest.sha256) if getattr(self.manifest, "sha256", None) else b"\x00" * 32
+            self.bootstrap_mgr: Optional[BootstrapManager] = BootstrapManager(
+                mode=self.sec_mode,
+                manifest_digest=m_digest,
+                namespace=self.namespace,
+                local_node_id=self.local_node_id,
+                remote_node_id=self.remote_node_id,
+                entropy_source=self.entropy_source,
+                psk=self.psk,
+                key_hint=self.key_hint,
+                local_rx_cid=self.local_rx_cid,
+                static_private_key=self.static_private_key,
+                peer_static_public_key=self.peer_static_public_key,
+                replay_window_bits=sec_cfg.get("replay_window_bits", 1024),
+                failed_aead_limit=sec_cfg.get("failed_aead_limit", 1000),
+                association_lifetime_ms=sec_cfg.get("association_ms", 100_000_000),
+            )
+            self.freshness_manager: Optional[FreshnessManager] = FreshnessManager(self.entropy_source)
+        else:
+            self.bootstrap_mgr = None
+            self.freshness_manager = None
+
+        self.association: Optional[SecurityAssociation] = None
+        self.pending_association: Optional[SecurityAssociation] = None
+        self.active_freshness_token: Optional[bytes] = None
+
+        # Confirmation timer state (§S4)
+        self.confirmation_timeout_ms = sec_cfg.get("confirmation_timeout_ms", 512)
+        self.confirmation_attempts = sec_cfg.get("confirmation_attempts", 2)
+        self.confirmation_attempts_used: int = 0
+        self.next_confirmation_retry_ms: Optional[int] = None
+        self.cached_finish_wire: Optional[bytes] = None
+        self.cached_ready_wire: Optional[bytes] = None
+        self._processed_flight2_payload: Optional[bytes] = None
+        self._processed_flight3_payload: Optional[bytes] = None
+        # Manifest-bounded bootstrap admission and response accounting. State is
+        # kept per endpoint/pair rather than keyed by attacker-controlled IDs.
+        self._bootstrap_ingress_window_start_ms: int | None = None
+        self._bootstrap_ingress_packets = 0
+        self._bootstrap_response_window_start_ms: int | None = None
+        self._bootstrap_response_count = 0
+        self._bootstrap_response_bytes = 0
+        self._bootstrap_attempt_id: bytes | None = None
+        self._bootstrap_attempt_start_ms: int | None = None
+        self._bootstrap_attempt_local_initiated = False
+        self._bootstrap_attempt_tx_bytes = 0
+        self._bootstrap_attempt_crypto_ms = 0
+        self._bootstrap_duplicate_responses = 0
+        self._bootstrap_flight1_wire: bytes | None = None
+        self._bootstrap_flight_attempts_used = 0
+        self._bootstrap_next_flight_retry_ms: int | None = None
+        self._bootstrap_episode_start_ms: int | None = None
+        self._bootstrap_episode_attempts = 0
+        self._bootstrap_episode_tx_bytes = 0
+        self._bootstrap_episode_crypto_ms = 0
+        self._bootstrap_crypto_window_start_ms: int | None = None
+        self._bootstrap_crypto_window_ms = 0
+        self._bootstrap_later_window_start_ms: int | None = None
+        self._bootstrap_later_episodes = 0
+        self._bootstrap_last_attempt_end_ms: int | None = None
+
     def _alloc_handle(self) -> int:
         handle = self.next_handle
         self.next_handle = (self.next_handle + 1) & 0xFFFFFFFF
         if self.next_handle == 0:
             self.next_handle = 1
         return handle
+
+    def approve_oob_peer_static_key(self, peer_static_public_key: bytes) -> None:
+        """Install the 32-byte XX peer key after the operator verifies it out of band."""
+        if self.bootstrap_mgr is None or self.sec_mode != MODE_XX:
+            raise AuthorizationError("OOB peer-key approval is available only for XX")
+        if self.association is not None or self.pending_association is not None:
+            raise AuthorizationError("Cannot enroll an XX peer while an association exists")
+        self.bootstrap_mgr.approve_oob_peer_static_key(peer_static_public_key)
+        self.peer_static_public_key = bytes(peer_static_public_key)
 
     def _alloc_seq(self) -> int:
         seq = self.next_seq
@@ -184,6 +320,197 @@ class PeerEndpoint:
         eid = self.next_exchange_id
         self.next_exchange_id += 1
         return eid
+
+    def _admit_bootstrap_ingress(self) -> bool:
+        cfg = self.manifest.values.get("security", {})
+        window_ms = cfg.get("ingress_window_ms", 1)
+        if (self._bootstrap_ingress_window_start_ms is None
+                or self.now_ms - self._bootstrap_ingress_window_start_ms >= window_ms):
+            self._bootstrap_ingress_window_start_ms = self.now_ms
+            self._bootstrap_ingress_packets = 0
+        if self._bootstrap_ingress_packets >= cfg.get("ingress_packets_per_window", 1):
+            return False
+        self._bootstrap_ingress_packets += 1
+        return True
+
+    def _begin_bootstrap_attempt(self, attempt_id: bytes, *, local_initiated: bool) -> bool:
+        cfg = self.manifest.values.get("security", {})
+        if self._bootstrap_attempt_id is not None:
+            return self._bootstrap_attempt_id == attempt_id
+        if local_initiated:
+            if (self._bootstrap_last_attempt_end_ms is not None
+                    and self.now_ms - self._bootstrap_last_attempt_end_ms < cfg.get("restart_backoff_ms", 0)):
+                return False
+
+            episode_ms = cfg.get("episode_ms", 1)
+            if (self._bootstrap_episode_start_ms is None
+                    or self.now_ms - self._bootstrap_episode_start_ms >= episode_ms):
+                if self._bootstrap_episode_start_ms is not None:
+                    later_window_ms = cfg.get("later_window_ms", episode_ms)
+                    if (self._bootstrap_later_window_start_ms is None
+                            or self.now_ms - self._bootstrap_later_window_start_ms >= later_window_ms):
+                        self._bootstrap_later_window_start_ms = self.now_ms
+                        self._bootstrap_later_episodes = 0
+                    if self._bootstrap_later_episodes >= cfg.get("later_episodes_per_window", 1):
+                        return False
+                    self._bootstrap_later_episodes += 1
+                self._bootstrap_episode_start_ms = self.now_ms
+                self._bootstrap_episode_attempts = 0
+                self._bootstrap_episode_tx_bytes = 0
+                self._bootstrap_episode_crypto_ms = 0
+            if self._bootstrap_episode_attempts >= cfg.get("episode_attempts", 1):
+                return False
+            self._bootstrap_episode_attempts += 1
+        self._bootstrap_attempt_id = attempt_id
+        self._bootstrap_attempt_start_ms = self.now_ms
+        self._bootstrap_attempt_local_initiated = local_initiated
+        self._bootstrap_attempt_tx_bytes = 0
+        self._bootstrap_attempt_crypto_ms = 0
+        self._bootstrap_duplicate_responses = 0
+        self._bootstrap_flight1_wire = None
+        self._bootstrap_flight_attempts_used = 0
+        self._bootstrap_next_flight_retry_ms = None
+        return True
+
+    def _bootstrap_attempt_expired(self, attempt_id: bytes) -> bool:
+        cfg = self.manifest.values.get("security", {})
+        return (
+            self._bootstrap_attempt_id == attempt_id
+            and self._bootstrap_attempt_start_ms is not None
+            and self.now_ms - self._bootstrap_attempt_start_ms >= cfg.get("attempt_ms", 1)
+        )
+
+    def _bootstrap_attempt_deadline(self, attempt_id: bytes) -> int | None:
+        if self._bootstrap_attempt_id != attempt_id or self._bootstrap_attempt_start_ms is None:
+            return None
+        return self._bootstrap_attempt_start_ms + self.manifest.values.get("security", {}).get("attempt_ms", 1)
+
+    def _end_bootstrap_attempt(self) -> None:
+        if self._bootstrap_attempt_id is not None and self._bootstrap_attempt_local_initiated:
+            self._bootstrap_last_attempt_end_ms = self.now_ms
+        self._bootstrap_attempt_id = None
+        self._bootstrap_attempt_start_ms = None
+        self._bootstrap_attempt_local_initiated = False
+        self._bootstrap_attempt_tx_bytes = 0
+        self._bootstrap_attempt_crypto_ms = 0
+        self._bootstrap_duplicate_responses = 0
+        self._bootstrap_flight1_wire = None
+        self._bootstrap_flight_attempts_used = 0
+        self._bootstrap_next_flight_retry_ms = None
+
+    def _abort_bootstrap_attempt(self, out: list[Any]) -> None:
+        """Erase one bootstrap attempt and retire only its queued or borrowed TX."""
+        attempt_id = self._bootstrap_attempt_id
+        if attempt_id is None and self.bootstrap_mgr is not None:
+            attempt_id = self.bootstrap_mgr.current_attempt_id
+        if attempt_id is not None:
+            self.tx_queue = [
+                item for item in self.tx_queue
+                if item.get("bootstrap_attempt_id") != attempt_id
+            ]
+            for handle, sub in list(self.active_submissions.items()):
+                if sub.get("bootstrap_attempt_id") != attempt_id or sub.get("cancel_requested"):
+                    continue
+                sub["cancel_requested"] = True
+                if sub.get("admitted"):
+                    out.append(Cancel(handle=handle, generation=sub["generation"], at_ms=self.now_ms))
+        if self.bootstrap_mgr is not None:
+            self.bootstrap_mgr.abort_attempt()
+        if self.pending_association is not None:
+            self.pending_association.status = "closed"
+            if self.freshness_manager is not None:
+                self.freshness_manager.clear_association(self.pending_association.h)
+        self.pending_association = None
+        self.cached_finish_wire = None
+        self.cached_ready_wire = None
+        self._processed_flight2_payload = None
+        self._processed_flight3_payload = None
+        self.next_confirmation_retry_ms = None
+        self.confirmation_attempts_used = 0
+        self._end_bootstrap_attempt()
+        self._drain_tx_queue(out)
+
+    def _start_bootstrap_crypto(self) -> int | None:
+        cfg = self.manifest.values.get("security", {})
+        window_ms = cfg.get("ingress_window_ms", 1)
+        if (self._bootstrap_crypto_window_start_ms is None
+                or self.now_ms - self._bootstrap_crypto_window_start_ms >= window_ms):
+            self._bootstrap_crypto_window_start_ms = self.now_ms
+            self._bootstrap_crypto_window_ms = 0
+        if self._bootstrap_attempt_id is None:
+            return None
+        if self._bootstrap_crypto_window_ms >= cfg.get("global_crypto_ms_per_window", 1):
+            return None
+        if self._bootstrap_attempt_crypto_ms >= cfg.get("crypto_per_attempt_ms", 1):
+            return None
+        if (self._bootstrap_attempt_local_initiated
+                and self._bootstrap_episode_crypto_ms >= cfg.get("episode_crypto_ms", 1)):
+            return None
+        return time.process_time_ns()
+
+    def _finish_bootstrap_crypto(self, start_ns: int) -> bool:
+        cfg = self.manifest.values.get("security", {})
+        spent_ms = max(1, (time.process_time_ns() - start_ns + 999_999) // 1_000_000)
+        self._bootstrap_crypto_window_ms += spent_ms
+        self._bootstrap_attempt_crypto_ms += spent_ms
+        if self._bootstrap_attempt_local_initiated:
+            self._bootstrap_episode_crypto_ms += spent_ms
+        return (
+            self._bootstrap_crypto_window_ms <= cfg.get("global_crypto_ms_per_window", 1)
+            and self._bootstrap_attempt_crypto_ms <= cfg.get("crypto_per_attempt_ms", 1)
+            and (not self._bootstrap_attempt_local_initiated
+                 or self._bootstrap_episode_crypto_ms <= cfg.get("episode_crypto_ms", 1))
+        )
+
+    def _admit_bootstrap_duplicate_response(self) -> bool:
+        maximum = self.manifest.values.get("security", {}).get("duplicate_responses_per_attempt", 0)
+        if self._bootstrap_duplicate_responses >= maximum:
+            return False
+        self._bootstrap_duplicate_responses += 1
+        return True
+
+    def _enqueue_bootstrap_tx(self, raw_bytes: bytes, attempt_id: bytes, out: list[Any]) -> bool:
+        cfg = self.manifest.values.get("security", {})
+        if self._bootstrap_attempt_id != attempt_id:
+            return False
+        attempt_deadline_ms = self._bootstrap_attempt_deadline(attempt_id)
+        if attempt_deadline_ms is None or self.now_ms >= attempt_deadline_ms:
+            self._abort_bootstrap_attempt(out)
+            return False
+        if self.binding_kind == "stream-r":
+            accounted_bytes = len(encode_stream_r(raw_bytes, max_core=self.forward_mtu, max_encoded=self.encoded_mtu))
+        else:
+            accounted_bytes = len(raw_bytes)
+
+        window_ms = cfg.get("response_window_ms", 1)
+        if (self._bootstrap_response_window_start_ms is None
+                or self.now_ms - self._bootstrap_response_window_start_ms >= window_ms):
+            self._bootstrap_response_window_start_ms = self.now_ms
+            self._bootstrap_response_count = 0
+            self._bootstrap_response_bytes = 0
+        if self._bootstrap_response_count >= cfg.get("responses_per_window", 1):
+            return False
+        if self._bootstrap_response_bytes + accounted_bytes > cfg.get("response_bytes_per_window", 1):
+            return False
+        if self._bootstrap_attempt_tx_bytes + accounted_bytes > cfg.get("attempt_tx_bytes", 1):
+            return False
+        if (self._bootstrap_attempt_local_initiated
+                and self._bootstrap_episode_tx_bytes + accounted_bytes > cfg.get("episode_tx_bytes", 1)):
+            return False
+
+        self._bootstrap_response_count += 1
+        self._bootstrap_response_bytes += accounted_bytes
+        self._bootstrap_attempt_tx_bytes += accounted_bytes
+        if self._bootstrap_attempt_local_initiated:
+            self._bootstrap_episode_tx_bytes += accounted_bytes
+        self._enqueue_tx(
+            raw_bytes,
+            not_after_ms=attempt_deadline_ms,
+            service_id=0,
+            bootstrap_attempt_id=attempt_id,
+            out=out,
+        )
+        return True
 
     def handle(self, input_event: Any) -> tuple:
         """Process one input event and return an ordered tuple of output events."""
@@ -300,6 +627,12 @@ class PeerEndpoint:
         else:
             # Rejected by adapter: caller retains ownership; no subsequent terminal event
             del self.active_submissions[event.handle]
+            bootstrap_attempt_id = sub.get("bootstrap_attempt_id")
+            if bootstrap_attempt_id is not None:
+                if event.reason != "busy" and self._bootstrap_attempt_id == bootstrap_attempt_id:
+                    self._abort_bootstrap_attempt(out)
+                self._drain_tx_queue(out)
+                return
             if exc:
                 exc.pending_schedule_handles.discard(event.handle)
                 exc.admitted_schedule_handles.discard(event.handle)
@@ -357,6 +690,13 @@ class PeerEndpoint:
             return
 
         del self.active_submissions[event.handle]
+
+        bootstrap_attempt_id = sub.get("bootstrap_attempt_id")
+        if (bootstrap_attempt_id is not None
+                and bootstrap_attempt_id == self._bootstrap_attempt_id
+                and event.outcome not in ("transmitted", "possibly_transmitted")):
+            self._abort_bootstrap_attempt(out)
+            return
 
         exc_id = sub.get("exchange_id")
         exc = self.delivery.active_outgoing.get(exc_id) if exc_id else None
@@ -474,6 +814,7 @@ class PeerEndpoint:
         # Accepted borrows stay retained until the generation-matched terminal callback.
         self.active_submissions = {h: sub for h, sub in self.active_submissions.items() if sub.get("admitted")}
         self.tx_queue.clear()
+        self._retire_security_context()
         self._retire_delivery_state()
         self.reassembly.retire()
         if self.sample_consumer:
@@ -489,6 +830,27 @@ class PeerEndpoint:
         self.delivery.rejections.clear()
         self.delivery.caller_tombstones.clear()
 
+    def _retire_security_context(self) -> None:
+        """Destroy volatile SEC-1 state whenever its complete context is not retained."""
+        self._end_bootstrap_attempt()
+        associations = (self.association, self.pending_association)
+        for assoc in associations:
+            if assoc is not None:
+                assoc.status = "closed"
+                if self.freshness_manager is not None:
+                    self.freshness_manager.clear_association(assoc.h)
+        self.association = None
+        self.pending_association = None
+        if self.bootstrap_mgr is not None:
+            self.bootstrap_mgr.abort_attempt()
+        self.active_freshness_token = None
+        self.cached_finish_wire = None
+        self.cached_ready_wire = None
+        self._processed_flight2_payload = None
+        self._processed_flight3_payload = None
+        self.next_confirmation_retry_ms = None
+        self.confirmation_attempts_used = 0
+
     def _handle_restart(self, event: Restart, out: list[Any]) -> None:
         # Restart uses injected deterministic entropy; fails closed when absent or reused
         if not event.entropy or len(event.entropy) < 8:
@@ -496,6 +858,9 @@ class PeerEndpoint:
         if event.entropy in self.used_entropy:
             raise EventValidationError("Restart entropy has already been used")
         self.used_entropy.add(event.entropy)
+
+        # Restart never resumes a bootstrap attempt, even if Split has not occurred.
+        self._retire_security_context()
 
         # Establish non-reused logical identity before any new SEQ
         seed = int.from_bytes(event.entropy[:8], "little")
@@ -559,14 +924,73 @@ class PeerEndpoint:
     def _handle_advance(self, event: Advance, out: list[Any]) -> None:
         if not self.is_open:
             return
+        if (
+            self.association is None
+            and self.bootstrap_mgr is not None
+            and self.bootstrap_mgr.current_attempt_id is not None
+            and self._bootstrap_attempt_expired(self.bootstrap_mgr.current_attempt_id)
+        ):
+            self._abort_bootstrap_attempt(out)
+        if (
+            self.association is None
+            and self.pending_association is None
+            and self.bootstrap_mgr is not None
+            and self._bootstrap_attempt_id is not None
+            and self.bootstrap_mgr.current_attempt_id == self._bootstrap_attempt_id
+            and self._bootstrap_flight1_wire is not None
+            and self._bootstrap_next_flight_retry_ms is not None
+            and self.now_ms >= self._bootstrap_next_flight_retry_ms
+        ):
+            cfg = self.manifest.values.get("security", {})
+            if self._bootstrap_flight_attempts_used < cfg.get("flight_attempts", 1):
+                if not self._enqueue_bootstrap_tx(self._bootstrap_flight1_wire, self._bootstrap_attempt_id, out):
+                    self._abort_bootstrap_attempt(out)
+                else:
+                    self._bootstrap_flight_attempts_used += 1
+                    self._bootstrap_next_flight_retry_ms = self.now_ms + cfg.get("flight_retry_ms", 1)
+            else:
+                self._bootstrap_next_flight_retry_ms = None
+        assoc = self.association or self.pending_association
+        if assoc is not None and (assoc.status == "closed" or assoc.is_expired(self.now_ms)):
+            self._expire_security_context(out)
         if self.stream_r_decoder:
             stream_events = self.stream_r_decoder.advance(self.now_ms)
             for se in stream_events:
                 if se.kind == "frame" and se.frame:
                     self._process_core_bytes(se.frame, out)
 
-        # Advance reassembly
-        self.reassembly.advance(self.now_ms)
+        # Check confirmation retry timer (§S4)
+        if self.next_confirmation_retry_ms is not None and self.now_ms >= self.next_confirmation_retry_ms:
+            if self.confirmation_attempts_used < self.confirmation_attempts:
+                self.confirmation_attempts_used += 1
+                self.next_confirmation_retry_ms = self.now_ms + self.confirmation_timeout_ms
+                if self.cached_finish_wire is not None:
+                    # In Mode 2, also retransmit flight 3 if retained (§S4)
+                    if self.sec_mode == MODE_XX and self.bootstrap_mgr and 3 in self.bootstrap_mgr.cached_outgoing_flights:
+                        f3_payload = self.bootstrap_mgr.cached_outgoing_flights[3]
+                        if self.bootstrap_mgr.current_attempt_id:
+                            f3_wire = self._build_bootstrap_frame(
+                                flight=3, attempt_id=self.bootstrap_mgr.current_attempt_id, payload=f3_payload
+                            )
+                            if not self._enqueue_bootstrap_tx(f3_wire, self.bootstrap_mgr.current_attempt_id, out):
+                                self._abort_bootstrap_attempt(out)
+                                return
+                    # Re-send FINISH with fresh PN per §S4 / §S6
+                    finish_wire = self._build_protected_finish_frame()
+                    attempt_id = self._bootstrap_attempt_id
+                    if attempt_id is None or not self._enqueue_bootstrap_tx(finish_wire, attempt_id, out):
+                        self._abort_bootstrap_attempt(out)
+                        return
+            else:
+                # Confirmation timeout: discard candidate traffic state
+                self._abort_bootstrap_attempt(out)
+
+        # Advance reassembly; incomplete command identities consume any bound
+        # freshness lease when their assembly expires.
+        expired_assemblies = self.reassembly.advance(self.now_ms)
+        if self.association is not None and self.freshness_manager is not None:
+            for message_id in expired_assemblies:
+                self.freshness_manager.consume_identity(self.association.h, message_id)
         if self.sample_consumer:
             self.sample_consumer.advance(self.now_ms)
 
@@ -578,11 +1002,22 @@ class PeerEndpoint:
             if exc.not_after_ms is not None and self.now_ms >= exc.not_after_ms:
                 self._expire_outgoing_exchange(exc, out)
             else:
+                if self.association is not None:
+                    # Logical retry with fresh PN (§S6)!
+                    retry_frames = self._build_req_frames(
+                        service_id=exc.service_id,
+                        seq=exc.seq,
+                        payload=exc.request_payload,
+                        ack_req=exc.ack_req,
+                        freshness_token=exc.freshness_token,
+                    )
+                    exc.frames = tuple(retry_frames)
                 for f_bytes in exc.frames:
                     self._enqueue_tx(f_bytes, not_after_ms=exc.not_after_ms, service_id=exc.service_id, exchange_id=exc.exchange_id, out=out)
 
         # Retransmit all frames of retained results
         for res in due_results:
+            self._reprotect_retained_result(res)
             for rf in res.result_frames:
                 self._enqueue_tx(rf, not_after_ms=None, service_id=res.service_id, out=out)
 
@@ -643,16 +1078,697 @@ class PeerEndpoint:
             if len(event.bytes) <= self.forward_mtu:
                 self._process_core_bytes(event.bytes, out)
 
+    def initiate_handshake(self, at_ms: int | None = None, attempt_id: bytes | None = None) -> tuple[Any, ...]:
+        if not self.is_open:
+            raise EventValidationError("Endpoint must be open before initiating handshake")
+        if self.bootstrap_mgr is None:
+            raise SecurityError("SEC-1 not configured in manifest")
+        if self.association is not None or self.pending_association is not None or self.bootstrap_mgr.current_attempt_id is not None:
+            raise SecurityError("SEC-1 pair already has pending or active state")
+        if self.sec_mode == MODE_XX and self.peer_static_public_key is None:
+            raise AuthorizationError("XX requires an already authorized peer pin")
+        self._processed_flight2_payload = None
+        self._processed_flight3_payload = None
+        if at_ms is None:
+            at_ms = self.now_ms
+        if at_ms < self.now_ms:
+            raise EventValidationError("Handshake time must be monotonic")
+        self.now_ms = at_ms
+        if attempt_id is None:
+            attempt_id = self.entropy_source(16)
+
+        if not self._begin_bootstrap_attempt(attempt_id, local_initiated=True):
+            raise SecurityError("SEC-1 bootstrap episode or restart budget exhausted")
+
+        out: list[Any] = []
+        try:
+            rx_cid, f1_payload = self.bootstrap_mgr.build_flight_1(attempt_id, at_ms)
+            f1_wire = self._build_bootstrap_frame(flight=1, attempt_id=attempt_id, payload=f1_payload)
+        except Exception:
+            self._abort_bootstrap_attempt(out)
+            raise
+        self.local_rx_cid = rx_cid
+
+        if not self._enqueue_bootstrap_tx(f1_wire, attempt_id, out):
+            self._abort_bootstrap_attempt(out)
+            raise SecurityError("SEC-1 bootstrap transmission budget exhausted")
+        cfg = self.manifest.values.get("security", {})
+        self._bootstrap_flight1_wire = f1_wire
+        self._bootstrap_flight_attempts_used = 1
+        self._bootstrap_next_flight_retry_ms = self.now_ms + cfg.get("flight_retry_ms", 1)
+        return tuple(out)
+
+    def _build_bootstrap_frame(self, flight: int, attempt_id: bytes, payload: bytes) -> bytes:
+        b_epoch = compute_bootstrap_epoch(attempt_id)
+        ext_context = Extension(2, True, True, encode_uleb(self.namespace) + b_epoch.to_bytes(8, "little"))
+        route = None
+        if self.manifest.values.get("binding", {}).get("topology") == "relay-routed":
+            route = Route(ttl=3, mode=1, source_id=self.local_node_id, destination_id=self.remote_node_id)
+            exts = (ext_context,)
+        else:
+            ext_origin = Extension(3, True, True, encode_uleb(self.local_node_id))
+            exts = (ext_context, ext_origin)
+
+        frame = CoreFrame(
+            message_type=3,  # HELLO
+            options=1 | (4 if route else 0) | 0x80,  # SEQ | ROUTE | EXT
+            sequence=flight,
+            route=route,
+            extensions=tuple(sorted(exts, key=lambda e: e.extension_id)),
+            payload=payload,
+        )
+        return encode_frame(frame, max_frame=self.forward_mtu)
+
+    def _build_protected_finish_frame(self) -> bytes:
+        route = None
+        if self.manifest.values.get("binding", {}).get("topology") == "relay-routed":
+            route = Route(ttl=3, mode=1, source_id=self.local_node_id, destination_id=self.remote_node_id)
+        frame = CoreFrame(
+            message_type=3,  # HELLO
+            options=1 | (4 if route else 0),  # SEQ
+            sequence=0,
+            route=route,
+            payload=b"",
+        )
+        return self._encrypt_and_encode(frame, plaintext=PAYLOAD_FINISH)
+
+    def _build_protected_ready_frame(self) -> bytes:
+        route = None
+        if self.manifest.values.get("binding", {}).get("topology") == "relay-routed":
+            route = Route(ttl=3, mode=1, source_id=self.local_node_id, destination_id=self.remote_node_id)
+        frame = CoreFrame(
+            message_type=3,  # HELLO
+            options=1 | (4 if route else 0),  # SEQ
+            sequence=0,
+            route=route,
+            payload=b"",
+        )
+        return self._encrypt_and_encode(frame, plaintext=PAYLOAD_READY)
+
+    def _encrypt_and_encode(
+        self,
+        frame: CoreFrame,
+        plaintext: bytes,
+        pn: int | None = None,
+    ) -> bytes:
+        assoc = self.association or self.pending_association
+        if assoc is None:
+            raise SecurityError("No active association for encryption")
+        if assoc.status == "closed" or assoc.is_expired(self.now_ms):
+            assoc.status = "closed"
+            raise SecurityError("SEC-1 association is closed or expired")
+        if assoc.status != "active" and not (
+            assoc.status == "candidate"
+            and frame.message_type == 3
+            and plaintext in (PAYLOAD_FINISH, PAYLOAD_READY)
+        ):
+            raise SecurityError("Application traffic is forbidden before SEC-1 activation")
+
+        if pn is None:
+            pn = assoc.alloc_send_pn()
+
+        sec_desc = Security(
+            cipher=self.sec_cipher,
+            receive_cid=assoc.peer_rx_cid,
+            packet_number=pn,
+        )
+        dummy_frame = CoreFrame(
+            message_type=frame.message_type,
+            options=frame.options | 0x40,  # SECURITY
+            sequence=frame.sequence,
+            route=frame.route,
+            fragment=frame.fragment,
+            payload_descriptor=frame.payload_descriptor,
+            integrity=None,
+            security=sec_desc,
+            extensions=frame.extensions,
+            payload=b"\x00" * len(plaintext),
+            trailer=b"\x00" * 16,
+        )
+        encoded_dummy = encode_frame(dummy_frame, max_frame=self.forward_mtu)
+        hdr_len = encoded_dummy[1]
+        core_header = encoded_dummy[:hdr_len]
+
+        _, ct_and_tag = assoc.encrypt_frame(core_header, plaintext, pn=pn)
+        return core_header + ct_and_tag
+
+    def _handle_bootstrap_hello(self, frame: CoreFrame, out: list[Any]) -> None:
+        if self.bootstrap_mgr is None:
+            return
+        if not self._admit_bootstrap_ingress():
+            return
+        # An admitted association is never evicted by unauthenticated bootstrap.
+        if self.association is not None and self.association.status == "active":
+            return
+        if self.sec_mode == MODE_XX and self.peer_static_public_key is None:
+            return
+        if frame.sequence not in (1, 2, 3) or (frame.options & 2) or frame.security is not None or frame.fragment is not None:
+            return
+        if any(ext.extension_id not in (2, 3) for ext in frame.extensions):
+            return
+        topology = self.manifest.values.get("binding", {}).get("topology")
+        if topology == "relay-routed":
+            if frame.route is None or frame.route.mode != 1:
+                return
+        elif frame.route is not None:
+            return
+
+        ext_context = next((e for e in frame.extensions if e.extension_id == 2), None)
+        if not ext_context or len(ext_context.value) < 9:
+            return
+        ns, at = decode_uleb(ext_context.value, 0)
+        if ns != self.namespace or len(ext_context.value) - at != 8:
+            return
+        prov_epoch = int.from_bytes(ext_context.value[at : at + 8], "little")
+
+        origin = None
+        if frame.route:
+            if frame.route.destination_id != self.local_node_id:
+                return
+            origin = frame.route.source_id
+        else:
+            ext_origin = next((e for e in frame.extensions if e.extension_id == 3), None)
+            if ext_origin:
+                origin, origin_end = decode_uleb(ext_origin.value, 0)
+                if origin_end != len(ext_origin.value):
+                    return
+        if origin != self.remote_node_id:
+            return
+
+        flight = frame.sequence
+        expected_payload_lengths = (
+            {1: 120, 2: 70}
+            if self.sec_mode == MODE_NNPSK0
+            else {1: 104, 2: 118, 3: 82}
+        )
+        if len(frame.payload) != expected_payload_lengths.get(flight):
+            return
+        if flight == 1:
+            if len(frame.payload) < 72:
+                return
+            attempt_id = frame.payload[4:20]
+            if prov_epoch != compute_bootstrap_epoch(attempt_id):
+                return
+            prefix = frame.payload[:72]
+            if (
+                prefix[0] != BOOT_VERSION
+                or prefix[1] != self.sec_mode
+                or prefix[2] != self.sec_cipher
+                or prefix[3] != 1
+                or int.from_bytes(prefix[20:24], "little") != self.namespace
+                or int.from_bytes(prefix[24:28], "little") != self.remote_node_id
+                or int.from_bytes(prefix[28:32], "little") != self.local_node_id
+                or prefix[32:64] != self.bootstrap_mgr.manifest_digest
+                or int.from_bytes(prefix[64:68], "little") != self.bootstrap_mgr.key_hint
+                or int.from_bytes(prefix[68:72], "little") == 0
+            ):
+                return
+            current_attempt_id = self.bootstrap_mgr.current_attempt_id
+            if current_attempt_id is not None and current_attempt_id != attempt_id:
+                return
+            if current_attempt_id == attempt_id and self._bootstrap_attempt_local_initiated:
+                return
+            if current_attempt_id is None and self._bootstrap_attempt_id is not None:
+                self._end_bootstrap_attempt()
+            if self._bootstrap_attempt_expired(attempt_id):
+                self._abort_bootstrap_attempt(out)
+                return
+            # A same-attempt Flight 1 whose Noise payload differs from the
+            # admitted bytes is a cheap conflicting duplicate. Do not clear
+            # processed-flight state or charge crypto budget before dropping it.
+            if (
+                current_attempt_id == attempt_id
+                and not self._bootstrap_attempt_local_initiated
+                and self.bootstrap_mgr.flight1_cache is not None
+                and self.bootstrap_mgr.flight1_cache != frame.payload
+            ):
+                return
+            if current_attempt_id is None and not self._begin_bootstrap_attempt(attempt_id, local_initiated=False):
+                return
+            duplicate_flight1 = (
+                self.bootstrap_mgr.current_attempt_id == attempt_id
+                and self.bootstrap_mgr.flight1_cache == frame.payload
+                and self.bootstrap_mgr.flight2_cache is not None
+            )
+            if duplicate_flight1 and not self._admit_bootstrap_duplicate_response():
+                return
+            if not duplicate_flight1:
+                self._processed_flight2_payload = None
+                self._processed_flight3_payload = None
+            if duplicate_flight1:
+                r_cid = self.bootstrap_mgr.local_rx_cid
+                f2_payload = self.bootstrap_mgr.flight2_cache
+            else:
+                crypto_start_ns = self._start_bootstrap_crypto()
+                if crypto_start_ns is None:
+                    # No-work admission does not invalidate an admitted attempt.
+                    if self.bootstrap_mgr.current_attempt_id != attempt_id:
+                        self._end_bootstrap_attempt()
+                    return
+                try:
+                    r_cid, f2_payload = self.bootstrap_mgr.process_flight_1(frame.payload, self.now_ms)
+                except (SecurityError, HandshakeError, AuthorizationError):
+                    budget_ok = self._finish_bootstrap_crypto(crypto_start_ns)
+                    if self.bootstrap_mgr.attempt_aborted or not budget_ok:
+                        self._abort_bootstrap_attempt(out)
+                    return
+                if not self._finish_bootstrap_crypto(crypto_start_ns):
+                    self._abort_bootstrap_attempt(out)
+                    return
+            self.local_rx_cid = r_cid
+            if self.sec_mode == MODE_NNPSK0 and not duplicate_flight1:
+                self.pending_association = self.bootstrap_mgr.create_association(is_initiator=False, at_ms=self.now_ms)
+
+            f2_wire = self._build_bootstrap_frame(flight=2, attempt_id=attempt_id, payload=f2_payload)
+            if not self._enqueue_bootstrap_tx(f2_wire, attempt_id, out):
+                self._abort_bootstrap_attempt(out)
+
+        elif flight == 2:
+            if len(frame.payload) < 18:
+                return
+            attempt_id = frame.payload[2:18]
+            if prov_epoch != compute_bootstrap_epoch(attempt_id):
+                return
+            if self._bootstrap_attempt_expired(attempt_id):
+                self._abort_bootstrap_attempt(out)
+                return
+            if (
+                self.bootstrap_mgr.current_attempt_id == attempt_id
+                and self._processed_flight2_payload is not None
+            ):
+                if frame.payload != self._processed_flight2_payload:
+                    return
+                if not self._admit_bootstrap_duplicate_response():
+                    return
+                # Identical processed continuation: resend cached next flight and
+                # use a fresh PN for the logical FINISH, without re-entering Noise.
+                if self.sec_mode == MODE_XX and 3 in self.bootstrap_mgr.cached_outgoing_flights:
+                    f3_wire = self._build_bootstrap_frame(
+                        flight=3,
+                        attempt_id=attempt_id,
+                        payload=self.bootstrap_mgr.cached_outgoing_flights[3],
+                    )
+                    if not self._enqueue_bootstrap_tx(f3_wire, attempt_id, out):
+                        return
+                if self.pending_association is not None and self.cached_finish_wire is not None:
+                    finish_wire = self._build_protected_finish_frame()
+                    if not self._enqueue_bootstrap_tx(finish_wire, attempt_id, out):
+                        return
+                return
+            if self.bootstrap_mgr.current_attempt_id != attempt_id:
+                return
+            if not self._bootstrap_attempt_local_initiated:
+                return
+            crypto_start_ns = self._start_bootstrap_crypto()
+            if crypto_start_ns is None:
+                return
+            try:
+                f3_res = self.bootstrap_mgr.process_flight_2(frame.payload, self.now_ms)
+            except (SecurityError, HandshakeError, AuthorizationError):
+                budget_ok = self._finish_bootstrap_crypto(crypto_start_ns)
+                if self.bootstrap_mgr.attempt_aborted or not budget_ok:
+                    self._abort_bootstrap_attempt(out)
+                return
+            if not self._finish_bootstrap_crypto(crypto_start_ns):
+                self._abort_bootstrap_attempt(out)
+                return
+            self._processed_flight2_payload = frame.payload
+            self._bootstrap_flight1_wire = None
+            self._bootstrap_flight_attempts_used = 0
+            self._bootstrap_next_flight_retry_ms = None
+
+            if self.sec_mode == MODE_XX:
+                _, f3_payload = f3_res
+                if f3_payload is not None:
+                    f3_wire = self._build_bootstrap_frame(flight=3, attempt_id=attempt_id, payload=f3_payload)
+                    if not self._enqueue_bootstrap_tx(f3_wire, attempt_id, out):
+                        self._abort_bootstrap_attempt(out)
+                        return
+
+            # Initiator handshake complete!
+            self.pending_association = self.bootstrap_mgr.create_association(is_initiator=True, at_ms=self.now_ms)
+            finish_wire = self._build_protected_finish_frame()
+            self.cached_finish_wire = finish_wire
+            self.confirmation_attempts_used = 1
+            self.next_confirmation_retry_ms = self.now_ms + self.confirmation_timeout_ms
+            if not self._enqueue_bootstrap_tx(finish_wire, attempt_id, out):
+                self._abort_bootstrap_attempt(out)
+
+        elif flight == 3:
+            if self.sec_mode != MODE_XX or len(frame.payload) < 18:
+                return
+            attempt_id = frame.payload[2:18]
+            if prov_epoch != compute_bootstrap_epoch(attempt_id):
+                return
+            if self._bootstrap_attempt_expired(attempt_id):
+                self._abort_bootstrap_attempt(out)
+                return
+            if (
+                self.bootstrap_mgr.current_attempt_id == attempt_id
+                and self._processed_flight3_payload is not None
+            ):
+                # Identical processed continuation is a cheap no-op; a conflicting
+                # duplicate cannot enter or abort the already advanced Noise state.
+                return
+            if self.bootstrap_mgr.current_attempt_id != attempt_id:
+                return
+            if self._bootstrap_attempt_local_initiated:
+                return
+            crypto_start_ns = self._start_bootstrap_crypto()
+            if crypto_start_ns is None:
+                return
+            try:
+                self.bootstrap_mgr.process_flight_3(frame.payload, self.now_ms)
+            except (SecurityError, HandshakeError, AuthorizationError):
+                budget_ok = self._finish_bootstrap_crypto(crypto_start_ns)
+                if self.bootstrap_mgr.attempt_aborted or not budget_ok:
+                    self._abort_bootstrap_attempt(out)
+                return
+            if not self._finish_bootstrap_crypto(crypto_start_ns):
+                self._abort_bootstrap_attempt(out)
+                return
+            self._processed_flight3_payload = frame.payload
+            self.pending_association = self.bootstrap_mgr.create_association(is_initiator=False, at_ms=self.now_ms)
+
+    def _handle_protected_frame(self, raw_frame: bytes, frame: CoreFrame, out: list[Any]) -> None:
+        assoc = self.association or self.pending_association
+        if assoc is None:
+            return
+        if (assoc.status != "active"
+                and self._bootstrap_attempt_id is not None
+                and self._bootstrap_attempt_expired(self._bootstrap_attempt_id)):
+            # Attempt deadlines are absolute, so a late but otherwise valid
+            # FINISH/READY cannot activate a candidate after its deadline.
+            self._abort_bootstrap_attempt(out)
+            return
+        if assoc.status == "closed" or assoc.is_expired(self.now_ms):
+            self._expire_security_context(out)
+            return
+        if frame.security.cipher != self.sec_cipher:
+            return
+        if frame.security.receive_cid != assoc.local_rx_cid:
+            return
+
+        core_header = raw_frame[:raw_frame[1]]
+        try:
+            plaintext = assoc.decrypt_frame(
+                core_header=core_header,
+                ciphertext=frame.payload,
+                tag=frame.trailer,
+                pn=frame.security.packet_number,
+                rx_cid=frame.security.receive_cid,
+            )
+        except SecurityError:
+            if assoc.status == "closed":
+                self._expire_security_context(out)
+            return
+
+        # Count only newly authenticated plaintext, including handshake controls.
+        received_total = getattr(assoc, "total_plaintext_bytes_received", 0) + len(plaintext)
+        if received_total > MAX_PLAINTEXT_BYTES:
+            assoc.status = "closed"
+            self._expire_security_context(out)
+            return
+        assoc.total_plaintext_bytes_received = received_total
+
+        if not self._protected_identity_matches(frame, assoc):
+            return
+
+        decrypted_frame = CoreFrame(
+            message_type=frame.message_type,
+            options=frame.options,
+            sequence=frame.sequence,
+            route=frame.route,
+            fragment=frame.fragment,
+            payload_descriptor=frame.payload_descriptor,
+            integrity=frame.integrity,
+            security=frame.security,
+            extensions=frame.extensions,
+            payload=plaintext,
+            trailer=b"",
+        )
+
+        # Check for protected HELLO (FINISH / READY)
+        if frame.message_type == 3:
+            if plaintext == PAYLOAD_FINISH and self._valid_confirmation_frame(frame):  # b"\x04"
+                if (
+                    self.bootstrap_mgr is not None
+                    and self.bootstrap_mgr.enrollment_committed
+                    and self.pending_association is not None
+                    and not self.pending_association.is_initiator
+                ):
+                    # Responder activates association!
+                    self.association = self.pending_association
+                    self.pending_association = None
+                    self.association.status = "active"
+                    self.local_epoch = self.association.local_epoch
+                    self.remote_epoch = self.association.peer_epoch
+                if self.association is not None:
+                    # Send protected READY
+                    ready_wire = self._build_protected_ready_frame()
+                    self.cached_ready_wire = ready_wire
+                    attempt_id = self._bootstrap_attempt_id
+                    if attempt_id is not None:
+                        if not self._enqueue_bootstrap_tx(ready_wire, attempt_id, out):
+                            self.association.status = "closed"
+                            self._expire_security_context(out)
+                    else:
+                        self._enqueue_tx(ready_wire, not_after_ms=None, service_id=0, out=out)
+                return
+            elif plaintext == PAYLOAD_READY and self._valid_confirmation_frame(frame):  # b"\x05"
+                if (
+                    self.bootstrap_mgr is not None
+                    and self.bootstrap_mgr.enrollment_committed
+                    and self.pending_association is not None
+                    and self.pending_association.is_initiator
+                ):
+                    # Initiator activates association!
+                    self.association = self.pending_association
+                    self.pending_association = None
+                    self.association.status = "active"
+                    self.local_epoch = self.association.local_epoch
+                    self.remote_epoch = self.association.peer_epoch
+                    self.next_confirmation_retry_ms = None
+                    self.cached_finish_wire = None
+                    self._promote_waiting_requests(out)
+                return
+            return
+
+        # Only an authorized application packet can prove readiness if READY
+        # was lost. Reject unrecognized or unauthorized records while the
+        # initiator association is still a candidate.
+        if (
+            self.bootstrap_mgr is not None
+            and self.bootstrap_mgr.enrollment_committed
+            and self.pending_association is not None
+            and self.pending_association.is_initiator
+        ):
+            if not self._candidate_application_is_authorized(decrypted_frame, self.pending_association):
+                return
+            self.association = self.pending_association
+            self.pending_association = None
+            self.association.status = "active"
+            self.local_epoch = self.association.local_epoch
+            self.remote_epoch = self.association.peer_epoch
+            self.next_confirmation_retry_ms = None
+            self.cached_finish_wire = None
+            self._promote_waiting_requests(out)
+
+        if self.association is None or self.association.status != "active":
+            return
+
+        self._dispatch_core_frame(decrypted_frame, out)
+
+    @staticmethod
+    def _valid_confirmation_frame(frame: CoreFrame) -> bool:
+        """Apply the exact SEC-1 S4 control-frame shape to FINISH and READY."""
+        allowed_options = 0x01 | 0x04 | 0x40 | 0x80  # SEQ, ROUTE, SECURITY, EXT
+        if (
+            frame.sequence != 0
+            or not (frame.options & 0x01)
+            or not (frame.options & 0x40)
+            or frame.options & ~allowed_options
+            or frame.fragment is not None
+            or frame.payload_descriptor is not None
+        ):
+            return False
+        return all(ext.extension_id in (2, 3) for ext in frame.extensions)
+
+    def _candidate_application_is_authorized(
+        self, frame: CoreFrame, association: SecurityAssociation
+    ) -> bool:
+        """Check candidate traffic before it can activate an initiator (§S4)."""
+        if frame.message_type not in (0, 5, 7) or frame.fragment is not None or frame.sequence is None:
+            return False
+
+        service_id = self.default_service
+        explicit_service = False
+        for ext in frame.extensions:
+            if ext.extension_id == 4:
+                service_id = decode_uleb(ext.value)[0]
+                explicit_service = True
+                break
+        if service_id == 0 or (service_id == self.default_service and explicit_service):
+            return False
+
+        origin = frame.route.source_id if frame.route is not None else self.remote_node_id
+        if frame.route is None:
+            origin_ext = next((e for e in frame.extensions if e.extension_id == 3), None)
+            if origin_ext is not None:
+                origin, end = decode_uleb(origin_ext.value, 0)
+                if end != len(origin_ext.value):
+                    return False
+        if origin != self.remote_node_id:
+            return False
+
+        service = next((s for s in self.manifest.values.get("services", []) if s.get("id") == service_id), None)
+        if service is None:
+            return False
+        # SAMPLE-1 is a fixed profile encoding. A descriptor must not relabel
+        # its request or telemetry payload before candidate readiness.
+        if service_id == 1 and frame.payload_descriptor is not None:
+            return False
+        acl = next((a for a in service.get("acl", []) if a.get("node") == origin), None)
+        required_action = self._required_acl_action(frame, service_id)
+        if acl is None or required_action is None or required_action not in acl.get("actions", []):
+            return False
+
+        # Candidate readiness is established only by an application operation
+        # this endpoint can actually accept. SAMPLE-1 has a closed opcode set.
+        if frame.message_type == 0:
+            if not (frame.options & 2):
+                return False
+            request_limit = service.get("request_bytes", self.manifest.values["limits"]["message_bytes"])
+            if len(frame.payload) > request_limit:
+                return False
+            if service_id == 1 and frame.payload not in (b"\x01", b"\x02"):
+                return False
+        elif frame.message_type == 5:
+            if (service_id != 1 or self.sample_consumer is None or frame.options & 2
+                    or len(frame.payload) != 16):
+                return False
+            try:
+                Sample.decode_telemetry(frame.payload)
+            except ValueError:
+                return False
+        elif len(frame.payload) > self.manifest.values["limits"]["message_bytes"]:
+            return False
+
+        if service.get("freshness") and frame.message_type == 0:
+            ext_fresh = next((e for e in frame.extensions if e.extension_id == 6), None)
+            if ext_fresh is None or len(ext_fresh.value) != 16 or self.freshness_manager is None:
+                return False
+            sender_key = (self.namespace, origin, association.peer_epoch, frame.sequence)
+            if sender_key not in self.delivery.accepted_messages and sender_key not in self.delivery.retained_results:
+                immutable_binding = self._immutable_message_metadata(frame)
+                binding_digest = hashlib.sha256(
+                    repr((immutable_binding, hashlib.sha256(frame.payload).digest())).encode("utf-8")
+                ).digest()
+                if not self.freshness_manager.validate_command_token(
+                    ext_fresh.value,
+                    association.h,
+                    origin,
+                    sender_key,
+                    self.now_ms,
+                    service_id=service_id,
+                    message_digest=binding_digest,
+                ):
+                    return False
+        return True
+
+    def _protected_identity_matches(self, frame: CoreFrame, assoc: SecurityAssociation) -> bool:
+        """Bind authenticated visible identity and destination to this association."""
+        expected_context = encode_uleb(self.namespace) + assoc.peer_epoch.to_bytes(8, "little")
+        context = next((e for e in frame.extensions if e.extension_id == 2), None)
+        origin_ext = next((e for e in frame.extensions if e.extension_id == 3), None)
+        topology = self.manifest.values.get("binding", {}).get("topology")
+
+        if frame.route is not None:
+            if topology != "relay-routed":
+                return False
+            if (
+                frame.route.mode != 1
+                or frame.route.source_id != self.remote_node_id
+                or frame.route.destination_id != self.local_node_id
+                or context is None
+                or context.value != expected_context
+            ):
+                return False
+        else:
+            if topology == "relay-routed":
+                return False
+            if context is not None and context.value != expected_context:
+                return False
+
+        if origin_ext is not None:
+            try:
+                origin, end = decode_uleb(origin_ext.value, 0)
+            except Exception:
+                return False
+            if end != len(origin_ext.value) or origin != self.remote_node_id:
+                return False
+        return True
+
+    def _expire_security_context(self, out: list[Any]) -> None:
+        """Stop protected work and retire all state tied to a lost/expired association."""
+        for exc in list(self.delivery.active_outgoing.values()):
+            may_have_reached_peer = (
+                exc.possibly_transmitted
+                or bool(exc.admitted_schedule_handles)
+                or any(self.active_submissions.get(h, {}).get("admitted") for h in exc.active_submission_handles)
+            )
+            out.append(ApplicationEvent(
+                kind="diagnostic" if may_have_reached_peer else "protocol_rejection",
+                service_id=exc.service_id,
+                exchange_id=exc.exchange_id,
+                status=0 if may_have_reached_peer else 4,
+                payload=b"unknown" if may_have_reached_peer else b"security_closed",
+                at_ms=self.now_ms,
+            ))
+            self._retire_exchange_attempts(exc, out)
+        for exc in self.delivery.queue:
+            out.append(ApplicationEvent(
+                kind="protocol_rejection",
+                service_id=exc.service_id,
+                exchange_id=exc.exchange_id,
+                status=4,
+                payload=b"security_closed",
+                at_ms=self.now_ms,
+            ))
+        for handle, sub in self.active_submissions.items():
+            if sub.get("admitted") and not sub.get("cancel_requested"):
+                sub["cancel_requested"] = True
+                out.append(Cancel(handle=handle, generation=sub["generation"], at_ms=self.now_ms))
+        self.active_submissions = {h: sub for h, sub in self.active_submissions.items() if sub.get("admitted")}
+        self.tx_queue.clear()
+        self._retire_security_context()
+        self._retire_delivery_state()
+        self.reassembly.retire()
+
     def _process_core_bytes(self, raw_frame: bytes, out: list[Any]) -> None:
         try:
             frame = parse_frame(raw_frame, max_frame=self.forward_mtu)
         except Exception:
             return  # FrameError: reject frame
 
-        # Reject protected frames: SEC-1 belongs to P21C (test-only provisional)
-        if frame.security is not None:
+        # Dispatch bootstrap HELLO (unprotected TYPE=3)
+        if frame.message_type == 3 and frame.security is None:
+            self._handle_bootstrap_hello(frame, out)
             return
 
+        # Dispatch protected frames (SECURITY=1)
+        if frame.security is not None:
+            self._handle_protected_frame(raw_frame, frame, out)
+            return
+
+        # Unprotected frame received while SEC-1 association is active:
+        # Strictly reject plaintext downgrade (§S1, S10.03)!
+        if self.sec_mode is not None and not self.test_only_disable_sec1:
+            return
+
+        self._dispatch_core_frame(frame, out)
+
+    def _dispatch_core_frame(self, frame: CoreFrame, out: list[Any]) -> None:
         # Resolve service ID
         service_id = self.default_service
         explicit_service = False
@@ -677,17 +1793,98 @@ class PeerEndpoint:
                     origin = decode_uleb(ext.value)[0]
                     break
 
-        namespace = self.namespace
-        epoch = self.remote_epoch
-        for ext in frame.extensions:
-            if ext.extension_id == 2:
-                ns, at = decode_uleb(ext.value)
-                namespace = ns
-                epoch = int.from_bytes(ext.value[at : at + 8], "little")
-                break
+        if self.association is not None and frame.security is not None:
+            namespace = self.namespace
+            epoch = self.association.peer_epoch
+        else:
+            namespace = self.namespace
+            epoch = self.remote_epoch
+            for ext in frame.extensions:
+                if ext.extension_id == 2:
+                    ns, at = decode_uleb(ext.value)
+                    namespace = ns
+                    epoch = int.from_bytes(ext.value[at : at + 8], "little")
+                    break
 
         seq = frame.sequence if frame.sequence is not None else 0
         sender_key = (namespace, origin, epoch, seq)
+
+        # Retained security-layer rejections own their identity before any
+        # subsequently supplied opcode or FRESHNESS field can be reconsidered.
+        if frame.message_type == 0 and self._replay_retained_rejection(
+            sender_key, frame, service_id, out,
+            geometry=(frame.fragment.chunk_size, frame.fragment.total_length)
+            if frame.fragment is not None else None,
+        ):
+            return
+
+        # Check ACL if SEC-1 association is active (§S2, S10.03)
+        if self.association is not None and frame.security is not None:
+            if service_id == 0:
+                if any(e.extension_id == 6 for e in frame.extensions):
+                    # Freshness control messages MUST NOT carry FRESHNESS themselves (§S7.1)
+                    if frame.message_type == 0:
+                        self._reject_sec1_request(sender_key, frame, 0, 7, out)
+                    return
+                if frame.message_type not in (0, 1, 2, 6):
+                    return
+            else:
+                svc_cfg = next((s for s in self.manifest.values.get("services", []) if s.get("id") == service_id), None)
+                if svc_cfg is None:
+                    if frame.message_type == 0:
+                        self._reject_sec1_request(sender_key, frame, service_id, 2, out)
+                    return
+                acl_entries = svc_cfg.get("acl", [])
+                node_acl = next((a for a in acl_entries if a.get("node") == origin), None)
+                if node_acl is None:
+                    if frame.message_type == 0:
+                        self._reject_sec1_request(sender_key, frame, service_id, 6, out)
+                    return
+                allowed_actions = node_acl.get("actions", [])
+                required_action = self._required_acl_action(frame, service_id)
+                if frame.message_type != 6 and (
+                    required_action is None or required_action not in allowed_actions
+                ):
+                    if frame.message_type == 0:
+                        self._reject_sec1_request(sender_key, frame, service_id, 6, out)
+                    return
+
+                # This profile fixes SAMPLE-1's representation in its service
+                # contract and omits PAYLOAD_DESC. Do not guess a codec or
+                # schema, and retain STATUS=2 for reliable requests.
+                if service_id == 1 and frame.payload_descriptor is not None:
+                    if frame.message_type == 0:
+                        self._reject_sec1_request(sender_key, frame, service_id, 2, out)
+                    return
+
+                # Check Freshness token requirement (§S7)
+                is_duplicate = (
+                    sender_key in self.delivery.accepted_messages
+                    or sender_key in self.delivery.retained_results
+                )
+                if svc_cfg.get("freshness") and frame.message_type == 0 and not is_duplicate:
+                    ext_fresh = next((e for e in frame.extensions if e.extension_id == 6), None)
+                    if not ext_fresh or len(ext_fresh.value) != 16:
+                        self._reject_sec1_request(sender_key, frame, service_id, 7, out)
+                        return
+                    fragment_geometry = (
+                        (frame.fragment.chunk_size, frame.fragment.total_length)
+                        if frame.fragment is not None else None
+                    )
+                    immutable_binding = self._immutable_message_metadata(frame, fragment_geometry)
+                    payload_digest = None if frame.fragment is not None else hashlib.sha256(frame.payload).digest()
+                    binding_digest = hashlib.sha256(repr((immutable_binding, payload_digest)).encode("utf-8")).digest()
+                    if not self.freshness_manager.validate_command_token(
+                        ext_fresh.value,
+                        self.association.h,
+                        origin,
+                        sender_key,
+                        self.now_ms,
+                        service_id=service_id,
+                        message_digest=binding_digest,
+                    ):
+                        self._reject_sec1_request(sender_key, frame, service_id, 7, out)
+                        return
 
         # Check fragmentation
         frag_geom = None
@@ -729,6 +1926,8 @@ class PeerEndpoint:
                     ),
                 )
             except (ReassemblyError, ConflictError, QuotaError):
+                if self.association is not None and frame.security is not None and self.freshness_manager is not None:
+                    self.freshness_manager.consume_identity(self.association.h, sender_key)
                 return
 
             if getattr(res, "already_completed", False):
@@ -737,12 +1936,18 @@ class PeerEndpoint:
                     if sender_key in self.delivery.retained_results:
                         res_obj = self.delivery.retained_results[sender_key]
                         if self.delivery.admit_result_replay(res_obj, self.now_ms):
+                            self._reprotect_retained_result(res_obj)
                             for rf in res_obj.result_frames:
                                 self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
                     elif sender_key in self.delivery.accepted_messages:
                         rec = self.delivery.accepted_messages[sender_key]
                         if rec.ack_frame_bytes:
-                            self._enqueue_tx(rec.ack_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
+                            ack = (
+                                self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
+                                if self.association is not None
+                                else rec.ack_frame_bytes
+                            )
+                            self._enqueue_tx(ack, not_after_ms=None, service_id=service_id, out=out)
                     elif sender_key in self.delivery.rejections:
                         rej = self.delivery.rejections[sender_key]
                         if rej.service_id != service_id:
@@ -752,20 +1957,38 @@ class PeerEndpoint:
                         if rej.payload and rej.payload[offset : offset + expected_len] != frame.payload:
                             return
                         if self.delivery.admit_rejection_replay(rej):
-                            self._enqueue_tx(rej.err_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
+                            err = (
+                                self._build_err_frame(
+                                    sender_key, service_id, status=rej.status, own_seq=rej.err_seq
+                                )
+                                if self.association is not None
+                                else rej.err_frame_bytes
+                            )
+                            self._enqueue_tx(err, not_after_ms=None, service_id=service_id, out=out)
                 elif frame.message_type == 7:  # DATA
                     if sender_key in self.delivery.accepted_messages:
                         rec = self.delivery.accepted_messages[sender_key]
                         if rec.ack_frame_bytes:
-                            self._enqueue_tx(rec.ack_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
+                            ack = (
+                                self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
+                                if self.association is not None
+                                else rec.ack_frame_bytes
+                            )
+                            self._enqueue_tx(ack, not_after_ms=None, service_id=service_id, out=out)
                 elif frame.message_type in (1, 2) and frame.options & 2:
                     completed = self.reassembly.completed.get(sender_key)
                     if (not completed or not getattr(completed, "endpoint_accepted", False)
                             or completed.result_ack_replays >= self.delivery.max_bursts - 1):
                         return
                     completed.result_ack_replays += 1
+                    result_ack = self._build_stable_result_ack_frame(
+                        sender_key,
+                        service_id,
+                        request_key=self._extract_reply_to(frame),
+                        completed=completed,
+                    )
                     self._enqueue_tx(
-                        self._build_ack_frame(sender_key, service_id),
+                        result_ack,
                         not_after_ms=None,
                         service_id=service_id,
                         out=out,
@@ -895,6 +2118,14 @@ class PeerEndpoint:
             ref_ns, ref_orig, ref_ep, ref_seq, responder=responder, service_id=service_id
         )
         if exc:
+            if exc.service_id == 0:
+                if frame.message_type != 1 or status != 0 or len(frame.payload) != 21 or frame.payload[0] != 0x11:
+                    return
+                requested = int.from_bytes(exc.request_payload[1:5], "little") if len(exc.request_payload) == 5 else 0
+                granted = int.from_bytes(frame.payload[17:21], "little")
+                maximum = self.manifest.values.get("freshness", {}).get("lease_ms", 0)
+                if not (1 <= granted <= min(requested, maximum)):
+                    return
             # Validate SAMPLE-1 terminal response shape, opcode, message type, and correlated request
             if service_id == 1 and self.sample_consumer:
                 req_opcode = exc.request_payload[0] if exc.request_payload else 0
@@ -928,6 +2159,9 @@ class PeerEndpoint:
                         ref_seq, frame.payload, association_id=assoc_id, generation=init_gen, now_ms=self.now_ms
                     )
 
+            if exc.service_id == 0 and frame.message_type == 1 and status == 0 and len(frame.payload) == 21 and frame.payload[0] == 0x11:
+                self.active_freshness_token = frame.payload[1:17]
+
             self._complete_outgoing_exchange(exc, out)
             self._promote_waiting_requests(out)
             out.append(ApplicationEvent(
@@ -941,7 +2175,11 @@ class PeerEndpoint:
 
             # Send ACK for the result referencing the result's identity
             if frame.options & 2:  # ACK_REQ
-                ack_bytes = self._build_ack_frame(sender_key, service_id)
+                ack_bytes = self._build_stable_result_ack_frame(
+                    sender_key,
+                    service_id,
+                    request_key=ref_key,
+                )
                 self._enqueue_tx(ack_bytes, not_after_ms=None, service_id=service_id, out=out)
             return True
         else:
@@ -966,7 +2204,11 @@ class PeerEndpoint:
                     max_result = self.manifest.values["services"][1]["result_bytes"]
                     valid_late_context = valid_late_context and frame.message_type == 1 and status == 0 and len(frame.payload) <= max_result
                 if valid_late_context and frame.options & 2:
-                    ack_bytes = self._build_ack_frame(sender_key, service_id)
+                    ack_bytes = self._build_stable_result_ack_frame(
+                        sender_key,
+                        service_id,
+                        request_key=(ref_ns, ref_orig, ref_ep, ref_seq),
+                    )
                     self._enqueue_tx(ack_bytes, not_after_ms=None, service_id=service_id, out=out)
                     return True
         return False
@@ -997,6 +2239,7 @@ class PeerEndpoint:
         route = None if frame.route is None else (frame.route.mode, frame.route.source_id, frame.route.destination_id)
         if geometry is None and frame.fragment is not None:
             geometry = (frame.fragment.chunk_size, frame.fragment.total_length)
+        sec_meta = None if frame.security is None else (frame.security.cipher, frame.security.receive_cid)
         return (
             geometry is not None,
             geometry,
@@ -1004,11 +2247,17 @@ class PeerEndpoint:
             route,
             frame.payload_descriptor,
             frame.integrity,
-            frame.security,
+            sec_meta,
             tuple((e.extension_id, e.critical, e.unsafe, e.value) for e in frame.extensions),
         )
 
     def _retain_rejection(self, sender_key: tuple, frame: CoreFrame, service_id: int, status: int, err_frame: bytes, geometry: tuple[int, int] | None = None) -> None:
+        err_seq = 0
+        try:
+            parsed_error = parse_frame(err_frame, max_frame=self.forward_mtu)
+            err_seq = parsed_error.sequence or 0
+        except FrameError:
+            pass
         self.delivery.rejections[sender_key] = RejectionRecord(
             status=status,
             service_id=service_id,
@@ -1017,7 +2266,90 @@ class PeerEndpoint:
             expires_at_ms=self.now_ms + self.delivery.rejection_ms,
             payload=frame.payload,
             immutable_metadata=self._immutable_message_metadata(frame, geometry),
+            err_seq=err_seq,
         )
+        if frame.security is not None and self.freshness_manager is not None:
+            token_ext = next((e for e in frame.extensions if e.extension_id == 6), None)
+            if token_ext is not None and len(token_ext.value) == 16:
+                self.freshness_manager.consume_token(token_ext.value)
+
+    def _replay_retained_rejection(
+        self,
+        sender_key: tuple,
+        frame: CoreFrame,
+        service_id: int,
+        out: list[Any],
+        geometry: tuple[int, int] | None = None,
+    ) -> bool:
+        rejection = self.delivery.rejections.get(sender_key)
+        if rejection is None:
+            return False
+        payload_matches = rejection.payload == frame.payload
+        if geometry is not None and len(rejection.payload) == geometry[1]:
+            offset = frame.fragment.index * frame.fragment.chunk_size
+            expected_len = min(frame.fragment.chunk_size, geometry[1] - offset)
+            payload_matches = rejection.payload[offset : offset + expected_len] == frame.payload
+        if (rejection.service_id != service_id
+                or not payload_matches
+                or rejection.immutable_metadata != self._immutable_message_metadata(frame, geometry)):
+            return True  # Conflicting metadata keeps the retained decision immutable.
+        if self.delivery.admit_rejection_replay(rejection):
+            err_frame = (
+                self._build_err_frame(
+                    sender_key,
+                    service_id,
+                    status=rejection.status,
+                    payload=b"",
+                    is_reliable=False,
+                    own_seq=rejection.err_seq,
+                )
+                if self.association is not None else rejection.err_frame_bytes
+            )
+            self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
+        return True
+
+    def _reject_sec1_request(
+        self,
+        sender_key: tuple,
+        frame: CoreFrame,
+        service_id: int,
+        status: int,
+        out: list[Any],
+    ) -> None:
+        if (sender_key in self.delivery.accepted_messages
+                or sender_key in self.delivery.retained_results
+                or not self.delivery.admit_history()
+                or not self.delivery.admit_result(sender_key)):
+            return
+        err_frame = self._build_err_frame(
+            sender_key, service_id, status=status, payload=b"", is_reliable=False
+        )
+        self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
+        geometry = (
+            (frame.fragment.chunk_size, frame.fragment.total_length)
+            if frame.fragment is not None else None
+        )
+        self._retain_rejection(sender_key, frame, service_id, status, err_frame, geometry=geometry)
+
+    @staticmethod
+    def _required_acl_action(frame: CoreFrame, service_id: int) -> str | None:
+        if frame.message_type == 0:  # REQ
+            if service_id == 1:
+                if frame.payload == b"\x01":
+                    return "read"
+                if frame.payload == b"\x02":
+                    return "status"
+                return None
+            return "data"
+        if frame.message_type == 7:  # DATA
+            return "data"
+        if frame.message_type == 5:  # TELEM
+            return "produce"
+        if frame.message_type in (1, 2):  # RSP / ERR
+            return "result"
+        # ACK is authorized by its authenticated association and a matching
+        # pending request/result reference in _process_ack.
+        return None
 
     def _process_req(self, frame: CoreFrame, service_id: int, sender_key: tuple, out: list[Any], geometry: tuple[int, int] | None = None) -> None:
         # A retained rejection owns its identity until expiry. Exact duplicates replay
@@ -1028,27 +2360,42 @@ class PeerEndpoint:
                     or rej.immutable_metadata != self._immutable_message_metadata(frame, geometry)):
                 return
             if self.delivery.admit_rejection_replay(rej):
-                self._enqueue_tx(rej.err_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
+                if self.association is not None:
+                    err_frame = self._build_err_frame(
+                        sender_key, service_id, status=rej.status, payload=b"", is_reliable=False, own_seq=rej.err_seq
+                    )
+                else:
+                    err_frame = rej.err_frame_bytes
+                self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
             return
 
         # Accepted identity lookup precedes size/ACK policy so changed duplicates
         # cannot replace the retained acceptance with a new rejection.
         if sender_key in self.delivery.accepted_messages:
             rec = self.delivery.accepted_messages[sender_key]
-            if rec.service_id != service_id or rec.message_type != 0 or rec.payload != frame.payload or rec.immutable_metadata != self._immutable_message_metadata(frame, geometry):
+            if (rec.service_id != service_id or rec.message_type != 0
+                    or rec.immutable_metadata != self._immutable_message_metadata(frame, geometry)
+                    or (frame.security is None and rec.payload != frame.payload)):
                 return
             if sender_key in self.delivery.retained_results:
                 res = self.delivery.retained_results[sender_key]
                 if self.delivery.admit_result_replay(res, self.now_ms):
+                    self._reprotect_retained_result(res)
                     for rf in res.result_frames:
                         self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
             elif rec.ack_frame_bytes and rec.replay_bursts < self.delivery.max_bursts - 1:
                 rec.replay_bursts += 1
-                self._enqueue_tx(rec.ack_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
+                if self.association is not None:
+                    fresh_ack = self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
+                    self._enqueue_tx(fresh_ack, not_after_ms=None, service_id=service_id, out=out)
+                else:
+                    self._enqueue_tx(rec.ack_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
             return
 
         # Check supported service before execution
         supported_services = {1, 2}
+        if self.association is not None:
+            supported_services.add(0)
         if self.test_services:
             supported_services.update(self.test_services.keys())
         for svc in self.manifest.values.get("services", []):
@@ -1065,13 +2412,16 @@ class PeerEndpoint:
             return
 
         # Size limit check
-        max_req_len = None
-        for svc in self.manifest.values.get("services", []):
-            if svc.get("id", svc.get("service_id")) == service_id:
-                max_req_len = svc.get("request_bytes")
-                break
-        if max_req_len is None:
-            max_req_len = self.manifest.values.get("limits", {}).get("message_bytes", 1048576)
+        if service_id == 0:
+            max_req_len = 5
+        else:
+            max_req_len = None
+            for svc in self.manifest.values.get("services", []):
+                if svc.get("id", svc.get("service_id")) == service_id:
+                    max_req_len = svc.get("request_bytes")
+                    break
+            if max_req_len is None:
+                max_req_len = self.manifest.values.get("limits", {}).get("message_bytes", 1048576)
         if len(frame.payload) > max_req_len:
             # STATUS 3: message exceeds configured size
             err_frame = self._build_err_frame(sender_key, service_id, status=3, payload=b"", is_reliable=False)
@@ -1094,19 +2444,29 @@ class PeerEndpoint:
                 return  # Conflicting metadata: drop
             # Repeat retained rejection without renewing retention
             if self.delivery.admit_rejection_replay(rej):
-                err_frame = self._build_err_frame(sender_key, service_id, status=rej.status, payload=b"", is_reliable=False)
+                if self.association is not None:
+                    err_frame = self._build_err_frame(
+                        sender_key, service_id, status=rej.status, payload=b"", is_reliable=False, own_seq=rej.err_seq
+                    )
+                else:
+                    err_frame = rej.err_frame_bytes
                 self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
             return
 
         if sender_key in self.delivery.retained_results:
             res = self.delivery.retained_results[sender_key]
+            if res.immutable_metadata != self._immutable_message_metadata(frame, geometry):
+                return
             if self.delivery.admit_result_replay(res, self.now_ms):
+                self._reprotect_retained_result(res)
                 for rf in res.result_frames:
                     self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
             return
 
         # Verify enabled service handler before acceptance or execution
-        if service_id == 1:
+        if service_id == 0:
+            pass  # Built-in SEC-1 control handler enabled
+        elif service_id == 1:
             if not self.sample_producer:
                 # Producer role not active on consumer: STATUS=6 (policy/authorization denied)
                 err_frame = self._build_err_frame(sender_key, service_id, status=6, payload=b"", is_reliable=False)
@@ -1124,6 +2484,37 @@ class PeerEndpoint:
             self._retain_rejection(sender_key, frame, service_id, 2, err_frame, geometry=geometry)
             return
 
+        # Validate Service 0 before reserving the single-result gate. Malformed
+        # controls must not leave a gate held until timeout.
+        grant_request: int | None = None
+        if service_id == 0:
+            if len(frame.payload) != 5:
+                rejection_status = 7
+            elif frame.payload[0] != 0x10:
+                rejection_status = 1
+            else:
+                requested_lifetime = int.from_bytes(frame.payload[1:5], "little")
+                rejection_status = 0 if 1 <= requested_lifetime <= 60000 else 7
+                if rejection_status == 0:
+                    grant_request = requested_lifetime
+            if rejection_status:
+                err_frame = self._build_err_frame(sender_key, 0, status=rejection_status, payload=b"", is_reliable=False)
+                self._enqueue_tx(err_frame, not_after_ms=None, service_id=0, out=out)
+                self._retain_rejection(sender_key, frame, 0, rejection_status, err_frame, geometry=geometry)
+                return
+
+            freshness_cfg = self.manifest.values.get("freshness", {})
+            if self.freshness_manager is None or freshness_cfg.get("lease_ms", 0) <= 0:
+                err_frame = self._build_err_frame(sender_key, 0, status=2, payload=b"", is_reliable=False)
+                self._enqueue_tx(err_frame, not_after_ms=None, service_id=0, out=out)
+                self._retain_rejection(sender_key, frame, 0, 2, err_frame, geometry=geometry)
+                return
+            if self.remote_node_id not in freshness_cfg.get("grant_nodes", []):
+                err_frame = self._build_err_frame(sender_key, 0, status=6, payload=b"", is_reliable=False)
+                self._enqueue_tx(err_frame, not_after_ms=None, service_id=0, out=out)
+                self._retain_rejection(sender_key, frame, 0, 6, err_frame, geometry=geometry)
+                return
+
         # Execute request
         if service_id == 1 and (len(frame.payload) != 1 or frame.payload[0] not in (1, 2)):
             err_frame = self._build_err_frame(sender_key, service_id, status=7, payload=b"", is_reliable=False)
@@ -1134,7 +2525,61 @@ class PeerEndpoint:
             return
         exchange_id = self._alloc_exchange_id()
 
-        if service_id == 1:
+        if service_id == 0:
+            req_lifetime = grant_request
+            freshness_cfg = self.manifest.values["freshness"]
+            try:
+                grant = self.freshness_manager.issue_grant(
+                    self.association.h,
+                    sender_key[1],
+                    req_lifetime,
+                    self.now_ms,
+                    max_policy_ms=freshness_cfg["lease_ms"],
+                    max_tokens_per_association=freshness_cfg["tokens_per_association"],
+                    max_tokens_per_principal=freshness_cfg["tokens_per_principal"],
+                    max_requests_per_pair=freshness_cfg["grant_requests_per_pair"],
+                    token_record_ms=freshness_cfg["token_record_ms"],
+                )
+            except FreshnessError:
+                self.delivery.release_result_gate(sender_key)
+                return
+            if grant is None:
+                self.delivery.release_result_gate(sender_key)
+                err_frame = self._build_err_frame(sender_key, 0, status=4, payload=b"", is_reliable=False)
+                self._enqueue_tx(err_frame, not_after_ms=None, service_id=0, out=out)
+                self._retain_rejection(sender_key, frame, 0, 4, err_frame, geometry=geometry)
+                return
+            else:
+                token, granted_ms = grant
+                result_payload = b"\x11" + token + granted_ms.to_bytes(4, "little")
+                result_status = 0
+                is_app_err = False
+                rsp_frames, result_seq = self._build_rsp_frames(sender_key, 0, result_payload)
+            for rf in rsp_frames:
+                self._enqueue_tx(rf, not_after_ms=None, service_id=0, out=out)
+            self.delivery.retained_results[sender_key] = RetainedResult(
+                service_id=0,
+                req_namespace=sender_key[0],
+                req_origin=sender_key[1],
+                req_epoch=sender_key[2],
+                req_seq=sender_key[3],
+                result_seq=result_seq,
+                result_frames=tuple(rsp_frames),
+                result_frame_bytes=rsp_frames[0],
+                result_payload=result_payload,
+                is_app_err=is_app_err,
+                status=result_status,
+                created_at_ms=self.now_ms,
+                expires_at_ms=self.now_ms + freshness_cfg["grant_result_ms"],
+                result_namespace=self.namespace,
+                result_origin=self.local_node_id,
+                result_epoch=self.local_epoch,
+                next_retry_ms=self.now_ms + self.delivery.response_timeout_ms,
+                attempts_left=max(0, self.delivery.max_bursts - 1),
+                gate_destination=self.remote_node_id,
+                immutable_metadata=self._immutable_message_metadata(frame, geometry),
+            )
+        elif service_id == 1:
             # SAMPLE-1 request validation
             if len(frame.payload) != 1 or frame.payload[0] not in (1, 2):
                 # STATUS 7
@@ -1158,6 +2603,7 @@ class PeerEndpoint:
                         result_seq=result_seq,
                         result_frames=tuple(rsp_frames),
                         result_frame_bytes=rsp_frames[0],
+                        result_payload=result_payload,
                         is_app_err=False,
                         status=0,
                         created_at_ms=self.now_ms,
@@ -1182,6 +2628,7 @@ class PeerEndpoint:
                         result_seq=result_seq,
                         result_frames=(err_frame,),
                         result_frame_bytes=err_frame,
+                        result_payload=b"",
                         is_app_err=True,
                         status=64,
                         created_at_ms=self.now_ms,
@@ -1208,6 +2655,7 @@ class PeerEndpoint:
                     result_seq=result_seq,
                     result_frames=tuple(rsp_frames),
                     result_frame_bytes=rsp_frames[0],
+                    result_payload=result_payload,
                     is_app_err=False,
                     status=0,
                     created_at_ms=self.now_ms,
@@ -1237,6 +2685,7 @@ class PeerEndpoint:
                 result_seq=result_seq,
                 result_frames=tuple(rsp_frames),
                 result_frame_bytes=rsp_frames[0],
+                result_payload=result_payload,
                 is_app_err=False,
                 status=0,
                 created_at_ms=self.now_ms,
@@ -1268,6 +2717,7 @@ class PeerEndpoint:
                     result_seq=result_seq,
                     result_frames=tuple(rsp_frames),
                     result_frame_bytes=rsp_frames[0],
+                    result_payload=res_payload,
                     is_app_err=False,
                     status=0,
                     created_at_ms=self.now_ms,
@@ -1292,6 +2742,7 @@ class PeerEndpoint:
                     result_seq=result_seq,
                     result_frames=(err_frame,),
                     result_frame_bytes=err_frame,
+                    result_payload=res_payload,
                     is_app_err=True,
                     status=res_status,
                     created_at_ms=self.now_ms,
@@ -1321,6 +2772,11 @@ class PeerEndpoint:
             immutable_metadata=self._immutable_message_metadata(frame, geometry),
         )
 
+        if self.association is not None:
+            ext_fresh = next((e for e in frame.extensions if e.extension_id == 6), None)
+            if ext_fresh and len(ext_fresh.value) == 16:
+                self.freshness_manager.consume_token(ext_fresh.value)
+
         out.append(ApplicationEvent(
             kind="request_accepted",
             service_id=service_id,
@@ -1332,16 +2788,28 @@ class PeerEndpoint:
 
     def _process_telem(self, frame: CoreFrame, service_id: int, out: list[Any]) -> None:
         if service_id == 1 and self.sample_consumer:
-            self.sample_consumer.handle_telemetry(frame.payload)
+            try:
+                self.sample_consumer.handle_telemetry(frame.payload)
+            except ValueError:
+                # Malformed SAMPLE-1 telemetry is dropped at the application
+                # boundary; it cannot escape Receive as an endpoint exception.
+                return
 
     def _process_data(self, frame: CoreFrame, service_id: int, sender_key: tuple, out: list[Any], geometry: tuple[int, int] | None = None) -> None:
         # Check if rejected
         if sender_key in self.delivery.rejections:
             rej = self.delivery.rejections[sender_key]
-            if rej.service_id != service_id or rej.immutable_metadata != self._immutable_message_metadata(frame, geometry):
+            if (rej.service_id != service_id or rej.payload != frame.payload
+                    or rej.immutable_metadata != self._immutable_message_metadata(frame, geometry)):
                 return  # Conflicting metadata
             if self.delivery.admit_rejection_replay(rej):
-                self._enqueue_tx(rej.err_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
+                if self.association is not None:
+                    err_frame = self._build_err_frame(
+                        sender_key, service_id, status=rej.status, payload=b"", is_reliable=False, own_seq=rej.err_seq
+                    )
+                else:
+                    err_frame = rej.err_frame_bytes
+                self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
             return
 
         # Check message type conflict with retained result
@@ -1351,11 +2819,17 @@ class PeerEndpoint:
         # Deduplication check: accepted DATA identities never re-dispatch or re-run service effects within horizon
         if sender_key in self.delivery.accepted_messages:
             rec = self.delivery.accepted_messages[sender_key]
-            if rec.service_id != service_id or rec.message_type != 7 or rec.payload != frame.payload or rec.immutable_metadata != self._immutable_message_metadata(frame, geometry):
-                return  # Conflicting metadata or payload cannot become a new acceptance
+            if (rec.service_id != service_id or rec.message_type != 7
+                    or rec.immutable_metadata != self._immutable_message_metadata(frame, geometry)
+                    or (frame.security is None and rec.payload != frame.payload)):
+                return  # Conflicting immutable metadata cannot become a new acceptance
             # Matching duplicate: replay cached ACK without renewing absolute retention
             if rec.ack_frame_bytes:
-                self._enqueue_tx(rec.ack_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
+                if self.association is not None:
+                    fresh_ack = self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
+                    self._enqueue_tx(fresh_ack, not_after_ms=None, service_id=service_id, out=out)
+                else:
+                    self._enqueue_tx(rec.ack_frame_bytes, not_after_ms=None, service_id=service_id, out=out)
             return
 
         if not self.delivery.admit_history():
@@ -1402,6 +2876,22 @@ class PeerEndpoint:
             ))
             return
 
+        if self.sec_mode is not None and not self.test_only_disable_sec1:
+            assoc = self.association
+            if assoc is not None and assoc.is_expired(self.now_ms):
+                self._expire_security_context(out)
+                assoc = None
+            if assoc is None or assoc.status != "active":
+                out.append(ApplicationEvent(
+                    kind="protocol_rejection",
+                    service_id=req.service_id,
+                    exchange_id=exchange_id,
+                    status=4,
+                    payload=b"security_not_active",
+                    at_ms=self.now_ms,
+                ))
+                return
+
         # Check if already expired before admission
         if req.not_after_ms is not None and self.now_ms >= req.not_after_ms:
             out.append(ApplicationEvent(
@@ -1414,10 +2904,32 @@ class PeerEndpoint:
             ))
             return
 
+        freshness_token = None
+        if self.association is not None and req.service_id != 0:
+            svc_cfg = next((s for s in self.manifest.values.get("services", []) if s.get("id") == req.service_id), None)
+            if svc_cfg and svc_cfg.get("freshness"):
+                freshness_token = self.active_freshness_token
+                if freshness_token is None:
+                    out.append(ApplicationEvent(
+                        kind="protocol_rejection",
+                        service_id=req.service_id,
+                        exchange_id=exchange_id,
+                        status=4,
+                        payload=b"freshness_token_required",
+                        at_ms=self.now_ms,
+                    ))
+                    return
+
         seq = self._alloc_seq()
 
         # Build request frames (single or fragmented)
-        frames = self._build_req_frames(service_id=req.service_id, seq=seq, payload=req.payload, ack_req=req.ack_req)
+        frames = self._build_req_frames(
+            service_id=req.service_id,
+            seq=seq,
+            payload=req.payload,
+            ack_req=req.ack_req,
+            freshness_token=freshness_token,
+        )
 
         # Single OutgoingExchange for all slices of the message
         exc = OutgoingExchange(
@@ -1436,6 +2948,7 @@ class PeerEndpoint:
             result_deadline_ms=self.manifest.values["timing"]["result_deadline_ms"],
             max_attempts=self.manifest.values["timing"]["max_bursts"],
             request_payload=req.payload,
+            freshness_token=freshness_token,
         )
 
         # If consumer designated READ, record seq
@@ -1444,8 +2957,13 @@ class PeerEndpoint:
 
         admission = self.delivery.enqueue_outgoing(exc)
         if admission:
+            if freshness_token is not None and self.active_freshness_token == freshness_token:
+                self.active_freshness_token = None
             for frame_bytes in frames:
                 self._enqueue_tx(frame_bytes, not_after_ms=req.not_after_ms, service_id=req.service_id, exchange_id=exchange_id, out=out)
+        elif admission != "queue_full" and freshness_token is not None and self.active_freshness_token == freshness_token:
+            # A queued reliable exchange owns the token across admission delay and retries.
+            self.active_freshness_token = None
         elif admission == "queue_full":
             out.append(ApplicationEvent(
                 kind="protocol_rejection",
@@ -1459,6 +2977,18 @@ class PeerEndpoint:
     def _handle_publish_sample(self, event: PublishSample, out: list[Any]) -> None:
         if not self.sample_producer:
             return
+        if self.sec_mode is not None and not self.test_only_disable_sec1:
+            assoc = self.association
+            if assoc is not None and assoc.is_expired(self.now_ms):
+                self._expire_security_context(out)
+                # PublishSample is best effort; no insecure or candidate-state frame is emitted.
+                self.sample_dropped_count += 1
+                self.counters["dropped_samples"] += 1
+                return
+            if assoc is None or assoc.status != "active":
+                self.sample_dropped_count += 1
+                self.counters["dropped_samples"] += 1
+                return
         if self.sample_producer._sample_index >= 0xFFFFFFFF and self.is_open:
             # Retire the association before advancing the producer epoch.
             self._handle_disconnect(Disconnect(link=self.link or 0, at_ms=self.now_ms), out)
@@ -1467,8 +2997,13 @@ class PeerEndpoint:
             return
         # Construct TELEM frame (16 bytes payload)
         payload = sample.encode_telemetry()
-        frame = CoreFrame(message_type=5, options=0, payload=payload)
-        frame_bytes = encode_frame(frame, max_frame=self.forward_mtu)
+        if self.association is not None:
+            seq = self._alloc_seq()
+            frame = CoreFrame(message_type=5, options=1, sequence=seq, payload=b"")
+            frame_bytes = self._encrypt_and_encode(frame, plaintext=payload)
+        else:
+            frame = CoreFrame(message_type=5, options=0, payload=payload)
+            frame_bytes = encode_frame(frame, max_frame=self.forward_mtu)
         self._enqueue_tx(frame_bytes, not_after_ms=None, service_id=1, is_sample_telemetry=True, out=out)
 
     def _enqueue_tx(
@@ -1479,6 +3014,7 @@ class PeerEndpoint:
         service_id: int = 1,
         exchange_id: Optional[int] = None,
         is_sample_telemetry: bool = False,
+        bootstrap_attempt_id: bytes | None = None,
         out: list[Any],
     ) -> None:
         # Wrap into Stream R envelope if needed
@@ -1543,9 +3079,13 @@ class PeerEndpoint:
                     "service_id": service_id,
                     "exchange_id": exchange_id,
                     "is_sample_telemetry": True,
+                    "bootstrap_attempt_id": bootstrap_attempt_id,
                 })
                 return
-            self._submit_wire(wire_bytes, not_after_ms, service_id, exchange_id, out)
+            self._submit_wire(
+                wire_bytes, not_after_ms, service_id, exchange_id, out,
+                bootstrap_attempt_id=bootstrap_attempt_id,
+            )
             return
 
         if len(self.active_submissions) >= self.adapter_slots:
@@ -1556,13 +3096,26 @@ class PeerEndpoint:
                 "not_after_ms": not_after_ms,
                 "service_id": service_id,
                 "exchange_id": exchange_id,
+                "bootstrap_attempt_id": bootstrap_attempt_id,
             })
             if exchange_id is not None and exchange_id in self.delivery.active_outgoing:
                 self.delivery.active_outgoing[exchange_id].queued_schedule_frames += 1
             return
-        self._submit_wire(wire_bytes, not_after_ms, service_id, exchange_id, out)
+        self._submit_wire(
+            wire_bytes, not_after_ms, service_id, exchange_id, out,
+            bootstrap_attempt_id=bootstrap_attempt_id,
+        )
 
-    def _submit_wire(self, wire_bytes, not_after_ms, service_id, exchange_id, out):
+    def _submit_wire(
+        self,
+        wire_bytes,
+        not_after_ms,
+        service_id,
+        exchange_id,
+        out,
+        *,
+        bootstrap_attempt_id: bytes | None = None,
+    ):
         if not self.is_open:
             return
         if not_after_ms is not None and self.now_ms >= not_after_ms:
@@ -1584,6 +3137,7 @@ class PeerEndpoint:
             "at_ms": self.now_ms,
             "service_id": service_id,
             "exchange_id": exchange_id,
+            "bootstrap_attempt_id": bootstrap_attempt_id,
             "admitted": False,
             "cancel_requested": False,
         }
@@ -1603,12 +3157,19 @@ class PeerEndpoint:
     def _drain_tx_queue(self, out: list[Any]) -> None:
         while self.is_open and self.tx_queue and len(self.active_submissions) < self.adapter_slots:
             item = self.tx_queue.pop(0)
+            if (item.get("bootstrap_attempt_id") is not None
+                    and item.get("bootstrap_attempt_id") != self._bootstrap_attempt_id):
+                continue
             exc = self.delivery.active_outgoing.get(item.get("exchange_id")) if item.get("exchange_id") is not None else None
             if item.get("exchange_id") is not None and exc is None:
                 continue
             if exc:
                 exc.queued_schedule_frames = max(0, exc.queued_schedule_frames - 1)
             if item["not_after_ms"] is not None and self.now_ms >= item["not_after_ms"]:
+                bootstrap_attempt_id = item.get("bootstrap_attempt_id")
+                if bootstrap_attempt_id is not None and bootstrap_attempt_id == self._bootstrap_attempt_id:
+                    self._abort_bootstrap_attempt(out)
+                    continue
                 if exc:
                     self._expire_outgoing_exchange(exc, out)
                 else:
@@ -1622,35 +3183,55 @@ class PeerEndpoint:
                     ))
                 continue
             self._submit_wire(
-                item["wire_bytes"], item["not_after_ms"], item["service_id"], item["exchange_id"], out
+                item["wire_bytes"], item["not_after_ms"], item["service_id"], item["exchange_id"], out,
+                bootstrap_attempt_id=item.get("bootstrap_attempt_id"),
             )
 
     def _extract_reply_to(self, frame: CoreFrame) -> Optional[tuple[int, int, int, int]]:
         for ext in frame.extensions:
             if ext.extension_id == 1:
-                # SECURITY=0 full reply to: namespace, origin, epoch(8 bytes LE), seq
-                ns, at = decode_uleb(ext.value, 0)
-                orig, at = decode_uleb(ext.value, at)
-                if len(ext.value) - at < 8:
-                    return None
-                epoch = int.from_bytes(ext.value[at : at + 8], "little")
-                at += 8
-                seq, _ = decode_uleb(ext.value, at)
-                return ns, orig, epoch, seq
+                if frame.security is not None:
+                    # Protected compact format: single ULEB32 seq resolved via receiver identity (§S4, S10.16)
+                    seq, at = decode_uleb(ext.value, 0)
+                    if at != len(ext.value):
+                        return None  # Extraneous bytes rejected!
+                    return self.namespace, self.local_node_id, self.local_epoch, seq
+                else:
+                    # SECURITY=0 full reply to: namespace, origin, epoch(8 bytes LE), seq
+                    ns, at = decode_uleb(ext.value, 0)
+                    orig, at = decode_uleb(ext.value, at)
+                    if len(ext.value) - at < 8:
+                        return None
+                    epoch = int.from_bytes(ext.value[at : at + 8], "little")
+                    at += 8
+                    seq, at_end = decode_uleb(ext.value, at)
+                    if at_end != len(ext.value):
+                        return None
+                    return ns, orig, epoch, seq
         return None
 
-    def _build_ack_frame(self, target_key: tuple[int, int, int, int], service_id: int) -> bytes:
+    def _build_ack_frame(
+        self,
+        target_key: tuple[int, int, int, int],
+        service_id: int,
+        own_seq: int | None = None,
+    ) -> bytes:
         tgt_ns, tgt_orig, tgt_ep, tgt_seq = target_key
-        own_seq = self._alloc_seq()
+        if own_seq is None:
+            own_seq = self._alloc_seq()
 
-        reply_to_bytes = bytearray()
-        reply_to_bytes.extend(encode_uleb(tgt_ns))
-        reply_to_bytes.extend(encode_uleb(tgt_orig))
-        reply_to_bytes.extend(tgt_ep.to_bytes(8, "little"))
-        reply_to_bytes.extend(encode_uleb(tgt_seq))
+        if self.association is not None:
+            reply_to_bytes = encode_uleb(tgt_seq)
+        else:
+            reply_to_bytes = bytearray()
+            reply_to_bytes.extend(encode_uleb(tgt_ns))
+            reply_to_bytes.extend(encode_uleb(tgt_orig))
+            reply_to_bytes.extend(tgt_ep.to_bytes(8, "little"))
+            reply_to_bytes.extend(encode_uleb(tgt_seq))
+            reply_to_bytes = bytes(reply_to_bytes)
 
-        exts = [Extension(extension_id=1, critical=True, unsafe=False, value=bytes(reply_to_bytes))]
-        if service_id != self.default_service:
+        exts = [Extension(extension_id=1, critical=True, unsafe=False, value=reply_to_bytes)]
+        if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
             exts.sort(key=lambda e: e.extension_id)
 
@@ -1661,20 +3242,54 @@ class PeerEndpoint:
             extensions=tuple(exts),
             payload=b"",
         )
+        if self.association is not None:
+            return self._encrypt_and_encode(frame, plaintext=b"")
         return encode_frame(frame, max_frame=self.forward_mtu)
 
-    def _build_rsp_frames(self, target_key: tuple[int, int, int, int], service_id: int, payload: bytes) -> tuple[list[bytes], int]:
+    def _build_stable_result_ack_frame(
+        self,
+        result_key: tuple[int, int, int, int],
+        service_id: int,
+        *,
+        request_key: tuple[int, int, int, int] | None,
+        completed: Any | None = None,
+    ) -> bytes:
+        tombstone = self.delivery.caller_tombstones.get(request_key) if request_key is not None else None
+        own_seq = tombstone.result_ack_seq if tombstone is not None else None
+        if own_seq is None and completed is not None:
+            own_seq = completed.result_ack_seq
+        ack = self._build_ack_frame(result_key, service_id, own_seq=own_seq)
+        if own_seq is None:
+            own_seq = parse_frame(ack, max_frame=self.forward_mtu).sequence
+        if tombstone is not None and tombstone.result_ack_seq is None:
+            tombstone.result_ack_seq = own_seq
+        if completed is not None and completed.result_ack_seq is None:
+            completed.result_ack_seq = own_seq
+        return ack
+
+    def _build_rsp_frames(
+        self,
+        target_key: tuple[int, int, int, int],
+        service_id: int,
+        payload: bytes,
+        own_seq: int | None = None,
+    ) -> tuple[list[bytes], int]:
         tgt_ns, tgt_orig, tgt_ep, tgt_seq = target_key
-        own_seq = self._alloc_seq()
+        if own_seq is None:
+            own_seq = self._alloc_seq()
 
-        reply_to_bytes = bytearray()
-        reply_to_bytes.extend(encode_uleb(tgt_ns))
-        reply_to_bytes.extend(encode_uleb(tgt_orig))
-        reply_to_bytes.extend(tgt_ep.to_bytes(8, "little"))
-        reply_to_bytes.extend(encode_uleb(tgt_seq))
+        if self.association is not None:
+            reply_to_bytes = encode_uleb(tgt_seq)
+        else:
+            reply_to_bytes = bytearray()
+            reply_to_bytes.extend(encode_uleb(tgt_ns))
+            reply_to_bytes.extend(encode_uleb(tgt_orig))
+            reply_to_bytes.extend(tgt_ep.to_bytes(8, "little"))
+            reply_to_bytes.extend(encode_uleb(tgt_seq))
+            reply_to_bytes = bytes(reply_to_bytes)
 
-        exts = [Extension(extension_id=1, critical=True, unsafe=False, value=bytes(reply_to_bytes))]
-        if service_id != self.default_service:
+        exts = [Extension(extension_id=1, critical=True, unsafe=False, value=reply_to_bytes)]
+        if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
         exts.sort(key=lambda e: e.extension_id)
 
@@ -1693,9 +3308,12 @@ class PeerEndpoint:
                     sequence=own_seq,
                     fragment=Fragment(index=idx, chunk_size=chunk_bytes, total_length=total_len),
                     extensions=tuple(exts),
-                    payload=slice_bytes,
+                    payload=slice_bytes if self.association is None else b"",
                 )
-                frames.append(encode_frame(frame, max_frame=self.forward_mtu))
+                if self.association is not None:
+                    frames.append(self._encrypt_and_encode(frame, plaintext=slice_bytes))
+                else:
+                    frames.append(encode_frame(frame, max_frame=self.forward_mtu))
             return frames, own_seq
         else:
             frame = CoreFrame(
@@ -1703,25 +3321,40 @@ class PeerEndpoint:
                 options=base_options,
                 sequence=own_seq,
                 extensions=tuple(exts),
-                payload=payload,
+                payload=payload if self.association is None else b"",
             )
+            if self.association is not None:
+                return [self._encrypt_and_encode(frame, plaintext=payload)], own_seq
             return [encode_frame(frame, max_frame=self.forward_mtu)], own_seq
 
-    def _build_err_frame(self, target_key: tuple[int, int, int, int], service_id: int, status: int, payload: bytes = b"", is_reliable: bool = False) -> bytes:
+    def _build_err_frame(
+        self,
+        target_key: tuple[int, int, int, int],
+        service_id: int,
+        status: int,
+        payload: bytes = b"",
+        is_reliable: bool = False,
+        own_seq: int | None = None,
+    ) -> bytes:
         tgt_ns, tgt_orig, tgt_ep, tgt_seq = target_key
-        own_seq = self._alloc_seq()
+        if own_seq is None:
+            own_seq = self._alloc_seq()
 
-        reply_to_bytes = bytearray()
-        reply_to_bytes.extend(encode_uleb(tgt_ns))
-        reply_to_bytes.extend(encode_uleb(tgt_orig))
-        reply_to_bytes.extend(tgt_ep.to_bytes(8, "little"))
-        reply_to_bytes.extend(encode_uleb(tgt_seq))
+        if self.association is not None:
+            reply_to_bytes = encode_uleb(tgt_seq)
+        else:
+            reply_to_bytes = bytearray()
+            reply_to_bytes.extend(encode_uleb(tgt_ns))
+            reply_to_bytes.extend(encode_uleb(tgt_orig))
+            reply_to_bytes.extend(tgt_ep.to_bytes(8, "little"))
+            reply_to_bytes.extend(encode_uleb(tgt_seq))
+            reply_to_bytes = bytes(reply_to_bytes)
 
         exts = [
-            Extension(extension_id=1, critical=True, unsafe=False, value=bytes(reply_to_bytes)),
+            Extension(extension_id=1, critical=True, unsafe=False, value=reply_to_bytes),
             Extension(extension_id=5, critical=True, unsafe=False, value=encode_uleb(status)),
         ]
-        if service_id != self.default_service:
+        if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
         exts.sort(key=lambda e: e.extension_id)
 
@@ -1731,25 +3364,39 @@ class PeerEndpoint:
             options=options,
             sequence=own_seq,
             extensions=tuple(exts),
-            payload=payload,
+            payload=payload if self.association is None else b"",
         )
+        if self.association is not None:
+            return self._encrypt_and_encode(frame, plaintext=payload)
         return encode_frame(frame, max_frame=self.forward_mtu)
 
-    def _build_err_frame_reliable(self, target_key: tuple[int, int, int, int], service_id: int, status: int, payload: bytes = b"") -> tuple[bytes, int]:
+    def _build_err_frame_reliable(
+        self,
+        target_key: tuple[int, int, int, int],
+        service_id: int,
+        status: int,
+        payload: bytes = b"",
+        own_seq: int | None = None,
+    ) -> tuple[bytes, int]:
         tgt_ns, tgt_orig, tgt_ep, tgt_seq = target_key
-        own_seq = self._alloc_seq()
+        if own_seq is None:
+            own_seq = self._alloc_seq()
 
-        reply_to_bytes = bytearray()
-        reply_to_bytes.extend(encode_uleb(tgt_ns))
-        reply_to_bytes.extend(encode_uleb(tgt_orig))
-        reply_to_bytes.extend(tgt_ep.to_bytes(8, "little"))
-        reply_to_bytes.extend(encode_uleb(tgt_seq))
+        if self.association is not None:
+            reply_to_bytes = encode_uleb(tgt_seq)
+        else:
+            reply_to_bytes = bytearray()
+            reply_to_bytes.extend(encode_uleb(tgt_ns))
+            reply_to_bytes.extend(encode_uleb(tgt_orig))
+            reply_to_bytes.extend(tgt_ep.to_bytes(8, "little"))
+            reply_to_bytes.extend(encode_uleb(tgt_seq))
+            reply_to_bytes = bytes(reply_to_bytes)
 
         exts = [
-            Extension(extension_id=1, critical=True, unsafe=False, value=bytes(reply_to_bytes)),
+            Extension(extension_id=1, critical=True, unsafe=False, value=reply_to_bytes),
             Extension(extension_id=5, critical=True, unsafe=False, value=encode_uleb(status)),
         ]
-        if service_id != self.default_service:
+        if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
         exts.sort(key=lambda e: e.extension_id)
 
@@ -1758,14 +3405,56 @@ class PeerEndpoint:
             options=0x83,  # SEQ | ACK_REQ | EXT
             sequence=own_seq,
             extensions=tuple(exts),
-            payload=payload,
+            payload=payload if self.association is None else b"",
         )
+        if self.association is not None:
+            return self._encrypt_and_encode(frame, plaintext=payload), own_seq
         return encode_frame(frame, max_frame=self.forward_mtu), own_seq
 
-    def _build_req_frames(self, service_id: int, seq: int, payload: bytes, ack_req: bool = True) -> list[bytes]:
+    def _reprotect_retained_result(self, res: RetainedResult) -> None:
+        """Re-encrypt a retained logical result with a fresh PN and stable identity."""
+        if self.association is None:
+            return
+        if res.result_payload is None:
+            res.result_frames = ()
+            return
+        target = (res.req_namespace, res.req_origin, res.req_epoch, res.req_seq)
+        if res.is_app_err:
+            err, _ = self._build_err_frame_reliable(
+                target,
+                res.service_id,
+                res.status,
+                payload=res.result_payload,
+                own_seq=res.result_seq,
+            )
+            res.result_frames = (err,)
+        else:
+            frames, _ = self._build_rsp_frames(
+                target,
+                res.service_id,
+                res.result_payload,
+                own_seq=res.result_seq,
+            )
+            res.result_frames = tuple(frames)
+
+    def _build_req_frames(
+        self,
+        service_id: int,
+        seq: int,
+        payload: bytes,
+        ack_req: bool = True,
+        freshness_token: bytes | None = None,
+    ) -> list[bytes]:
         exts = []
-        if service_id != self.default_service:
+        if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
+
+        if self.association is not None and service_id != 0:
+            svc_cfg = next((s for s in self.manifest.values.get("services", []) if s.get("id") == service_id), None)
+            if svc_cfg and svc_cfg.get("freshness") and freshness_token is not None:
+                exts.append(Extension(extension_id=6, critical=True, unsafe=False, value=freshness_token))
+
+        exts.sort(key=lambda e: e.extension_id)
 
         base_options = 1 | (2 if ack_req else 0) | (0x80 if exts else 0)
         chunk_bytes = self.manifest.values["limits"]["chunk_bytes"]
@@ -1783,9 +3472,12 @@ class PeerEndpoint:
                     sequence=seq,
                     fragment=Fragment(index=idx, chunk_size=chunk_bytes, total_length=total_len),
                     extensions=tuple(exts),
-                    payload=slice_bytes,
+                    payload=slice_bytes if self.association is None else b"",
                 )
-                frames.append(encode_frame(frame, max_frame=self.forward_mtu))
+                if self.association is not None:
+                    frames.append(self._encrypt_and_encode(frame, plaintext=slice_bytes))
+                else:
+                    frames.append(encode_frame(frame, max_frame=self.forward_mtu))
             return frames
         else:
             frame = CoreFrame(
@@ -1793,6 +3485,8 @@ class PeerEndpoint:
                 options=base_options,
                 sequence=seq,
                 extensions=tuple(exts),
-                payload=payload,
+                payload=payload if self.association is None else b"",
             )
+            if self.association is not None:
+                return [self._encrypt_and_encode(frame, plaintext=payload)]
             return [encode_frame(frame, max_frame=self.forward_mtu)]

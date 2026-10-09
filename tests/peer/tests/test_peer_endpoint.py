@@ -36,6 +36,7 @@ class PeerEndpointApiTests(unittest.TestCase):
             test_credentials={"node_id": 10, "epoch": 7},
             entropy_source=lambda n: bytes(n),
             test_services={},
+            test_only_disable_sec1=True,
         )
 
     def _settle_active(self, at_ms):

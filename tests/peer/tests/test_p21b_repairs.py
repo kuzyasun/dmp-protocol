@@ -30,7 +30,9 @@ def manifest(name="direct-nnpsk0.json"):
 
 
 def endpoint(node=10):
-    ep = PeerEndpoint(manifest(), {"node_id": node}, lambda n: b"e" * n, {})
+    ep = PeerEndpoint(
+        manifest(), {"node_id": node}, lambda n: b"e" * n, {}, test_only_disable_sec1=True
+    )
     ep.handle(Open(0, "strict_latest_start", 1))
     ep.handle(Receive(0, b"\x00", 2))
     return ep
@@ -198,6 +200,15 @@ class P21BRepairTests(unittest.TestCase):
         self.assertEqual(len(mgr.advance(1)[1]), 1)
         self.assertEqual(len(mgr.advance(2)[1]), 0)
         self.assertEqual(result.bursts_sent, 2)
+        self.assertEqual(result.attempts_left, 0)
+        self.assertFalse(mgr.admit_result_replay(result, 2))
+
+        expired = RetainedResult(
+            2, 1, 2, 3, 5, 6, result_frames=(b"expired",), expires_at_ms=20,
+            next_retry_ms=1, attempts_left=1,
+        )
+        self.assertFalse(mgr.admit_result_replay(expired, 20))
+        self.assertEqual(expired.attempts_left, 1)
 
     def test_fragmented_result_replay_ack_requires_endpoint_acceptance(self):
         # An unsolicited complete RSP and a malformed SAMPLE READ RSP both leave

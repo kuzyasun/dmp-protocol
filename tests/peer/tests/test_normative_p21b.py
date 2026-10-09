@@ -42,12 +42,14 @@ class NormativeP21BCasesTests(unittest.TestCase):
             test_credentials={"node_id": 10, "epoch": 7, "remote_epoch": 9, "sample_epoch": 1},
             entropy_source=lambda n: bytes(n),
             test_services={},
+            test_only_disable_sec1=True,
         )
         self.endpoint_20 = PeerEndpoint(
             manifest_bytes=self.raw_manifest,
             test_credentials={"node_id": 20, "epoch": 9, "remote_epoch": 7},
             entropy_source=lambda n: bytes(n),
             test_services={},
+            test_only_disable_sec1=True,
         )
         # Open both
         e10_open = self.endpoint_10.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=10))
@@ -367,6 +369,7 @@ class NormativeP21BCasesTests(unittest.TestCase):
             test_credentials={"node_id": 10, "epoch": 7, "remote_epoch": 9, "sample_epoch": 1},
             entropy_source=lambda n: bytes(n),
             test_services={},
+            test_only_disable_sec1=True,
         )
         open_evts = ep.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=10))
         tx = next(e for e in open_evts if isinstance(e, TxSubmit))

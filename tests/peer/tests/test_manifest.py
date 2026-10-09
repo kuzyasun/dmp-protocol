@@ -225,7 +225,9 @@ class ManifestTests(unittest.TestCase):
 
     def test_peer_api_skeleton_binds_only_a_frozen_manifest(self):
         raw = (Path(__file__).parents[3] / "profiles" / "deployments" / "direct-nnpsk0.json").read_bytes()
-        endpoint = PeerEndpoint(raw, {}, lambda size: bytes(size), {})
+        endpoint = PeerEndpoint(
+            raw, {"psk": b"\x01" * 32}, lambda size: bytes(size), {}
+        )
         self.assertEqual(endpoint.manifest.sha256, identify_frozen_manifest(raw).sha256)
         with self.assertRaises(ManifestError):
             PeerEndpoint(raw + b" ", {}, lambda size: bytes(size), {})

@@ -33,12 +33,14 @@ class DirectDeliveryTests(unittest.TestCase):
             test_credentials={"node_id": 10, "epoch": 7, "remote_epoch": 9},
             entropy_source=lambda n: bytes(n),
             test_services={},
+            test_only_disable_sec1=True,
         )
         self.responder = PeerEndpoint(
             manifest_bytes=self.raw_manifest,
             test_credentials={"node_id": 20, "epoch": 9, "remote_epoch": 7},
             entropy_source=lambda n: bytes(n),
             test_services={},
+            test_only_disable_sec1=True,
         )
         # Open both endpoints and cross-feed initial sync delimiters
         req_open = self.requester.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=10))

@@ -233,12 +233,14 @@ class Sample1EndpointIntegrationTests(unittest.TestCase):
             test_credentials={"node_id": 10, "epoch": 7, "remote_epoch": 9, "sample_epoch": 1},
             entropy_source=lambda n: bytes(n),
             test_services={},
+            test_only_disable_sec1=True,
         )
         self.consumer = PeerEndpoint(
             manifest_bytes=self.raw_manifest,
             test_credentials={"node_id": 20, "epoch": 9, "remote_epoch": 7},
             entropy_source=lambda n: bytes(n),
             test_services={},
+            test_only_disable_sec1=True,
         )
         # Open both
         p_open = self.producer.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=10))
