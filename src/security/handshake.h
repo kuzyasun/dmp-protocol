@@ -85,7 +85,7 @@ typedef enum dmp_hs_view {
 } dmp_hs_view;
 
 typedef struct dmp_hs_budget {
-    uint32_t max_pending;
+    uint32_t max_pending; /* Non-active in-progress handshakes; active associations are separate. */
     uint32_t max_scratch;
     uint32_t episode_attempts;
     uint64_t episode_deadline_ms;
@@ -130,6 +130,9 @@ typedef struct dmp_hs_config {
     uint32_t permissions;
     int pairing_allowed;
     uint32_t next_rx_cid;
+    /* Zero keeps FINISH/READY direct. A nonzero origin TTL emits routed
+     * ROUTE=TO_NODE plus this endpoint's CONTEXT on those confirmations. */
+    uint8_t confirmation_route_ttl;
     dmp_hs_budget budget;
 } dmp_hs_config;
 
@@ -274,6 +277,7 @@ int dmp_hs_epochs(const dmp_hs *hs, uint32_t attempt_index, uint64_t *initiator_
 uint64_t dmp_hs_boot_epoch(const dmp_hs *hs, uint32_t attempt_index);
 uint8_t dmp_hs_expect_flight(const dmp_hs *hs, uint32_t attempt_index);
 int dmp_hs_copy_partial(const dmp_hs *hs, uint8_t *out, size_t cap, size_t *length);
+/* Current non-active handshake count used against budget.max_pending. */
 uint32_t dmp_hs_pending(const dmp_hs *hs);
 
 #ifdef __cplusplus

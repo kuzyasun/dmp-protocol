@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from typing import Any
 
@@ -67,7 +68,47 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.initiator, self.responder = helpers.P21DSelectiveIntegrationTests().pair()
 
+    def grant_data_freshness(self) -> None:
+        self.grant_data_freshness_at(150)
+
+    def grant_data_freshness_at(self, base_ms: int) -> None:
+        helpers.P21DSelectiveIntegrationTests().grant_service2_freshness(
+            self.initiator, self.responder, base_ms=base_ms
+        )
+
+    def pair_with_freshness_grant_budget(self) -> None:
+        manifest = json.loads(helpers.manifest_bytes("radio-nnpsk0.json"))
+        grant_count = manifest["limits"]["assembly_tombstones_per_peer"] + 2
+        freshness = manifest["freshness"]
+        freshness["grant_requests_per_pair"] = grant_count
+        freshness["tokens_per_association"] = grant_count
+        freshness["tokens_per_principal"] = grant_count
+
+        endpoint_resources = next(
+            resource for resource in manifest["resources"]
+            if resource["role"] == "endpoint"
+        )
+        charge_counts = {
+            "result": 2 * len(manifest["services"]) + grant_count,
+            "correlation": 2 * len(manifest["services"]) + grant_count,
+            "history": 2 * (2 * len(manifest["services"]) + grant_count),
+            "control": manifest["timing"]["feedback_buffers"] + grant_count + 1,
+            "freshness_tokens": grant_count,
+        }
+        for charge in endpoint_resources["charges"]:
+            if charge["component"] in charge_counts:
+                charge["count"] = charge_counts[charge["component"]]
+
+        manifest_bytes = json.dumps(
+            manifest, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        self.initiator, self.responder = helpers.P21DSelectiveIntegrationTests().pair(
+            manifest_override=manifest_bytes,
+            unique_entropy=True,
+        )
+
     def test_valid_status_waits_for_outstanding_initial_burst_completion(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         payload = bytes(range(64))
         initial_events: list[Any] = []
@@ -76,7 +117,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         )
         initial_wires = [event.bytes for event in initial_events if isinstance(event, TxSubmit)]
         self.assertEqual(len(initial_wires), 2)
-        state = self.initiator.outgoing_data[sequence].selective_state
+        state = self.initiator.outgoing_data[(self.initiator.association.h, sequence)].selective_state
         self.assertEqual(state.active_kind, "initial")
         self.assertEqual(state.frames_remaining, 2)
 
@@ -122,6 +163,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertEqual([parse_frame(wire).fragment.index for wire in repairs], [0])
 
     def test_rejected_selective_data_admission_retires_queued_and_active_siblings(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = self.initiator._queue_data_transfer(
@@ -130,7 +172,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         submissions = [event for event in outgoing if isinstance(event, TxSubmit)]
         self.assertEqual(len(submissions), self.initiator.adapter_slots)
         self.assertGreater(len(self.initiator.tx_queue), 0)
-        state = self.initiator.outgoing_data[sequence].selective_state
+        state = self.initiator.outgoing_data[(self.initiator.association.h, sequence)].selective_state
 
         first = submissions[0]
         rejected = self.initiator.handle(TxAdmit(
@@ -143,7 +185,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertFalse(any(isinstance(event, TxSubmit) for event in rejected))
         self.assertFalse(any(isinstance(event, Cancel) for event in rejected))
         self.assertTrue(state.terminal)
-        self.assertNotIn(sequence, self.initiator.outgoing_data)
+        self.assertNotIn((self.initiator.association.h, sequence), self.initiator.outgoing_data)
         self.assertFalse(any(item.get("recovery_seq") == sequence
                              for item in self.initiator.tx_queue))
         self.assertTrue(self.initiator.active_submissions)
@@ -162,6 +204,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertFalse(any(isinstance(event, TxSubmit) for event in cancellation))
 
     def test_failed_selective_data_completion_retires_queued_and_active_siblings(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = self.initiator._queue_data_transfer(
@@ -170,7 +213,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         submissions = [event for event in outgoing if isinstance(event, TxSubmit)]
         self.assertEqual(len(submissions), self.initiator.adapter_slots)
         self.assertGreater(len(self.initiator.tx_queue), 0)
-        state = self.initiator.outgoing_data[sequence].selective_state
+        state = self.initiator.outgoing_data[(self.initiator.association.h, sequence)].selective_state
 
         first = submissions[0]
         self.initiator.handle(TxAdmit(
@@ -188,7 +231,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         ))
         self.assertFalse(any(isinstance(event, TxSubmit) for event in failed))
         self.assertTrue(state.terminal)
-        self.assertNotIn(sequence, self.initiator.outgoing_data)
+        self.assertNotIn((self.initiator.association.h, sequence), self.initiator.outgoing_data)
         self.assertFalse(any(item.get("recovery_seq") == sequence
                              for item in self.initiator.tx_queue))
         self.assertTrue(self.initiator.active_submissions)
@@ -207,13 +250,14 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertFalse(any(isinstance(event, TxSubmit) for event in cancellation))
 
     def test_wrong_service_and_reference_leave_recovery_state_unchanged(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = self.initiator._queue_data_transfer(
             2, bytes(range(64)), ack_req=True, out=outgoing
         )
         initial = helpers.extract_and_settle(self.initiator, outgoing, at_ms=201)
-        state = self.initiator.outgoing_data[sequence].selective_state
+        state = self.initiator.outgoing_data[(self.initiator.association.h, sequence)].selective_state
         target_key = (1, self.initiator.local_node_id, self.initiator.local_epoch, sequence)
 
         wrong_service = self.responder._build_fragment_status(target_key, 1, 0x01)
@@ -233,13 +277,14 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
             self.assertEqual(vars(state), before)
 
     def test_status_from_a_different_association_leaves_recovery_state_unchanged(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = self.initiator._queue_data_transfer(
             2, bytes(range(64)), ack_req=True, out=outgoing
         )
         helpers.extract_and_settle(self.initiator, outgoing, at_ms=201)
-        state = self.initiator.outgoing_data[sequence].selective_state
+        state = self.initiator.outgoing_data[(self.initiator.association.h, sequence)].selective_state
 
         _, unrelated_responder = alternate_pair(b"\x02" * 32)
         target_key = (1, self.initiator.local_node_id, self.initiator.local_epoch, sequence)
@@ -306,13 +351,14 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
             self.assertFalse(any(isinstance(item, TxSubmit) for item in received))
 
     def test_feedback_buffer_bounds_second_status_while_first_is_outstanding(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = self.initiator._queue_data_transfer(
             2, bytes(index % 251 for index in range(96)), ack_req=True, out=outgoing
         )
         initial = helpers.extract_and_settle(self.initiator, outgoing, at_ms=201)
-        state = self.initiator.outgoing_data[sequence].selective_state
+        state = self.initiator.outgoing_data[(self.initiator.association.h, sequence)].selective_state
         first_slice = next(wire for wire in initial if parse_frame(wire).fragment.index == 0)
         self.responder.handle(Receive(link=0, bytes=first_slice, at_ms=300))
 
@@ -354,6 +400,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertFalse(any(item.get("is_frag_status") for item in self.responder.tx_queue))
 
     def test_unavailable_adapter_slot_defers_status_within_feedback_delay(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = self.initiator._queue_data_transfer(
@@ -402,6 +449,7 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertIsNone(session.selective_feedback_due_ms)
 
     def test_status_obligation_expires_after_feedback_delay(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = self.initiator._queue_data_transfer(
@@ -445,13 +493,14 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertEqual(session.selective_feedback_due_ms, 2486 + 2072)
 
     def test_status_extension_registry_rules_allow_unknown_safe_and_reject_required_unknown(self) -> None:
+        self.grant_data_freshness()
         self.initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = self.initiator._queue_data_transfer(
             2, bytes(range(64)), ack_req=True, out=outgoing
         )
         helpers.extract_and_settle(self.initiator, outgoing, at_ms=201)
-        state = self.initiator.outgoing_data[sequence].selective_state
+        state = self.initiator.outgoing_data[(self.initiator.association.h, sequence)].selective_state
         target_key = (1, self.initiator.local_node_id, self.initiator.local_epoch, sequence)
 
         route, context = self.responder._routed_fields()
@@ -485,13 +534,21 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertEqual(state.pending_mask, 0x01)
 
     def test_expired_assembly_tombstone_pressure_refuses_new_identity(self) -> None:
+        self.pair_with_freshness_grant_budget()
+        self.grant_data_freshness()
         payload = bytes(range(64))
         now_ms = 300
         admitted_keys = []
         for index in range(self.responder.reassembly.tombstones_per_peer):
+            self.grant_data_freshness_at(now_ms + 1)
+            now_ms += 25
             sequence = 1000 + index
             frames = self.initiator._build_data_frames(
-                2, sequence, payload, ack_req=True
+                2,
+                sequence,
+                payload,
+                ack_req=True,
+                freshness_token=self.initiator.active_freshness_token,
             )
             first = next(wire for wire in frames if parse_frame(wire).fragment.index == 0)
             events = self.responder.handle(Receive(
@@ -517,7 +574,15 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertEqual(len(self.responder.reassembly.tombstones),
                          self.responder.reassembly.tombstones_per_peer)
         sequence = 1000 + self.responder.reassembly.tombstones_per_peer
-        frames = self.initiator._build_data_frames(2, sequence, payload, ack_req=True)
+        self.grant_data_freshness_at(now_ms + 1)
+        now_ms += 25
+        frames = self.initiator._build_data_frames(
+            2,
+            sequence,
+            payload,
+            ack_req=True,
+            freshness_token=self.initiator.active_freshness_token,
+        )
         first = next(wire for wire in frames if parse_frame(wire).fragment.index == 0)
         refused = self.responder.handle(Receive(
             link=0, bytes=first, at_ms=now_ms

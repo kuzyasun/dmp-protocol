@@ -80,8 +80,10 @@ def _parse_protected_route(raw: bytes) -> _Parsed:
     opts = raw[2]
     if opts == 0 or not opts & 0x01 or not opts & 0x04 or not opts & 0x40:
         raise RelayError("relay requires SEQ, ROUTE, and SEC-1 SECURITY")
-    if opts & 0x10 or opts & 0x80 == 0:
-        raise RelayError("integrity-only or extension-free routed frames are unsupported")
+    if opts & 0x10:
+        raise RelayError("integrity-only routed frames are unsupported")
+    if opts & 0x80 == 0:
+        raise RelayError("routed SEC-1 frame requires explicit CONTEXT")
     pos = 3
     seq, pos = _uleb(raw, pos)
     route_control_offset = pos
@@ -260,7 +262,11 @@ class TransparentRelay:
             raise RelayError("relay requires exact frozen manifest bytes") from exc
         values = manifest.values
         profile_id = values.get("profile", {}).get("id")
-        if profile_id not in {"RADIO-1", "MIXED-TCP-STREAM-R-SIM-PACKET"}:
+        if profile_id not in {
+            "RADIO-1",
+            "TEST-RADIO-RETRY-ALL",
+            "MIXED-TCP-STREAM-R-SIM-PACKET",
+        }:
             raise RelayError("relay requires a frozen RADIO-1 or mixed TCP/packet profile")
         binding = values["binding"]
         if binding.get("topology") != "static-unicast" or binding.get("context") != "origin-explicit":

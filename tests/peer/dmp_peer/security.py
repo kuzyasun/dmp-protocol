@@ -265,6 +265,7 @@ class SecurityAssociation:
     peer_epoch: int
     is_initiator: bool
     status: str = "candidate"  # candidate, active, draining, closed
+    next_send_seq: int = 1
     next_send_pn: int = 0
     replay_window: ReplayWindow = field(default_factory=ReplayWindow)
     failed_aead_count: int = 0
@@ -273,13 +274,35 @@ class SecurityAssociation:
     split_time_ms: int = 0
     association_lifetime_ms: int = 100_000_000
     drain_lifetime_ms: int = 10_000
+    drain_deadline_ms: int | None = None
+
+    def begin_drain(self, now_ms: int, configured_drain_ms: int) -> int:
+        """Bound old-association work without extending its original lifetime."""
+        if self.status != "active":
+            raise SecurityError("Only an active association can begin draining")
+        deadline = min(
+            self.split_time_ms + self.association_lifetime_ms,
+            now_ms + max(0, min(configured_drain_ms, self.drain_lifetime_ms)),
+        )
+        if now_ms >= deadline:
+            self.status = "closed"
+            self.drain_deadline_ms = deadline
+            return deadline
+        self.status = "draining"
+        self.drain_deadline_ms = deadline
+        return deadline
+
+    def drain_expired(self, now_ms: int) -> bool:
+        return self.status == "draining" and (
+            self.drain_deadline_ms is None or now_ms >= self.drain_deadline_ms
+        )
 
     def is_expired(self, now_ms: int) -> bool:
         return now_ms >= self.split_time_ms + self.association_lifetime_ms
 
-    def alloc_send_pn(self) -> int:
-        if self.status == "closed":
-            raise SecurityError("Cannot encrypt on closed association")
+    def alloc_send_pn(self, *, allow_draining: bool = False) -> int:
+        if self.status == "closed" or (self.status == "draining" and not allow_draining):
+            raise SecurityError("Cannot encrypt new traffic on closed or draining association")
         if self.next_send_pn > MAX_PN:
             raise SecurityError("PN exhaustion (>= 2^24)")
         pn = self.next_send_pn
@@ -287,14 +310,15 @@ class SecurityAssociation:
         return pn
 
     def encrypt_frame(
-        self, core_header: bytes, plaintext: bytes, pn: int | None = None
+        self, core_header: bytes, plaintext: bytes, pn: int | None = None,
+        *, allow_draining: bool = False,
     ) -> tuple[int, bytes]:
         """
         Encrypt plaintext with explicit PN. Returns (pn, ciphertext_with_tag).
         Applies §S8 encryption and byte limits.
         """
-        if self.status == "closed":
-            raise SecurityError("Cannot encrypt on closed association")
+        if self.status == "closed" or (self.status == "draining" and not allow_draining):
+            raise SecurityError("Cannot encrypt new traffic on closed or draining association")
         if pn is None:
             if self.next_send_pn > MAX_PN:
                 raise SecurityError("PN exhaustion (>= 2^24)")

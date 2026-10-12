@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import dmp_peer.manifest as manifest_module
 from dmp_peer.events import Advance, ApplicationEvent, ApplicationRequest, Open, Receive, TxAdmit, TxSubmit, TxTerminal
 from dmp_peer.frame import parse_frame
 from dmp_peer.security import MAX_PN, SecurityError
@@ -63,22 +64,68 @@ def send_receive(
 
 
 class P21DSelectiveIntegrationTests(unittest.TestCase):
-    def pair(self, profile: str = "radio-nnpsk0.json") -> tuple[PeerEndpoint, PeerEndpoint]:
-        manifest = manifest_bytes(profile)
-        endpoints = (
-            PeerEndpoint(
-                manifest_bytes=manifest,
-                test_credentials={"node_id": 20, "psk": b"\x01" * 32},
-                entropy_source=lambda size: bytes((i + 2) % 256 for i in range(size)),
-                test_services={},
-            ),
-            PeerEndpoint(
-                manifest_bytes=manifest,
-                test_credentials={"node_id": 10, "psk": b"\x01" * 32},
-                entropy_source=lambda size: bytes((i + 1) % 256 for i in range(size)),
-                test_services={},
-            ),
-        )
+    def pair(
+        self,
+        profile: str = "radio-nnpsk0.json",
+        *,
+        manifest_override: bytes | None = None,
+        unique_entropy: bool = False,
+    ) -> tuple[PeerEndpoint, PeerEndpoint]:
+        manifest = manifest_override or manifest_bytes(profile)
+        if unique_entropy:
+
+            def entropy_source(seed: int) -> Any:
+                counter = 0
+
+                def draw(size: int) -> bytes:
+                    nonlocal counter
+                    value = bytes(
+                        (seed + counter * 17 + index) % 256
+                        for index in range(size)
+                    )
+                    counter += 1
+                    return value
+
+                return draw
+
+            initiator_entropy = entropy_source(1)
+            responder_entropy = entropy_source(2)
+        else:
+            initiator_entropy = lambda size: bytes((i + 2) % 256 for i in range(size))
+            responder_entropy = lambda size: bytes((i + 1) % 256 for i in range(size))
+
+        def construct_pair() -> tuple[PeerEndpoint, PeerEndpoint]:
+            return (
+                PeerEndpoint(
+                    manifest_bytes=manifest,
+                    test_credentials={"node_id": 20, "psk": b"\x01" * 32},
+                    entropy_source=initiator_entropy,
+                    test_services={},
+                ),
+                PeerEndpoint(
+                    manifest_bytes=manifest,
+                    test_credentials={"node_id": 10, "psk": b"\x01" * 32},
+                    entropy_source=responder_entropy,
+                    test_services={},
+                ),
+            )
+
+        if manifest_override is None:
+            endpoints = construct_pair()
+        else:
+            digest = hashlib.sha256(manifest).hexdigest()
+            test_profile_name = f"test-p21d-{digest}"
+            previous_digest = manifest_module._FROZEN.get(test_profile_name)
+            manifest_module._FROZEN[test_profile_name] = digest
+            try:
+                endpoints = construct_pair()
+                self.assertEqual(endpoints[0].manifest.sha256, digest)
+                self.assertEqual(endpoints[1].manifest.sha256, digest)
+            finally:
+                if previous_digest is None:
+                    del manifest_module._FROZEN[test_profile_name]
+                else:
+                    manifest_module._FROZEN[test_profile_name] = previous_digest
         initiator, responder = endpoints
         init_open = initiator.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=10))
         resp_open = responder.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=10))
@@ -105,27 +152,43 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         self.assertEqual(responder.association.status, "active")
         return initiator, responder
 
-    def grant_service2_freshness(self, initiator: PeerEndpoint, responder: PeerEndpoint) -> None:
+    def grant_service2_freshness(
+        self,
+        initiator: PeerEndpoint,
+        responder: PeerEndpoint,
+        *,
+        base_ms: int = 150,
+    ) -> None:
+        request_events = initiator.handle(ApplicationRequest(
+            service_id=0,
+            payload=b"\x10" + (12_000).to_bytes(4, "little"),
+            ack_req=True,
+            at_ms=base_ms,
+        ))
         request = extract_and_settle(
             initiator,
-            initiator.handle(ApplicationRequest(
-                service_id=0,
-                payload=b"\x10" + (12_000).to_bytes(4, "little"),
-                ack_req=True,
-                at_ms=200,
-            )),
-            at_ms=201,
+            request_events,
+            at_ms=base_ms + 1,
         )
-        self.assertEqual(len(request), 1)
-        grant_events = responder.handle(Receive(link=0, bytes=request[0], at_ms=210))
-        grant = extract_and_settle(responder, grant_events, at_ms=211)
+        self.assertEqual(
+            len(request),
+            1,
+            (request_events, initiator.delivery.active_outgoing, initiator.delivery.queue),
+        )
+        grant_events = responder.handle(Receive(link=0, bytes=request[0], at_ms=base_ms + 10))
+        grant = extract_and_settle(responder, grant_events, at_ms=base_ms + 11)
         self.assertGreaterEqual(len(grant), 1)
         result_receipts: list[bytes] = []
         for offset, wire in enumerate(grant):
-            received = initiator.handle(Receive(link=0, bytes=wire, at_ms=220 + offset))
-            result_receipts.extend(extract_and_settle(initiator, received, at_ms=221 + offset))
+            received = initiator.handle(Receive(link=0, bytes=wire, at_ms=base_ms + 20 + offset))
+            result_receipts.extend(extract_and_settle(
+                initiator, received, at_ms=base_ms + 21 + offset
+            ))
         for offset, wire in enumerate(result_receipts):
-            responder.handle(Receive(link=0, bytes=wire, at_ms=222 + offset))
+            receipt_events = responder.handle(Receive(
+                link=0, bytes=wire, at_ms=base_ms + 22 + offset
+            ))
+            extract_and_settle(responder, receipt_events, at_ms=base_ms + 23 + offset)
         self.assertIsNotNone(initiator.active_freshness_token)
 
     def test_selective_association_stops_before_sequence_wrap(self) -> None:
@@ -139,6 +202,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
 
     def test_selective_protected_frames_fit_at_maximum_packet_number(self) -> None:
         initiator, responder = self.pair()
+        self.grant_service2_freshness(initiator, responder)
         initiator.association.next_send_pn = MAX_PN - 1
         outgoing: list[Any] = []
         sequence = initiator._queue_data_transfer(
@@ -157,7 +221,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(status)
         self.assertEqual(parse_frame(status).security.packet_number, MAX_PN)
         self.assertLessEqual(len(status), initiator.manifest.values["binding"]["return_mtu"])
-        state = initiator.outgoing_data[sequence].selective_state
+        state = initiator.outgoing_data[(initiator.association.h, sequence)].selective_state
         events = initiator.handle(Receive(link=0, bytes=status, at_ms=202))
         self.assertFalse(any(isinstance(event, ApplicationEvent) for event in events))
         self.assertEqual(state.pending_mask, 0x01)
@@ -328,12 +392,13 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
 
     def test_fragmented_data_repairs_and_ack_clears_transfer(self) -> None:
         initiator, responder = self.pair()
+        self.grant_service2_freshness(initiator, responder)
         payload = bytes((index * 7) % 256 for index in range(160))
         outgoing: list[Any] = []
         sequence = initiator._queue_data_transfer(2, payload, ack_req=True, out=outgoing)
         data_wires = extract_and_settle(initiator, outgoing, at_ms=201)
         self.assertEqual(len(data_wires), 5)
-        transfer = initiator.outgoing_data[sequence]
+        transfer = initiator.outgoing_data[(initiator.association.h, sequence)]
         self.assertEqual(transfer.selective_state.frames_remaining, 0)
 
         partial = [wire for wire in data_wires if parse_frame(wire).fragment.index not in (1, 4)]
@@ -364,16 +429,157 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         ))
         ack = next(wire for wire in ack_wires if parse_frame(wire).message_type == 6)
         initiator.handle(Receive(link=0, bytes=ack, at_ms=repair_at + 20))
-        self.assertNotIn(sequence, initiator.outgoing_data)
+        self.assertNotIn((initiator.association.h, sequence), initiator.outgoing_data)
+
+    def test_old_association_frag_status_repairs_data_during_rotation_drain(self) -> None:
+        initiator, responder = self.pair(unique_entropy=True)
+        for endpoint in (initiator, responder):
+            endpoint.manifest.values["security"]["episode_attempts"] = 2
+        self.grant_service2_freshness(initiator, responder)
+        payload = bytes((index * 19) & 0xFF for index in range(160))
+        outgoing: list[Any] = []
+        sequence = initiator._queue_data_transfer(
+            2, payload, ack_req=True, out=outgoing
+        )
+        data_wires = extract_and_settle(initiator, outgoing, at_ms=201)
+        self.assertEqual(len(data_wires), 5)
+        partial = [wire for wire in data_wires
+                   if parse_frame(wire).fragment.index not in (1, 4)]
+        receive_events, _ = send_receive(responder, partial, start_ms=300)
+        self.assertFalse(any(isinstance(event, ApplicationEvent)
+                             for event in receive_events))
+        request_key = (
+            1, initiator.local_node_id, initiator.association.local_epoch, sequence
+        )
+        self.assertIn(request_key, responder.reassembly.active)
+
+        old_init = initiator.association
+        old_resp = responder.association
+        flight1 = extract_and_settle(
+            initiator,
+            initiator.initiate_handshake(
+                at_ms=1_500, attempt_id=b"radio-data-rot01"
+            ),
+            at_ms=1_501,
+        )
+        flight2_events = responder.handle(Receive(
+            link=0, bytes=flight1[0], at_ms=1_510
+        ))
+        flight2 = extract_and_settle(responder, flight2_events, at_ms=1_511)
+        finish_events = initiator.handle(Receive(
+            link=0, bytes=flight2[0], at_ms=1_520
+        ))
+        finish = extract_and_settle(initiator, finish_events, at_ms=1_521)
+        ready_events = responder.handle(Receive(
+            link=0, bytes=finish[0], at_ms=1_530
+        ))
+        ready = extract_and_settle(responder, ready_events, at_ms=1_531)
+        self.assertEqual(len(ready), 1)
+        initiator.handle(Receive(link=0, bytes=ready[0], at_ms=1_540))
+        self.assertEqual(old_init.status, "draining")
+        self.assertEqual(old_resp.status, "draining")
+
+        with responder._use_association(old_resp, allow_draining=True):
+            feedback = responder._build_fragment_status(
+                request_key, 2, (1 << 1) | (1 << 4)
+            )
+        self.assertIsNotNone(feedback)
+        state = initiator.outgoing_data[(old_init.h, sequence)].selective_state
+        initiator.handle(Receive(link=0, bytes=feedback, at_ms=1_550))
+        self.assertEqual(state.pending_mask, (1 << 1) | (1 << 4))
+        self.assertFalse(state.terminal)
+
+    def _radio_rotation_collision(self) -> tuple[PeerEndpoint, PeerEndpoint, Any, Any, int, list[bytes]]:
+        initiator, responder = self.pair(unique_entropy=True)
+        for endpoint in (initiator, responder):
+            endpoint.manifest.values["security"]["episode_attempts"] = 2
+        self.grant_service2_freshness(initiator, responder)
+
+        payload = bytes((index * 23) & 0xFF for index in range(160))
+        old_events: list[Any] = []
+        old_sequence = initiator._queue_data_transfer(
+            2, payload, ack_req=True, out=old_events
+        )
+        old_frames = extract_and_settle(initiator, old_events, at_ms=201)
+        old_association = initiator.association
+        old_transfer = initiator.outgoing_data[(old_association.h, old_sequence)]
+
+        flight1 = extract_and_settle(
+            initiator,
+            initiator.initiate_handshake(at_ms=1_500, attempt_id=b"collision-rot001"),
+            at_ms=1_501,
+        )
+        flight2_events = responder.handle(Receive(link=0, bytes=flight1[0], at_ms=1_510))
+        flight2 = extract_and_settle(responder, flight2_events, at_ms=1_511)
+        finish_events = initiator.handle(Receive(link=0, bytes=flight2[0], at_ms=1_520))
+        finish = extract_and_settle(initiator, finish_events, at_ms=1_521)
+        ready_events = responder.handle(Receive(link=0, bytes=finish[0], at_ms=1_530))
+        ready = extract_and_settle(responder, ready_events, at_ms=1_531)
+        self.assertEqual(len(ready), 1)
+        initiator.handle(Receive(link=0, bytes=ready[0], at_ms=1_540))
+        self.assertEqual(old_association.status, "draining")
+
+        self.grant_service2_freshness(
+            initiator, responder, base_ms=1_550
+        )
+        new_events: list[Any] = []
+        new_sequence = initiator._queue_data_transfer(
+            2, payload, ack_req=True, out=new_events
+        )
+        new_frames = extract_and_settle(initiator, new_events, at_ms=1_601)
+        self.assertEqual(old_sequence, 3)
+        self.assertEqual(new_sequence, old_sequence)
+        new_transfer = initiator.outgoing_data[(initiator.association.h, new_sequence)]
+        self.assertEqual(len(initiator.outgoing_data), 2)
+        return initiator, responder, old_transfer, new_transfer, old_sequence, old_frames
+
+    def test_rotation_same_seq_keeps_transfers_and_old_status_ack_scope(self) -> None:
+        initiator, responder, old_transfer, new_transfer, sequence, old_frames = (
+            self._radio_rotation_collision()
+        )
+        old_association = initiator._association_by_hash(old_transfer.association_h)
+        old_receiver_association = responder._association_by_hash(old_transfer.association_h)
+        self.assertIsNotNone(old_association)
+        self.assertIsNotNone(old_receiver_association)
+
+        request_key = (
+            initiator.namespace,
+            initiator.local_node_id,
+            old_association.local_epoch,
+            sequence,
+        )
+        with responder._use_association(old_receiver_association, allow_draining=True):
+            feedback = responder._build_fragment_status(request_key, 2, 1 << 1)
+        self.assertIsNotNone(feedback)
+        initiator.handle(Receive(link=0, bytes=feedback, at_ms=1_610))
+        self.assertEqual(old_transfer.selective_state.pending_mask, 1 << 1)
+        self.assertIsNone(new_transfer.selective_state.pending_mask)
+
+        _, acknowledgements = send_receive(responder, old_frames, start_ms=1_620)
+        ack = next(wire for wire in acknowledgements if parse_frame(wire).message_type == 6)
+        initiator.handle(Receive(link=0, bytes=ack, at_ms=1_640))
+        self.assertNotIn((old_transfer.association_h, sequence), initiator.outgoing_data)
+        self.assertIn((new_transfer.association_h, sequence), initiator.outgoing_data)
+        self.assertFalse(new_transfer.selective_state.terminal)
+
+    def test_old_same_seq_transfer_timeout_does_not_remove_new_transfer(self) -> None:
+        initiator, _, old_transfer, new_transfer, sequence, _ = (
+            self._radio_rotation_collision()
+        )
+        initiator.handle(Advance(now_ms=old_transfer.selective_state.horizon_at_ms))
+        self.assertNotIn((old_transfer.association_h, sequence), initiator.outgoing_data)
+        self.assertIn((new_transfer.association_h, sequence), initiator.outgoing_data)
+        self.assertFalse(new_transfer.selective_state.terminal)
 
     def test_total_initial_loss_probes_final_slice_then_repairs_the_rest(self) -> None:
         initiator, responder = self.pair()
+        self.grant_service2_freshness(initiator, responder)
         initiator.handle(Advance(now_ms=200))
         payload = bytes(range(64))
         outgoing: list[Any] = []
         sequence = initiator._queue_data_transfer(2, payload, ack_req=True, out=outgoing)
         initial = extract_and_settle(initiator, outgoing, at_ms=201)
-        state = initiator.outgoing_data[sequence].selective_state
+        state = initiator.outgoing_data[(initiator.association.h, sequence)].selective_state
         self.assertEqual(len(initial), 2)
 
         probe_at = state.started_at_ms + 4352
@@ -419,10 +625,11 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         ))
         ack = next(wire for wire in acknowledgements if parse_frame(wire).message_type == 6)
         initiator.handle(Receive(link=0, bytes=ack, at_ms=repair_at + 20))
-        self.assertNotIn(sequence, initiator.outgoing_data)
+        self.assertNotIn((initiator.association.h, sequence), initiator.outgoing_data)
 
     def test_terminal_data_ack_wins_over_a_later_status(self) -> None:
         initiator, responder = self.pair()
+        self.grant_service2_freshness(initiator, responder)
         initiator.handle(Advance(now_ms=200))
         payload = bytes(range(64))
         outgoing: list[Any] = []
@@ -449,7 +656,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         ))
         ack = next(wire for wire in acknowledgements if parse_frame(wire).message_type == 6)
         initiator.handle(Receive(link=0, bytes=ack, at_ms=2410))
-        self.assertNotIn(sequence, initiator.outgoing_data)
+        self.assertNotIn((initiator.association.h, sequence), initiator.outgoing_data)
 
         key = (1, 20, initiator.association.local_epoch, sequence)
         later_status = responder._build_fragment_status(key, 2, 0x01)
@@ -457,16 +664,17 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         stale_events = initiator.handle(Receive(link=0, bytes=later_status, at_ms=2411))
         self.assertFalse(any(isinstance(event, TxSubmit) for event in stale_events))
         self.assertFalse(any(isinstance(event, ApplicationEvent) for event in stale_events))
-        self.assertNotIn(sequence, initiator.outgoing_data)
+        self.assertNotIn((initiator.association.h, sequence), initiator.outgoing_data)
 
     def test_lost_status_is_recovered_by_final_slice_probe(self) -> None:
         initiator, responder = self.pair()
+        self.grant_service2_freshness(initiator, responder)
         initiator.handle(Advance(now_ms=200))
         payload = bytes(range(64))
         outgoing: list[Any] = []
         sequence = initiator._queue_data_transfer(2, payload, ack_req=True, out=outgoing)
         initial = extract_and_settle(initiator, outgoing, at_ms=201)
-        state = initiator.outgoing_data[sequence].selective_state
+        state = initiator.outgoing_data[(initiator.association.h, sequence)].selective_state
         last_slice = next(wire for wire in initial if parse_frame(wire).fragment.index == 1)
         send_receive(responder, [last_slice], start_ms=300)
 
@@ -514,16 +722,17 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         ))
         ack = next(wire for wire in acknowledgements if parse_frame(wire).message_type == 6)
         initiator.handle(Receive(link=0, bytes=ack, at_ms=repair_at + 20))
-        self.assertNotIn(sequence, initiator.outgoing_data)
+        self.assertNotIn((initiator.association.h, sequence), initiator.outgoing_data)
 
     def test_lost_repair_is_reported_again_then_stops_at_burst_budget(self) -> None:
         initiator, responder = self.pair()
+        self.grant_service2_freshness(initiator, responder)
         initiator.handle(Advance(now_ms=200))
         payload = bytes(range(96))
         outgoing: list[Any] = []
         sequence = initiator._queue_data_transfer(2, payload, ack_req=True, out=outgoing)
         initial = extract_and_settle(initiator, outgoing, at_ms=201)
-        state = initiator.outgoing_data[sequence].selective_state
+        state = initiator.outgoing_data[(initiator.association.h, sequence)].selective_state
         self.assertEqual([parse_frame(wire).fragment.index for wire in initial], [0, 1, 2])
 
         _, _ = send_receive(
@@ -570,7 +779,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         expired_events = initiator.handle(Advance(now_ms=next_status_at + 2))
         self.assertTrue(state.terminal)
         self.assertIsNone(state.pending_mask)
-        self.assertNotIn(sequence, initiator.outgoing_data)
+        self.assertNotIn((initiator.association.h, sequence), initiator.outgoing_data)
         self.assertTrue(any(
             isinstance(event, ApplicationEvent)
             and event.kind == "diagnostic"
@@ -580,12 +789,13 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
 
     def test_lost_final_data_ack_uses_fresh_probe_without_reaccepting(self) -> None:
         initiator, responder = self.pair()
+        self.grant_service2_freshness(initiator, responder)
         initiator.handle(Advance(now_ms=200))
         payload = bytes(range(64))
         outgoing: list[Any] = []
         sequence = initiator._queue_data_transfer(2, payload, ack_req=True, out=outgoing)
         initial = extract_and_settle(initiator, outgoing, at_ms=201)
-        state = initiator.outgoing_data[sequence].selective_state
+        state = initiator.outgoing_data[(initiator.association.h, sequence)].selective_state
 
         accepted, lost_ack = send_receive(responder, initial, start_ms=300)
         self.assertEqual(sum(
@@ -594,7 +804,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         ), 1)
         self.assertEqual(len(lost_ack), 1)
         self.assertEqual(parse_frame(lost_ack[0]).message_type, 6)
-        self.assertIn(sequence, initiator.outgoing_data)
+        self.assertIn((initiator.association.h, sequence), initiator.outgoing_data)
 
         probe_at = state.started_at_ms + 4352
         probe = extract_and_settle(
@@ -616,7 +826,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         ))
         self.assertEqual(len(retry_acks), 1)
         initiator.handle(Receive(link=0, bytes=retry_acks[0], at_ms=probe_at + 20))
-        self.assertNotIn(sequence, initiator.outgoing_data)
+        self.assertNotIn((initiator.association.h, sequence), initiator.outgoing_data)
 
     def test_duplicate_req_receipts_for_selective_result_obey_receipt_limit(self) -> None:
         initiator, responder = self.pair()
@@ -666,17 +876,18 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         self.assertFalse(retained.selective_state.terminal)
 
     def test_selective_transfer_expires_at_its_absolute_horizon(self) -> None:
-        initiator, _ = self.pair()
+        initiator, responder = self.pair()
+        self.grant_service2_freshness(initiator, responder)
         initiator.handle(Advance(now_ms=200))
         outgoing: list[Any] = []
         sequence = initiator._queue_data_transfer(2, bytes(range(64)), ack_req=True, out=outgoing)
         initial = extract_and_settle(initiator, outgoing, at_ms=201)
         self.assertEqual(len(initial), 2)
-        state = initiator.outgoing_data[sequence].selective_state
+        state = initiator.outgoing_data[(initiator.association.h, sequence)].selective_state
 
         events = initiator.handle(Advance(now_ms=state.horizon_at_ms))
 
-        self.assertNotIn(sequence, initiator.outgoing_data)
+        self.assertNotIn((initiator.association.h, sequence), initiator.outgoing_data)
         self.assertTrue(state.terminal)
         self.assertFalse(any(isinstance(event, TxSubmit) for event in events))
         self.assertTrue(any(

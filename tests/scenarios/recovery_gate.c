@@ -1870,7 +1870,9 @@ static int test_pn_limit(session *env, port_ctx *port)
     CHECK(left.wire.n == 1);
     count = take_queue(&left, initial, 2, now);
     CHECK(count == 1 && initial[0].type == DMP_TYPE_TELEM);
-    CHECK(frame_seq_pn(&initial[0], now, &seq, &pn) == 1 && seq == 0U && pn < pn_max);
+    /* Confirmation reserves SEQ=0, so the first application frame starts at
+     * SEQ=1 for the active association. */
+    CHECK(frame_seq_pn(&initial[0], now, &seq, &pn) == 1 && seq == 1U && pn < pn_max);
 
     /* Advance the real send counter with protected records. Do not alter its
      * internal state: every PN below 2^24 is actually sealed by SEC-1. */
@@ -1879,7 +1881,7 @@ static int test_pn_limit(session *env, port_ctx *port)
     CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) ==
           pn_max);
     CHECK(reseal_new_pn(env, index, &initial[0], span(&telemetry, 1U), now + 1U, &valid_max));
-    CHECK(frame_seq_pn(&valid_max, now + 1U, &seq, &pn) == 1 && seq == 0U && pn == pn_max);
+    CHECK(frame_seq_pn(&valid_max, now + 1U, &seq, &pn) == 1 && seq == 1U && pn == pn_max);
     CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) ==
           pn_limit);
     CHECK(deliver_one(&right, &valid_max, now + 1U, &status) == 0);

@@ -40,6 +40,7 @@ from dmp_peer.frame import (
 from dmp_peer.sample1 import Sample
 from dmp_peer.security import (
     BOOT_VERSION,
+    AuthorizationError,
     CIPHER_CHACHAPOLY,
     MODE_NNPSK0,
     MODE_XX,
@@ -167,10 +168,11 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         return ep_init, ep_resp
 
     def _perform_nnpsk0_handshake(
-        self, ep_init: PeerEndpoint, ep_resp: PeerEndpoint, at_ms: int = 100
+        self, ep_init: PeerEndpoint, ep_resp: PeerEndpoint, at_ms: int = 100,
+        attempt_id: bytes | None = None,
     ) -> None:
         # Step 1: Initiator builds Flight 1
-        evts = ep_init.initiate_handshake(at_ms=at_ms)
+        evts = ep_init.initiate_handshake(at_ms=at_ms, attempt_id=attempt_id)
         f1_wires = _extract_and_settle(ep_init, evts, at_ms=at_ms + 1)
         self.assertEqual(len(f1_wires), 1)
 
@@ -196,11 +198,26 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         self.assertIsNotNone(ep_init.association)
         self.assertEqual(ep_init.association.status, "active")
 
+    @staticmethod
+    def _install_fresh_pair_entropy(ep_init: PeerEndpoint, ep_resp: PeerEndpoint) -> None:
+        for endpoint, seed in ((ep_init, 0x31), (ep_resp, 0x71)):
+            counter = 0
+
+            def source(size: int, *, _seed: int = seed) -> bytes:
+                nonlocal counter
+                counter += 1
+                return bytes((_seed + counter * 17 + index) & 0xFF for index in range(size))
+
+            endpoint.entropy_source = source
+            if endpoint.bootstrap_mgr is not None:
+                endpoint.bootstrap_mgr.entropy_source = source
+
     def _perform_xx_handshake(
-        self, ep_init: PeerEndpoint, ep_resp: PeerEndpoint, at_ms: int = 100
+        self, ep_init: PeerEndpoint, ep_resp: PeerEndpoint, at_ms: int = 100,
+        attempt_id: bytes | None = None,
     ) -> None:
         # Step 1: Initiator builds Flight 1
-        evts = ep_init.initiate_handshake(at_ms=at_ms)
+        evts = ep_init.initiate_handshake(at_ms=at_ms, attempt_id=attempt_id)
         f1_wires = _extract_and_settle(ep_init, evts, at_ms=at_ms + 1)
         self.assertEqual(len(f1_wires), 1)
 
@@ -2329,6 +2346,266 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         ))
         self.assertTrue(any(isinstance(e, TxSubmit) for e in duplicate_events))
         _extract_and_settle(ep_resp, duplicate_events, at_ms=241)
+
+    def test_s10_09_rotation_keeps_old_result_bound_and_new_traffic_current(self) -> None:
+        """Rotation preserves one bounded old result without moving it to new keys."""
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        # The fixture's default allows one local attempt per episode. This
+        # lifecycle scenario explicitly exercises two attempts in one bounded
+        # episode, while keeping the byte/crypto/time budgets unchanged.
+        for endpoint in (ep_init, ep_resp):
+            endpoint.manifest.values["security"]["episode_attempts"] = 2
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        old_init, old_resp = ep_init.association, ep_resp.association
+        self.assertIsNotNone(old_init)
+        self.assertIsNotNone(old_resp)
+
+        request_wires = _extract_and_settle(
+            ep_init,
+            ep_init.handle(ApplicationRequest(
+                service_id=2, payload=b"bound-to-old-association", ack_req=True, at_ms=210,
+            )),
+            at_ms=211,
+        )
+        request = parse_frame(decode_stream_r(request_wires[0]))
+        self.assertEqual(request.security.receive_cid, old_init.peer_rx_cid)
+        result_wires = _extract_and_settle(
+            ep_resp,
+            ep_resp.handle(Receive(link=0, bytes=request_wires[0], at_ms=220)),
+            at_ms=221,
+        )
+        first_result = next(
+            wire for wire in result_wires if parse_frame(decode_stream_r(wire)).message_type == 1
+        )
+        first_result_frame = parse_frame(decode_stream_r(first_result))
+        retained = next(iter(ep_resp.delivery.retained_results.values()))
+        self.assertEqual(retained.association_h, old_resp.h)
+
+        self._install_fresh_pair_entropy(ep_init, ep_resp)
+        self._perform_nnpsk0_handshake(ep_init, ep_resp, at_ms=1_300, attempt_id=b"rotate-epoch-001")
+        new_init, new_resp = ep_init.association, ep_resp.association
+        self.assertIsNot(new_init, old_init)
+        self.assertIsNot(new_resp, old_resp)
+        self.assertEqual(old_init.status, "draining")
+        self.assertEqual(old_resp.status, "draining")
+        self.assertIn(old_init.local_rx_cid, ep_init.draining_associations)
+        self.assertIn(old_resp.local_rx_cid, ep_resp.draining_associations)
+
+        with self.assertRaises(SecurityError):
+            old_init.alloc_send_pn()
+        with self.assertRaises(SecurityError):
+            old_init.encrypt_frame(b"", b"new application traffic")
+
+        # The retained result is logically retried with fresh PN but old CID,
+        # old SEQ and old association keys; it completes the old exchange.
+        retry_at = max(ep_resp.now_ms + 1, retained.next_retry_ms)
+        retry_wires = _extract_and_settle(
+            ep_resp, ep_resp.handle(Advance(now_ms=retry_at)), at_ms=retry_at + 1,
+        )
+        retry_result = next(
+            wire for wire in retry_wires if parse_frame(decode_stream_r(wire)).message_type == 1
+        )
+        retry_frame = parse_frame(decode_stream_r(retry_result))
+        self.assertEqual(retry_frame.security.receive_cid, old_init.local_rx_cid)
+        self.assertEqual(retry_frame.sequence, first_result_frame.sequence)
+        self.assertGreater(retry_frame.security.packet_number, first_result_frame.security.packet_number)
+        response_events = ep_init.handle(Receive(link=0, bytes=retry_result, at_ms=retry_at + 2))
+        self.assertTrue(any(event.kind == "request_result" for event in response_events
+                            if isinstance(event, ApplicationEvent)))
+        old_ack_wires = _extract_and_settle(ep_init, response_events, at_ms=retry_at + 3)
+        self.assertTrue(old_ack_wires)
+        ack = parse_frame(decode_stream_r(old_ack_wires[0]))
+        self.assertEqual(ack.security.receive_cid, old_resp.local_rx_cid)
+
+        # A newly admitted application message uses only the current key/CID
+        # and its independent per-association SEQ/PN space.
+        expected_new_seq = new_init.next_send_seq
+        expected_new_pn = new_init.next_send_pn
+        new_request_wires = _extract_and_settle(
+            ep_init,
+            ep_init.handle(ApplicationRequest(
+                service_id=1, payload=b"\x02", ack_req=True, at_ms=retry_at + 5,
+            )),
+            at_ms=retry_at + 6,
+        )
+        new_request = parse_frame(decode_stream_r(new_request_wires[0]))
+        self.assertEqual(new_request.security.receive_cid, new_resp.local_rx_cid)
+        self.assertEqual(new_request.sequence, expected_new_seq)
+        self.assertEqual(new_request.security.packet_number, expected_new_pn)
+        self.assertEqual(ep_init._bootstrap_episode_attempts, 2)
+
+    def test_s10_09_old_finish_cannot_activate_pending_rotation(self) -> None:
+        """An old association's valid FINISH cannot confirm a new candidate."""
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        for endpoint in (ep_init, ep_resp):
+            endpoint.manifest.values["security"]["episode_attempts"] = 2
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        old_init = ep_init.association
+        old_resp = ep_resp.association
+        self.assertIsNotNone(old_init)
+        self.assertIsNotNone(old_resp)
+
+        # A delayed, freshly protected confirmation from the old association
+        # is valid under its keys but must not confirm the next handshake.
+        old_finish = encode_stream_r(ep_init._build_protected_finish_frame())
+        self._install_fresh_pair_entropy(ep_init, ep_resp)
+        flight1_events = ep_init.initiate_handshake(
+            at_ms=1_300, attempt_id=b"old-finish-rot01"
+        )
+        flight1_wires = _extract_and_settle(ep_init, flight1_events, at_ms=1_301)
+        self.assertEqual(len(flight1_wires), 1)
+        flight2_events = ep_resp.handle(Receive(
+            link=0, bytes=flight1_wires[0], at_ms=1_310
+        ))
+        flight2_wires = _extract_and_settle(ep_resp, flight2_events, at_ms=1_311)
+        self.assertEqual(len(flight2_wires), 1)
+        candidate = ep_resp.pending_association
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.status, "candidate")
+
+        stale_finish_events = ep_resp.handle(Receive(
+            link=0, bytes=old_finish, at_ms=1_320
+        ))
+        stale_ready_wires = _extract_and_settle(
+            ep_resp, stale_finish_events, at_ms=1_321
+        )
+        self.assertEqual(ep_resp.association, old_resp)
+        self.assertEqual(old_resp.status, "active")
+        self.assertIs(ep_resp.pending_association, candidate)
+        self.assertEqual(candidate.status, "candidate")
+        self.assertEqual(len(stale_ready_wires), 1)
+        stale_ready = parse_frame(decode_stream_r(stale_ready_wires[0]))
+        self.assertIsNotNone(stale_ready.security)
+        assert stale_ready.security is not None
+        self.assertEqual(stale_ready.security.receive_cid, old_init.local_rx_cid)
+
+        # The actual new candidate's FINISH remains the only message that can
+        # activate it; completing that handshake still succeeds normally.
+        finish_events = ep_init.handle(Receive(
+            link=0, bytes=flight2_wires[0], at_ms=1_330
+        ))
+        finish_wires = _extract_and_settle(ep_init, finish_events, at_ms=1_331)
+        self.assertEqual(len(finish_wires), 1)
+        ready_events = ep_resp.handle(Receive(
+            link=0, bytes=finish_wires[0], at_ms=1_340
+        ))
+        ready_wires = _extract_and_settle(ep_resp, ready_events, at_ms=1_341)
+        self.assertEqual(len(ready_wires), 1)
+        self.assertIs(ep_resp.association, candidate)
+        self.assertEqual(candidate.status, "active")
+        self.assertEqual(old_resp.status, "draining")
+        ep_init.handle(Receive(link=0, bytes=ready_wires[0], at_ms=1_350))
+        self.assertEqual(ep_init.association.status, "active")
+
+    def test_s10_09_pending_candidate_aead_limit_preserves_active_association(self) -> None:
+        """Exhausting an unconfirmed candidate cannot retire the active SA."""
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        for endpoint in (ep_init, ep_resp):
+            endpoint.manifest.values["security"]["episode_attempts"] = 2
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        old_resp = ep_resp.association
+        self.assertIsNotNone(old_resp)
+        self._install_fresh_pair_entropy(ep_init, ep_resp)
+
+        flight1 = _extract_and_settle(
+            ep_init,
+            ep_init.initiate_handshake(
+                at_ms=1_300, attempt_id=b"candidate-aead01"
+            ),
+            at_ms=1_301,
+        )
+        flight2_events = ep_resp.handle(Receive(
+            link=0, bytes=flight1[0], at_ms=1_310
+        ))
+        flight2 = _extract_and_settle(ep_resp, flight2_events, at_ms=1_311)
+        finish_events = ep_init.handle(Receive(
+            link=0, bytes=flight2[0], at_ms=1_320
+        ))
+        finish = _extract_and_settle(ep_init, finish_events, at_ms=1_321)
+        candidate = ep_resp.pending_association
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.failed_aead_count, 0)
+
+        core = bytearray(decode_stream_r(finish[0]))
+        core[-1] ^= 0x80
+        invalid_finish = encode_stream_r(bytes(core))
+        for _ in range(candidate.failed_aead_limit):
+            ep_resp.handle(Receive(link=0, bytes=invalid_finish, at_ms=1_330))
+
+        self.assertEqual(candidate.status, "closed")
+        self.assertIsNone(ep_resp.pending_association)
+        self.assertIs(ep_resp.association, old_resp)
+        self.assertEqual(old_resp.status, "active")
+
+    def test_s10_09_drain_deadline_reports_unknown_and_releases_old_cid(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        old_init = ep_init.association
+        _extract_and_settle(
+            ep_init,
+            ep_init.handle(ApplicationRequest(
+                service_id=2, payload=b"uncertain-on-old-key", ack_req=True, at_ms=210,
+            )),
+            at_ms=211,
+        )
+        self.assertTrue(ep_init.delivery.active_outgoing)
+        self._install_fresh_pair_entropy(ep_init, ep_resp)
+        self._perform_nnpsk0_handshake(ep_init, ep_resp, at_ms=20_000, attempt_id=b"rotate-drain-001")
+        self.assertEqual(old_init.status, "draining")
+        deadline = old_init.drain_deadline_ms
+        self.assertIsNotNone(deadline)
+        expired = ep_init.handle(Advance(now_ms=deadline))
+        self.assertEqual(old_init.status, "closed")
+        self.assertNotIn(old_init.local_rx_cid, ep_init.draining_associations)
+        self.assertFalse(ep_init.delivery.active_outgoing)
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent) and event.payload == b"unknown"
+            for event in expired
+        ))
+
+    def test_s10_09_trusted_revocation_clears_pin_and_requires_reenrollment(self) -> None:
+        ep_init, ep_resp = self._setup_pair_xx()
+        for endpoint in (ep_init, ep_resp):
+            endpoint.manifest.values["security"]["episode_attempts"] = 2
+        self._perform_xx_handshake(ep_init, ep_resp)
+        old_association = ep_init.association
+        _extract_and_settle(
+            ep_init,
+            ep_init.handle(ApplicationRequest(
+                service_id=2, payload=b"work-bound-to-revoked-pin", ack_req=True, at_ms=210,
+            )),
+            at_ms=211,
+        )
+        self._install_fresh_pair_entropy(ep_init, ep_resp)
+        self._perform_xx_handshake(
+            ep_init, ep_resp, at_ms=1_300, attempt_id=b"xxrotate-epoch01",
+        )
+        active_association = ep_init.association
+        self.assertEqual(old_association.status, "draining")
+        self.assertTrue(ep_init.delivery.active_outgoing)
+        old_pin = ep_init.peer_static_public_key
+        self.assertIsNotNone(old_pin)
+        self.assertTrue(ep_init.bootstrap_mgr.committed_pins)
+
+        revoked = ep_init.revoke_peer_credential(old_pin)
+        self.assertEqual(ep_init.bootstrap_mgr.committed_pins, set())
+        self.assertIsNone(ep_init.peer_static_public_key)
+        self.assertIsNone(ep_init.association)
+        self.assertEqual(ep_init.draining_associations, {})
+        self.assertEqual(old_association.status, "closed")
+        self.assertEqual(active_association.status, "closed")
+        self.assertFalse(ep_init.delivery.active_outgoing)
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent) and event.payload == b"unknown"
+            for event in revoked
+        ))
+        with self.assertRaises(AuthorizationError):
+            ep_init.initiate_handshake(at_ms=20_000, attempt_id=b"revoke-block-001")
+
+        ep_init.approve_oob_peer_static_key(old_pin)
+        self.assertIn(old_pin, ep_init.bootstrap_mgr.committed_pins)
+        self.assertEqual(ep_init.peer_static_public_key, old_pin)
+        self.assertIsInstance(revoked, tuple)
 
 
 if __name__ == "__main__":

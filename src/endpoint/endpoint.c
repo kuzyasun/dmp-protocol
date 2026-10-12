@@ -219,6 +219,12 @@ static dmp_status install_epochs(dmp_endpoint *endpoint)
         return DMP_AUTHENTICATION_FAILURE;
     }
     /* Traffic epochs exist once the attempt is hashed. They are not activation. */
+    if (slot->local.epoch != local_epoch || slot->peer.epoch != peer_epoch) {
+        /* FINISH/READY reserve SEQ=0 in each direction. A new association
+         * therefore starts application sequence allocation at one. */
+        endpoint->identity.slots[endpoint->context.slot].next_seq = 1U;
+        endpoint->identity.slots[endpoint->context.slot].seq_exhausted = false;
+    }
     slot->local.epoch = local_epoch;
     slot->peer.epoch = peer_epoch;
     return DMP_OK;

@@ -2,13 +2,18 @@
 
 P03 case-to-future-test index for main revision 10, SEC-1 revision 5, SELECTIVE-32 revision 1 and SAMPLE-1 revision 2. The canonical rows and stable planned Test IDs are in [DMP_Normative_Cases.json](DMP_Normative_Cases.json); this index does not repeat them.
 
-P05/P06 have 23 passed primary codec/framing scopes and 10 partially exercised
-compound scopes, linked to actual tests and [evidence](evidence/codec-framing-20260927/README.md).
-All 33 whole rows remain `partial` because independent peer/interoperability or
-later primary obligations are unexecuted; the other 104 rows remain `not-run`.
-`primary_checks` names actual linked functions; existing planned Test IDs remain
-stable planning identifiers, not executable commands. P02 offline checks and
-public fixtures alone do not pass endpoint behavior.
+Current whole-row status across all 137 requirements: **49 passed, 32 partial,
+56 not-run**. P23 separately records its scoped independent C/Python interop
+result: **53 applicable cases passed; 84 cases are explicitly not applicable to
+that interop slice**. `not-applicable` does not mean the underlying local
+requirement passed; check the row's whole-row and primary/peer results. P23's
+matrix covers the selected exact-manifest host/simulation endpoints, not every
+published vector, local negative case, application lifecycle, or future startup
+parity case. The earlier P05/P06 baseline had 23 passed primary codec/framing
+scopes and 10 partially exercised compound scopes, linked to [evidence](evidence/codec-framing-20260927/README.md).
+`primary_checks` names actual linked functions; planned Test IDs remain stable
+planning identifiers, not executable commands. P02 offline checks and public
+fixtures alone do not pass endpoint behavior.
 
 | Group | Rows |
 |---|---:|

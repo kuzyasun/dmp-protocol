@@ -62,6 +62,9 @@ class DeploymentTests(unittest.TestCase):
             "radio-nnpsk0-n2.json": ("DMP-test", "TEST-RADIO-N2", 1, "NNpsk0"),
             "test-direct-minimal-128.json": ("DMP-test", "TEST-DIRECT-MINIMAL-128", 1, "NNpsk0"),
             "test-direct-minimal-256.json": ("DMP-test", "TEST-DIRECT-MINIMAL-256", 1, "NNpsk0"),
+            "test-peer-tcp-stream-r-sample20-nnpsk0.json": (
+                "DMP-test", "PEER-TCP-STREAM-R", 1, "NNpsk0"
+            ),
         }
         for name, expected in identities.items():
             with self.subTest(manifest=name):

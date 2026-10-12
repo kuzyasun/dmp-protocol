@@ -34,6 +34,7 @@ _FROZEN = {
     "test-radio-retry-all-nnpsk0.json": "bc8bba7c929c6d0fe9ad39dbe66a6699d342304ae8485ddf5cac9e32605b55f1",
     "test-radio-retry-all-xx.json": "4aece0283e15774346dd2d0d73d45e8c496a4e91aec2ac2693a253e977c767c9",
     "test-peer-tcp-stream-r-nnpsk0.json": "ae409bc0d46cda319f9e9861dcc3fbc6922d2ee6d35155ae61c329b79dc497cc",
+    "test-peer-tcp-stream-r-sample20-nnpsk0.json": "514db4ae41fd8b2b1f4b4b7361cfb63e4b04ea095f33948f0e17e5a19bad9e2f",
     "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json": "64363ad7c1f750409bad1b039509cfec4037a981fa760bbb4dce57bb50e5546d",
 }
 

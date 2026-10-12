@@ -17,6 +17,7 @@
 #define DMP_HS_PLAIN_LIMIT (UINT64_C(1) << 30)
 #define DMP_HS_LIFETIME_DEFAULT_MS UINT64_C(86400000)
 #define DMP_HS_AEAD_CEILING 65536u
+#define DMP_HS_CONTEXT_TAG 0x0BU
 
 struct hs_attempt {
     int used;
@@ -164,6 +165,62 @@ static uint64_t load_le64(const uint8_t *bytes)
     return value;
 }
 
+static void store_le64(uint8_t *bytes, uint64_t value)
+{
+    size_t index;
+    for (index = 0U; index < 8U; ++index) {
+        bytes[index] = (uint8_t)(value >> (index * 8U));
+    }
+}
+
+static int store_uleb32(uint8_t *out, size_t cap, size_t *written, uint32_t value)
+{
+    size_t used = 0U;
+    if (out == NULL || written == NULL) {
+        return 0;
+    }
+    do {
+        uint8_t byte;
+        if (used >= cap) {
+            return 0;
+        }
+        byte = (uint8_t)(value & 0x7FU);
+        value >>= 7U;
+        if (value != 0U) {
+            byte = (uint8_t)(byte | 0x80U);
+        }
+        out[used++] = byte;
+    } while (value != 0U);
+    *written = used;
+    return 1;
+}
+
+static int load_uleb32(dmp_bytes input, uint32_t *value, size_t *used)
+{
+    uint32_t result = 0U;
+    size_t index;
+    if (input.data == NULL || input.size == 0U || value == NULL || used == NULL) {
+        return 0;
+    }
+    for (index = 0U; index < input.size && index < 5U; ++index) {
+        uint8_t byte = input.data[index];
+        uint32_t part = (uint32_t)(byte & 0x7FU);
+        if (index == 4U && part > 0x0FU) {
+            return 0;
+        }
+        result |= part << (7U * (uint32_t)index);
+        if ((byte & 0x80U) == 0U) {
+            if (index != 0U && part == 0U) {
+                return 0;
+            }
+            *value = result;
+            *used = index + 1U;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static uint64_t now_ms(const dmp_hs *hs)
 {
     return hs->ports.now_ms(hs->ports.ctx);
@@ -267,7 +324,11 @@ static uint32_t pending_count(const dmp_hs *hs)
     uint32_t index;
 
     for (index = 0U; index < DMP_HS_ATTEMPT_MAX; ++index) {
-        if (hs->attempts[index].used && !hs->attempts[index].terminal) {
+        /* max_pending limits in-progress handshakes. An established active
+         * association has its own manifest capacity and must not consume the
+         * slot needed to prepare one replacement candidate. */
+        if (hs->attempts[index].used && !hs->attempts[index].terminal &&
+            !hs->attempts[index].active) {
             count++;
         }
     }
@@ -1090,7 +1151,8 @@ dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_confi
     }
     if ((config->mode != 1U && config->mode != 2U) || config->cipher != 1U ||
         config->local_id == config->peer_id || config->budget.max_pending > DMP_HS_ATTEMPT_MAX ||
-        config->budget.max_scratch > DMP_HS_ATTEMPT_MAX) {
+        config->budget.max_scratch > DMP_HS_ATTEMPT_MAX ||
+        config->confirmation_route_ttl > 15U) {
         return DMP_HS_INVALID;
     }
     if (config->mode == 1U && !config->has_psk) {
@@ -1509,9 +1571,13 @@ static int seal_record(dmp_hs *hs, struct hs_attempt *attempt, uint8_t type, uin
     uint8_t body[DMP_HS_APP_PLAIN_MAX + 16U];
     uint8_t frame[DMP_HS_PROTECTED_MAX];
     uint8_t aad[DMP_HS_AAD_MAX];
+    uint8_t canonical[DMP_MAX_HEADER_BYTES];
+    uint8_t extensions[15];
     dmp_frame_spec spec;
+    dmp_frame_view header_view;
     dmp_buffer output;
     size_t header_len = 0U;
+    size_t extension_len = 0U;
     size_t aad_len = 0U;
     size_t sealed = 0U;
     size_t total;
@@ -1533,15 +1599,47 @@ static int seal_record(dmp_hs *hs, struct hs_attempt *attempt, uint8_t type, uin
     spec.fields.security.cipher = attempt->cipher;
     spec.fields.security.receive_cid = attempt->remote_rx_cid;
     spec.fields.security.pn = pn;
+    if (hs->config.confirmation_route_ttl != 0U) {
+        uint8_t *context = extensions + 2U;
+        size_t namespace_len = 0U;
+        uint64_t local_epoch = attempt->initiator ? attempt->epoch_i : attempt->epoch_r;
+        spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_ROUTE | DMP_OPT_EXT);
+        spec.fields.route.mode = 1U;
+        spec.fields.route.ttl = hs->config.confirmation_route_ttl;
+        spec.fields.route.source = hs->config.local_id;
+        spec.fields.route.destination = hs->config.peer_id;
+        if (!store_uleb32(context, sizeof extensions - 2U, &namespace_len,
+                          attempt->namespace_id)) {
+            return 0;
+        }
+        store_le64(context + namespace_len, local_epoch);
+        extensions[0] = DMP_HS_CONTEXT_TAG;
+        extensions[1] = (uint8_t)(namespace_len + 8U);
+        extension_len = namespace_len + 10U;
+        spec.extensions.data = extensions;
+        spec.extensions.size = extension_len;
+    }
     spec.payload.data = plain;
     spec.payload.size = plain_len;
     spec.trailer.size = 16U;
     output.data = header;
     output.capacity = sizeof(header);
-    if (dmp_core_encode_header(&spec, protected_limits(), output, &header_len) != DMP_OK ||
-        !build_aad(attempt->handshake_hash, header, header_len, aad, sizeof(aad), &aad_len) ||
+    memset(&header_view, 0, sizeof(header_view));
+    if (dmp_core_encode_header(&spec, protected_limits(), output, &header_len) != DMP_OK) {
+        wipe(aad, sizeof(aad));
+        wipe(extensions, sizeof(extensions));
+        return 0;
+    }
+    header_view.header.data = header;
+    header_view.header.size = header_len;
+    header_view.fields.options = spec.fields.options;
+    header_view.fields.seq = seq;
+    if (!canonical_header(&header_view, canonical, sizeof(canonical), &header_len) ||
+        !build_aad(attempt->handshake_hash, canonical, header_len, aad, sizeof(aad), &aad_len) ||
         header_len + plain_len + 16U > sizeof(frame)) {
         wipe(aad, sizeof(aad));
+        wipe(canonical, sizeof(canonical));
+        wipe(extensions, sizeof(extensions));
         return 0;
     }
     if (plain_len != 0U) {
@@ -1550,8 +1648,10 @@ static int seal_record(dmp_hs *hs, struct hs_attempt *attempt, uint8_t type, uin
     status = dmp_provider_cipher_encrypt(hs->provider, &attempt->send_cipher, pn, aad, aad_len, body,
                                          plain_len, sizeof(body), &sealed);
     wipe(aad, sizeof(aad));
+    wipe(canonical, sizeof(canonical));
     if (status != DMP_PROVIDER_OK || sealed != plain_len + 16U) {
         wipe(body, sizeof(body));
+        wipe(extensions, sizeof(extensions));
         return 0;
     }
     total = header_len + sealed;
@@ -1563,6 +1663,7 @@ static int seal_record(dmp_hs *hs, struct hs_attempt *attempt, uint8_t type, uin
         memset(attempt->protected_frame + total, 0, sizeof(attempt->protected_frame) - total);
     }
     wipe(frame, sizeof(frame));
+    wipe(extensions, sizeof(extensions));
     attempt->protected_len = (uint16_t)total;
     attempt->next_pn = pn + 1U;
     attempt->send_frames++;
@@ -1619,12 +1720,55 @@ static struct hs_attempt *find_by_cid(dmp_hs *hs, uint32_t cid)
     return NULL;
 }
 
-static int confirmation_hello(const dmp_frame_view *view, const uint8_t *plain, size_t plain_len,
-                              uint8_t opcode)
+static int confirmation_route_matches(const dmp_frame_view *view,
+                                      const dmp_hs_protected *incoming)
 {
-    return view->fields.type == DMP_TYPE_HELLO &&
-           view->fields.options == (uint8_t)(DMP_OPT_SEQ | DMP_OPT_SECURITY) && view->fields.seq == 0U &&
-           view->extensions.size == 0U && plain_len == 1U && plain[0] == opcode;
+    dmp_extension_view extension;
+    size_t cursor = 0U;
+    size_t namespace_len = 0U;
+    uint32_t namespace_id = 0U;
+    uint64_t epoch;
+    if (view->fields.options != (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_SECURITY |
+                                          DMP_OPT_EXT) ||
+        view->fields.route.mode != 1U || view->fields.route.source != incoming->origin_id ||
+        view->fields.route.destination != incoming->destination_id ||
+        dmp_extension_next(view->extensions, &cursor, &extension) != DMP_OK ||
+        extension.tag != DMP_HS_CONTEXT_TAG ||
+        dmp_extension_next(view->extensions, &cursor, &(dmp_extension_view){0}) != DMP_INCOMPLETE ||
+        !load_uleb32(extension.value, &namespace_id, &namespace_len) ||
+        extension.value.size != namespace_len + 8U) {
+        return 0;
+    }
+    epoch = load_le64(extension.value.data + namespace_len);
+    return namespace_id == incoming->namespace_id && epoch == incoming->context_epoch;
+}
+
+static int confirmation_header_matches(const dmp_hs *hs,
+                                       const dmp_hs_protected *incoming,
+                                       const dmp_frame_view *view)
+{
+    if (view->fields.type != DMP_TYPE_HELLO || view->fields.seq != 0U) {
+        return 0;
+    }
+    if (hs->config.confirmation_route_ttl != 0U) {
+        return confirmation_route_matches(view, incoming);
+    }
+    return view->fields.options == (uint8_t)(DMP_OPT_SEQ | DMP_OPT_SECURITY) &&
+           view->extensions.size == 0U;
+}
+
+static int confirmation_hello(const dmp_hs *hs, const struct hs_attempt *attempt,
+                              const dmp_hs_protected *incoming, const dmp_frame_view *view,
+                              const uint8_t *plain, size_t plain_len, uint8_t opcode)
+{
+    uint32_t expected_origin = attempt->initiator ? attempt->responder_id : attempt->initiator_id;
+    uint32_t expected_destination = hs->config.local_id;
+    if (view->fields.type != DMP_TYPE_HELLO || view->fields.seq != 0U || plain_len != 1U ||
+        plain[0] != opcode || incoming->origin_id != expected_origin ||
+        incoming->destination_id != expected_destination) {
+        return 0;
+    }
+    return confirmation_header_matches(hs, incoming, view);
 }
 
 static void remember_plain(struct hs_attempt *attempt, const uint8_t *plain, size_t plain_len)
@@ -1842,6 +1986,10 @@ dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *incomin
     if (attempt == NULL || !attempt->recv_open || !context_matches(hs, attempt, incoming)) {
         return DMP_HS_DROPPED;
     }
+    if (view.fields.type == DMP_TYPE_HELLO &&
+        !confirmation_header_matches(hs, incoming, &view)) {
+        return DMP_HS_DROPPED;
+    }
     if (view.fields.security.cipher == 2U) {
         return DMP_HS_UNSUPPORTED;
     }
@@ -1891,7 +2039,8 @@ dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *incomin
         return DMP_HS_DROPPED;
     }
     attempt->recv_plain += plain_len;
-    if (!attempt->initiator && confirmation_hello(&view, body, plain_len, 0x04U)) {
+    if (!attempt->initiator &&
+        confirmation_hello(hs, attempt, incoming, &view, body, plain_len, 0x04U)) {
         if (!seal_record(hs, attempt, DMP_TYPE_HELLO, 0U, &opcode, 1U)) {
             wipe(body, sizeof(body));
             return DMP_HS_REFUSED;
@@ -1904,7 +2053,8 @@ dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *incomin
         wipe(body, sizeof(body));
         return DMP_HS_OK;
     }
-    if (attempt->initiator && confirmation_hello(&view, body, plain_len, 0x05U)) {
+    if (attempt->initiator &&
+        confirmation_hello(hs, attempt, incoming, &view, body, plain_len, 0x05U)) {
         become_active(attempt);
         wipe(body, sizeof(body));
         return DMP_HS_OK;

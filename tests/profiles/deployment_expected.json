@@ -211,6 +211,26 @@
       }
     }
   },
+  "test-peer-tcp-stream-r-sample20-nnpsk0.json": {
+    "fragment_count": 16,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 48,
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 150,
+    "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 57,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 60488
+      }
+    }
+  },
   "test-radio-retry-all-nnpsk0.json": {
     "fragment_count": 32,
     "bootstrap_fragment_count": 2,

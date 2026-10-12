@@ -154,3 +154,31 @@ foreach(name activation alter loss isolate reassembly ttl acl rotation result fr
     add_test(NAME endpoint.protected_${name} COMMAND dmp_test_endpoint_sec ${name})
     set_tests_properties(endpoint.protected_${name} PROPERTIES TIMEOUT 60 LABELS "endpoint")
 endforeach()
+foreach(_p23_gate IN ITEMS
+        c_endpoint_interop
+        radio_endpoint_interop
+        mixed_endpoint_path
+        r7_interop
+        security_negative_interop
+        s10_bootstrap_budget_interop
+        s10_buffer_interop
+        s10_confirmation_interop
+        s10_mutation_interop
+        s10_packet_number_interop
+        s10_rotation_interop)
+    add_test(NAME "peer.p23_${_p23_gate}"
+        COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/peer/tests/test_p23_${_p23_gate}.py")
+    set_tests_properties("peer.p23_${_p23_gate}" PROPERTIES
+        TIMEOUT 90 LABELS "peer;interop;endpoint"
+        ENVIRONMENT
+            "DMP_P23_ENDPOINT_SEC_EXE=$<TARGET_FILE:dmp_test_endpoint_sec>;PYTHONPATH=${PROJECT_SOURCE_DIR}/tests/peer")
+endforeach()
+foreach(_p23_peer_case IN ITEMS fresh_data freshness_lifecycle)
+    add_test(NAME "peer.p23_${_p23_peer_case}"
+        COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/peer/tests/test_p23_${_p23_peer_case}.py")
+    set_tests_properties("peer.p23_${_p23_peer_case}" PROPERTIES
+        TIMEOUT 90 LABELS "peer;interop;endpoint"
+        ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/tests/peer")
+endforeach()

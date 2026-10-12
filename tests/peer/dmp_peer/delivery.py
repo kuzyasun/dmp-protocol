@@ -24,6 +24,7 @@ class OutgoingExchange:
     max_attempts: int
     request_payload: bytes = b""
     freshness_token: bytes | None = None
+    association_h: bytes = b""
     attempts_used: int = 1
     next_retry_ms: int = 0
     received_ack: bool = False
@@ -66,6 +67,7 @@ class RetainedResult:
     immutable_metadata: tuple = ()
     result_payload: bytes | None = None
     selective_state: Any | None = None
+    association_h: bytes = b""
 
     def __post_init__(self):
         if not self.result_frames and self.result_frame_bytes:
