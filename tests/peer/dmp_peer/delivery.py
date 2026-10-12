@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -34,6 +34,7 @@ class OutgoingExchange:
     admitted_schedule_handles: set[int] = field(default_factory=set)
     active_submission_handles: list[int] = field(default_factory=list)
     queued_schedule_frames: int = 0
+    selective_state: Any | None = None
 
     @property
     def frame_bytes(self) -> bytes:
@@ -64,6 +65,7 @@ class RetainedResult:
     gate_destination: Optional[int] = None
     immutable_metadata: tuple = ()
     result_payload: bytes | None = None
+    selective_state: Any | None = None
 
     def __post_init__(self):
         if not self.result_frames and self.result_frame_bytes:
@@ -142,6 +144,7 @@ class DeliveryManager:
         correlation_ms: int,
         max_bursts: int,
         app_queue_slots: int,
+        receipt_limit: int | None = None,
         sender_slots: int | None = None,
         result_slots: int | None = None,
         history_slots: int | None = None,
@@ -155,6 +158,7 @@ class DeliveryManager:
         self.rejection_ms = rejection_ms
         self.correlation_ms = correlation_ms
         self.max_bursts = max_bursts
+        self.receipt_limit = max_bursts if receipt_limit is None else receipt_limit
         self.app_queue_slots = app_queue_slots
         self.sender_slots = sender_slots
         self.result_slots = result_slots
@@ -215,6 +219,10 @@ class DeliveryManager:
             if not exc.schedule_admitted or exc.pending_schedule_handles or exc.queued_schedule_frames:
                 continue
 
+            # SELECTIVE-32 owns its own finite repair/probe schedule in the peer.
+            if exc.selective_state is not None:
+                continue
+
             # Check response timeout for unacknowledged request
             if not exc.received_ack and exc.state == "awaiting_receipt":
                 if now_ms >= exc.next_retry_ms:
@@ -234,6 +242,8 @@ class DeliveryManager:
             if now_ms >= res.expires_at_ms:
                 del self.retained_results[key]
                 self.release_result_gate(key)
+                continue
+            if res.selective_state is not None:
                 continue
             if not res.acknowledged and res.attempts_left > 0 and now_ms >= res.next_retry_ms:
                 res.attempts_left -= 1
@@ -329,6 +339,13 @@ class DeliveryManager:
         if rejection.replay_bursts >= self.max_bursts - 1:
             return False
         rejection.replay_bursts += 1
+        return True
+
+    def admit_receipt_replay(self, accepted: AcceptedRecord) -> bool:
+        """Reserve one repeat receipt within the profile's total receipt limit."""
+        if accepted.replay_bursts >= self.receipt_limit - 1:
+            return False
+        accepted.replay_bursts += 1
         return True
 
     def admit_history(self) -> bool:

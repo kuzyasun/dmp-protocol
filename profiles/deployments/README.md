@@ -1,10 +1,10 @@
 # Frozen host development deployments
 
-P03 instances of [test manifest contract 2](../../docs/DMP_Test_Manifest_Contract.md).
+Contract-2 P03 instances of [the test manifest contract](../../docs/DMP_Test_Manifest_Contract.md).
 These are complete configuration inputs for the future real library and its
-independent peer, not endpoint implementations or physical bindings. The six JSON
-manifests are authoritative files; changes require review and an explicit update
-of `digests.json`. Hash original bytes, without parsing/reserializing them.
+independent peer, not endpoint implementations or physical bindings. Contract-2
+manifest bytes and hashes remain unchanged. Changes require review and an explicit
+update of `digests.json`. Hash original bytes, without parsing/reserializing them.
 Deployment instance owner is `DMP-test`, name is the manifest basename without
 `.json`, and instance revision is 1. This instance name is distinct from the
 reference-family identity inside the file. `digests.json` pins the exact
@@ -26,8 +26,23 @@ refuses new work; it never evicts live work or protected history.
 SAMPLE-1/2 on default service 1 is unchanged. Service 2 is the contract's opaque,
 idempotent test workload, with up to 1024 request/result bytes. Only radio enables
 its S7 freshness requirement (12-second lease); SAMPLE-1 has no freshness token.
-Groups, AESGCM, dynamic routes, lower segmentation and physical/mixed bindings
-are outside these instances. Mixed-path support remains P22 before P23.
+Groups, AESGCM, dynamic routes, lower segmentation and physical bindings are
+outside these contract-2 instances.
+
+## P22 contract-3 host bindings
+
+These are separate contract-3 manifests and do not change the contract-2
+identities or hashes above:
+
+| Manifest | Profile | TCP/packet path | Recovery |
+| --- | --- | --- | --- |
+| `test-peer-tcp-stream-r-nnpsk0.json` | `DMP-test/PEER-TCP-STREAM-R/1` | TCP Stream R between peer processes on loopback | retry-all |
+| `test-mixed-tcp-stream-r-sim-packet-nnpsk0.json` | `DMP-test/MIXED-TCP-STREAM-R-SIM-PACKET/1` | TCP Stream R from node 10 to bridge 30, then SIM-PACKET via relay 40 to node 20; reverse path uses packet then TCP | selective-32 |
+
+Both use the separately selected NNpsk0 provisioning mode and contain no key
+material. Contract-3 fields, strict-latest-start semantics, profile arithmetic,
+resource caps, and digest rules are specified in the linked contract. These
+loopback/simulated profiles are not physical transport qualification.
 
 ## Comparable simulated schedules
 

@@ -1098,6 +1098,7 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         raw = bytearray(decode_stream_r(f1))
         payload_idx = raw.find(bytes([BOOT_VERSION, MODE_NNPSK0, CIPHER_CHACHAPOLY, 1]))
         raw[payload_idx] = 99  # Invalid BOOT_VERSION
+        raw[-4:] = crc32c(bytes(raw[:-4])).to_bytes(4, "little")
         bad_f1 = encode_stream_r(bytes(raw))
 
         out = ep_resp.handle(Receive(link=0, bytes=bad_f1, at_ms=120))
@@ -1252,7 +1253,79 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
             ep_resp.handle(ApplicationRequest(service_id=2, payload=b"ok", ack_req=True, at_ms=160)),
             at_ms=161,
         )[0]
+        # READY is deliberately still undelivered. The authorized request is
+        # what activates this initiator, so its first local protected outputs
+        # must start at the new association's sequence 1.
+        ep_init.next_seq = 444
         accepted = ep_init.handle(Receive(link=0, bytes=valid_req, at_ms=170))
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent) and event.kind == "request_accepted"
+            for event in accepted
+        ))
+        local_sequences = [
+            parse_frame(decode_stream_r(event.bytes)).sequence
+            for event in accepted if isinstance(event, TxSubmit)
+        ]
+        self.assertEqual(local_sequences, [1])
+        self.assertEqual(ep_init.next_seq, 3)
+        self.assertIsNotNone(ep_init.association)
+        self.assertEqual(ep_init.association.status, "active")
+        self.assertIsNone(ep_init.pending_association)
+        # The dropped READY remains valid; its replayed late delivery is harmless.
+        ep_init.handle(Receive(link=0, bytes=ready_wire, at_ms=180))
+
+    def test_candidate_rejects_service2_descriptor_before_readiness(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        f1 = _extract_and_settle(ep_init, ep_init.initiate_handshake(at_ms=100), at_ms=101)[0]
+        f2 = _extract_and_settle(
+            ep_resp, ep_resp.handle(Receive(link=0, bytes=f1, at_ms=110)), at_ms=111
+        )[0]
+        finish = _extract_and_settle(
+            ep_init, ep_init.handle(Receive(link=0, bytes=f2, at_ms=120)), at_ms=121
+        )[0]
+        ready_wires = _extract_and_settle(
+            ep_resp, ep_resp.handle(Receive(link=0, bytes=finish, at_ms=130)), at_ms=131
+        )
+        ready_wire = next(
+            wire for wire in ready_wires
+            if parse_frame(decode_stream_r(wire)).message_type == 3
+        )
+        self.assertIsNotNone(ep_resp.association)
+        self.assertEqual(ep_resp.association.status, "active")
+        self.assertIsNone(ep_init.association)
+        self.assertEqual(ep_init.pending_association.status, "candidate")
+
+        descriptor_req = ep_resp._encrypt_and_encode(
+            CoreFrame(
+                message_type=0,
+                options=0xA3,
+                sequence=900,
+                payload_descriptor=PayloadDescriptor(flags=0, codec_id=128),
+                extensions=(Extension(4, True, False, encode_uleb(2)),),
+            ),
+            plaintext=b"opaque",
+        )
+        events = ep_init.handle(Receive(
+            link=0, bytes=encode_stream_r(descriptor_req), at_ms=140
+        ))
+        self.assertFalse(any(isinstance(event, TxSubmit) for event in events))
+        self.assertFalse(any(isinstance(event, ApplicationEvent) for event in events))
+        self.assertIsNone(ep_init.association)
+        self.assertIsNotNone(ep_init.pending_association)
+        self.assertEqual(ep_init.pending_association.status, "candidate")
+        self.assertEqual(ep_init.delivery.accepted_messages, {})
+        self.assertEqual(ep_init.delivery.retained_results, {})
+        self.assertEqual(ep_init.delivery.rejections, {})
+
+        # A valid authorized service-2 REQ can activate the still-pending peer.
+        valid_req = _extract_and_settle(
+            ep_resp,
+            ep_resp.handle(ApplicationRequest(
+                service_id=2, payload=b"valid", ack_req=True, at_ms=150
+            )),
+            at_ms=151,
+        )[0]
+        accepted = ep_init.handle(Receive(link=0, bytes=valid_req, at_ms=160))
         self.assertTrue(any(
             isinstance(event, ApplicationEvent) and event.kind == "request_accepted"
             for event in accepted
@@ -1260,8 +1333,8 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         self.assertIsNotNone(ep_init.association)
         self.assertEqual(ep_init.association.status, "active")
         self.assertIsNone(ep_init.pending_association)
-        # The dropped READY remains valid; its replayed late delivery is harmless.
-        ep_init.handle(Receive(link=0, bytes=ready_wire, at_ms=180))
+        # READY is still valid and harmless if it arrives after application activation.
+        ep_init.handle(Receive(link=0, bytes=ready_wire, at_ms=170))
 
     def test_protected_sample_request_with_unknown_codec_returns_unsupported(self) -> None:
         ep_init, ep_resp = self._setup_pair_nnpsk0()
@@ -1294,6 +1367,470 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         self.assertEqual(ep_resp.delivery.rejections[sender_key].status, 2)
         self.assertNotIn(sender_key, ep_resp.delivery.retained_results)
         self.assertTrue(any(isinstance(event, TxSubmit) for event in events))
+
+    def test_protected_unknown_critical_extensions_block_local_delivery(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        ep_resp.handle(PublishSample(value=321, at_ms=200))
+        _extract_and_settle(ep_resp, at_ms=201)
+
+        # Synchronize the real SAMPLE-1 consumer before checking telemetry admission.
+        read_wires = _extract_and_settle(
+            ep_init,
+            ep_init.handle(ApplicationRequest(service_id=1, payload=b"\x01", ack_req=True, at_ms=210)),
+            at_ms=211,
+        )
+        response_wires = _extract_and_settle(
+            ep_resp,
+            ep_resp.handle(Receive(link=0, bytes=read_wires[0], at_ms=220)),
+            at_ms=221,
+        )
+        for wire in response_wires:
+            ep_init.handle(Receive(link=0, bytes=wire, at_ms=230))
+        self.assertEqual(ep_init.sample_consumer.state, "synchronized")
+        retained_sample = ep_init.sample_consumer.cached_sample
+
+        critical_sample = CoreFrame(
+            message_type=5,
+            options=0x81,
+            sequence=6100,
+            extensions=(Extension(64, True, False, b"future"),),
+        )
+        wire = encode_stream_r(ep_resp._encrypt_and_encode(
+            critical_sample, plaintext=Sample(epoch=1, index=2, value=999).encode_telemetry()
+        ))
+        ep_init.handle(Receive(link=0, bytes=wire, at_ms=240))
+        self.assertIs(ep_init.sample_consumer.cached_sample, retained_sample)
+
+        # Unknown noncritical metadata remains opaque and does not block delivery.
+        opaque_sample = CoreFrame(
+            message_type=5,
+            options=0x81,
+            sequence=6101,
+            extensions=(Extension(64, False, False, b"future"),),
+        )
+        wire = encode_stream_r(ep_resp._encrypt_and_encode(
+            opaque_sample, plaintext=Sample(epoch=1, index=2, value=777).encode_telemetry()
+        ))
+        ep_init.handle(Receive(link=0, bytes=wire, at_ms=241))
+        self.assertEqual(ep_init.sample_consumer.cached_sample.value, 777)
+
+        # The same critical-extension gate also precedes fragmented DATA reassembly.
+        fragmented = CoreFrame(
+            message_type=7,
+            options=0x89,  # SEQ | FRAG | EXT
+            sequence=6102,
+            fragment=Fragment(index=0, chunk_size=64, total_length=100),
+            extensions=(Extension(4, True, False, encode_uleb(2)), Extension(64, True, False, b"future")),
+        )
+        wire = encode_stream_r(ep_resp._encrypt_and_encode(fragmented, plaintext=b"x" * 64))
+        key = (1, ep_resp.local_node_id, ep_init.association.peer_epoch, 6102)
+        ep_init.handle(Receive(link=0, bytes=wire, at_ms=242))
+        self.assertNotIn(key, ep_init.reassembly.active)
+        self.assertNotIn(key, ep_init.delivery.accepted_messages)
+
+        protected_req = CoreFrame(
+            message_type=0,
+            options=0x83,  # SEQ | ACK_REQ | EXT
+            sequence=6103,
+            extensions=(Extension(4, True, False, encode_uleb(2)), Extension(64, True, False, b"future")),
+        )
+        wire = encode_stream_r(ep_resp._encrypt_and_encode(protected_req, plaintext=b"opaque"))
+        req_key = (1, ep_resp.local_node_id, ep_init.association.peer_epoch, 6103)
+        ep_init.handle(Receive(link=0, bytes=wire, at_ms=243))
+        self.assertNotIn(req_key, ep_init.delivery.accepted_messages)
+        self.assertNotIn(req_key, ep_init.delivery.retained_results)
+        self.assertNotIn(req_key, ep_init.delivery.rejections)
+
+    def test_p21b_test_only_unknown_critical_extension_blocks_plaintext_req(self) -> None:
+        ep = PeerEndpoint(
+            manifest_bytes=self.raw_manifest_nnpsk0,
+            test_credentials={"node_id": 10},
+            entropy_source=lambda n: bytes((i + 1) % 256 for i in range(n)),
+            test_services={},
+            test_only_disable_sec1=True,
+        )
+        open_events = ep.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=10))
+        _extract_and_settle(ep, open_events, at_ms=11)
+        ep.handle(Receive(link=0, bytes=b"\x00", at_ms=12))
+
+        def req(sequence: int, critical: bool, at_ms: int) -> tuple[Any, ...]:
+            frame = CoreFrame(
+                message_type=0,
+                options=0x83,  # SEQ | ACK_REQ | EXT
+                sequence=sequence,
+                extensions=(
+                    Extension(3, True, True, encode_uleb(20)),
+                    Extension(4, True, False, encode_uleb(2)),
+                    Extension(64, critical, False, b"opaque"),
+                ),
+                payload=b"opaque-request",
+            )
+            return ep.handle(Receive(link=0, bytes=encode_stream_r(encode_frame(frame)), at_ms=at_ms))
+
+        critical_key = (1, 20, ep.remote_epoch, 6400)
+        critical_out = req(6400, True, 20)
+        self.assertFalse(any(isinstance(event, ApplicationEvent) and event.kind == "request_accepted"
+                             for event in critical_out))
+        self.assertNotIn(critical_key, ep.delivery.accepted_messages)
+        self.assertNotIn(critical_key, ep.delivery.retained_results)
+        self.assertNotIn(critical_key, ep.delivery.rejections)
+
+        # Opaque unknown noncritical metadata remains acceptable on the P21B
+        # plaintext test path, including the normal retained-result behavior.
+        opaque_key = (1, 20, ep.remote_epoch, 6401)
+        opaque_out = req(6401, False, 21)
+        self.assertIn(opaque_key, ep.delivery.accepted_messages)
+        self.assertIn(opaque_key, ep.delivery.retained_results)
+        self.assertTrue(any(isinstance(event, ApplicationEvent) and event.kind == "request_accepted"
+                            for event in opaque_out))
+
+    def test_protected_service2_descriptor_is_retained_unsupported(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        frame = CoreFrame(
+            message_type=0,
+            options=0xA3,  # SEQ | ACK_REQ | PAYLOAD_DESC | EXT
+            sequence=6200,
+            payload_descriptor=PayloadDescriptor(flags=0, codec_id=128),
+            extensions=(Extension(4, True, False, encode_uleb(2)),),
+        )
+
+        def receive_request(at_ms: int) -> tuple[bytes, ...]:
+            request = encode_stream_r(ep_init._encrypt_and_encode(frame, plaintext=b"opaque"))
+            events = ep_resp.handle(Receive(link=0, bytes=request, at_ms=at_ms))
+            return tuple(_extract_and_settle(ep_resp, events, at_ms=at_ms + 1))
+
+        sender_key = (1, ep_init.local_node_id, ep_resp.association.peer_epoch, 6200)
+        first_errors = receive_request(210)
+        self.assertEqual(len(first_errors), 1)
+        rejection = ep_resp.delivery.rejections[sender_key]
+        self.assertEqual(rejection.status, 2)
+        self.assertNotIn(sender_key, ep_resp.delivery.accepted_messages)
+        self.assertNotIn(sender_key, ep_resp.delivery.retained_results)
+
+        # Re-protect the same logical invalid request with a fresh PN. It must
+        # replay the retained STATUS=2 decision without reaching the opaque path.
+        second_errors = receive_request(220)
+        self.assertEqual(len(second_errors), 1)
+        self.assertIs(ep_resp.delivery.rejections[sender_key], rejection)
+        self.assertNotIn(sender_key, ep_resp.delivery.accepted_messages)
+
+        def status_from_error(wire: bytes) -> int:
+            raw = decode_stream_r(wire)
+            err = parse_frame(raw)
+            plaintext = ep_init.association.decrypt_frame(
+                core_header=raw[: raw[1]],
+                ciphertext=err.payload,
+                tag=err.trailer,
+                pn=err.security.packet_number,
+                rx_cid=err.security.receive_cid,
+            )
+            self.assertEqual(plaintext, b"")
+            status = next(ext for ext in err.extensions if ext.extension_id == 5)
+            value, end = decode_uleb(status.value)
+            self.assertEqual(end, len(status.value))
+            return value
+
+        self.assertEqual(status_from_error(first_errors[0]), 2)
+        self.assertEqual(status_from_error(second_errors[0]), 2)
+
+    def test_stream_r_candidate_timeout_uses_manifest_absolute_boundary(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        timing = ep_init.manifest.values["timing"]
+        expected_timeout = (
+            ep_init.manifest.values["binding"]["frame_tx_ms"]
+            + max(timing["forward_delay_ms"], timing["return_delay_ms"])
+            + timing["record_margin_ms"]
+        )
+        self.assertEqual(ep_init.stream_r_decoder.candidate_timeout_ms, expected_timeout)
+
+        for seq, start_ms, delimiter_offset, accepted in (
+            (6300, 300, expected_timeout - 1, True),
+            (6301, 350, expected_timeout, True),
+            (6302, 400, expected_timeout + 1, False),
+        ):
+            raw = ep_resp._build_data_frames(
+                service_id=2,
+                seq=seq,
+                payload=f"candidate-{seq}".encode(),
+                ack_req=False,
+            )[0]
+            wire = encode_stream_r(raw)
+            ep_init.handle(Receive(link=0, bytes=wire[:-1], at_ms=start_ms))
+            delivered = ep_init.handle(Receive(
+                link=0,
+                bytes=wire[-1:],
+                at_ms=start_ms + delimiter_offset,
+            ))
+            key = (1, ep_resp.local_node_id, ep_init.association.peer_epoch, seq)
+            self.assertEqual(key in ep_init.delivery.accepted_messages, accepted)
+            self.assertEqual(
+                any(isinstance(event, ApplicationEvent) and event.kind == "request_accepted"
+                    for event in delivered),
+                accepted,
+            )
+
+    def test_wrong_correlated_protected_result_ack_keeps_result_live(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        request_wires = _extract_and_settle(
+            ep_init,
+            ep_init.handle(ApplicationRequest(service_id=2, payload=b"result-ack", ack_req=True, at_ms=210)),
+            at_ms=211,
+        )
+        response_wires = _extract_and_settle(
+            ep_resp,
+            ep_resp.handle(Receive(link=0, bytes=request_wires[0], at_ms=220)),
+            at_ms=221,
+        )
+        result_wire = next(
+            wire for wire in response_wires
+            if parse_frame(decode_stream_r(wire)).message_type == 1
+        )
+        result_frame = parse_frame(decode_stream_r(result_wire))
+        retained_key, retained = next(iter(ep_resp.delivery.retained_results.items()))
+        result_key = (
+            retained.result_namespace,
+            retained.result_origin,
+            retained.result_epoch,
+            retained.result_seq,
+        )
+
+        wrong_ack = ep_init._build_ack_frame(
+            (result_key[0], result_key[1], result_key[2], result_key[3] + 1),
+            service_id=2,
+        )
+        ep_resp.handle(Receive(
+            link=0,
+            bytes=encode_stream_r(wrong_ack),
+            at_ms=230,
+        ))
+        self.assertIs(ep_resp.delivery.retained_results[retained_key], retained)
+        self.assertFalse(retained.acknowledged)
+
+        correct_ack = ep_init._build_ack_frame(result_key, service_id=2)
+        ep_resp.handle(Receive(
+            link=0,
+            bytes=encode_stream_r(correct_ack),
+            at_ms=231,
+        ))
+        self.assertTrue(retained.acknowledged)
+        self.assertEqual(result_frame.sequence, retained.result_seq)
+
+    def test_sec1_sequence_exhaustion_retires_borrowed_work_in_retry_all_or_selective32(self) -> None:
+        for manifest_name in ("direct-nnpsk0.json", "radio-nnpsk0.json"):
+            with self.subTest(profile=manifest_name):
+                manifest = _load_manifest_bytes(manifest_name)
+                ep_init, ep_resp = self._setup_pair_nnpsk0(manifest_bytes=manifest)
+                self._perform_nnpsk0_handshake(ep_init, ep_resp)
+                self.assertEqual(ep_init.association.status, "active")
+
+                # RADIO-1 service 2 requires an outbound freshness grant. This
+                # test is about endpoint queue retirement after a valid request
+                # has entered the reliable send path, not grant issuance.
+                if any(svc.get("freshness") for svc in ep_init.manifest.values["services"]
+                       if svc.get("id") == 2):
+                    ep_init.active_freshness_token = b"\x11" * 16
+
+                first_batch = ep_init.handle(ApplicationRequest(
+                    service_id=2, payload=b"x" * 1024, ack_req=True, exchange_id=9800, at_ms=210,
+                ))
+                borrowed = [event for event in first_batch if isinstance(event, TxSubmit)]
+                expected_frames = (1024 + ep_init.manifest.values["limits"]["chunk_bytes"] - 1) // ep_init.manifest.values["limits"]["chunk_bytes"]
+                self.assertEqual(len(borrowed), min(expected_frames, ep_init.adapter_slots))
+                self.assertEqual(len(ep_init.tx_queue), expected_frames - len(borrowed))
+                for submit in borrowed:
+                    ep_init.handle(TxAdmit(
+                        handle=submit.handle,
+                        generation=submit.generation,
+                        accepted=True,
+                        reason=None,
+                        at_ms=211,
+                    ))
+
+                # The first unrepresentable next SEQ must retire the epoch
+                # through the public event path before any reuse is possible.
+                ep_init.next_seq = 0x1_0000_0000
+                terminal = ep_init.handle(ApplicationRequest(
+                    service_id=1, payload=b"\x01", ack_req=True, exchange_id=9801, at_ms=212,
+                ))
+                self.assertFalse(any(isinstance(event, TxSubmit) for event in terminal))
+                rejection = next(
+                    event for event in terminal
+                    if isinstance(event, ApplicationEvent) and event.kind == "protocol_rejection"
+                    and event.exchange_id == 9801
+                )
+                self.assertEqual(rejection.payload, b"sequence_exhausted")
+                cancelled = [event for event in terminal if isinstance(event, Cancel)]
+                self.assertEqual({event.handle for event in cancelled}, {event.handle for event in borrowed})
+                self.assertEqual(ep_init.tx_queue, [])
+                self.assertIsNone(ep_init.association)
+                self.assertEqual(set(ep_init.active_submissions), {event.handle for event in borrowed})
+
+                for submit in borrowed:
+                    later = ep_init.handle(TxTerminal(
+                        handle=submit.handle,
+                        generation=submit.generation,
+                        outcome="cancelled_unsent",
+                        at_ms=213,
+                    ))
+                    self.assertFalse(any(isinstance(event, TxSubmit) for event in later))
+                self.assertEqual(ep_init.active_submissions, {})
+                self.assertEqual(ep_init.tx_queue, [])
+
+        # Responder MAX is legal for the result, but the following receipt ACK
+        # allocation exhausts the epoch during one Receive event. Its newly
+        # constructed result submission must not escape as a live borrow.
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        request_events = ep_init.handle(ApplicationRequest(
+            service_id=2, payload=b"responder-max", ack_req=True, at_ms=210,
+        ))
+        request_wire = next(event.bytes for event in request_events if isinstance(event, TxSubmit))
+        ep_resp.next_seq = 0xFFFFFFFF
+        response_events = ep_resp.handle(Receive(
+            link=0, bytes=request_wire, at_ms=220,
+        ))
+        self.assertFalse(any(isinstance(event, TxSubmit) for event in response_events))
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent)
+            and event.kind == "diagnostic"
+            and event.payload == b"sequence_exhausted"
+            for event in response_events
+        ))
+        self.assertEqual(ep_resp.next_seq, 0x1_0000_0000)
+        self.assertIsNone(ep_resp.association)
+        self.assertEqual(ep_resp.tx_queue, [])
+        self.assertEqual(ep_resp.active_submissions, {})
+        self.assertEqual(ep_resp.delivery.accepted_messages, {})
+        self.assertEqual(ep_resp.delivery.retained_results, {})
+
+    def test_protected_late_fragment_cannot_reopen_expired_request(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        request_wires = _extract_and_settle(
+            ep_init,
+            ep_init.handle(ApplicationRequest(service_id=2, payload=bytes(range(100)), ack_req=True, at_ms=210)),
+            at_ms=211,
+        )
+        self.assertEqual(len(request_wires), 2)
+        request_seq = parse_frame(decode_stream_r(request_wires[0])).sequence
+        key = (1, ep_init.local_node_id, ep_resp.association.peer_epoch, request_seq)
+
+        ep_resp.handle(Receive(link=0, bytes=request_wires[0], at_ms=220))
+        self.assertIn(key, ep_resp.reassembly.active)
+        expiry = ep_resp.manifest.values["timing"]["assembly_ms"]
+        ep_resp.handle(Advance(now_ms=220 + expiry + 1))
+        self.assertNotIn(key, ep_resp.reassembly.active)
+        self.assertIn(key, ep_resp.reassembly.tombstones)
+
+        late = ep_resp.handle(Receive(
+            link=0,
+            bytes=request_wires[1],
+            at_ms=220 + expiry + 2,
+        ))
+        self.assertFalse(any(
+            isinstance(event, ApplicationEvent) and event.kind == "request_accepted"
+            for event in late
+        ))
+        self.assertNotIn(key, ep_resp.reassembly.active)
+        self.assertNotIn(key, ep_resp.delivery.accepted_messages)
+
+    def test_new_association_resets_exhausted_sequence_without_resetting_live_duplicates(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        old_init_epoch = ep_init.association.local_epoch
+        old_resp_epoch = ep_resp.association.local_epoch
+
+        # Exhaust the initiator's active epoch through the public input API.
+        ep_init.next_seq = 0x1_0000_0000
+        exhausted = ep_init.handle(ApplicationRequest(
+            service_id=1, payload=b"\x01", ack_req=True, exchange_id=9850, at_ms=210,
+        ))
+        self.assertIsNone(ep_init.association)
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent)
+            and event.kind == "protocol_rejection"
+            and event.payload == b"sequence_exhausted"
+            for event in exhausted
+        ))
+
+        # Reopen both links and use fresh, distinct handshake entropy.
+        ep_init.handle(Disconnect(link=0, at_ms=220))
+        ep_resp.handle(Disconnect(link=0, at_ms=220))
+        resp_open = ep_resp.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=230))
+        init_open = ep_init.handle(Open(link=0, deadline_capability="strict_latest_start", at_ms=230))
+        resp_sync = _extract_and_settle(ep_resp, resp_open, at_ms=231)
+        init_sync = _extract_and_settle(ep_init, init_open, at_ms=231)
+        ep_init.handle(Receive(link=0, bytes=resp_sync[0], at_ms=232))
+        ep_resp.handle(Receive(link=0, bytes=init_sync[0], at_ms=232))
+
+        init_entropy_counter = 0
+        resp_entropy_counter = 0
+
+        def init_entropy(n: int) -> bytes:
+            nonlocal init_entropy_counter
+            init_entropy_counter += 1
+            return bytes([0xA0 + init_entropy_counter]) * n
+
+        def resp_entropy(n: int) -> bytes:
+            nonlocal resp_entropy_counter
+            resp_entropy_counter += 1
+            return bytes([0xB0 + resp_entropy_counter]) * n
+
+        ep_init.entropy_source = init_entropy
+        ep_resp.entropy_source = resp_entropy
+        security = ep_init.manifest.values["security"]
+        episode_restart = ep_init._bootstrap_episode_start_ms + security["episode_ms"] + 1
+        backoff_restart = ep_init._bootstrap_last_attempt_end_ms + security["restart_backoff_ms"] + 1
+        handshake_at = max(ep_init.now_ms + 1, episode_restart, backoff_restart)
+        ep_init.handle(Advance(now_ms=handshake_at - 1))
+        ep_resp.handle(Advance(now_ms=handshake_at - 1))
+        self._perform_nnpsk0_handshake(ep_init, ep_resp, at_ms=handshake_at)
+        self.assertNotEqual(ep_init.association.local_epoch, old_init_epoch)
+        self.assertNotEqual(ep_resp.association.local_epoch, old_resp_epoch)
+        self.assertEqual(ep_init.next_seq, 1)
+        self.assertEqual(ep_resp.next_seq, 1)
+
+        # A fresh protected FINISH/READY control in an already active epoch is
+        # handled as a duplicate and must not rewind its application sequence.
+        ep_init.next_seq = 17
+        ep_resp.next_seq = 23
+        duplicate_finish = ep_init._build_protected_finish_frame()
+        control_at = handshake_at + 50
+        finish_events = ep_resp.handle(Receive(
+            link=0, bytes=encode_stream_r(duplicate_finish), at_ms=control_at,
+        ))
+        self.assertEqual(ep_resp.next_seq, 23)
+        _extract_and_settle(ep_resp, finish_events, at_ms=control_at + 1)
+        duplicate_ready = ep_resp._build_protected_ready_frame()
+        ep_init.handle(Receive(
+            link=0, bytes=encode_stream_r(duplicate_ready), at_ms=control_at + 2,
+        ))
+        self.assertEqual(ep_init.next_seq, 17)
+
+        # The newly activated association can immediately carry application
+        # traffic, and its non-1 sequence remains intact after duplicate controls.
+        request_events = ep_init.handle(ApplicationRequest(
+            service_id=2, payload=b"new-epoch", ack_req=True, at_ms=control_at + 10,
+        ))
+        request_wires = _extract_and_settle(ep_init, request_events, at_ms=control_at + 11)
+        self.assertEqual(parse_frame(decode_stream_r(request_wires[0])).sequence, 17)
+        response_events = ep_resp.handle(Receive(
+            link=0, bytes=request_wires[0], at_ms=control_at + 20,
+        ))
+        response_wires = _extract_and_settle(ep_resp, response_events, at_ms=control_at + 21)
+        results: list[Any] = []
+        for index, wire in enumerate(response_wires):
+            received = ep_init.handle(Receive(link=0, bytes=wire, at_ms=control_at + 30 + index))
+            results.extend(received)
+            _extract_and_settle(ep_init, received, at_ms=control_at + 40 + index)
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent) and event.kind == "request_result"
+            for event in results
+        ))
 
     def test_malformed_protected_sample_telem_is_dropped_without_escaping_receive(self) -> None:
         ep_init, ep_resp = self._setup_pair_nnpsk0()

@@ -369,3 +369,140 @@ that success object or raises `ProfileError` carrying `code`, `path`, `message`.
 `tests/profiles/` owns examples, independently stated expected interpretations,
 and invalid mutations/raw encodings. These are P02 corpus inputs, not P03 accepted
 physical/product manifests. Runtime/startup parity remains P09's obligation.
+
+## Contract 3 — TCP Stream R and mixed host simulation
+
+Contract 3 is additive. It uses the same byte parsing, duplicate-member checks,
+integer rules, nesting limit, exact-original-bytes `PROFILE_HASH`, and closed
+schema behavior defined above. Its exact schema is
+[`manifest-v3.schema.json`](../profiles/schema/manifest-v3.schema.json); the
+contract-2 schema and P02 manifest files remain unchanged. The validator selects
+the schema from the exact `contract` value and never upgrades a contract-2
+manifest based on its fields.
+
+Contract 3 admits two DMP-test profiles:
+
+- `DMP-test/PEER-TCP-STREAM-R/1` selects binding
+  `DMP-test/TCP-STREAM-R/1` between the two peer processes.
+- `DMP-test/MIXED-TCP-STREAM-R-SIM-PACKET/1` composes that TCP/Stream R segment
+  with the existing `DMP-test/SIM-PACKET/1` path. The packet binding keeps its
+  existing identity and contract; the new profile identity describes the
+  composition.
+
+Both manifests carry a required `tcp_binding` object. `bind_address` is exactly
+`127.0.0.1` and `port_assignment` is `ephemeral`. The listener and connector
+nodes are explicitly identified, and they must match the selected direct or
+mixed topology. The stream carries exactly one canonical section-15 Stream R
+envelope per complete core frame:
+
+```text
+COBS(CORE_FRAME || CRC32C_LE(CORE_FRAME)) || 00
+```
+
+The TCP direction is an ordered byte stream; reads may split or coalesce any
+number of envelopes. The core cap is 256 bytes and the encoded cap is 263 bytes,
+including the independent envelope CRC, canonical COBS expansion and delimiter.
+Reject oversized core frames or encoded candidates before allocation beyond the
+declared adapter slots. Each direction serializes writes so envelopes cannot
+interleave. On coordinated open/reset the receiver is ready before the initial
+empty synchronization delimiter. An independent receiver reset discards input
+through the next delimiter.
+
+TCP ownership is copy-on-accepted-submit. A rejected submit retains caller
+ownership; after acceptance, the binding owns the copied envelope. Its deadline
+capability is `strict_latest_start`: immediately before each first nonblocking
+socket write, compare the same process-local monotonic `not_after_ms`; a zero-byte
+write has not started and is retried only after another check. Start is valid
+only if the first positive write occurs strictly before the deadline. After a
+positive write, finish that envelope in byte order or close the connection and
+report the uncertain outcome. A terminal `transmitted` event means every encoded
+byte was accepted by the local socket only; it never means remote receipt or
+application delivery. Accepted generation-tagged work settles exactly once on
+completion, cancellation, deadline expiry, or disconnect. Reconnect increments
+the generation, discards old partial receive candidates, and requires a fresh
+SEC-1 association. No deadline is serialized or compared between processes.
+
+The direct profile has two endpoint nodes and no relays. Its generic `binding`
+identifies TCP Stream R and repeats the 256/256 core and 263 encoded byte caps;
+`tcp_binding` fixes placement, loopback address, node roles, deadline semantics,
+startup/reset behavior and the derived absolute candidate timeout. The timeout
+is `frame_tx_ms + max(forward_delay_ms,return_delay_ms) + record_margin_ms`,
+measured from the first nonzero candidate byte. Bytes already available at the
+expiry instant, including a delimiter, are processed first. Expiry and
+oversized/invalid candidates discard the candidate and ignore input through the
+next delimiter. Empty delimiters start no timer.
+
+The direct v3 profile keeps the reference direct workload bounds: 1024-byte
+maximum message, 64-byte chunks, 16 application fragments, 2 bootstrap
+fragments, 256-byte core capacity, 263-byte Stream R capacity, and a 26 ms
+partial-candidate timeout (`1+20+5`). Its no-relay `retry-all` policy is a
+separately identified test profile; it does not relabel `DIRECT-1/4` or
+`SIM-STREAM-R/1`.
+
+### Mixed profile topology and protected forwarding
+
+The mixed profile keeps the packet path's two endpoint identities, ROUTE,
+origin-supplied CONTEXT, TTL, packet MTUs, relay timing model, service limits and
+resource charges. Its one TCP connector is the first endpoint; its TCP listener
+is the first forward relay (the bridge). The other endpoint remains the packet
+endpoint. `mixed_path.forward_relays` exactly matches the manifest's relay order;
+`return_relays` is that order reversed. The bridge node is the first forward
+relay. Thus forward traffic enters the bridge over TCP/Stream R and leaves over
+SIM-PACKET; reverse traffic reaches the bridge over SIM-PACKET and leaves over
+the same TCP stream. The route and CONTEXT are created by the origin before
+SEC-1 protection, in either direction.
+
+The bridge is transparent. It preserves protected core bytes except for the
+ROUTE hop field whose mutation the protocol permits. It cannot insert missing
+ROUTE or CONTEXT, rewrite a wrong CONTEXT, re-fragment, truncate, decrypt,
+re-encrypt, or translate `selective-32` recovery. Missing and wrong CONTEXT
+rejects are checked separately in both directions. Egress-MTU failure is also
+checked separately in both directions; a failed transfer retains its possibly
+unknown application outcome.
+
+The mixed profile fixes `selective-32` for both services. A single serialized
+schedule covers both directions, services 1/2 and bootstrap, including reserved
+ACK/feedback opportunities. It uses the contract-2 static half-duplex rules and
+finite queue/refusal semantics. The bridge and packet interfaces share one
+namespace mapping and one duplicate, cooldown, forwarding-count and airtime
+budget. Switching an incoming logical fragment between TCP and packet ingress
+cannot create fresh state, reset TTL or renew an admission budget.
+
+The selected mixed manifest is a host simulation envelope, with these finite
+values:
+
+| Bound | Value |
+| --- | ---: |
+| Maximum message / chunk / fragments | 1024 bytes / 32 bytes / 32 |
+| TCP Stream R core / encoded cap | 256 / 263 bytes |
+| SIM-PACKET core cap, both directions | 256 bytes |
+| Relays, forward / return | 2 / 2 |
+| TTL / per-frame transmit bound / directional delay | 2 / 1 ms / 20 ms |
+| Superframe period / return width / queue | 64 / 42 / 64 ms |
+| Partial Stream R candidate timeout | 26 ms (`1+20+5`) |
+| Selective response floor / configured timeout | 2222 / 2304 ms |
+| Burst span / starts / send horizon | 2048 ms / 0, 4352, 8704 ms / 10752 ms |
+| Freshness final-admission bound / lease | 10936 / 12000 ms |
+| Result deadline / correlation | 22000 / 23040 ms |
+| Endpoint RAM charge sum / limit | 85612 / 131072 bytes |
+| Relay RAM reserve / limit | 29441 / 65536 bytes |
+
+The schedule checks are `42 >= 2*(1+20)`, `64-42 >= 1+20`, and
+`64+42 <= min(110,110)` for return/receipt and feedback opportunities. Each
+burst has 32 application frames and reserves up to two bootstrap fragments;
+the existing selective recovery and relay arithmetic additionally reserve
+status, receipts, cached bootstrap retries, duplicates, cooldown, forwarding
+count and airtime. Endpoint control and adapter resources reserve 512-byte
+slots, including five adapter slots, so the 263-byte encoded TCP cap fits. The
+endpoint value is the sum of the manifest's declared region charges; the relay
+value is its declared relay cache and component reserve. These are host design
+reserves, not measured use or MCU qualification. The 256-byte packet MTU is a
+simulation frame cap, not a radio or production link claim.
+
+The new profile digest is SHA-256 of the original complete manifest bytes,
+including its final newline. It is recorded in
+`profiles/deployments/digests.json` without changing existing entries. The
+independent peer parser uses this schema and corpus but maintains its own parser
+and cross-field checks. Host loopback and simulated mixed-path results do not
+prove independent-peer interoperability (P23), MCU/runtime/RAM behavior, or
+physical transport.

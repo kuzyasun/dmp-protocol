@@ -57,6 +57,8 @@ class AssemblySession:
     received_indices: set[int] = field(default_factory=set)
     created_at_ms: int = 0
     expires_at_ms: int = 0
+    selective_feedback_due_ms: int | None = None
+    selective_status_count: int = 0
 
     def is_complete(self) -> bool:
         return len(self.received_indices) == self.derived_count

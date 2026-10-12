@@ -13,7 +13,11 @@ import sys
 
 MAX_BYTES = 262144
 MAX_DEPTH = 24
-SCHEMA_PATH = Path(__file__).resolve().parents[1] / "profiles/schema/manifest-v2.schema.json"
+SCHEMA_DIR = Path(__file__).resolve().parents[1] / "profiles/schema"
+SCHEMA_PATHS = {
+    "DMP-test-manifest/2": SCHEMA_DIR / "manifest-v2.schema.json",
+    "DMP-test-manifest/3": SCHEMA_DIR / "manifest-v3.schema.json",
+}
 
 
 class ProfileError(ValueError):
@@ -143,17 +147,24 @@ def origin_ttl_of(document):
 def _identity_and_services(m):
     p, b, ident, services = m["profile"], m["binding"], m["identity"], m["services"]
     direct = p["id"] in {"DIRECT-1", "TEST-DIRECT-ASYNC", "TEST-DIRECT-MINIMAL-128",
-                          "TEST-DIRECT-MINIMAL-256"}
-    selective = p["id"] in {"RADIO-1", "TEST-RADIO-N2"}
+                          "TEST-DIRECT-MINIMAL-256", "PEER-TCP-STREAM-R"}
+    selective = p["id"] in {"RADIO-1", "TEST-RADIO-N2",
+                             "MIXED-TCP-STREAM-R-SIM-PACKET"}
     retry_all_test = p["id"] == "TEST-RADIO-RETRY-ALL"
     test_families = {"TEST-RADIO-RETRY-ALL", "TEST-RADIO-N2", "TEST-DIRECT-ASYNC",
-                     "TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256"}
+                     "TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256",
+                     "PEER-TCP-STREAM-R", "MIXED-TCP-STREAM-R-SIM-PACKET"}
     test = p["id"] in test_families
     require((p["id"] in {"DIRECT-1", "RADIO-1"} or test) and
             p["owner"] == ("DMP-test" if test else "DMP-reference") and
             p["revision"] == (1 if test else 4), "profile", "$.profile", "family owner/revision mismatch")
-    expected = (("DMP-test/SIM-STREAM-R", "stream-r", "point-to-point", "association") if direct else
-                ("DMP-test/SIM-PACKET", "packet", "static-unicast", "origin-explicit"))
+    if p["id"] == "PEER-TCP-STREAM-R":
+        expected = ("DMP-test/TCP-STREAM-R", "stream-r", "point-to-point", "association")
+    elif p["id"] == "MIXED-TCP-STREAM-R-SIM-PACKET":
+        expected = ("DMP-test/SIM-PACKET", "packet", "static-unicast", "origin-explicit")
+    else:
+        expected = (("DMP-test/SIM-STREAM-R", "stream-r", "point-to-point", "association") if direct else
+                    ("DMP-test/SIM-PACKET", "packet", "static-unicast", "origin-explicit"))
     require(tuple(b[k] for k in ("id", "kind", "topology", "context")) == expected,
             "profile", "$.binding", "binding is incompatible with selected family")
     require((not direct or (not m["relays"] and b["ttl"] == 0)) and b["ttl"] >= len(m["relays"]),
@@ -186,7 +197,7 @@ def _identity_and_services(m):
     if retry_all_test:
         require(all(service["recovery"] == "retry-all" for service in services),
                 "profile", "$.services", "retry-all test family must retain retry-all semantics")
-    if p["id"] == "TEST-DIRECT-ASYNC":
+    if p["id"] in {"TEST-DIRECT-ASYNC", "PEER-TCP-STREAM-R"}:
         require(not b["synchronous_completion"], "profile", "$.binding.synchronous_completion",
                 "async test family requires delayed completion")
     elif p["id"] != "TEST-RADIO-N2":
@@ -208,6 +219,63 @@ def _identity_and_services(m):
                 m["security"]["draining_per_pair"] == 0 and m["security"]["drain_ms"] == 0,
                 "profile", "$.limits", "minimal direct profile violates its bounded envelope or contract slot minima")
     return direct, selective
+
+
+def _contract3_bindings(m):
+    """Validate the v3 host binding topology without changing contract 2."""
+    profile, binding, tcp = m["profile"], m["binding"], m["tcp_binding"]
+    nodes = m["identity"]["nodes"]
+    stream_cap = max(tcp["forward_mtu"], tcp["return_mtu"])
+    n = stream_cap + 4
+    stream_encoded = n + n // 254 + 2
+    require(tcp["encoded_mtu"] >= stream_encoded, "mtu", "$.tcp_binding.encoded_mtu",
+            "TCP Stream R envelope exceeds encoded capacity")
+    require(tcp["partial_candidate_timeout_ms"] ==
+            binding["frame_tx_ms"] + max(m["timing"]["forward_delay_ms"],
+                                          m["timing"]["return_delay_ms"]) +
+            m["timing"]["record_margin_ms"],
+            "timing", "$.tcp_binding.partial_candidate_timeout_ms",
+            "absolute Stream R candidate timeout must equal the derived bound")
+
+    if profile["id"] == "PEER-TCP-STREAM-R":
+        require(m["contract"] == "DMP-test-manifest/3" and not m["relays"] and
+                "mixed_path" not in m, "profile", "$.profile",
+                "direct TCP profile cannot include relays or mixed-path fields")
+        require(tcp["placement"] == "peer-pair" and
+                (tcp["connector_node"], tcp["listener_node"]) == (nodes[0], nodes[1]),
+                "profile", "$.tcp_binding", "direct TCP connector/listener roles must follow peer order")
+        require(binding["id"] == "DMP-test/TCP-STREAM-R" and
+                binding["forward_mtu"] == tcp["forward_mtu"] == 256 and
+                binding["return_mtu"] == tcp["return_mtu"] == 256 and
+                binding["encoded_mtu"] == tcp["encoded_mtu"] == 263 and
+                binding["tx_ownership"] == "copy" and not binding["synchronous_completion"],
+                "profile", "$.binding", "direct TCP caps and ownership must match the frozen binding")
+        return
+
+    if profile["id"] == "MIXED-TCP-STREAM-R-SIM-PACKET":
+        mixed = m.get("mixed_path")
+        require(mixed is not None, "profile", "$.mixed_path", "mixed profile requires the mixed path declaration")
+        relay_nodes = [relay["node"] for relay in m["relays"]]
+        require(len(m["relays"]) == 2 and mixed["forward_relays"] == relay_nodes and
+                mixed["return_relays"] == list(reversed(relay_nodes)),
+                "route", "$.mixed_path", "mixed relay orders must match the packet path in both directions")
+        require((mixed["stream_endpoint"], mixed["bridge_node"], mixed["packet_endpoint"]) ==
+                (nodes[0], relay_nodes[0], nodes[1]) and
+                (tcp["connector_node"], tcp["listener_node"]) ==
+                (mixed["stream_endpoint"], mixed["bridge_node"]),
+                "route", "$.mixed_path", "TCP endpoint, bridge, packet endpoint and relay order disagree")
+        require(tcp["placement"] == "endpoint-to-relay" and
+                binding["id"] == "DMP-test/SIM-PACKET" and
+                binding["forward_mtu"] == binding["return_mtu"] == 256 and
+                binding["encoded_mtu"] == 256 and
+                tcp["forward_mtu"] == tcp["return_mtu"] == 256 and tcp["encoded_mtu"] == 263,
+                "mtu", "$.mixed_path", "mixed path must retain the frozen TCP and SIM-PACKET capacities")
+        require(all(service["recovery"] == "selective-32" for service in m["services"]),
+                "profile", "$.services", "mixed profile fixes SELECTIVE-32 for both services")
+        return
+
+    require(m["contract"] == "DMP-test-manifest/2" and "tcp_binding" not in m and
+            "mixed_path" not in m, "schema", "$.contract", "unknown contract-3 profile")
 
 
 def _security(m):
@@ -430,8 +498,11 @@ def _resources(m, derived):
                       "freshness_tokens": max(1, fresh["tokens_per_principal"] if grants else 0)}
     minimum_bytes = {key: l["message_bytes"] for key in ("sender", "assembly", "result", "application_queue")}
     minimum_bytes["assembly_tombstone"] = 48
-    minimum_bytes.update(bootstrap=120, control=derived["encoded_frame_bytes"],
-                         adapter=derived["encoded_frame_bytes"], relay_cache=1)
+    encoded_reserve = derived["encoded_frame_bytes"]
+    if "tcp_binding" in m:
+        encoded_reserve = max(encoded_reserve, m["tcp_binding"]["encoded_mtu"])
+    minimum_bytes.update(bootstrap=120, control=encoded_reserve,
+                         adapter=encoded_reserve, relay_cache=1)
     minimum_bytes["result"] = max(l["message_bytes"], 21 if grants else 1)
     minimum_bytes["freshness_tokens"] = max(16 if grants else 0, 1)
     require(l["control_slots"] >= m["timing"]["feedback_buffers"] + grants + 1,
@@ -483,13 +554,20 @@ def validate_bytes(raw, expected_sha256=None):
     except (json.JSONDecodeError, RecursionError) as error:
         raise ProfileError("json", "$", "invalid JSON") from error
     _check_surrogates(m)
-    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    contract = m.get("contract") if isinstance(m, dict) else None
+    if isinstance(m, dict) and "contract" in m and not isinstance(contract, str):
+        raise ProfileError("schema", "$.contract", "contract must be a string")
+    schema_key = contract if isinstance(contract, str) else "DMP-test-manifest/2"
+    schema_path = SCHEMA_PATHS.get(schema_key, SCHEMA_PATHS["DMP-test-manifest/2"])
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     _schema(m, schema)
     digest = hashlib.sha256(raw).hexdigest()
     if expected_sha256 is not None:
         require(isinstance(expected_sha256, str) and re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is not None and
                 digest == expected_sha256, "digest", "$", "exact manifest SHA256 mismatch")
     direct, selective = _identity_and_services(m)
+    if contract == "DMP-test-manifest/3":
+        _contract3_bindings(m)
     _security(m)
     derived = _frames(m, direct)
     _timing(m, selective, derived)

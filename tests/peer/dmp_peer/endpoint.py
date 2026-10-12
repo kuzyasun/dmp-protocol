@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import struct
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from .delivery import DeliveryManager, OutgoingExchange, RetainedResult, AcceptedRecord, RejectionRecord
@@ -23,10 +24,11 @@ from .events import (
     TxSubmit,
     TxTerminal,
 )
-from .frame import CoreFrame, Extension, Fragment, FrameError, Security, decode_uleb, encode_frame, encode_uleb, parse_frame
+from .frame import CoreFrame, Extension, Fragment, FrameError, Route, Security, decode_uleb, encode_frame, encode_uleb, parse_frame
 from .manifest import Manifest, ManifestError, identify_frozen_manifest
 from .reassembly import ConflictError, QuotaError, ReassemblyError, ReassemblyManager
 from .sample1 import Sample, SampleConsumer, SampleEpochStore, SampleProducer
+from .selective import SelectiveTransfer
 from .security import (
     BOOT_VERSION,
     CIPHER_CHACHAPOLY,
@@ -50,6 +52,24 @@ from .security import (
     compute_prologue,
 )
 from .stream_r import StreamRDecoder, encode_stream_r
+
+
+class _SequenceExhausted(SecurityError):
+    """Internal signal that the SEC-1 association must be retired atomically."""
+
+
+@dataclass
+class _OutgoingDataTransfer:
+    service_id: int
+    seq: int
+    namespace: int
+    origin: int
+    epoch: int
+    destination: int
+    payload: bytes
+    ack_req: bool
+    selective_state: SelectiveTransfer
+    possibly_transmitted: bool = False
 
 
 class PeerEndpoint:
@@ -133,12 +153,14 @@ class PeerEndpoint:
             rejection_ms=timing["rejection_ms"],
             correlation_ms=timing["correlation_ms"],
             max_bursts=timing["max_bursts"],
+            receipt_limit=timing["receipt_limit"],
             app_queue_slots=limits["application_queue_slots"],
             sender_slots=resource_slots.get("sender"),
             result_slots=resource_slots.get("result"),
             history_slots=resource_slots.get("history"),
             correlation_slots=resource_slots.get("correlation"),
         )
+        self.outgoing_data: dict[int, _OutgoingDataTransfer] = {}
         self.adapter_slots = limits["adapter_slots"]
         self.max_queued_frames = (
             (resource_slots.get("sender", 0) + resource_slots.get("result", 0)) * limits["fragments"]
@@ -310,11 +332,50 @@ class PeerEndpoint:
         self.peer_static_public_key = bytes(peer_static_public_key)
 
     def _alloc_seq(self) -> int:
+        if self.next_seq > 0xFFFFFFFF:
+            # The event boundary performs bounded teardown, cancellation, and
+            # reports a terminal result. Never permit any recovery profile to wrap.
+            for assoc in (self.association, self.pending_association):
+                if assoc is not None:
+                    assoc.status = "closed"
+            raise _SequenceExhausted("association SEQ space is exhausted")
         seq = self.next_seq
-        self.next_seq = (self.next_seq + 1) & 0xFFFFFFFF
-        if self.next_seq == 0:
-            self.next_seq = 1
+        self.next_seq = seq + 1
         return seq
+
+    def _routed_fields(self) -> tuple[Route | None, Extension | None]:
+        """Return the frozen explicit ROUTE/CONTEXT pair for a routed test profile."""
+        topology = self.manifest.values.get("binding", {}).get("topology")
+        if topology not in ("static-unicast", "relay-routed"):
+            return None, None
+        ttl = self.manifest.values.get("binding", {}).get("ttl", 0)
+        route = Route(ttl=ttl, mode=1, source_id=self.local_node_id,
+                      destination_id=self.remote_node_id)
+        assoc = self.association or self.pending_association
+        epoch = assoc.local_epoch if assoc is not None else self.local_epoch
+        context = Extension(
+            2, True, True, encode_uleb(self.namespace) + epoch.to_bytes(8, "little")
+        )
+        return route, context
+
+    def _selective_enabled(self, service_id: int) -> bool:
+        service = next((s for s in self.manifest.values.get("services", [])
+                        if s.get("id") == service_id), None)
+        return bool(service and service.get("recovery") == "selective-32")
+
+    def _new_selective_transfer(self, fragment_count: int) -> SelectiveTransfer:
+        timing = self.manifest.values["timing"]
+        return SelectiveTransfer(
+            fragment_count=fragment_count,
+            started_at_ms=self.now_ms,
+            send_horizon_ms=timing["send_horizon_ms"],
+            response_timeout_ms=timing["response_timeout_ms"],
+            max_bursts=timing["max_bursts"],
+            max_probes=timing["max_probes"],
+            max_status=timing["max_status"],
+            burst_starts_ms=tuple(timing["burst_starts_ms"]),
+            frames_remaining=fragment_count,
+        )
 
     def _alloc_exchange_id(self) -> int:
         eid = self.next_exchange_id
@@ -540,7 +601,9 @@ class PeerEndpoint:
             if input_event.handle not in self.active_submissions:
                 raise EventValidationError(f"unknown submission handle {input_event.handle}")
             sub = self.active_submissions[input_event.handle]
-            if isinstance(input_event, TxTerminal) and not sub.get("admitted"):
+            if (isinstance(input_event, TxTerminal)
+                    and not sub.get("admitted")
+                    and not sub.get("cancel_requested")):
                 return ()
             if isinstance(input_event, TxAdmit) and (sub.get("admitted") or sub.get("admit_resolved")):
                 return ()
@@ -560,24 +623,55 @@ class PeerEndpoint:
 
         output_events: list[Any] = []
 
-        if isinstance(input_event, Open):
-            self._handle_open(input_event, output_events)
-        elif isinstance(input_event, Advance):
-            self._handle_advance(input_event, output_events)
-        elif isinstance(input_event, TxAdmit):
-            self._handle_tx_admit(input_event, output_events)
-        elif isinstance(input_event, TxTerminal):
-            self._handle_tx_terminal(input_event, output_events)
-        elif isinstance(input_event, Receive):
-            self._handle_receive(input_event, output_events)
-        elif isinstance(input_event, Disconnect):
-            self._handle_disconnect(input_event, output_events)
-        elif isinstance(input_event, Restart):
-            self._handle_restart(input_event, output_events)
-        elif isinstance(input_event, ApplicationRequest):
-            self._handle_application_request(input_event, output_events)
-        elif isinstance(input_event, PublishSample):
-            self._handle_publish_sample(input_event, output_events)
+        existing_handles = set(self.active_submissions)
+        try:
+            if isinstance(input_event, Open):
+                self._handle_open(input_event, output_events)
+            elif isinstance(input_event, Advance):
+                self._handle_advance(input_event, output_events)
+            elif isinstance(input_event, TxAdmit):
+                self._handle_tx_admit(input_event, output_events)
+            elif isinstance(input_event, TxTerminal):
+                self._handle_tx_terminal(input_event, output_events)
+            elif isinstance(input_event, Receive):
+                self._handle_receive(input_event, output_events)
+            elif isinstance(input_event, Disconnect):
+                self._handle_disconnect(input_event, output_events)
+            elif isinstance(input_event, Restart):
+                self._handle_restart(input_event, output_events)
+            elif isinstance(input_event, ApplicationRequest):
+                self._handle_application_request(input_event, output_events)
+            elif isinstance(input_event, PublishSample):
+                self._handle_publish_sample(input_event, output_events)
+        except _SequenceExhausted:
+            # A submission built during this input was never returned to the
+            # adapter. Remove it before teardown so no invisible borrow is kept.
+            unpublished = set(self.active_submissions) - existing_handles
+            for handle in unpublished:
+                self.active_submissions.pop(handle, None)
+            output_events[:] = [
+                event for event in output_events
+                if not (isinstance(event, TxSubmit) and event.handle in unpublished)
+            ]
+            self._expire_security_context(output_events, cancel_unadmitted=True)
+            if isinstance(input_event, ApplicationRequest):
+                output_events.append(ApplicationEvent(
+                    kind="protocol_rejection",
+                    service_id=input_event.service_id,
+                    exchange_id=input_event.exchange_id or max(0, self.next_exchange_id - 1),
+                    status=4,
+                    payload=b"sequence_exhausted",
+                    at_ms=self.now_ms,
+                ))
+            else:
+                output_events.append(ApplicationEvent(
+                    kind="diagnostic",
+                    service_id=0,
+                    exchange_id=0,
+                    status=0,
+                    payload=b"sequence_exhausted",
+                    at_ms=self.now_ms,
+                ))
 
         # Enforce contract bounds: at most 4,096 events and 1 MiB byte payload
         if len(output_events) > 4096:
@@ -594,8 +688,12 @@ class PeerEndpoint:
         self.deadline_capability = event.deadline_capability
 
         if self.binding_kind == "stream-r":
-            # Candidate timeout from timing.feedback_delay_ms or 500ms
-            cand_timeout = self.manifest.values["timing"].get("feedback_delay_ms", 500)
+            timing = self.manifest.values["timing"]
+            cand_timeout = (
+                self.manifest.values["binding"]["frame_tx_ms"]
+                + max(timing["forward_delay_ms"], timing["return_delay_ms"])
+                + timing["record_margin_ms"]
+            )
             self.stream_r_decoder = StreamRDecoder(
                 max_encoded=self.encoded_mtu,
                 max_core=self.forward_mtu,
@@ -616,14 +714,16 @@ class PeerEndpoint:
 
         exc_id = sub.get("exchange_id")
         exc = self.delivery.active_outgoing.get(exc_id) if exc_id else None
+        recovery_seq = sub.get("recovery_seq")
 
         sub["admit_resolved"] = True
         if event.accepted:
             sub["admitted"] = True
             if exc:
                 exc.admitted_schedule_handles.add(event.handle)
-            if sub.get("cancel_requested"):
+            if sub.get("cancel_requested") and not sub.get("cancel_emitted"):
                 out.append(Cancel(handle=event.handle, generation=event.generation, at_ms=self.now_ms))
+                sub["cancel_emitted"] = True
         else:
             # Rejected by adapter: caller retains ownership; no subsequent terminal event
             del self.active_submissions[event.handle]
@@ -681,6 +781,32 @@ class PeerEndpoint:
                     payload=event.reason.encode("utf-8") if isinstance(event.reason, str) else b"tx_rejected",
                     at_ms=self.now_ms,
                 ))
+            if exc is not None and exc.selective_state is not None:
+                exc.selective_state.terminate()
+                if exc_id in self.delivery.active_outgoing:
+                    self._retire_selective_attempts(exc.seq, out)
+                    exc.state = "failed"
+                    self.delivery.active_outgoing.pop(exc_id, None)
+                    self.delivery._release_gate(exc)
+                    uncertain = exc.possibly_transmitted or bool(exc.admitted_schedule_handles)
+                    out.append(ApplicationEvent(
+                        kind="diagnostic" if uncertain else "protocol_rejection",
+                        service_id=exc.service_id,
+                        exchange_id=exc.exchange_id,
+                        status=0 if uncertain else 4,
+                        payload=b"unknown" if uncertain else b"tx_rejected",
+                        at_ms=self.now_ms,
+                    ))
+            elif recovery_seq is not None:
+                matched = self._selective_transfer_for_sequence(recovery_seq)
+                if matched is not None:
+                    kind, owner = matched
+                    self._retire_selective_attempts(recovery_seq, out)
+                    owner.selective_state.terminate()
+                    if hasattr(owner, "attempts_left"):
+                        owner.attempts_left = 0
+                    if kind == "data":
+                        self.outgoing_data.pop(recovery_seq, None)
             self._drain_tx_queue(out)
 
     def _handle_tx_terminal(self, event: TxTerminal, out: list[Any]) -> None:
@@ -700,6 +826,7 @@ class PeerEndpoint:
 
         exc_id = sub.get("exchange_id")
         exc = self.delivery.active_outgoing.get(exc_id) if exc_id else None
+        recovery_seq = sub.get("recovery_seq")
 
         if exc:
             exc.pending_schedule_handles.discard(event.handle)
@@ -712,8 +839,15 @@ class PeerEndpoint:
                 if not exc.pending_schedule_handles and not exc.queued_schedule_frames and not exc.schedule_admitted:
                     exc.schedule_admitted = True
                     exc.next_retry_ms = self.now_ms + exc.response_timeout_ms
+            elif recovery_seq is not None:
+                matched = self._selective_transfer_for_sequence(recovery_seq)
+                if matched is not None and matched[0] == "data":
+                    matched[1].possibly_transmitted = True
+            self._settle_selective_frame(recovery_seq, out)
         elif event.outcome in ("expired_unsent", "cancelled_unsent", "failed_unsent"):
             if exc:
+                if exc.selective_state is not None:
+                    exc.selective_state.terminate()
                 self._retire_exchange_attempts(exc, out, trigger_handle=event.handle)
                 exc.state = "expired" if event.outcome == "expired_unsent" else "failed"
                 self.delivery.active_outgoing.pop(exc_id, None)
@@ -728,10 +862,27 @@ class PeerEndpoint:
                     out.append(ApplicationEvent(kind="protocol_rejection", service_id=exc.service_id, exchange_id=exc.exchange_id, status=4, payload=b"expired", at_ms=self.now_ms))
                 else:
                     out.append(ApplicationEvent(kind="diagnostic", service_id=exc.service_id, exchange_id=exc.exchange_id, status=0, payload=event.outcome.encode("utf-8"), at_ms=self.now_ms))
+            elif recovery_seq is not None:
+                matched = self._selective_transfer_for_sequence(recovery_seq)
+                if matched is not None:
+                    kind, owner = matched
+                    self._retire_selective_attempts(recovery_seq, out)
+                    owner.selective_state.terminate()
+                    if hasattr(owner, "attempts_left"):
+                        owner.attempts_left = 0
+                    if kind == "data":
+                        self.outgoing_data.pop(recovery_seq, None)
 
         self._drain_tx_queue(out)
 
-    def _retire_exchange_attempts(self, exc: OutgoingExchange, out: list[Any], trigger_handle: int | None = None) -> None:
+    def _retire_exchange_attempts(
+        self,
+        exc: OutgoingExchange,
+        out: list[Any],
+        trigger_handle: int | None = None,
+        *,
+        cancel_unadmitted: bool = False,
+    ) -> None:
         kept = []
         for item in self.tx_queue:
             if item.get("exchange_id") == exc.exchange_id:
@@ -741,12 +892,16 @@ class PeerEndpoint:
         self.tx_queue = kept
         for handle in exc.active_submission_handles:
             sub = self.active_submissions.get(handle)
-            if handle != trigger_handle and sub and not sub.get("cancel_requested"):
+            if (handle != trigger_handle and sub
+                    and (cancel_unadmitted or sub.get("admitted"))
+                    and not sub.get("cancel_emitted")):
                 sub["cancel_requested"] = True
-                if sub.get("admitted"):
-                    out.append(Cancel(handle=handle, generation=sub["generation"], at_ms=self.now_ms))
+                out.append(Cancel(handle=handle, generation=sub["generation"], at_ms=self.now_ms))
+                sub["cancel_emitted"] = True
 
     def _expire_outgoing_exchange(self, exc: OutgoingExchange, out: list[Any]) -> None:
+        if exc.selective_state is not None:
+            exc.selective_state.terminate()
         self._retire_exchange_attempts(exc, out)
         exc.state = "expired"
         self.delivery.active_outgoing.pop(exc.exchange_id, None)
@@ -779,6 +934,9 @@ class PeerEndpoint:
             ))
 
     def _complete_outgoing_exchange(self, exc: OutgoingExchange, out: list[Any]) -> None:
+        if exc.selective_state is not None:
+            exc.selective_state.terminate()
+            self._retire_selective_attempts(exc.seq, out)
         self._retire_exchange_attempts(exc, out)
         self.delivery.complete_exchange(exc)
         if exc.service_id == 1 and self.sample_consumer and exc.request_payload == b"\x01":
@@ -841,6 +999,9 @@ class PeerEndpoint:
                     self.freshness_manager.clear_association(assoc.h)
         self.association = None
         self.pending_association = None
+        for transfer in self.outgoing_data.values():
+            transfer.selective_state.terminate()
+        self.outgoing_data.clear()
         if self.bootstrap_mgr is not None:
             self.bootstrap_mgr.abort_attempt()
         self.active_freshness_token = None
@@ -987,6 +1148,7 @@ class PeerEndpoint:
 
         # Advance reassembly; incomplete command identities consume any bound
         # freshness lease when their assembly expires.
+        self._emit_due_fragment_statuses(out)
         expired_assemblies = self.reassembly.advance(self.now_ms)
         if self.association is not None and self.freshness_manager is not None:
             for message_id in expired_assemblies:
@@ -1066,6 +1228,8 @@ class PeerEndpoint:
                 )
             admissible = self.delivery.pop_next_admissible()
 
+        self._advance_selective_transfers(out)
+
     def _handle_receive(self, event: Receive, out: list[Any]) -> None:
         if self.binding_kind == "stream-r":
             if not self.stream_r_decoder:
@@ -1122,8 +1286,13 @@ class PeerEndpoint:
         b_epoch = compute_bootstrap_epoch(attempt_id)
         ext_context = Extension(2, True, True, encode_uleb(self.namespace) + b_epoch.to_bytes(8, "little"))
         route = None
-        if self.manifest.values.get("binding", {}).get("topology") == "relay-routed":
-            route = Route(ttl=3, mode=1, source_id=self.local_node_id, destination_id=self.remote_node_id)
+        if self.manifest.values.get("binding", {}).get("topology") in ("static-unicast", "relay-routed"):
+            route = Route(
+                ttl=self.manifest.values.get("binding", {}).get("ttl", 0),
+                mode=1,
+                source_id=self.local_node_id,
+                destination_id=self.remote_node_id,
+            )
             exts = (ext_context,)
         else:
             ext_origin = Extension(3, True, True, encode_uleb(self.local_node_id))
@@ -1131,36 +1300,37 @@ class PeerEndpoint:
 
         frame = CoreFrame(
             message_type=3,  # HELLO
-            options=1 | (4 if route else 0) | 0x80,  # SEQ | ROUTE | EXT
+            options=(1 | (4 if route else 0) | 0x80
+                     | (0x10 if self.manifest.values["binding"].get("bootstrap_integrity") == "CRC32C" else 0)),
             sequence=flight,
             route=route,
+            integrity=(1 if self.manifest.values["binding"].get("bootstrap_integrity") == "CRC32C"
+                       else None),
             extensions=tuple(sorted(exts, key=lambda e: e.extension_id)),
             payload=payload,
         )
         return encode_frame(frame, max_frame=self.forward_mtu)
 
     def _build_protected_finish_frame(self) -> bytes:
-        route = None
-        if self.manifest.values.get("binding", {}).get("topology") == "relay-routed":
-            route = Route(ttl=3, mode=1, source_id=self.local_node_id, destination_id=self.remote_node_id)
+        route, context = self._routed_fields()
         frame = CoreFrame(
             message_type=3,  # HELLO
-            options=1 | (4 if route else 0),  # SEQ
+            options=1 | (4 if route else 0) | (0x80 if context else 0),  # SEQ / ROUTE / EXT
             sequence=0,
             route=route,
+            extensions=(context,) if context else (),
             payload=b"",
         )
         return self._encrypt_and_encode(frame, plaintext=PAYLOAD_FINISH)
 
     def _build_protected_ready_frame(self) -> bytes:
-        route = None
-        if self.manifest.values.get("binding", {}).get("topology") == "relay-routed":
-            route = Route(ttl=3, mode=1, source_id=self.local_node_id, destination_id=self.remote_node_id)
+        route, context = self._routed_fields()
         frame = CoreFrame(
             message_type=3,  # HELLO
-            options=1 | (4 if route else 0),  # SEQ
+            options=1 | (4 if route else 0) | (0x80 if context else 0),  # SEQ / ROUTE / EXT
             sequence=0,
             route=route,
+            extensions=(context,) if context else (),
             payload=b"",
         )
         return self._encrypt_and_encode(frame, plaintext=PAYLOAD_READY)
@@ -1224,10 +1394,13 @@ class PeerEndpoint:
             return
         if frame.sequence not in (1, 2, 3) or (frame.options & 2) or frame.security is not None or frame.fragment is not None:
             return
+        if (self.manifest.values.get("binding", {}).get("bootstrap_integrity") == "CRC32C"
+                and frame.integrity != 1):
+            return
         if any(ext.extension_id not in (2, 3) for ext in frame.extensions):
             return
         topology = self.manifest.values.get("binding", {}).get("topology")
-        if topology == "relay-routed":
+        if topology in ("static-unicast", "relay-routed"):
             if frame.route is None or frame.route.mode != 1:
                 return
         elif frame.route is not None:
@@ -1494,6 +1667,12 @@ class PeerEndpoint:
         if not self._protected_identity_matches(frame, assoc):
             return
 
+        # Unknown critical extensions reject endpoint-local delivery after
+        # authentication and identity binding, before candidate activation,
+        # reassembly, retained-state admission, or application dispatch.
+        if self._has_unknown_critical_extension(frame):
+            return
+
         decrypted_frame = CoreFrame(
             message_type=frame.message_type,
             options=frame.options,
@@ -1521,6 +1700,7 @@ class PeerEndpoint:
                     self.association = self.pending_association
                     self.pending_association = None
                     self.association.status = "active"
+                    self.next_seq = 1
                     self.local_epoch = self.association.local_epoch
                     self.remote_epoch = self.association.peer_epoch
                 if self.association is not None:
@@ -1546,6 +1726,7 @@ class PeerEndpoint:
                     self.association = self.pending_association
                     self.pending_association = None
                     self.association.status = "active"
+                    self.next_seq = 1
                     self.local_epoch = self.association.local_epoch
                     self.remote_epoch = self.association.peer_epoch
                     self.next_confirmation_retry_ms = None
@@ -1568,6 +1749,7 @@ class PeerEndpoint:
             self.association = self.pending_association
             self.pending_association = None
             self.association.status = "active"
+            self.next_seq = 1
             self.local_epoch = self.association.local_epoch
             self.remote_epoch = self.association.peer_epoch
             self.next_confirmation_retry_ms = None
@@ -1626,7 +1808,7 @@ class PeerEndpoint:
             return False
         # SAMPLE-1 is a fixed profile encoding. A descriptor must not relabel
         # its request or telemetry payload before candidate readiness.
-        if service_id == 1 and frame.payload_descriptor is not None:
+        if service_id in (1, 2) and frame.payload_descriptor is not None:
             return False
         acl = next((a for a in service.get("acl", []) if a.get("node") == origin), None)
         required_action = self._required_acl_action(frame, service_id)
@@ -1684,7 +1866,7 @@ class PeerEndpoint:
         topology = self.manifest.values.get("binding", {}).get("topology")
 
         if frame.route is not None:
-            if topology != "relay-routed":
+            if topology not in ("static-unicast", "relay-routed"):
                 return False
             if (
                 frame.route.mode != 1
@@ -1695,7 +1877,7 @@ class PeerEndpoint:
             ):
                 return False
         else:
-            if topology == "relay-routed":
+            if topology in ("static-unicast", "relay-routed"):
                 return False
             if context is not None and context.value != expected_context:
                 return False
@@ -1709,7 +1891,7 @@ class PeerEndpoint:
                 return False
         return True
 
-    def _expire_security_context(self, out: list[Any]) -> None:
+    def _expire_security_context(self, out: list[Any], *, cancel_unadmitted: bool = False) -> None:
         """Stop protected work and retire all state tied to a lost/expired association."""
         for exc in list(self.delivery.active_outgoing.values()):
             may_have_reached_peer = (
@@ -1725,7 +1907,7 @@ class PeerEndpoint:
                 payload=b"unknown" if may_have_reached_peer else b"security_closed",
                 at_ms=self.now_ms,
             ))
-            self._retire_exchange_attempts(exc, out)
+            self._retire_exchange_attempts(exc, out, cancel_unadmitted=cancel_unadmitted)
         for exc in self.delivery.queue:
             out.append(ApplicationEvent(
                 kind="protocol_rejection",
@@ -1736,10 +1918,15 @@ class PeerEndpoint:
                 at_ms=self.now_ms,
             ))
         for handle, sub in self.active_submissions.items():
-            if sub.get("admitted") and not sub.get("cancel_requested"):
+            if ((sub.get("admitted") or cancel_unadmitted)
+                    and not sub.get("cancel_emitted")):
                 sub["cancel_requested"] = True
                 out.append(Cancel(handle=handle, generation=sub["generation"], at_ms=self.now_ms))
-        self.active_submissions = {h: sub for h, sub in self.active_submissions.items() if sub.get("admitted")}
+                sub["cancel_emitted"] = True
+        self.active_submissions = {
+            h: sub for h, sub in self.active_submissions.items()
+            if sub.get("admitted") or (cancel_unadmitted and sub.get("cancel_requested"))
+        }
         self.tx_queue.clear()
         self._retire_security_context()
         self._retire_delivery_state()
@@ -1751,14 +1938,19 @@ class PeerEndpoint:
         except Exception:
             return  # FrameError: reject frame
 
-        # Dispatch bootstrap HELLO (unprotected TYPE=3)
-        if frame.message_type == 3 and frame.security is None:
-            self._handle_bootstrap_hello(frame, out)
-            return
-
         # Dispatch protected frames (SECURITY=1)
         if frame.security is not None:
             self._handle_protected_frame(raw_frame, frame, out)
+            return
+
+        # Unknown critical extensions must not reach any endpoint-local path,
+        # including test-only plaintext admission, bootstrap, or reassembly.
+        if self._has_unknown_critical_extension(frame):
+            return
+
+        # Dispatch bootstrap HELLO (unprotected TYPE=3)
+        if frame.message_type == 3:
+            self._handle_bootstrap_hello(frame, out)
             return
 
         # Unprotected frame received while SEC-1 association is active:
@@ -1767,6 +1959,14 @@ class PeerEndpoint:
             return
 
         self._dispatch_core_frame(frame, out)
+
+    @staticmethod
+    def _has_unknown_critical_extension(frame: CoreFrame) -> bool:
+        known_extension_ids = {1, 2, 3, 4, 5, 6}
+        return any(
+            ext.critical and ext.extension_id not in known_extension_ids
+            for ext in frame.extensions
+        )
 
     def _dispatch_core_frame(self, frame: CoreFrame, out: list[Any]) -> None:
         # Resolve service ID
@@ -1842,20 +2042,64 @@ class PeerEndpoint:
                     return
                 allowed_actions = node_acl.get("actions", [])
                 required_action = self._required_acl_action(frame, service_id)
-                if frame.message_type != 6 and (
+                if frame.message_type not in (6, 8) and (
                     required_action is None or required_action not in allowed_actions
                 ):
-                    if frame.message_type == 0:
-                        self._reject_sec1_request(sender_key, frame, service_id, 6, out)
-                    return
+                    # A malformed SAMPLE-1 REQ has no resolved opcode action.
+                    # Defer only that case for an ACL principal allowed to make
+                    # at least one SAMPLE-1 request; its size and payload checks
+                    # below then select STATUS=3 or STATUS=7. Candidate
+                    # authorization remains stricter and is checked separately.
+                    malformed_sample1_req = (
+                        frame.message_type == 0
+                        and service_id == 1
+                        and required_action is None
+                        and bool({"read", "status"}.intersection(allowed_actions))
+                    )
+                    if not malformed_sample1_req:
+                        if frame.message_type == 0:
+                            self._reject_sec1_request(sender_key, frame, service_id, 6, out)
+                        return
 
                 # This profile fixes SAMPLE-1's representation in its service
                 # contract and omits PAYLOAD_DESC. Do not guess a codec or
                 # schema, and retain STATUS=2 for reliable requests.
-                if service_id == 1 and frame.payload_descriptor is not None:
+                if service_id in (1, 2) and frame.payload_descriptor is not None:
                     if frame.message_type == 0:
                         self._reject_sec1_request(sender_key, frame, service_id, 2, out)
                     return
+
+                if service_id == 1 and frame.message_type == 0:
+                    sample1_actions = {"read", "status"}.intersection(allowed_actions)
+                    opcode_action = {
+                        1: "read",
+                        2: "status",
+                    }.get(frame.payload[0]) if frame.payload else None
+                    if opcode_action is not None:
+                        if opcode_action not in allowed_actions:
+                            self._reject_sec1_request(sender_key, frame, service_id, 6, out)
+                            return
+                    elif not sample1_actions:
+                        self._reject_sec1_request(sender_key, frame, service_id, 6, out)
+                        return
+
+                    request_length = (
+                        frame.fragment.total_length if frame.fragment is not None else len(frame.payload)
+                    )
+                    request_limit = svc_cfg.get(
+                        "request_bytes", self.manifest.values["limits"]["message_bytes"]
+                    )
+                    if request_length > request_limit:
+                        self._reject_sec1_request(sender_key, frame, service_id, 3, out)
+                        return
+                    if (
+                        not (frame.options & 2)
+                        or request_length != 1
+                        or len(frame.payload) != 1
+                        or frame.payload[0] not in (1, 2)
+                    ):
+                        self._reject_sec1_request(sender_key, frame, service_id, 7, out)
+                        return
 
                 # Check Freshness token requirement (§S7)
                 is_duplicate = (
@@ -1935,13 +2179,21 @@ class PeerEndpoint:
                 if frame.message_type == 0:  # REQ
                     if sender_key in self.delivery.retained_results:
                         res_obj = self.delivery.retained_results[sender_key]
-                        if self.delivery.admit_result_replay(res_obj, self.now_ms):
+                        if res_obj.selective_state is not None:
+                            # R4.5: a duplicate REQ repeats its receipt only; the
+                            # existing selective result transfer owns its schedule.
+                            rec = self.delivery.accepted_messages.get(sender_key)
+                            if (rec is not None and rec.ack_frame_bytes
+                                    and self.delivery.admit_receipt_replay(rec)):
+                                ack = self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
+                                self._enqueue_tx(ack, not_after_ms=None, service_id=service_id, out=out)
+                        elif self.delivery.admit_result_replay(res_obj, self.now_ms):
                             self._reprotect_retained_result(res_obj)
                             for rf in res_obj.result_frames:
                                 self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
                     elif sender_key in self.delivery.accepted_messages:
                         rec = self.delivery.accepted_messages[sender_key]
-                        if rec.ack_frame_bytes:
+                        if rec.ack_frame_bytes and self.delivery.admit_receipt_replay(rec):
                             ack = (
                                 self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
                                 if self.association is not None
@@ -1968,7 +2220,7 @@ class PeerEndpoint:
                 elif frame.message_type == 7:  # DATA
                     if sender_key in self.delivery.accepted_messages:
                         rec = self.delivery.accepted_messages[sender_key]
-                        if rec.ack_frame_bytes:
+                        if rec.ack_frame_bytes and self.delivery.admit_receipt_replay(rec):
                             ack = (
                                 self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
                                 if self.association is not None
@@ -1997,6 +2249,19 @@ class PeerEndpoint:
 
             complete, full_payload = res[0], res[1]
             if not complete or full_payload is None:
+                if self._selective_frame_eligible(frame, service_id):
+                    session = self.reassembly.active.get(sender_key)
+                    timing = self.manifest.values["timing"]
+                    if (session is not None
+                            and session.selective_feedback_due_ms is not None
+                            and self.now_ms > session.selective_feedback_due_ms
+                            + timing["feedback_delay_ms"]):
+                        session.selective_feedback_due_ms = None
+                    if (session is not None and session.selective_feedback_due_ms is None
+                            and session.selective_status_count < timing["max_status"]):
+                        collection = (timing["burst_span_ms"] + timing["forward_delay_ms"]
+                                      + timing["feedback_guard_ms"])
+                        session.selective_feedback_due_ms = self.now_ms + collection
                 return  # Assembly in progress
 
             # Reassembly complete! Reconstruct full unfragmented frame
@@ -2024,6 +2289,8 @@ class PeerEndpoint:
         # Process message by type
         if frame.message_type == 6:  # ACK
             self._process_ack(frame, service_id, sender_key, out)
+        elif frame.message_type == 8:  # FRAG_STATUS
+            self._process_frag_status(frame, service_id, sender_key, out)
         elif frame.message_type in (1, 2):  # RSP or ERR
             accepted = self._process_response_or_err(frame, service_id, sender_key, out)
             if accepted and sender_key in self.reassembly.completed:
@@ -2034,6 +2301,295 @@ class PeerEndpoint:
             self._process_telem(frame, service_id, out)
         elif frame.message_type == 7:  # DATA
             self._process_data(frame, service_id, sender_key, out, geometry=frag_geom)
+
+    def _selective_frame_eligible(self, frame: CoreFrame, service_id: int) -> bool:
+        if (not self._selective_enabled(service_id) or service_id == 0
+                or self.association is None or frame.security is None
+                or frame.fragment is None or not (frame.options & 2)
+                or frame.message_type not in (0, 1, 2, 4, 7)):
+            return False
+        if frame.message_type == 2:
+            status_ext = next((ext for ext in frame.extensions if ext.extension_id == 5), None)
+            if status_ext is None:
+                return False
+            try:
+                status, end = decode_uleb(status_ext.value)
+            except FrameError:
+                return False
+            if end != len(status_ext.value) or status < 64:
+                return False
+        count = (frame.fragment.total_length + frame.fragment.chunk_size - 1) // frame.fragment.chunk_size
+        return 2 <= count <= 32
+
+    def _selective_transfer_for_sequence(self, sequence: int) -> tuple[str, Any] | None:
+        for exchange in self.delivery.active_outgoing.values():
+            if exchange.seq == sequence and exchange.selective_state is not None:
+                return "exchange", exchange
+        for result in self.delivery.retained_results.values():
+            if result.result_seq == sequence and result.selective_state is not None:
+                return "result", result
+        data_transfer = self.outgoing_data.get(sequence)
+        if data_transfer is not None:
+            return "data", data_transfer
+        return None
+
+    def _build_fragment_status(
+        self, target_key: tuple[int, int, int, int], service_id: int, missing_mask: int
+    ) -> bytes | None:
+        if self.association is None or service_id == 0 or not self._selective_enabled(service_id):
+            return None
+        route, context = self._routed_fields()
+        exts = [Extension(1, True, False, encode_uleb(target_key[3]))]
+        if context is not None:
+            exts.append(context)
+        if service_id != self.default_service:
+            exts.append(Extension(4, True, False, encode_uleb(service_id)))
+        exts.sort(key=lambda item: item.extension_id)
+        frame = CoreFrame(
+            message_type=8,
+            options=1 | 0x80 | (4 if route else 0),
+            sequence=self._alloc_seq(),
+            route=route,
+            extensions=tuple(exts),
+            payload=b"",
+        )
+        wire = self._encrypt_and_encode(frame, plaintext=missing_mask.to_bytes(4, "little"))
+        if len(wire) > self.manifest.values["binding"]["return_mtu"]:
+            return None
+        return wire
+
+    def _emit_due_fragment_statuses(self, out: list[Any]) -> None:
+        if self.association is None or self.association.status != "active":
+            return
+        timing = self.manifest.values["timing"]
+        feedback_limit = timing.get("feedback_buffers", 1)
+        pending = sum(bool(item.get("is_frag_status")) for item in self.tx_queue)
+        pending += sum(bool(item.get("is_frag_status")) for item in self.active_submissions.values())
+        for key, session in list(self.reassembly.active.items()):
+            due = session.selective_feedback_due_ms
+            if due is None or self.now_ms < due:
+                continue
+            if (self.now_ms >= session.expires_at_ms or session.service_id == 0
+                    or session.selective_status_count >= timing["max_status"]):
+                session.selective_feedback_due_ms = None
+                continue
+            if self.now_ms > due + timing["feedback_delay_ms"]:
+                session.selective_feedback_due_ms = None
+                continue
+            if pending >= feedback_limit or len(self.active_submissions) >= self.adapter_slots:
+                continue
+            missing = ((1 << session.derived_count) - 1)
+            for index in session.received_indices:
+                missing &= ~(1 << index)
+            if missing == 0 or missing == (1 << session.derived_count) - 1:
+                continue
+            status = self._build_fragment_status(key, session.service_id, missing)
+            if status is None:
+                session.selective_feedback_due_ms = None
+                continue
+            self._enqueue_tx(
+                status,
+                not_after_ms=None,
+                service_id=session.service_id,
+                is_frag_status=True,
+                out=out,
+            )
+            session.selective_feedback_due_ms = None
+            session.selective_status_count += 1
+            pending += 1
+
+    def _advance_selective_transfers(self, out: list[Any]) -> None:
+        owners: list[tuple[str, Any]] = []
+        owners.extend(("exchange", item) for item in self.delivery.active_outgoing.values()
+                      if item.selective_state is not None)
+        owners.extend(("result", item) for item in self.delivery.retained_results.values()
+                      if item.selective_state is not None)
+        owners.extend(("data", item) for item in self.outgoing_data.values())
+        for kind, owner in owners:
+            self._drive_selective_transfer(kind, owner, out)
+
+    def _drive_selective_transfer(self, kind: str, owner: Any, out: list[Any]) -> None:
+        state: SelectiveTransfer | None = owner.selective_state
+        if state is None or state.terminal:
+            return
+        action = state.take_due_action(self.now_ms)
+        if action is None:
+            return
+        sequence = owner.seq if kind in ("exchange", "data") else owner.result_seq
+        if action.kind == "stop":
+            self._retire_selective_attempts(sequence, out)
+            if kind == "exchange":
+                owner.state = "failed"
+                self.delivery.active_outgoing.pop(owner.exchange_id, None)
+                self.delivery._release_gate(owner)
+                if owner.service_id == 1 and self.sample_consumer and owner.request_payload == b"\x01":
+                    if self.sample_consumer.designated_request_seq == owner.seq:
+                        self.sample_consumer.designated_request_seq = None
+                uncertain = owner.possibly_transmitted or bool(owner.admitted_schedule_handles)
+                out.append(ApplicationEvent(
+                    kind="diagnostic" if uncertain else "protocol_rejection",
+                    service_id=owner.service_id,
+                    exchange_id=owner.exchange_id,
+                    status=0 if uncertain else 4,
+                    payload=b"unknown" if uncertain else b"timeout",
+                    at_ms=self.now_ms,
+                ))
+            elif kind == "result":
+                owner.attempts_left = 0
+            else:
+                self.outgoing_data.pop(sequence, None)
+                out.append(ApplicationEvent(
+                    kind="diagnostic",
+                    service_id=owner.service_id,
+                    exchange_id=0,
+                    status=0,
+                    payload=b"unknown" if owner.possibly_transmitted else b"timeout",
+                    at_ms=self.now_ms,
+                ))
+            return
+
+        if kind == "exchange":
+            frames = self._build_req_frames(
+                owner.service_id,
+                owner.seq,
+                owner.request_payload,
+                ack_req=owner.ack_req,
+                freshness_token=owner.freshness_token,
+                selected_indices=action.indices,
+            )
+            exchange_id = owner.exchange_id
+            service_id = owner.service_id
+            not_after = owner.not_after_ms
+        elif kind == "result":
+            target = (owner.req_namespace, owner.req_origin, owner.req_epoch, owner.req_seq)
+            if owner.is_app_err:
+                state.terminate()
+                owner.attempts_left = 0
+                return
+            frames, _ = self._build_rsp_frames(
+                target,
+                owner.service_id,
+                owner.result_payload or b"",
+                own_seq=owner.result_seq,
+                selected_indices=action.indices,
+            )
+            exchange_id = None
+            service_id = owner.service_id
+            not_after = None
+        else:
+            frames = self._build_data_frames(
+                owner.service_id,
+                owner.seq,
+                owner.payload,
+                ack_req=owner.ack_req,
+                selected_indices=action.indices,
+            )
+            exchange_id = None
+            service_id = owner.service_id
+            not_after = None
+        if len(frames) != state.frames_remaining:
+            state.terminate()
+            if kind == "exchange":
+                self._expire_outgoing_exchange(owner, out)
+            elif kind == "result":
+                owner.attempts_left = 0
+            else:
+                self.outgoing_data.pop(sequence, None)
+            return
+        for frame_bytes in frames:
+            self._enqueue_tx(
+                frame_bytes,
+                not_after_ms=not_after,
+                service_id=service_id,
+                exchange_id=exchange_id,
+                recovery_seq=sequence,
+                out=out,
+            )
+
+    def _retire_selective_attempts(self, sequence: int, out: list[Any]) -> None:
+        kept = []
+        for item in self.tx_queue:
+            if item.get("recovery_seq") == sequence:
+                exchange = self.delivery.active_outgoing.get(item.get("exchange_id"))
+                if exchange is not None:
+                    exchange.queued_schedule_frames = max(0, exchange.queued_schedule_frames - 1)
+            else:
+                kept.append(item)
+        self.tx_queue = kept
+        for handle, item in self.active_submissions.items():
+            if item.get("recovery_seq") != sequence or item.get("cancel_requested"):
+                continue
+            item["cancel_requested"] = True
+            if item.get("admitted"):
+                out.append(Cancel(handle=handle, generation=item["generation"], at_ms=self.now_ms))
+
+    def _settle_selective_frame(self, sequence: int | None, out: list[Any]) -> None:
+        if sequence is None:
+            return
+        matched = self._selective_transfer_for_sequence(sequence)
+        if matched is None:
+            return
+        kind, owner = matched
+        state: SelectiveTransfer = owner.selective_state
+        if state.settle_frame(self.now_ms):
+            self._drive_selective_transfer(kind, owner, out)
+
+    def _process_frag_status(self, frame: CoreFrame, service_id: int, sender_key: tuple, out: list[Any]) -> None:
+        """Authenticate first, then bind feedback to one live same-service transfer."""
+        if (frame.security is None or self.association is None
+                or self.association.status != "active" or service_id == 0
+                or not self._selective_enabled(service_id)):
+            return
+        topology = self.manifest.values.get("binding", {}).get("topology")
+        routed = topology in ("static-unicast", "relay-routed")
+        required_options = 1 | 0x40 | 0x80 | (4 if routed else 0)
+        if frame.options != required_options or frame.fragment is not None or frame.payload_descriptor is not None:
+            return
+        ext_ids = {ext.extension_id for ext in frame.extensions}
+        expected_ext_ids = {1}
+        if routed:
+            expected_ext_ids.add(2)
+        if service_id != self.default_service:
+            expected_ext_ids.add(4)
+        if not expected_ext_ids.issubset(ext_ids):
+            return
+        # TYPE 8 forbids other known semantic extensions, but the main extension
+        # rules still permit an endpoint to ignore unknown noncritical values.
+        if any(
+            ext.extension_id not in expected_ext_ids
+            and (ext.extension_id in (3, 5, 6) or ext.critical)
+            for ext in frame.extensions
+        ):
+            return
+        target_key = self._extract_reply_to(frame)
+        if target_key is None or target_key[:3] != (self.namespace, self.local_node_id, self.local_epoch):
+            return
+        matched = self._selective_transfer_for_sequence(target_key[3])
+        if matched is None:
+            return
+        kind, owner = matched
+        state: SelectiveTransfer = owner.selective_state
+        if kind == "exchange":
+            expected = (owner.namespace, owner.origin, owner.epoch, owner.seq)
+            peer = owner.destination
+            if owner.service_id != service_id or owner.state != "awaiting_receipt":
+                return
+        elif kind == "result":
+            expected = (owner.result_namespace, owner.result_origin, owner.result_epoch, owner.result_seq)
+            peer = owner.req_origin
+            if owner.service_id != service_id or owner.acknowledged:
+                return
+        else:
+            expected = (owner.namespace, owner.origin, owner.epoch, owner.seq)
+            peer = owner.destination
+            if owner.service_id != service_id or state.terminal:
+                return
+        if target_key != expected or sender_key[1] != peer or len(frame.payload) != 4:
+            return
+        missing_mask = int.from_bytes(frame.payload, "little")
+        if not state.accept_status(frame.sequence, missing_mask, self.now_ms):
+            return
+        self._drive_selective_transfer(kind, owner, out)
 
     def _process_ack(self, frame: CoreFrame, service_id: int, sender_key: tuple, out: list[Any]) -> None:
         ref_key = self._extract_reply_to(frame)
@@ -2047,6 +2603,9 @@ class PeerEndpoint:
             ref_ns, ref_orig, ref_ep, ref_seq, responder=responder, service_id=service_id
         )
         if exc:
+            if exc.selective_state is not None:
+                exc.selective_state.terminate()
+                self._retire_selective_attempts(exc.seq, out)
             out.append(ApplicationEvent(
                 kind="request_accepted",
                 service_id=exc.service_id,
@@ -2058,9 +2617,23 @@ class PeerEndpoint:
 
         # Check matching result: must match full result identity (namespace, origin, epoch, sequence),
         # expected requester, and service. Colliding sequence from other identity cannot acknowledge result.
-        self.delivery.record_result_ack_received(
+        result = self.delivery.record_result_ack_received(
             ref_ns, ref_orig, ref_ep, ref_seq, responder=responder, service_id=service_id
         )
+        if result is not None and result.selective_state is not None:
+            result.selective_state.terminate()
+            self._retire_selective_attempts(result.result_seq, out)
+        data_transfer = self.outgoing_data.get(ref_seq)
+        if data_transfer is not None and (
+            data_transfer.namespace == ref_ns
+            and data_transfer.origin == ref_orig
+            and data_transfer.epoch == ref_ep
+            and data_transfer.destination == responder
+            and data_transfer.service_id == service_id
+        ):
+            data_transfer.selective_state.terminate()
+            self._retire_selective_attempts(data_transfer.seq, out)
+            self.outgoing_data.pop(data_transfer.seq, None)
         self._promote_waiting_requests(out)
 
     def _process_response_or_err(self, frame: CoreFrame, service_id: int, sender_key: tuple, out: list[Any]) -> bool:
@@ -2379,12 +2952,16 @@ class PeerEndpoint:
                 return
             if sender_key in self.delivery.retained_results:
                 res = self.delivery.retained_results[sender_key]
-                if self.delivery.admit_result_replay(res, self.now_ms):
+                rec = self.delivery.accepted_messages.get(sender_key)
+                if res.selective_state is not None:
+                    if rec is not None and rec.ack_frame_bytes and self.delivery.admit_receipt_replay(rec):
+                        fresh_ack = self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
+                        self._enqueue_tx(fresh_ack, not_after_ms=None, service_id=service_id, out=out)
+                elif self.delivery.admit_result_replay(res, self.now_ms):
                     self._reprotect_retained_result(res)
                     for rf in res.result_frames:
                         self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
-            elif rec.ack_frame_bytes and rec.replay_bursts < self.delivery.max_bursts - 1:
-                rec.replay_bursts += 1
+            elif rec.ack_frame_bytes and self.delivery.admit_receipt_replay(rec):
                 if self.association is not None:
                     fresh_ack = self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
                     self._enqueue_tx(fresh_ack, not_after_ms=None, service_id=service_id, out=out)
@@ -2674,9 +3251,7 @@ class PeerEndpoint:
             res_len = len(frame.payload) if len(frame.payload) < max_res else max_res
             result_payload = bytes((i % 256) ^ 0xA5 for i in range(res_len))
             rsp_frames, result_seq = self._build_rsp_frames(sender_key, service_id, result_payload)
-            for rf in rsp_frames:
-                self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
-            self.delivery.retained_results[sender_key] = RetainedResult(
+            retained = RetainedResult(
                 service_id=service_id,
                 req_namespace=sender_key[0],
                 req_origin=sender_key[1],
@@ -2697,7 +3272,19 @@ class PeerEndpoint:
                 attempts_left=max(0, self.delivery.max_bursts - 1),
                 gate_destination=self.remote_node_id,
                 immutable_metadata=self._immutable_message_metadata(frame, geometry),
+                selective_state=(self._new_selective_transfer(len(rsp_frames))
+                                 if self._selective_enabled(service_id) and len(rsp_frames) > 1
+                                 else None),
             )
+            self.delivery.retained_results[sender_key] = retained
+            for rf in rsp_frames:
+                self._enqueue_tx(
+                    rf,
+                    not_after_ms=None,
+                    service_id=service_id,
+                    recovery_seq=result_seq if retained.selective_state is not None else None,
+                    out=out,
+                )
         elif self.test_services and isinstance(self.test_services, dict) and callable(self.test_services.get(service_id)):
             res = self.test_services[service_id](frame.payload)
             if isinstance(res, tuple):
@@ -2825,6 +3412,8 @@ class PeerEndpoint:
                 return  # Conflicting immutable metadata cannot become a new acceptance
             # Matching duplicate: replay cached ACK without renewing absolute retention
             if rec.ack_frame_bytes:
+                if not self.delivery.admit_receipt_replay(rec):
+                    return
                 if self.association is not None:
                     fresh_ack = self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
                     self._enqueue_tx(fresh_ack, not_after_ms=None, service_id=service_id, out=out)
@@ -2950,6 +3539,9 @@ class PeerEndpoint:
             request_payload=req.payload,
             freshness_token=freshness_token,
         )
+        if (req.ack_req and self._selective_enabled(req.service_id)
+                and len(frames) > 1):
+            exc.selective_state = self._new_selective_transfer(len(frames))
 
         # If consumer designated READ, record seq
         if req.service_id == 1 and self.sample_consumer and req.payload == b"\x01":
@@ -2960,7 +3552,14 @@ class PeerEndpoint:
             if freshness_token is not None and self.active_freshness_token == freshness_token:
                 self.active_freshness_token = None
             for frame_bytes in frames:
-                self._enqueue_tx(frame_bytes, not_after_ms=req.not_after_ms, service_id=req.service_id, exchange_id=exchange_id, out=out)
+                self._enqueue_tx(
+                    frame_bytes,
+                    not_after_ms=req.not_after_ms,
+                    service_id=req.service_id,
+                    exchange_id=exchange_id,
+                    recovery_seq=seq if exc.selective_state is not None else None,
+                    out=out,
+                )
         elif admission != "queue_full" and freshness_token is not None and self.active_freshness_token == freshness_token:
             # A queued reliable exchange owns the token across admission delay and retries.
             self.active_freshness_token = None
@@ -2999,7 +3598,15 @@ class PeerEndpoint:
         payload = sample.encode_telemetry()
         if self.association is not None:
             seq = self._alloc_seq()
-            frame = CoreFrame(message_type=5, options=1, sequence=seq, payload=b"")
+            route, context = self._routed_fields()
+            frame = CoreFrame(
+                message_type=5,
+                options=1 | (4 if route else 0) | (0x80 if context else 0),
+                sequence=seq,
+                route=route,
+                extensions=(context,) if context else (),
+                payload=b"",
+            )
             frame_bytes = self._encrypt_and_encode(frame, plaintext=payload)
         else:
             frame = CoreFrame(message_type=5, options=0, payload=payload)
@@ -3015,8 +3622,28 @@ class PeerEndpoint:
         exchange_id: Optional[int] = None,
         is_sample_telemetry: bool = False,
         bootstrap_attempt_id: bytes | None = None,
+        recovery_seq: int | None = None,
+        is_frag_status: bool = False,
         out: list[Any],
     ) -> None:
+        if recovery_seq is None and exchange_id is not None:
+            exchange = self.delivery.active_outgoing.get(exchange_id)
+            if exchange is not None and exchange.selective_state is not None:
+                recovery_seq = exchange.seq
+        if recovery_seq is None and not is_frag_status:
+            try:
+                core = parse_frame(raw_bytes, max_frame=self.forward_mtu)
+            except Exception:
+                core = None
+            if core is not None and core.message_type in (1, 2) and core.fragment is not None:
+                result = next((item for item in self.delivery.retained_results.values()
+                               if item.result_seq == core.sequence and item.service_id == service_id), None)
+                if result is not None and self._selective_enabled(service_id):
+                    if result.selective_state is None and len(result.result_frames) > 1:
+                        result.selective_state = self._new_selective_transfer(len(result.result_frames))
+                    if result.selective_state is not None:
+                        recovery_seq = result.result_seq
+
         # Wrap into Stream R envelope if needed
         if self.binding_kind == "stream-r":
             if raw_bytes == b"\x00":
@@ -3080,11 +3707,15 @@ class PeerEndpoint:
                     "exchange_id": exchange_id,
                     "is_sample_telemetry": True,
                     "bootstrap_attempt_id": bootstrap_attempt_id,
+                    "recovery_seq": recovery_seq,
+                    "is_frag_status": is_frag_status,
                 })
                 return
             self._submit_wire(
                 wire_bytes, not_after_ms, service_id, exchange_id, out,
                 bootstrap_attempt_id=bootstrap_attempt_id,
+                recovery_seq=recovery_seq,
+                is_frag_status=is_frag_status,
             )
             return
 
@@ -3097,6 +3728,8 @@ class PeerEndpoint:
                 "service_id": service_id,
                 "exchange_id": exchange_id,
                 "bootstrap_attempt_id": bootstrap_attempt_id,
+                "recovery_seq": recovery_seq,
+                "is_frag_status": is_frag_status,
             })
             if exchange_id is not None and exchange_id in self.delivery.active_outgoing:
                 self.delivery.active_outgoing[exchange_id].queued_schedule_frames += 1
@@ -3104,6 +3737,8 @@ class PeerEndpoint:
         self._submit_wire(
             wire_bytes, not_after_ms, service_id, exchange_id, out,
             bootstrap_attempt_id=bootstrap_attempt_id,
+            recovery_seq=recovery_seq,
+            is_frag_status=is_frag_status,
         )
 
     def _submit_wire(
@@ -3115,6 +3750,8 @@ class PeerEndpoint:
         out,
         *,
         bootstrap_attempt_id: bytes | None = None,
+        recovery_seq: int | None = None,
+        is_frag_status: bool = False,
     ):
         if not self.is_open:
             return
@@ -3138,8 +3775,11 @@ class PeerEndpoint:
             "service_id": service_id,
             "exchange_id": exchange_id,
             "bootstrap_attempt_id": bootstrap_attempt_id,
+            "recovery_seq": recovery_seq,
+            "is_frag_status": is_frag_status,
             "admitted": False,
             "cancel_requested": False,
+            "cancel_emitted": False,
         }
         self.active_submissions[handle] = item
         if exchange_id is not None and exchange_id in self.delivery.active_outgoing:
@@ -3185,6 +3825,8 @@ class PeerEndpoint:
             self._submit_wire(
                 item["wire_bytes"], item["not_after_ms"], item["service_id"], item["exchange_id"], out,
                 bootstrap_attempt_id=item.get("bootstrap_attempt_id"),
+                recovery_seq=item.get("recovery_seq"),
+                is_frag_status=item.get("is_frag_status", False),
             )
 
     def _extract_reply_to(self, frame: CoreFrame) -> Optional[tuple[int, int, int, int]]:
@@ -3231,14 +3873,18 @@ class PeerEndpoint:
             reply_to_bytes = bytes(reply_to_bytes)
 
         exts = [Extension(extension_id=1, critical=True, unsafe=False, value=reply_to_bytes)]
+        route, context = self._routed_fields()
+        if context is not None:
+            exts.append(context)
         if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
-            exts.sort(key=lambda e: e.extension_id)
+        exts.sort(key=lambda e: e.extension_id)
 
         frame = CoreFrame(
             message_type=6,  # ACK
-            options=0x81,  # SEQ | EXT
+            options=1 | 0x80 | (4 if route else 0),  # SEQ | EXT | optional ROUTE
             sequence=own_seq,
+            route=route,
             extensions=tuple(exts),
             payload=b"",
         )
@@ -3273,6 +3919,7 @@ class PeerEndpoint:
         service_id: int,
         payload: bytes,
         own_seq: int | None = None,
+        selected_indices: tuple[int, ...] | None = None,
     ) -> tuple[list[bytes], int]:
         tgt_ns, tgt_orig, tgt_ep, tgt_seq = target_key
         if own_seq is None:
@@ -3289,6 +3936,9 @@ class PeerEndpoint:
             reply_to_bytes = bytes(reply_to_bytes)
 
         exts = [Extension(extension_id=1, critical=True, unsafe=False, value=reply_to_bytes)]
+        route, context = self._routed_fields()
+        if context is not None:
+            exts.append(context)
         if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
         exts.sort(key=lambda e: e.extension_id)
@@ -3301,11 +3951,14 @@ class PeerEndpoint:
             num_frags = (total_len + chunk_bytes - 1) // chunk_bytes
             frames = []
             for idx in range(num_frags):
+                if selected_indices is not None and idx not in selected_indices:
+                    continue
                 slice_bytes = payload[idx * chunk_bytes : (idx + 1) * chunk_bytes]
                 frame = CoreFrame(
                     message_type=1,  # RSP
-                    options=base_options | 8,  # FRAG
+                    options=base_options | 8 | (4 if route else 0),  # FRAG / optional ROUTE
                     sequence=own_seq,
+                    route=route,
                     fragment=Fragment(index=idx, chunk_size=chunk_bytes, total_length=total_len),
                     extensions=tuple(exts),
                     payload=slice_bytes if self.association is None else b"",
@@ -3318,14 +3971,121 @@ class PeerEndpoint:
         else:
             frame = CoreFrame(
                 message_type=1,  # RSP
-                options=base_options,
+                options=base_options | (4 if route else 0),
                 sequence=own_seq,
+                route=route,
                 extensions=tuple(exts),
                 payload=payload if self.association is None else b"",
             )
             if self.association is not None:
                 return [self._encrypt_and_encode(frame, plaintext=payload)], own_seq
             return [encode_frame(frame, max_frame=self.forward_mtu)], own_seq
+
+    def _queue_data_transfer(
+        self,
+        service_id: int,
+        payload: bytes,
+        *,
+        ack_req: bool,
+        out: list[Any],
+    ) -> int:
+        """Queue one locally originated DATA transfer through SELECTIVE-32 recovery."""
+        assoc = self.association
+        if assoc is None or assoc.status != "active":
+            raise SecurityError("protected DATA requires an active association")
+        if isinstance(service_id, bool) or not isinstance(service_id, int) or service_id == 0:
+            raise ValueError("DATA service_id must be a nonzero integer")
+        if not isinstance(payload, bytes):
+            raise TypeError("DATA payload must be bytes")
+        if len(payload) > self.manifest.values["limits"]["message_bytes"]:
+            raise ValueError("DATA payload exceeds the manifest message limit")
+        service = next((item for item in self.manifest.values.get("services", [])
+                        if item.get("id") == service_id), None)
+        acl = next((item for item in service.get("acl", [])
+                    if item.get("node") == self.remote_node_id), None) if service else None
+        if service is None or acl is None or "data" not in acl.get("actions", []):
+            raise AuthorizationError("peer is not authorized for DATA on this service")
+        sender_slots = self.delivery.sender_slots
+        active_slots = (len(self.delivery.active_outgoing) + len(self.delivery.queue)
+                        + len(self.outgoing_data))
+        if sender_slots is not None and active_slots >= sender_slots:
+            raise ValueError("manifest sender slots are exhausted")
+
+        chunk = self.manifest.values["limits"]["chunk_bytes"]
+        count = max(1, (len(payload) + chunk - 1) // chunk)
+        if count > self.manifest.values["limits"]["fragments"]:
+            raise ValueError("DATA payload exceeds the manifest fragment limit")
+        seq = self._alloc_seq()
+        frames = self._build_data_frames(service_id, seq, payload, ack_req=ack_req)
+        state = (
+            self._new_selective_transfer(len(frames))
+            if ack_req and self._selective_enabled(service_id) and len(frames) > 1
+            else None
+        )
+        if state is not None:
+            self.outgoing_data[seq] = _OutgoingDataTransfer(
+                service_id=service_id,
+                seq=seq,
+                namespace=self.namespace,
+                origin=self.local_node_id,
+                epoch=assoc.local_epoch,
+                destination=self.remote_node_id,
+                payload=bytes(payload),
+                ack_req=ack_req,
+                selective_state=state,
+            )
+        for frame in frames:
+            self._enqueue_tx(
+                frame,
+                not_after_ms=None,
+                service_id=service_id,
+                recovery_seq=seq if state is not None else None,
+                out=out,
+            )
+        return seq
+
+    def _build_data_frames(
+        self,
+        service_id: int,
+        seq: int,
+        payload: bytes,
+        *,
+        ack_req: bool = True,
+        selected_indices: tuple[int, ...] | None = None,
+    ) -> list[bytes]:
+        """Build DATA logical transfers for independent peer recovery scenarios."""
+        exts: list[Extension] = []
+        route, context = self._routed_fields()
+        if context is not None:
+            exts.append(context)
+        if service_id != self.default_service or service_id == 0:
+            exts.append(Extension(4, True, False, encode_uleb(service_id)))
+        exts.sort(key=lambda e: e.extension_id)
+        options = 1 | (2 if ack_req else 0) | (0x80 if exts else 0) | (4 if route else 0)
+        chunk = self.manifest.values["limits"]["chunk_bytes"]
+        if len(payload) > chunk:
+            count = (len(payload) + chunk - 1) // chunk
+            frames = []
+            for index in range(count):
+                if selected_indices is not None and index not in selected_indices:
+                    continue
+                part = payload[index * chunk : (index + 1) * chunk]
+                frame = CoreFrame(
+                    7, options | 8, seq, route=route,
+                    fragment=Fragment(index, chunk, len(payload)),
+                    extensions=tuple(exts), payload=part if self.association is None else b"",
+                )
+                frames.append(self._encrypt_and_encode(frame, plaintext=part)
+                              if self.association is not None
+                              else encode_frame(frame, max_frame=self.forward_mtu))
+            return frames
+        frame = CoreFrame(
+            7, options, seq, route=route, extensions=tuple(exts),
+            payload=payload if self.association is None else b"",
+        )
+        return [self._encrypt_and_encode(frame, plaintext=payload)
+                if self.association is not None
+                else encode_frame(frame, max_frame=self.forward_mtu)]
 
     def _build_err_frame(
         self,
@@ -3354,6 +4114,9 @@ class PeerEndpoint:
             Extension(extension_id=1, critical=True, unsafe=False, value=reply_to_bytes),
             Extension(extension_id=5, critical=True, unsafe=False, value=encode_uleb(status)),
         ]
+        route, context = self._routed_fields()
+        if context is not None:
+            exts.append(context)
         if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
         exts.sort(key=lambda e: e.extension_id)
@@ -3361,8 +4124,9 @@ class PeerEndpoint:
         options = 0x81 | (2 if is_reliable else 0)
         frame = CoreFrame(
             message_type=2,  # ERR
-            options=options,
+            options=options | (4 if route else 0),
             sequence=own_seq,
+            route=route,
             extensions=tuple(exts),
             payload=payload if self.association is None else b"",
         )
@@ -3396,14 +4160,18 @@ class PeerEndpoint:
             Extension(extension_id=1, critical=True, unsafe=False, value=reply_to_bytes),
             Extension(extension_id=5, critical=True, unsafe=False, value=encode_uleb(status)),
         ]
+        route, context = self._routed_fields()
+        if context is not None:
+            exts.append(context)
         if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
         exts.sort(key=lambda e: e.extension_id)
 
         frame = CoreFrame(
             message_type=2,  # ERR
-            options=0x83,  # SEQ | ACK_REQ | EXT
+            options=0x83 | (4 if route else 0),  # SEQ | ACK_REQ | EXT | optional ROUTE
             sequence=own_seq,
+            route=route,
             extensions=tuple(exts),
             payload=payload if self.association is None else b"",
         )
@@ -3444,8 +4212,12 @@ class PeerEndpoint:
         payload: bytes,
         ack_req: bool = True,
         freshness_token: bytes | None = None,
+        selected_indices: tuple[int, ...] | None = None,
     ) -> list[bytes]:
         exts = []
+        route, context = self._routed_fields()
+        if context is not None:
+            exts.append(context)
         if service_id != self.default_service or service_id == 0:
             exts.append(Extension(extension_id=4, critical=True, unsafe=False, value=encode_uleb(service_id)))
 
@@ -3456,7 +4228,7 @@ class PeerEndpoint:
 
         exts.sort(key=lambda e: e.extension_id)
 
-        base_options = 1 | (2 if ack_req else 0) | (0x80 if exts else 0)
+        base_options = 1 | (2 if ack_req else 0) | (0x80 if exts else 0) | (4 if route else 0)
         chunk_bytes = self.manifest.values["limits"]["chunk_bytes"]
 
         if len(payload) > chunk_bytes:
@@ -3465,11 +4237,14 @@ class PeerEndpoint:
             num_frags = (total_len + chunk_bytes - 1) // chunk_bytes
             frames = []
             for idx in range(num_frags):
+                if selected_indices is not None and idx not in selected_indices:
+                    continue
                 slice_bytes = payload[idx * chunk_bytes : (idx + 1) * chunk_bytes]
                 frame = CoreFrame(
                     message_type=0,  # REQ
                     options=base_options | 8,  # FRAG
                     sequence=seq,
+                    route=route,
                     fragment=Fragment(index=idx, chunk_size=chunk_bytes, total_length=total_len),
                     extensions=tuple(exts),
                     payload=slice_bytes if self.association is None else b"",
@@ -3484,6 +4259,7 @@ class PeerEndpoint:
                 message_type=0,  # REQ
                 options=base_options,
                 sequence=seq,
+                route=route,
                 extensions=tuple(exts),
                 payload=payload if self.association is None else b"",
             )

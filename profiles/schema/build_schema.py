@@ -1,4 +1,5 @@
 """Regenerate the portable JSON Schema. No third-party packages required."""
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -122,6 +123,48 @@ SCHEMA = obj(
 SCHEMA = {"$schema": "https://json-schema.org/draft/2020-12/schema",
           "$id": "urn:dmp:test-manifest:2", **SCHEMA}
 
+# Contract 3 is an additive host-binding contract. Keep the v2 schema object
+# above untouched so regeneration preserves every P02 contract-2 byte and rule.
+SCHEMA_V3 = deepcopy(SCHEMA)
+SCHEMA_V3["$id"] = "urn:dmp:test-manifest:3"
+SCHEMA_V3["required"].append("tcp_binding")
+SCHEMA_V3["properties"]["contract"]["enum"] = ["DMP-test-manifest/3"]
+SCHEMA_V3["properties"]["profile"]["properties"]["id"]["enum"] = [
+    "PEER-TCP-STREAM-R", "MIXED-TCP-STREAM-R-SIM-PACKET",
+]
+SCHEMA_V3["properties"]["binding"]["properties"]["id"]["enum"].append(
+    "DMP-test/TCP-STREAM-R")
+SCHEMA_V3["properties"]["tcp_binding"] = obj(
+    id=enum("DMP-test/TCP-STREAM-R"), revision=enum(1),
+    placement=enum("peer-pair", "endpoint-to-relay"),
+    listener_node=U32, connector_node=U32,
+    bind_address=enum("127.0.0.1"), port_assignment=enum("ephemeral"),
+    forward_mtu=integer(32, 65535), return_mtu=integer(32, 65535),
+    encoded_mtu=integer(32, 66000),
+    deadline_capability=enum("strict_latest_start"),
+    tx_ownership=enum("copy"),
+    start_boundary=enum("first-positive-nonblocking-write"),
+    initial_sync=enum("receiver-ready-empty-delimiter"),
+    receive_reset=enum("discard-through-next-delimiter"),
+    partial_candidate_timeout_ms=POS,
+    completion=enum("local-socket-handoff-not-peer-receipt"),
+    cancellation=enum("cancel-before-start-close-after-start"),
+    disconnect=enum("settle-exactly-once-possibly-transmitted-after-start"),
+    reconnect=enum("new-generation-drop-partial-require-fresh-sec1"),
+)
+SCHEMA_V3["properties"]["mixed_path"] = obj(
+    id=enum("DMP-test/MIXED-TCP-STREAM-R-SIM-PACKET"), revision=enum(1),
+    stream_endpoint=U32, bridge_node=U32, packet_endpoint=U32,
+    forward_relays=array(U32, 2, 2), return_relays=array(U32, 2, 2),
+    namespace_mapping=enum("identity"),
+    context_policy=enum("origin-supplied-require-exact"),
+    protected_policy=enum("preserve-all-core-bytes-except-route-ttl"),
+    shared_state=enum("namespace-duplicate-cooldown-count-airtime"),
+    recovery=enum("selective-32"),
+)
+
 if __name__ == "__main__":
     Path(__file__).with_name("manifest-v2.schema.json").write_text(
         json.dumps(SCHEMA, indent=2) + "\n", encoding="utf-8", newline="\n")
+    Path(__file__).with_name("manifest-v3.schema.json").write_text(
+        json.dumps(SCHEMA_V3, indent=2) + "\n", encoding="utf-8", newline="\n")

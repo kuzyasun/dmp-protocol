@@ -138,7 +138,8 @@ class StreamRDecoder:
             return (event,) if event else ()
         return ()
 
-    def feed(self, chunk: bytes, *, at_ms: int) -> tuple[StreamEvent, ...]:
+    def feed(self, chunk: bytes, *, at_ms: int,
+             expire_at_boundary: bool = True) -> tuple[StreamEvent, ...]:
         if not isinstance(chunk, bytes):
             raise TypeError("stream input must be bytes")
         self._set_time(at_ms)
@@ -201,7 +202,7 @@ class StreamRDecoder:
                 self._candidate.append(octet)
                 if self._candidate_started_ms is None:
                     self._candidate_started_ms = at_ms
-        if (self._candidate_started_ms is not None
+        if (expire_at_boundary and self._candidate_started_ms is not None
                 and at_ms == self._candidate_started_ms + self.candidate_timeout_ms):
             event = self._expire()
             if event:

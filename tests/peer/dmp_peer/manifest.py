@@ -33,6 +33,8 @@ _FROZEN = {
     "test-direct-minimal-256.json": "4dc75347343c209c1ed12ab67e60eba83ff974beaa9f351c121da87e7b18b946",
     "test-radio-retry-all-nnpsk0.json": "bc8bba7c929c6d0fe9ad39dbe66a6699d342304ae8485ddf5cac9e32605b55f1",
     "test-radio-retry-all-xx.json": "4aece0283e15774346dd2d0d73d45e8c496a4e91aec2ac2693a253e977c767c9",
+    "test-peer-tcp-stream-r-nnpsk0.json": "ae409bc0d46cda319f9e9861dcc3fbc6922d2ee6d35155ae61c329b79dc497cc",
+    "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json": "64363ad7c1f750409bad1b039509cfec4037a981fa760bbb4dce57bb50e5546d",
 }
 
 
@@ -133,6 +135,8 @@ def _schema_check(value: Any, schema: dict, path: str = "$") -> None:
 
 _SCHEMA_PATH = Path(__file__).with_name("manifest-v2.schema.json")
 _SCHEMA = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+_SCHEMA_V3_PATH = Path(__file__).with_name("manifest-v3.schema.json")
+_SCHEMA_V3 = json.loads(_SCHEMA_V3_PATH.read_text(encoding="utf-8"))
 
 
 def parse_manifest(raw: bytes, expected_sha256: str | None = None) -> Manifest:
@@ -157,7 +161,10 @@ def parse_manifest(raw: bytes, expected_sha256: str | None = None) -> Manifest:
         raise ManifestError("schema", "$", "top-level value must be an object")
     _depth(value)
     _check_text(value)
-    _schema_check(value, _SCHEMA)
+    # The explicit contract marker selects the closed schema. Unknown markers
+    # remain on v2 and fail its enum; fields never cause an implicit upgrade.
+    schema = _SCHEMA_V3 if value.get("contract") == "DMP-test-manifest/3" else _SCHEMA
+    _schema_check(value, schema)
     digest = hashlib.sha256(raw).hexdigest()
     if expected_sha256 is not None and digest != expected_sha256:
         raise ManifestError("digest", "$", "SHA-256 of original bytes does not match")
@@ -173,6 +180,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     def width(value: int) -> int:
         return max(1, (value.bit_length() + 6) // 7)
 
+    contract3 = value["contract"] == "DMP-test-manifest/3"
     identity = value["identity"]
     require(len(set(identity["nodes"])) == 2, "identity", "$.identity.nodes",
             "contract 2 requires two distinct endpoint IDs")
@@ -198,12 +206,35 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
         ("DMP-test", "TEST-RADIO-N2", 1),
         ("DMP-test", "TEST-RADIO-RETRY-ALL", 1),
     }
-    require(profile_key in direct_profiles | radio_profiles, "profile", "$.profile",
-            "profile family, owner, or revision is not in contract 2")
+    tcp_direct = ("DMP-test", "PEER-TCP-STREAM-R", 1)
+    tcp_mixed = ("DMP-test", "MIXED-TCP-STREAM-R-SIM-PACKET", 1)
+    allowed_profiles = direct_profiles | radio_profiles
+    if contract3:
+        allowed_profiles |= {tcp_direct, tcp_mixed}
+    require(profile_key in allowed_profiles, "profile", "$.profile",
+            "profile family, owner, or revision is not admitted by this contract")
     direct = profile_key in direct_profiles
     binding, limits, security = value["binding"], value["limits"], value["security"]
     timing, freshness, services = value["timing"], value["freshness"], value["services"]
-    if direct:
+    if contract3 and profile_key == tcp_direct:
+        direct = True
+        require((binding["id"], binding["kind"], binding["topology"], binding["context"],
+                 binding["ttl"], value["relays"]) ==
+                ("DMP-test/TCP-STREAM-R", "stream-r", "point-to-point", "association", 0, []),
+                "profile", "$.binding", "peer TCP profile binding/topology/context is inconsistent")
+        expected_recovery = "retry-all"
+    elif contract3 and profile_key == tcp_mixed:
+        require((binding["id"], binding["kind"], binding["topology"], binding["context"]) ==
+                ("DMP-test/SIM-PACKET", "packet", "static-unicast", "origin-explicit"),
+                "profile", "$.binding", "mixed profile packet binding is inconsistent")
+        expected_recovery = "selective-32"
+        relay_ids = [relay["node"] for relay in value["relays"]]
+        require(len(relay_ids) == 2 and len(set(relay_ids)) == 2
+                and not set(relay_ids).intersection(identity["nodes"]),
+                "identity", "$.relays", "mixed profile requires two distinct non-endpoint relays")
+        require(binding["ttl"] >= len(relay_ids), "profile", "$.binding.ttl",
+                "mixed profile TTL must cover its relay path")
+    elif direct:
         require((binding["id"], binding["kind"], binding["topology"], binding["context"],
                  binding["ttl"], value["relays"]) ==
                 ("DMP-test/SIM-STREAM-R", "stream-r", "point-to-point", "association", 0, []),
@@ -548,6 +579,9 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
                 "relay", "$.relays.max_forwards_per_key",
                 "relay per-key cap cannot cover application and establishment identities")
 
+    if contract3:
+        _check_v3_topology(value, require)
+
     # Resource templates must be unique, finite, internally summed, and sized for their pools.
     resources = value["resources"]
     roles = [resource["role"] for resource in resources]
@@ -626,6 +660,81 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
             require(all(charge[name]["count"] >= 1 and charge[name]["bytes_each"] >= 1
                         for name in components - {"control", "adapter", "relay_cache"}),
                     "resources", "$.resources", "relay role requires minimal endpoint-only design reserves")
+
+
+def _check_v3_topology(value: dict[str, Any], require) -> None:
+    """Validate TCP placement and the mixed transparent bridge independently."""
+    profile = value["profile"]["id"]
+    nodes = value["identity"]["nodes"]
+    relays = [entry["node"] for entry in value["relays"]]
+    binding = value["binding"]
+    timing = value["timing"]
+    tcp = value["tcp_binding"]
+
+    require((tcp["forward_mtu"], tcp["return_mtu"], tcp["encoded_mtu"]) == (256, 256, 263),
+            "tcp-binding", "$.tcp_binding", "TCP Stream R capacity must be 256 core / 263 encoded bytes")
+    require(tcp["bind_address"] == "127.0.0.1" and tcp["port_assignment"] == "ephemeral",
+            "tcp-binding", "$.tcp_binding", "TCP listener must use loopback and an ephemeral port")
+    expected_timeout = (binding["frame_tx_ms"]
+                        + max(timing["forward_delay_ms"], timing["return_delay_ms"])
+                        + timing["record_margin_ms"])
+    require(tcp["partial_candidate_timeout_ms"] == expected_timeout,
+            "tcp-binding", "$.tcp_binding.partial_candidate_timeout_ms",
+            "candidate timeout must equal frame transmit + longest path delay + record margin")
+
+    if profile == "PEER-TCP-STREAM-R":
+        require(tcp["placement"] == "peer-pair"
+                and tcp["connector_node"] in nodes and tcp["listener_node"] in nodes
+                and tcp["connector_node"] != tcp["listener_node"],
+                "tcp-binding", "$.tcp_binding", "direct TCP roles must be opposite endpoint nodes")
+        require(binding["tx_ownership"] == "copy"
+                and binding["synchronous_completion"] is False,
+                "tcp-binding", "$.binding", "direct TCP requires copy ownership and asynchronous completion")
+        require((binding["forward_mtu"], binding["return_mtu"], binding["encoded_mtu"])
+                == (tcp["forward_mtu"], tcp["return_mtu"], tcp["encoded_mtu"]),
+                "tcp-binding", "$.binding", "direct binding capacities must match TCP Stream R")
+        require("mixed_path" not in value, "profile", "$.mixed_path",
+                "direct peer profile must not carry mixed-path metadata")
+    else:
+        mixed = value.get("mixed_path")
+        require(mixed is not None, "mixed-path", "$.mixed_path",
+                "mixed profile requires its forwarding topology")
+        if mixed is None:
+            return
+        endpoints = set(nodes)
+        require(tcp["placement"] == "endpoint-to-relay"
+                and mixed["stream_endpoint"] in endpoints
+                and mixed["packet_endpoint"] in endpoints
+                and mixed["stream_endpoint"] != mixed["packet_endpoint"],
+                "tcp-binding", "$.tcp_binding", "mixed TCP connector and packet endpoint must be distinct endpoints")
+        require(mixed["bridge_node"] in relays and bool(relays)
+                and mixed["bridge_node"] == relays[0]
+                and tcp["connector_node"] == mixed["stream_endpoint"]
+                and tcp["listener_node"] == mixed["bridge_node"],
+                "tcp-binding", "$.tcp_binding", "TCP must connect the stream endpoint to the first relay bridge")
+        require(mixed["forward_relays"] == relays
+                and mixed["return_relays"] == list(reversed(relays)),
+                "mixed-path", "$.mixed_path", "mixed relay order must match the route and reverse exactly")
+        require(mixed["context_policy"] == "origin-supplied-require-exact"
+                and binding["context"] == "origin-explicit",
+                "mixed-path", "$.mixed_path.context_policy",
+                "both path directions require exact origin-supplied CONTEXT")
+        require(mixed["recovery"] == "selective-32"
+                and all(service["recovery"] == "selective-32" for service in value["services"]),
+                "mixed-path", "$.mixed_path.recovery", "mixed path requires selective-32 for both services")
+        require((binding["forward_mtu"], binding["return_mtu"])
+                == (tcp["forward_mtu"], tcp["return_mtu"]),
+                "tcp-binding", "$.binding", "mixed path core MTU must fit both TCP directions")
+
+    tcp_role = "endpoint" if profile == "PEER-TCP-STREAM-R" else "relay"
+    for resource in value["resources"]:
+        if resource["role"] != tcp_role:
+            continue
+        adapter = next((charge for charge in resource["charges"]
+                        if charge["component"] == "adapter"), None)
+        require(adapter is not None and adapter["bytes_each"] >= tcp["encoded_mtu"],
+                "resources", "$.resources",
+                f"{tcp_role} adapter slot must hold a complete TCP envelope")
 
 def load_manifest(name: str, root: str | Path | None = None) -> Manifest:
     if name not in _FROZEN:
