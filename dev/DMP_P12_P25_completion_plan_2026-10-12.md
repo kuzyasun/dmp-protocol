@@ -104,6 +104,25 @@ criteria.
   follows from the passing host tests; P01C and final P25 acceptance remain
   deferred to the final hardware phase.
 
+## Progress on 2026-10-13 — P01 host lifecycle regressions
+
+- Added a combined authenticated invalid-payload restart case: generation
+  invalidation and secret cleanup, late authentic continuation refusal, exact
+  restart backoff, and a fresh attempt with new ID/ephemeral key while episode
+  and global counters continue. Kept low-order-DH rejection as a separate case.
+- Added a same-identity conflicting processed Flight 1 case. It must be a
+  bounded drop that leaves the accepted candidate, deadline, cached response,
+  and Noise read/write state intact; a following exact duplicate still replays
+  the cached response.
+- Host build of `dmp_test_handshake` and `security.handshake` CTest passed.
+  Independent review of both regressions found no remaining actionable issue,
+  including the fixed-length cache comparisons and deadline checks after time
+  advances.
+- P01 remains open for requirement mapping, secret-copy inventory, cached-flight
+  transport/lifetime cases, aggregate resources, integrated target peaks, and
+  P01C/final hardware checks. RAM estimates remain host/measurement evidence,
+  not proof of target operation.
+
 ## Current evidence to reuse
 
 - P12 plaintext endpoint history: `dev/DMP_Execution_Log.md`, entries dated

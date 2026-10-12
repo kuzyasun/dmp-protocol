@@ -23,19 +23,19 @@ limitations remain authoritative for that experiment; none passes full P01.
 
 | Check | Existing evidence to reuse | Still required |
 |---|---|---|
-| Abort-first post-read policy | Failed authenticated Noise reads; owned-object destruction; entropy/OOM abort probes; current host `wrong-psk`, `wrong-pin`, `zero-cid-low-order`, and `episode-backoff` cases listed in the 2026-10-13 recheck | Add a distinct invalid authenticated handshake-payload case that verifies generation invalidation, cleanup, refusal of a late authentic continuation, and a separately scheduled fresh attempt under unreset experiment/global budgets and backoff; the existing negative cases are reusable evidence, not a substitute for that combined scenario |
-| Pre-read structural/conflicting-duplicate boundary | Current host `preread-conflict` and `scratch-serial-stale` cases in `security.handshake` | Complete the requirement-to-test map and confirm that malformed/conflicting pre-read input causes no crypto work, mutation, or destruction of admitted state; P21C peer-local rerun remains evidence for the independent endpoint |
-| Cached-flight and same-owner serialization | Current host `duplicate-loss` and `scratch-serial-stale` cases; independent-worker concurrency remains separately evidenced by MCU-04 | Verify transport faults before/after write and the bounded cached lifetime against the exact P01 contract; two independent workers do not prove same-owner serialization |
+| Abort-first post-read policy | Failed authenticated Noise reads; owned-object destruction; entropy/OOM abort probes; current host `wrong-psk`, `wrong-pin`, `invalid-authenticated-payload-restart`, `low-order-dh-abort`, and `episode-backoff` cases | The combined host scenario passes as `test_invalid_authenticated_payload_restart`: a validly authenticated zero-CID response aborts and wipes the attempt, advances its generation, rejects the late authentic continuation, enforces the configured backoff, then schedules a fresh attempt with a new ID and Noise ephemeral public key while episode/global work counters continue from their post-abort values. Remaining lifecycle mapping and non-host target gates stay open. |
+| Pre-read structural/conflicting-duplicate boundary | Host `preread-conflict` and `scratch-serial-stale`; `duplicate-loss-processed-conflict` now sends a changed authenticated payload under the same processed-flight identity | Host regressions verify malformed pre-read inputs do not invoke Noise or destroy the admitted attempt, and a conflicting processed duplicate causes no Noise read/retransmit, deadline change, candidate teardown, or cached-response mutation. Finish the requirement-to-test map; P21C peer-local rerun remains separate evidence for the independent endpoint |
+| Cached-flight and same-owner serialization | Current host `duplicate-loss-processed-conflict` and `scratch-serial-stale` cases; independent-worker concurrency remains separately evidenced by MCU-04 | Verify transport faults before/after write and the bounded cached lifetime against the exact P01 contract; two independent workers do not prove same-owner serialization |
 | Buffer ownership and failure output | PN/AAD checks and MEM-01/02/03 owned-block, allocator-hook, quota and serialized-owner evidence | Reconcile mutable receive input versus immutable cached/borrowed TX and partial-output validity, then provide the explicit inventory of every secret copy/scratch buffer erased on abort/free |
 | Resource sensitivity | MEM-03 serial quotas; MCU-03 pending owners; MCU-04 two concurrent workers | Complete the declared experiment matrix, including the manifest's four_parallel row (four peers, four pending attempts, two crypto slots), per-region retained/scratch/stack and resource bounds; MCU-04 private worker pairs do not exercise that aggregate topology |
 | Non-Espressif target evidence | Cortex-M4 compile/archive/alignment evidence | Select a concrete available board/linker map and entropy/clock port before physical runtime claims. ESP32-C3 does not satisfy non-Espressif evidence. No board is currently selected |
 | Whole-provider acceptance | Reviewed scoped waves, independent expected vectors and pinned backend provenance | Review remaining deltas and combined requirement-to-test mapping; record residual limitations explicitly. Production adoption remains a separate decision |
 
-The next implementation should close the first two host wrapper-boundary rows
-with a bounded private provider test, reusing the accepted engine and fixtures.
+The next implementation should close the remaining host wrapper-boundary rows
+with bounded private provider tests, reusing the accepted engine and fixtures.
 Do not introduce production endpoint APIs merely to pass a laboratory gate.
-P01 must still prove bounded experiment restart budgets/backoff without resetting
-episode/global counters on abort. Full endpoint episode/global admission, replay,
+The combined invalid authenticated-payload restart path is now covered at the
+host handshake boundary. Full endpoint episode/global admission, replay,
 transport scheduling and network lifecycle retain their P13-P15 and P21 owners;
 the bounded provider driver does not substitute for those endpoint reruns.
 Delayed transport send-completion/cancellation interfaces belong to P04 and
@@ -67,7 +67,8 @@ actual handshake wrong-PSK and wrong-pin aborts, zero-CID/low-order rejection,
 pre-read conflict handling, same-owner scratch serialization/stale completion,
 and scheduled episode/backoff (`tests/security/test_handshake.c` cases
 `test_wrong_psk`, `test_wrong_pin_and_association`,
-`test_zero_cid_and_low_order`, `test_preread_and_conflict`,
+`test_invalid_authenticated_payload_restart`, `test_low_order_dh_abort`,
+`test_preread_and_conflict`, `test_duplicate_loss_and_processed_conflict`,
 `test_scratch_serial_partial_stale`, and `test_episode_backoff`). The added
 retained-rejection/fragmented-replay regression is additional P12 endpoint
 evidence; it does not add P01 provider evidence. The protected SAMPLE-1 request
@@ -75,10 +76,9 @@ validation test is P12/P15 endpoint evidence, not a Noise handshake-payload
 test.
 
 This recheck does not close the explicit inventory of secret copies/scratch
-that must be erased, a separate invalid authenticated handshake-payload case,
-the aggregate four-peer/four-pending/two-crypto-slot resource matrix, full
-integrated target peaks, non-Espressif runtime qualification, or the C3 reset
-diagnostic scenario. Existing RAM values and provider-only MCU measurements do
-not establish whole-DMP target fit or hardware operation. Per owner direction,
-these target checks remain deferred to the final hardware phase; P01C and the
-P01 umbrella remain open until then.
+that must be erased, the aggregate four-peer/four-pending/two-crypto-slot
+resource matrix, full integrated target peaks, non-Espressif runtime
+qualification, or the C3 reset diagnostic scenario. Existing RAM values and
+provider-only MCU measurements do not establish whole-DMP target fit or hardware
+operation. Per owner direction, these target checks remain deferred to the final
+hardware phase; P01C and the P01 umbrella remain open until then.

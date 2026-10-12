@@ -591,16 +591,20 @@ done:
     return passed;
 }
 
-static int test_duplicate_and_loss(void)
+static int test_duplicate_loss_and_processed_conflict(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
     session env;
     port_ctx port;
     uint8_t flight1[120];
+    uint8_t changed[120];
     uint8_t saved[120];
     size_t flight1_len = 0U;
     size_t cached_len = 0U;
+    size_t saved_len = 0U;
     uint32_t index = 0U;
+    uint32_t reads;
+    uint32_t noise_reads;
     const uint8_t *cached;
     dmp_hs_ingress ingress;
     uint64_t deadline;
@@ -618,14 +622,47 @@ static int test_duplicate_and_loss(void)
     }
     deadline = dmp_hs_deadline(env.responder, 0U);
     cached = dmp_hs_cached_flight(env.responder, 0U, &cached_len);
-    memcpy(saved, cached, cached_len);
-    set_ingress(&ingress, flight1, flight1_len, ID_INIT, ID_RESP, 1U, NN_EPOCH);
+    if (cached == NULL || cached_len > sizeof(saved)) {
+        goto done;
+    }
+    saved_len = cached_len;
+    memcpy(saved, cached, saved_len);
+    reads = dmp_hs_total_reads(env.responder);
+    noise_reads = dmp_hs_noise_reads(env.responder, 0U);
+    memcpy(changed, flight1, flight1_len);
+    changed[flight1_len - 1U] ^= 0x01U;
+    set_ingress(&ingress, changed, flight1_len, ID_INIT, ID_RESP, 1U, NN_EPOCH);
+    env.now += 100U;
+    if (dmp_hs_offer(env.responder, &ingress, NULL) != DMP_HS_DROPPED ||
+        dmp_hs_total_reads(env.responder) != reads ||
+        dmp_hs_noise_reads(env.responder, 0U) != noise_reads ||
+        dmp_hs_noise_writes(env.responder, 0U) != 1U ||
+        dmp_hs_retransmits(env.responder, 0U) != 0U ||
+        dmp_hs_deadline(env.responder, 0U) != deadline ||
+        !dmp_hs_candidate(env.responder, 0U) || dmp_hs_terminal(env.responder, 0U)) {
+        fprintf(stderr, "conflicting processed duplicate changed the candidate\n");
+        goto done;
+    }
     cached = dmp_hs_cached_flight(env.responder, 0U, &cached_len);
+    if (cached_len != saved_len ||
+        !bytes_match("conflict preserves cached response", cached, cached_len, saved, saved_len)) {
+        fprintf(stderr, "conflicting processed duplicate changed the cached response\n");
+        goto done;
+    }
+    set_ingress(&ingress, flight1, flight1_len, ID_INIT, ID_RESP, 1U, NN_EPOCH);
+    env.now += 100U;
     if (dmp_hs_offer(env.responder, &ingress, NULL) != DMP_HS_OK ||
         dmp_hs_noise_writes(env.responder, 0U) != 1U || dmp_hs_retransmits(env.responder, 0U) != 1U ||
+        dmp_hs_total_reads(env.responder) != reads ||
+        dmp_hs_noise_reads(env.responder, 0U) != noise_reads ||
         dmp_hs_deadline(env.responder, 0U) != deadline ||
-        !bytes_match("retransmit", cached, cached_len, saved, cached_len)) {
+        !dmp_hs_candidate(env.responder, 0U) || dmp_hs_terminal(env.responder, 0U)) {
         fprintf(stderr, "identical duplicate wrote the flight again\n");
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.responder, 0U, &cached_len);
+    if (cached_len != saved_len || !bytes_match("retransmit", cached, cached_len, saved, saved_len)) {
+        fprintf(stderr, "identical duplicate changed the cached response\n");
         goto done;
     }
     passed = dmp_hs_retransmit(env.initiator, index) == DMP_HS_OK &&
@@ -637,7 +674,9 @@ done:
     return passed;
 }
 
-static int test_zero_cid_and_low_order(void)
+static void tune_episode(dmp_hs_config *initiator, dmp_hs_config *responder);
+
+static int test_invalid_authenticated_payload_restart(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
     session env;
@@ -647,9 +686,13 @@ static int test_zero_cid_and_low_order(void)
     uint8_t flight1[120];
     uint8_t bad1[120];
     uint8_t flight2[80];
+    uint8_t first_flight[120];
     uint8_t zero_body[96];
     uint8_t noise[80];
     uint8_t plain[8];
+    uint8_t retry_id[16];
+    uint8_t retry_ephemeral[32];
+    uint8_t first_id[16];
     size_t flight1_len = 0U;
     size_t flight2_len = 0U;
     size_t noise_len = 0U;
@@ -657,17 +700,35 @@ static int test_zero_cid_and_low_order(void)
     size_t cached_len = 0U;
     uint32_t index = 0U;
     uint32_t reads;
+    uint32_t global_work;
+    uint32_t episode_work;
+    uint64_t generation;
     const uint8_t *cached;
     dmp_hs_ingress ingress;
     int passed = 0;
 
     if (fixture == NULL || !hex_decode(NN_FLIGHT1, flight1, sizeof(flight1), &flight1_len) ||
         !hex_decode(NN_FLIGHT2, flight2, sizeof(flight2), &flight2_len) ||
-        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, NULL) ||
-        dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_episode)) {
         return 0;
     }
+    memcpy(retry_id, fixture->attempt_id.data, sizeof(retry_id));
+    retry_id[15] ^= 0x80U;
+    memset(retry_ephemeral, 0x7BU, sizeof(retry_ephemeral));
+    script_add(&env.init_script, retry_id, sizeof(retry_id));
+    script_add(&env.init_script, retry_ephemeral, sizeof(retry_ephemeral));
+    if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        goto done;
+    }
     cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+    if (cached == NULL || cached_len > sizeof(first_flight) ||
+        !dmp_hs_copy_attempt_id(env.initiator, index, first_id)) {
+        goto done;
+    }
+    memcpy(first_flight, cached, cached_len);
+    generation = dmp_hs_generation(env.initiator, index);
+    global_work = dmp_hs_global_work(env.initiator);
+    episode_work = dmp_hs_episode_work(env.initiator);
     memcpy(bad1, cached, cached_len);
     memset(bad1 + 68U, 0, 4U);
     set_ingress(&ingress, bad1, cached_len, ID_INIT, ID_RESP, 1U, NN_EPOCH);
@@ -703,7 +764,11 @@ static int test_zero_cid_and_low_order(void)
     if (!drive_flight(env.initiator, zero_body, 18U + noise_len, ID_RESP, ID_INIT, 2U, NN_EPOCH,
                       DMP_HS_ABORTED) ||
         !dmp_hs_terminal(env.initiator, index) || !dmp_hs_secrets_wiped(env.initiator, index) ||
-        dmp_hs_total_reads(env.initiator) != reads + 1U || !not_active(env.initiator, index)) {
+        dmp_hs_generation(env.initiator, index) <= generation ||
+        dmp_hs_total_reads(env.initiator) != reads + 1U || !not_active(env.initiator, index) ||
+        dmp_hs_episode_attempts_used(env.initiator) != 1U ||
+        dmp_hs_episode_work(env.initiator) <= episode_work ||
+        dmp_hs_global_work(env.initiator) <= global_work) {
         fprintf(stderr, "zero responder CID did not abort the attempt\n");
         goto done;
     }
@@ -713,23 +778,65 @@ static int test_zero_cid_and_low_order(void)
         fprintf(stderr, "late continuation resumed an aborted attempt\n");
         goto done;
     }
+    global_work = dmp_hs_global_work(env.initiator);
+    episode_work = dmp_hs_episode_work(env.initiator);
+    env.now += 999U;
+    if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_REFUSED ||
+        dmp_hs_episode_attempts_used(env.initiator) != 1U ||
+        dmp_hs_episode_work(env.initiator) != episode_work ||
+        dmp_hs_global_work(env.initiator) != global_work) {
+        fprintf(stderr, "invalid authenticated payload bypassed restart backoff\n");
+        goto done;
+    }
+    env.now++;
+    if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK || index != 0U ||
+        dmp_hs_episode_attempts_used(env.initiator) != 2U ||
+        dmp_hs_episode_work(env.initiator) <= episode_work ||
+        dmp_hs_global_work(env.initiator) <= global_work ||
+        !dmp_hs_copy_attempt_id(env.initiator, index, retry_id) ||
+        memcmp(first_id, retry_id, sizeof(first_id)) == 0 ||
+        dmp_hs_generation(env.initiator, index) <= generation) {
+        fprintf(stderr, "fresh attempt reset the experiment budget or reused its generation/ID\n");
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+    if (cached == NULL || cached_len != flight1_len || cached_len < 104U ||
+        memcmp(cached, first_flight, cached_len) == 0 ||
+        memcmp(cached + 72U, first_flight + 72U, 32U) == 0) {
+        fprintf(stderr, "fresh attempt reused the previous Noise flight keys\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
     close_session(&env);
-    if (!make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, NULL)) {
+    return passed;
+}
+
+static int test_low_order_dh_abort(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint8_t flight1[120];
+    uint8_t bad1[120];
+    size_t flight1_len = 0U;
+    int passed = 0;
+
+    if (fixture == NULL || !hex_decode(NN_FLIGHT1, flight1, sizeof(flight1), &flight1_len) ||
+        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, NULL)) {
         return 0;
     }
     memcpy(bad1, flight1, flight1_len);
     memset(bad1 + 72U, 0, 32U);
     bad1[72] = 1U;
-    if (!drive_flight(env.responder, bad1, flight1_len, ID_INIT, ID_RESP, 1U, NN_EPOCH, DMP_HS_ABORTED) ||
-        dmp_hs_total_reads(env.responder) != 1U || !dmp_hs_secrets_wiped(env.responder, 0U)) {
+    passed = drive_flight(env.responder, bad1, flight1_len, ID_INIT, ID_RESP, 1U, NN_EPOCH,
+                          DMP_HS_ABORTED) &&
+             dmp_hs_total_reads(env.responder) == 1U && dmp_hs_secrets_wiped(env.responder, 0U);
+    if (!passed) {
         fprintf(stderr, "low-order flight did not abort\n");
-        goto done;
     }
-    set_ingress(&ingress, flight2, flight2_len, ID_INIT, ID_RESP, 2U, NN_EPOCH);
-    passed = dmp_hs_offer(env.responder, &ingress, NULL) == DMP_HS_DROPPED &&
-             dmp_hs_total_reads(env.responder) == 1U;
 
-done:
     close_session(&env);
     return passed;
 }
@@ -2230,8 +2337,9 @@ int main(void)
 {
     expect_case("nn-candidate", test_nn_candidate());
     expect_case("preread-conflict", test_preread_and_conflict());
-    expect_case("duplicate-loss", test_duplicate_and_loss());
-    expect_case("zero-cid-low-order", test_zero_cid_and_low_order());
+    expect_case("duplicate-loss-processed-conflict", test_duplicate_loss_and_processed_conflict());
+    expect_case("invalid-authenticated-payload-restart", test_invalid_authenticated_payload_restart());
+    expect_case("low-order-dh-abort", test_low_order_dh_abort());
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("xx-pin-candidate", test_xx_pin_candidate());
     expect_case("wrong-pin", test_wrong_pin_and_association());

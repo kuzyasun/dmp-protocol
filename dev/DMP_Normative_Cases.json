@@ -1496,7 +1496,7 @@
       "primary_checks": [
         "tests/security/test_handshake.c::test_wrong_psk",
         "tests/security/test_handshake.c::test_wrong_pin_and_association",
-        "tests/security/test_handshake.c::test_zero_cid_and_low_order",
+        "tests/security/test_handshake.c::test_invalid_authenticated_payload_restart",
         "tests/security/test_handshake.c::test_oob_commit"
       ],
       "primary_evidence": "P23 final host/simulation verification, recorded in dev/DMP_P23_plan_2026-10-12.md.",
@@ -1557,7 +1557,7 @@
       "source_case_number": 2,
       "primary_result": "passed",
       "primary_checks": [
-        "tests/security/test_handshake.c::test_duplicate_and_loss",
+        "tests/security/test_handshake.c::test_duplicate_loss_and_processed_conflict",
         "tests/security/test_handshake.c::test_orphan_replay_and_quota",
         "tests/security/test_handshake.c::test_episode_backoff"
       ],
@@ -2188,7 +2188,8 @@
       "primary_result": "passed",
       "primary_checks": [
         "tests/security/test_handshake.c::test_preread_and_conflict",
-        "tests/security/test_handshake.c::test_zero_cid_and_low_order",
+        "tests/security/test_handshake.c::test_invalid_authenticated_payload_restart",
+        "tests/security/test_handshake.c::test_low_order_dh_abort",
         "tests/security/test_handshake.c::test_wrong_psk",
         "tests/security/test_handshake.c::test_wrong_pin_and_association",
         "tests/security/test_handshake.c::test_episode_backoff",

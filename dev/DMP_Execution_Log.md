@@ -1925,3 +1925,40 @@ findings for the fix. Hardware, MCU/runtime, platform persistence, and
 whole-DMP resource qualification were not run and remain pending. P12 stays
 running pending its 34-row normative reconciliation and a platform epoch-
 storage adapter.
+
+## 2026-10-13 — P01 authenticated invalid-payload restart regression
+
+Added a distinct host handshake scenario for a validly authenticated Noise
+response carrying an invalid zero responder CID. It verifies the attempt is
+aborted and secrets wiped, the generation advances, a late authentic flight is
+dropped without another Noise read, restart is refused one millisecond before
+the configured backoff, and a fresh scheduled attempt uses a new ID and Noise
+ephemeral public key while episode-attempt, episode-work, and global-work
+counters continue from their existing values. The low-order-DH regression is
+now a separate named case. `DMP_Normative_Cases.json` and the P01 reconciliation
+point to the new cases.
+
+Validation: `cmake --build build/host --target dmp_test_handshake` succeeded;
+`ctest --test-dir build/host --output-on-failure -R "^security\.handshake$"`
+passed 1/1. `security.handshake` is host evidence only. The combined four-peer
+resource topology, complete secret-copy inventory, integrated target peaks,
+non-Espressif runtime, C3 reset diagnostics, and other remaining P01 evidence
+are still open. Hardware qualification remains deferred to the final phase.
+
+## 2026-10-13 — P01 processed duplicate boundary regression
+
+Extended `test_duplicate_loss_and_processed_conflict` with a conflicting
+processed Flight 1: the payload tag changes while attempt ID, SEQ, source,
+destination, namespace, and epoch remain fixed. The responder drops it without
+another Noise read, response write, retransmit, deadline change, candidate
+teardown, or cached-response mutation. The following exact duplicate still
+retransmits the original cached response. This complements the pre-read drops
+and incomplete-slice preservation checks; transport fault timing and bounded
+cached lifetime remain open.
+
+Validation: `cmake --build build/host --target dmp_test_handshake` succeeded;
+`ctest --test-dir build/host --output-on-failure -R "^security\.handshake$"`
+passed 1/1. These are host handshake checks only; the full P01 mapping and
+target/resource requirements remain open. Independent read-only review found no
+actionable findings after verifying the fixed-length cache comparisons and
+deadline checks across elapsed virtual time.
