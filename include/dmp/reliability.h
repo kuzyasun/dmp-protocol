@@ -38,7 +38,8 @@ typedef enum {
 
 typedef enum {
     DMP_REL_SENDER_REQUEST = 0,
-    DMP_REL_SENDER_RESULT = 1
+    DMP_REL_SENDER_RESULT = 1,
+    DMP_REL_SENDER_DATA = 3
 } dmp_reliability_sender_kind;
 
 typedef enum {
@@ -96,9 +97,8 @@ typedef dmp_status (*dmp_reliability_encode_fn)(
 
 /* frame remains the structural wire view. plaintext is supplied separately
  * because frame->payload is ciphertext for SECURITY frames. The caller must
- * already have verified integrity/authentication, resolved the association and
- * service, and validated the application payload. P10 accepts direct,
- * unfragmented request/result traffic only. */
+ * already have verified integrity/authentication and resolved the association
+ * and service. P10 accepts direct, unfragmented request/result traffic only. */
 typedef struct {
     const dmp_frame_view *frame;
     uint32_t service_id;
@@ -337,7 +337,9 @@ dmp_status dmp_reliability_submit_event_fresh(dmp_reliability *engine,
                                               uint32_t service_id, dmp_bytes payload,
                                               dmp_bytes token, dmp_time_ms now,
                                               dmp_reliability_handle *out);
-/* Cancellation is local only. Classify the whole exchange as follows:
+/* Cancellation is local only and accepts outbound REQ or reliable DATA handles.
+ * REQ emits UNKNOWN / LOCAL_UNSENT; DATA emits DATA_UNKNOWN / DATA_LOCAL_UNSENT.
+ * Classify the whole exchange as follows:
  * - If no transport submission has been accepted, settle LOCAL_UNSENT.
  * - DMP_TX_CANCELLED_UNSENT and DMP_TX_FAILED_UNSENT prove that the respective
  *   accepted attempt did not transmit.
@@ -355,7 +357,9 @@ dmp_status dmp_reliability_cancel(dmp_reliability *engine,
 
 /* Process one already integrity/authentication/context/application-validated
  * input. Resolve and match full identity and service before changing exchange
- * state. A REQ must have ACK_REQ, SEQ and supported direct/unfragmented shape.
+ * state. A new REQ must have ACK_REQ, SEQ and supported direct/unfragmented
+ * shape. An ACK-less REQ is recognized only when replaying a matching retained
+ * protocol rejection.
  * Check its history key before admission: a cached rejection repeats only that
  * rejection, a cached acceptance never dispatches again, and metadata mismatch
  * is rejected locally. A new valid REQ is accepted only after history, result
@@ -373,11 +377,23 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine,
                                  const dmp_reliability_input *input,
                                  dmp_time_ms now);
 
-/* Cache and send a protocol rejection for a request the application rejected
- * before acceptance. status must be 1..7. On a matching duplicate, repeat only
- * this retained best-effort rejection; it must never be accepted later. A
- * metadata mismatch is dropped/rejected locally. Rejected REQs never create
- * reliable-result state and are never ACKed. */
+/* Admission preflight for an authenticated REQ. Returns DMP_DUPLICATE when a
+ * matching retained request/result identity exists, DMP_OK when unseen, and
+ * rejects metadata conflicts locally. retained_rejection is true only for a
+ * matching cached rejection, and false for an accepted request/result or an
+ * unseen identity. It may expire old records but does not accept a new request
+ * or emit a notice. */
+dmp_status dmp_reliability_req_is_retained(dmp_reliability *engine,
+                                           const dmp_reliability_input *input,
+                                           bool *retained_rejection,
+                                           dmp_time_ms now);
+
+/* Cache and send a protocol rejection for a request rejected before acceptance.
+ * status must be 1..7. ACK_REQ may be absent only for a request being rejected;
+ * such an invalid request is retained by identity and answered best-effort. On
+ * a matching duplicate, repeat only this retained rejection; it must never be
+ * accepted later. A metadata mismatch is dropped/rejected locally. Rejected
+ * REQs never create reliable-result state and are never ACKed. */
 dmp_status dmp_reliability_reject_req(dmp_reliability *engine,
                                       const dmp_reliability_input *input,
                                       uint32_t protocol_status,

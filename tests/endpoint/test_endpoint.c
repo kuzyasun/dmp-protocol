@@ -115,6 +115,7 @@ typedef struct {
     int synchronized;
     int accepts;
     int results;
+    int drop_result_receipt;
     int telems;
     int discarded;
     int violations;
@@ -362,6 +363,10 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice)
         state->result_n = notice->payload.size < sizeof state->result ? notice->payload.size : 0U;
         if (state->result_n != 0U) {
             memcpy(state->result, notice->payload.data, state->result_n);
+        }
+        if (state->drop_result_receipt) {
+            state->drop_result_receipt = 0;
+            self->wire.drop_remaining = 1;
         }
         if (state->producer) {
             return;
@@ -1143,6 +1148,68 @@ static int test_retry(void)
     return 0;
 }
 
+static int test_result_loss(void)
+{
+    uint8_t req[1];
+    dmp_reliability_handle handle;
+    dmp_time_ms now = 1000U;
+    CHECK(boot(&left, 1, now) == 0);
+    CHECK(boot(&right, 0, now) == 0);
+    left.app.have_sample = 1;
+    left.app.epoch = 1U;
+    left.app.index = 2U;
+    left.app.value = 300U;
+    CHECK(sample1_read_req(req) == 1U);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) == DMP_OK);
+    /* The producer accepts the READ, but its first RSP is lost. */
+    left.wire.drop_remaining = 1;
+    CHECK(pump(now, 3) == 0);
+    CHECK(left.app.accepts == 1);
+    CHECK(left.wire.drop_remaining == 0);
+    CHECK(right.app.results == 0);
+    CHECK(pump(now + 1280U, 8) == 0);
+    CHECK(left.app.accepts == 1);
+    CHECK(right.app.results == 1);
+    CHECK(right.app.result_n == sizeof READ_RSP);
+    CHECK(memcmp(right.app.result, READ_RSP, sizeof READ_RSP) == 0);
+    return 0;
+}
+
+static int test_receipt_loss(void)
+{
+    uint8_t req[1];
+    dmp_reliability_handle handle;
+    dmp_time_ms now = 1000U;
+    int right_submits;
+    CHECK(boot(&left, 1, now) == 0);
+    CHECK(boot(&right, 0, now) == 0);
+    left.app.have_sample = 1;
+    left.app.epoch = 1U;
+    left.app.index = 2U;
+    left.app.value = 300U;
+    CHECK(sample1_read_req(req) == 1U);
+    right.app.drop_result_receipt = 1;
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) == DMP_OK);
+    CHECK(pump(now, 8) == 0);
+    CHECK(left.app.accepts == 1);
+    CHECK(right.app.results == 1);
+    CHECK(right.wire.drop_remaining == 0);
+    right_submits = right.wire.submits;
+
+    /* The first receipt was dropped from the result callback. The producer
+     * retries its cached RSP; the duplicate is re-acknowledged without another
+     * application result callback. */
+    CHECK(pump(now + 1280U, 8) == 0);
+    CHECK(right.wire.submits == right_submits + 1);
+    CHECK(left.app.accepts == 1);
+    CHECK(right.app.results == 1);
+    CHECK(pump(now + 1390U, 4) == 0);
+    CHECK(right.wire.submits == right_submits + 1);
+    CHECK(left.app.accepts == 1);
+    CHECK(right.app.results == 1);
+    return 0;
+}
+
 static int test_duplicate(void)
 {
     uint8_t req[1];
@@ -1709,6 +1776,12 @@ int main(int argc, char **argv)
     if (strcmp(name, "retry") == 0 || strcmp(name, "all") == 0) {
         failed |= test_retry();
     }
+    if (strcmp(name, "result_loss") == 0 || strcmp(name, "all") == 0) {
+        failed |= test_result_loss();
+    }
+    if (strcmp(name, "receipt_loss") == 0 || strcmp(name, "all") == 0) {
+        failed |= test_receipt_loss();
+    }
     if (strcmp(name, "duplicate") == 0 || strcmp(name, "all") == 0) {
         failed |= test_duplicate();
     }
@@ -1748,6 +1821,7 @@ int main(int argc, char **argv)
     if (strcmp(name, "sample1") != 0 && strcmp(name, "sample_snapshot") != 0 &&
         strcmp(name, "fragment") != 0 && strcmp(name, "fragment_replay") != 0 &&
         strcmp(name, "fragment_tlv") != 0 && strcmp(name, "retry") != 0 &&
+        strcmp(name, "result_loss") != 0 && strcmp(name, "receipt_loss") != 0 &&
         strcmp(name, "duplicate") != 0 && strcmp(name, "quota") != 0 &&
         strcmp(name, "sample_no_sample") != 0 && strcmp(name, "sample_init_budget") != 0 &&
         strcmp(name, "sample_same_epoch") != 0 && strcmp(name, "sample_new_epoch") != 0 &&

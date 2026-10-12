@@ -1317,6 +1317,26 @@ static int test_late_cancel_and_retention(void)
     CHECK(event_count(&side_a.notes, DMP_REL_EVENT_LOCAL_UNSENT) == 0);
     CHECK(side_a.senders[req.slot].possibly_sent == 0U);
 
+    /* Reliable DATA uses its own terminal outcomes when an association closes. */
+    CHECK(boot(&side_a, 0, 0) == 0);
+    CHECK(dmp_reliability_submit_data(&side_a.engine, 2U, span(PING, sizeof PING), 0U, &req) ==
+          DMP_OK);
+    CHECK(dmp_reliability_cancel(&side_a.engine, req, 0U) == DMP_OK);
+    CHECK(event_count(&side_a.notes, DMP_REL_EVENT_DATA_LOCAL_UNSENT) == 1);
+    CHECK(event_count(&side_a.notes, DMP_REL_EVENT_DATA_UNKNOWN) == 0);
+    CHECK(side_a.tx.submits == 0);
+
+    CHECK(boot(&side_a, 0, 0) == 0);
+    CHECK(dmp_reliability_submit_data(&side_a.engine, 2U, span(PING, sizeof PING), 0U, &req) ==
+          DMP_OK);
+    CHECK(dmp_reliability_poll(&side_a.engine, 0U) == DMP_OK);
+    finish_all(&side_a, DMP_TX_POSSIBLY_TRANSMITTED, 0U);
+    CHECK(dmp_reliability_poll(&side_a.engine, 0U) == DMP_OK);
+    CHECK(side_a.senders[req.slot].possibly_sent == 1U);
+    CHECK(dmp_reliability_cancel(&side_a.engine, req, 1U) == DMP_OK);
+    CHECK(event_count(&side_a.notes, DMP_REL_EVENT_DATA_UNKNOWN) == 1);
+    CHECK(event_count(&side_a.notes, DMP_REL_EVENT_DATA_LOCAL_UNSENT) == 0);
+
     CHECK(boot(&side_b, 1, 0) == 0);
     CHECK(boot(&side_a, 0, 0) == 0);
     CHECK(submit_and_air(&side_a, 1U, span(PING, sizeof PING), 0U, &req) == 0);

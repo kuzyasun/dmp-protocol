@@ -1,7 +1,8 @@
 # P01 evidence reconciliation and remaining checks
 
 Coordinator reconciliation after independent read-only audit `p01_reconcile`
-(GPT-6 Luna xhigh), 2026-09-27. P01 remains running; P02 remains pending.
+(GPT-6 Luna xhigh), 2026-09-27. Historical status: P01 running; P02 pending.
+Current status: P01 remains running; P02 is accepted.
 Scheduling superseded by the owner-approved [implementation transition](../implementation-transition-20260927/README.md): P02 is now ready after P00; unfinished checks below move to P01B, P13/P15 or P01C as mapped there. The previous lab-first next step is no longer the current assignment. Historical test outcomes are unchanged.
 
 This ledger maps existing requirements, without adding or weakening the
@@ -22,10 +23,10 @@ limitations remain authoritative for that experiment; none passes full P01.
 
 | Check | Existing evidence to reuse | Still required |
 |---|---|---|
-| Abort-first post-read policy | Failed authenticated Noise reads; owned-object destruction; entropy/OOM abort probes | Wrong PSK provider handshake (not fixture wrong-key counts), wrong pin and invalid decrypted payload/zero CID: rejection, generation invalidation, cleanup, refusal of late authentic continuation and separately scheduled fresh attempt under unreset experiment episode/global budgets and backoff |
-| Pre-read structural/conflicting-duplicate boundary | Fixture parsing and provider-only checks | Minimal test owner rejects malformed/conflicting pre-read input without crypto work, mutation or destruction of admitted state; later real endpoint rerun remains P13/P15/P21C |
-| Cached-flight and same-owner serialization | Immutable fixture inputs; independent-worker concurrency only | Exactly one Noise write per cached flight, duplicate operation serialization on the same owner, faults before/after write and bounded cached lifetime; no inference from two independent workers |
-| Buffer ownership and failure output | PN/AAD checks and MEM owned-block erasure | Mutable receive input versus immutable cached/borrowed TX, cached lifetime, partial-output validity and explicit inventory of secret copies/scratch erased on abort/free |
+| Abort-first post-read policy | Failed authenticated Noise reads; owned-object destruction; entropy/OOM abort probes; current host `wrong-psk`, `wrong-pin`, `zero-cid-low-order`, and `episode-backoff` cases listed in the 2026-10-13 recheck | Add a distinct invalid authenticated handshake-payload case that verifies generation invalidation, cleanup, refusal of a late authentic continuation, and a separately scheduled fresh attempt under unreset experiment/global budgets and backoff; the existing negative cases are reusable evidence, not a substitute for that combined scenario |
+| Pre-read structural/conflicting-duplicate boundary | Current host `preread-conflict` and `scratch-serial-stale` cases in `security.handshake` | Complete the requirement-to-test map and confirm that malformed/conflicting pre-read input causes no crypto work, mutation, or destruction of admitted state; P21C peer-local rerun remains evidence for the independent endpoint |
+| Cached-flight and same-owner serialization | Current host `duplicate-loss` and `scratch-serial-stale` cases; independent-worker concurrency remains separately evidenced by MCU-04 | Verify transport faults before/after write and the bounded cached lifetime against the exact P01 contract; two independent workers do not prove same-owner serialization |
+| Buffer ownership and failure output | PN/AAD checks and MEM-01/02/03 owned-block, allocator-hook, quota and serialized-owner evidence | Reconcile mutable receive input versus immutable cached/borrowed TX and partial-output validity, then provide the explicit inventory of every secret copy/scratch buffer erased on abort/free |
 | Resource sensitivity | MEM-03 serial quotas; MCU-03 pending owners; MCU-04 two concurrent workers | Complete the declared experiment matrix, including the manifest's four_parallel row (four peers, four pending attempts, two crypto slots), per-region retained/scratch/stack and resource bounds; MCU-04 private worker pairs do not exercise that aggregate topology |
 | Non-Espressif target evidence | Cortex-M4 compile/archive/alignment evidence | Select a concrete available board/linker map and entropy/clock port before physical runtime claims. ESP32-C3 does not satisfy non-Espressif evidence. No board is currently selected |
 | Whole-provider acceptance | Reviewed scoped waves, independent expected vectors and pinned backend provenance | Review remaining deltas and combined requirement-to-test mapping; record residual limitations explicitly. Production adoption remains a separate decision |
@@ -56,3 +57,28 @@ disabled) and USB ROM output enabled. The [post-diagnostic HELLO](c3-post-diagno
 confirms return to the unchanged application, without passing the reset gate. An observable boot-diagnostic channel must be selected
 before repeating the full reset gate; a fresh HELLO boot ID alone does not
 prove absence of an additional startup reset. Do not change eFuses.
+
+## Host recheck — 2026-10-13
+
+The latest focused host run passed 43/43 CTest cases, including
+`security.provider_adapter` and `security.handshake`. Reusable P01 host evidence
+now includes provider wrong-PSK handling (`tests/security/test_provider.c::test_wrong_psk`),
+actual handshake wrong-PSK and wrong-pin aborts, zero-CID/low-order rejection,
+pre-read conflict handling, same-owner scratch serialization/stale completion,
+and scheduled episode/backoff (`tests/security/test_handshake.c` cases
+`test_wrong_psk`, `test_wrong_pin_and_association`,
+`test_zero_cid_and_low_order`, `test_preread_and_conflict`,
+`test_scratch_serial_partial_stale`, and `test_episode_backoff`). The added
+retained-rejection/fragmented-replay regression is additional P12 endpoint
+evidence; it does not add P01 provider evidence. The protected SAMPLE-1 request
+validation test is P12/P15 endpoint evidence, not a Noise handshake-payload
+test.
+
+This recheck does not close the explicit inventory of secret copies/scratch
+that must be erased, a separate invalid authenticated handshake-payload case,
+the aggregate four-peer/four-pending/two-crypto-slot resource matrix, full
+integrated target peaks, non-Espressif runtime qualification, or the C3 reset
+diagnostic scenario. Existing RAM values and provider-only MCU measurements do
+not establish whole-DMP target fit or hardware operation. Per owner direction,
+these target checks remain deferred to the final hardware phase; P01C and the
+P01 umbrella remain open until then.

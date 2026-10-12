@@ -1864,3 +1864,64 @@ Bounded AGY repair turns `turn-3c68548a4ba28d75de246f9a`, `turn-0a4483c6ed741d58
 The coordinator ran the complete peer suite on the final candidate: `python -B -m unittest discover -s tests -p "test_*.py" -q` — 166/166 passed. `git diff --check --ignore-submodules=all` exited 0; an explicit trailing-whitespace scan over all 12 peer source/test files found none. The final independent GPT-6.1-sol High read-only review verified all 12 file hashes on sealed snapshot `snap-7735489c2174783fb85d3467` (digest `e85a934941ef3900bc4d03eaf20c6543ef81efb0a532dbbc9818986941750049`) and found no actionable findings. The reviewer did not run tests.
 
 P21B is accepted for the independent host peer direct-delivery/reassembly scope. SEC-1/P21C, recovery/routing P21D, full P23 interoperability, MCU/RAM qualification and physical transport remain separate gates. No normative contract was changed.
+
+## 2026-10-12 — P12 shared-association and loss-case follow-up
+
+The owner deferred hardware qualification until the final phase. This changes sequencing only: no hardware, MCU, entropy, whole-DMP resource or physical-transport result is inferred from the existing measurements.
+
+The endpoint now cancels reliable outbound DATA as well as REQ when local revocation or a completed drain closes an association. `dmp_reliability_cancel` accepts both sender kinds and preserves the established outcome rule: unsent DATA emits `DATA_LOCAL_UNSENT`; potentially transmitted DATA emits `DATA_UNKNOWN`. A protected rotation regression was added for an outstanding service-2 DATA sender on a zero-duration drain; it requires one unknown outcome, no retry on the new association, and fresh DATA sealed under the new CID. Reliability unit coverage now checks both terminal outcomes.
+
+Separate plaintext SAMPLE-1 endpoint cases were added for a lost READ result and a lost result receipt. They assert one request acceptance and one result delivery after retained-result retry. These test sources compile, but the endpoint executable was not linked or run in this continuation: the security-enabled `build/host` regeneration failed at `tests/security/CMakeLists.txt` while checking the `noise-c` Git revision because its `.git/modules/third_party/noise-c` metadata was inaccessible. A fresh test configuration without the provider built `dmp_test_reliability` but could not link `dmp_test_endpoint` because its endpoint object requires the Noise provider symbols. This is a validation blocker, not a test pass.
+
+Validation actually completed: a fresh tests-off CMake build compiled `libdmp` with GCC 15.2.0 and strict warnings (15/15 build steps); the fresh no-provider `dmp_test_reliability` target built and `reliability.direct` passed 1/1; the modified endpoint, reliability and protected-endpoint C sources passed strict syntax-only compilation. `git diff --check --ignore-submodules=all` passed. The new P12 endpoint cases, protected rotation regression and the full security-linked endpoint suite remain unexecuted. No manifest or wire contract changed. P12 remains running; durable producer epoch reservation and failure-stop behavior still have no production persistence port. No hardware action, stage, commit or push was performed.
+
+## 2026-10-13 — P15 protected result/receipt-loss cases added
+
+Added separate `endpoint.protected_result_loss` and `endpoint.protected_receipt_loss` regressions to exercise a lost protected READ RSP and a lost protected RSP receipt over real SEC-1. Both assert one request acceptance and one result callback despite the retained-result retry. They are registered in the existing security endpoint suite. Strict GCC 15.2.0 syntax-only compilation passed for `test_endpoint_sec.c`; execution is still pending because the required pinned-provider build cannot pass its CMake revision check in this environment. The related P12 plaintext tests also remain unexecuted. These are added checks, not evidence that P15 has been rerun or reopened/closed by test results.
+
+## 2026-10-13 — P12 host endpoint and peer recheck
+
+The security-enabled host build now passes after the CMake revision check was
+updated to resolve the `noise-c` submodule's `.git` pointer. Built targets:
+`dmp_test_endpoint_sec`, `dmp_test_endpoint`, and `dmp_test_reliability`.
+Focused CTest passed 40/40: 36 `endpoint.*` cases plus `reliability.direct`,
+`reassembly.direct`, `security.provider_adapter`, and `security.handshake`.
+This executes the real SEC-1 protected result-loss, receipt-loss, and
+SAMPLE-1 malformed-request regressions. The full independent-peer suite passed
+410 tests with 51 skipped.
+
+The test-only protected SAMPLE-1 validator rejects malformed READ/STATUS,
+missing ACK_REQ, and unsupported payload descriptors before reliable request
+acceptance; it returns STATUS=3 when the payload exceeds the active size limit
+before applying schema validation, and STATUS=7 for malformed payload within
+the limit. A missing-ACK retry replays the retained rejection. The peer size
+ordering test now checks both limits through the intended producer endpoint.
+No manifest or wire bytes changed. This is host evidence only; no target,
+physical transport, or durable platform-store test ran. P12 remains running
+pending row-by-row matrix reconciliation and a platform persistence adapter.
+P01C/P01 and final P25 remain deferred to the final hardware phase.
+
+## 2026-10-13 — retained rejection across fragmented replay
+
+The independent review found that a retained invalid unfragmented REQ could
+be retransmitted in complete fragmented form with the same logical identity;
+the endpoint repeated the cached ERR but also emitted `ASSEMBLED` for the
+rejected payload. The reliability preflight now reports whether a duplicate
+identity is a retained rejection. The endpoint still routes that duplicate
+through reliability to replay the cached ERR, but suppresses `ASSEMBLED` for
+the rejected payload. An accepted retained identity keeps its existing
+duplicate-delivery semantics.
+
+Added `tests/endpoint/test_endpoint_sec.c::test_retained_rejection_reassembly`
+and registered `endpoint.protected_retained_rejection_reassembly`. The test
+rejects an unfragmented invalid SAMPLE-1 request, retries the same SEQ as a
+two-fragment request, and checks that the validator and application are not
+called, no `ASSEMBLED` event is emitted, and STATUS=7 is replayed.
+
+Validation completed: the security-enabled host build of
+`dmp_test_endpoint_sec` and `dmp_test_endpoint` passed. The focused integration
+CTest suite passed 43/43. Final read-only security review found no actionable
+findings for the fix. Hardware, MCU/runtime, platform persistence, and
+whole-DMP resource qualification were not run and remain pending. P12 stays
+running pending its 34-row normative reconciliation and a platform epoch-
+storage adapter.

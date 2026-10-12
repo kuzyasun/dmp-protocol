@@ -2794,7 +2794,19 @@
       "peer_gate": "P21B",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint_sec.c::test_sample_invalid_request",
+        "tests/endpoint/test_endpoint_sec.c::test_retained_rejection_reassembly"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--retained-rejection-across-fragmented-replay",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_invalid",
+        "tests/peer/tests/test_p21c_protected_p21b.py::TestP21CProtectedP21B.test_p21b_protected_malformed_sample1_request_retains_status7"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
       "interop_result": "not-applicable",
       "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
     },
@@ -2809,7 +2821,17 @@
       "peer_gate": "P21B",
       "interop_gate": "P23",
       "scope": "variant/unit fixture; not assumed valid in every manifest",
-      "status": "not-run",
+      "status": "passed",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint_sec.c::test_sample_invalid_request"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_size_order"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
       "interop_result": "not-applicable",
       "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
     },

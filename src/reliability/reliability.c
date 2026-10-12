@@ -1399,14 +1399,14 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
             }
             sender->phase = DMP_REL_PHASE_QUEUED;
         }
-        if (sender->kind == KIND_RESULT && sender->frag_count != 0U && !sender->tx_live &&
+        if (sender->kind == KIND_RESULT && !sender->tx_live &&
             sender->phase == DMP_REL_PHASE_AWAIT_RECEIPT && !sender->result_seen &&
             dmp_deadline_reached(now, sender->next_attempt) &&
             !dmp_deadline_reached(now, sender->send_deadline) &&
             !dmp_deadline_reached(now, sender->result_deadline)) {
             dmp_reliability_result_slot *result = result_of_sender(engine, sender);
             if (result != NULL && result->acknowledged == 0U) {
-                if (finish_fragment_wait(engine, sender)) {
+                if (sender->frag_count != 0U && finish_fragment_wait(engine, sender)) {
                     continue;
                 }
                 sender->phase = DMP_REL_PHASE_QUEUED;
@@ -2501,7 +2501,8 @@ dmp_status dmp_reliability_cancel(dmp_reliability *engine, dmp_reliability_handl
         return DMP_STALE_HANDLE;
     }
     sender = &engine->storage.senders[handle.slot];
-    if (sender->live == 0U || sender->generation != handle.generation || sender->kind != KIND_REQ) {
+    if (sender->live == 0U || sender->generation != handle.generation ||
+        (sender->kind != KIND_REQ && sender->kind != KIND_DATA)) {
         return DMP_STALE_HANDLE;
     }
     if (sender->phase == DMP_REL_PHASE_TERMINAL) {
@@ -2535,6 +2536,61 @@ dmp_status dmp_reliability_poll(dmp_reliability *engine, dmp_time_ms now)
     return status;
 }
 
+dmp_status dmp_reliability_req_is_retained(dmp_reliability *engine,
+                                           const dmp_reliability_input *input,
+                                           bool *retained_rejection, dmp_time_ms now)
+{
+    const dmp_frame_view *frame;
+    dmp_message_key source;
+    dmp_message_origin destination;
+    uint32_t service = 0U;
+    int history_index;
+    int result_index;
+    dmp_status status;
+
+    if (!ready(engine) || input == NULL || input->frame == NULL || retained_rejection == NULL ||
+        !bytes_ok(input->plaintext) || !bytes_ok(input->immutable_metadata)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    *retained_rejection = false;
+    if (input->immutable_metadata.size > DMP_RELIABILITY_METADATA_BYTES) {
+        return DMP_LIMIT_EXHAUSTED;
+    }
+    frame = input->frame;
+    if (frame->fields.type != DMP_TYPE_REQ ||
+        (frame->fields.options & DMP_OPT_FRAG) != 0U) {
+        return DMP_UNSUPPORTED;
+    }
+
+    expire(engine, now);
+    status = dmp_identity_source_key(frame, engine->storage.identity,
+                                     engine->storage.context, now, &source);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = resolve_service(engine, frame, input->service_id, &service);
+    if (status != DMP_OK) {
+        return status;
+    }
+    destination = frame_destination(engine, frame);
+    history_index = find_history_key(engine, source);
+    if (history_index >= 0) {
+        const dmp_reliability_history_slot *history = &engine->storage.history[history_index];
+        if (!metadata_match(engine, history, frame, service, input->immutable_metadata,
+                            destination)) {
+            return DMP_MALFORMED;
+        }
+        *retained_rejection = history->decision != 0U;
+        return DMP_DUPLICATE;
+    }
+    result_index = find_result_key(engine, source);
+    if (result_index >= 0) {
+        const dmp_reliability_result_slot *result = &engine->storage.results[result_index];
+        return result->service_id == service ? DMP_DUPLICATE : DMP_MALFORMED;
+    }
+    return DMP_OK;
+}
+
 dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_input *input,
                                  dmp_time_ms now)
 {
@@ -2547,8 +2603,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
         !bytes_ok(input->immutable_metadata)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (input->immutable_metadata.size > DMP_RELIABILITY_METADATA_BYTES ||
-        input->plaintext.size > engine->profile.message_bytes) {
+    if (input->immutable_metadata.size > DMP_RELIABILITY_METADATA_BYTES) {
         return DMP_LIMIT_EXHAUSTED;
     }
     frame = input->frame;
@@ -2617,6 +2672,27 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
         frame->fields.type != DMP_TYPE_DATA && frame->fields.type != DMP_TYPE_EVENT) {
         return DMP_UNSUPPORTED;
     }
+    if (frame->fields.type == DMP_TYPE_REQ && !ack_req &&
+        (frame->fields.options & DMP_OPT_FRAG) == 0U) {
+        int history_index;
+        expire(engine, now);
+        status = dmp_identity_source_key(frame, engine->storage.identity,
+                                         engine->storage.context, now, &source);
+        if (status != DMP_OK) {
+            return status;
+        }
+        status = resolve_service(engine, frame, input->service_id, &service);
+        if (status != DMP_OK) {
+            return status;
+        }
+        history_index = find_history_key(engine, source);
+        if (history_index >= 0 && engine->storage.history[history_index].decision != 0U &&
+            engine->storage.history[history_index].ack_req == 0U) {
+            return handle_request(engine, frame, source, service, input->plaintext,
+                                  input->immutable_metadata, now);
+        }
+        return DMP_UNSUPPORTED;
+    }
     if ((frame->fields.options & DMP_OPT_FRAG) != 0U ||
         ((frame->fields.type == DMP_TYPE_REQ || frame->fields.type == DMP_TYPE_DATA ||
           frame->fields.type == DMP_TYPE_EVENT) && !ack_req)) {
@@ -2631,6 +2707,14 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
     status = resolve_service(engine, frame, input->service_id, &service);
     if (status != DMP_OK) {
         return status;
+    }
+    if (input->plaintext.size > engine->profile.message_bytes) {
+        if (frame->fields.type == DMP_TYPE_REQ &&
+            (find_history_key(engine, source) >= 0 || find_result_key(engine, source) >= 0)) {
+            return handle_request(engine, frame, source, service, input->plaintext,
+                                  input->immutable_metadata, now);
+        }
+        return DMP_LIMIT_EXHAUSTED;
     }
     if (frame->fields.type == DMP_TYPE_REQ) {
         return handle_request(engine, frame, source, service, input->plaintext,
@@ -2700,12 +2784,13 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
     frame = input->frame;
     ack_req = (frame->fields.options & DMP_OPT_ACK_REQ) != 0U;
     if ((frame->fields.options & DMP_OPT_FRAG) != 0U ||
-        frame->fields.type != DMP_TYPE_REQ || !ack_req) {
+        frame->fields.type != DMP_TYPE_REQ) {
         return DMP_UNSUPPORTED;
     }
     if (input->immutable_metadata.size > DMP_RELIABILITY_METADATA_BYTES) {
         return DMP_LIMIT_EXHAUSTED;
     }
+    expire(engine, now);
     status = dmp_identity_source_key(frame, engine->storage.identity, engine->storage.context, now,
                                      &source);
     if (status != DMP_OK) {
@@ -2749,7 +2834,7 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
         history->live = 1U;
         history->decision = 1U;
         history->type = DMP_TYPE_REQ;
-        history->ack_req = 1U;
+        history->ack_req = ack_req ? 1U : 0U;
         history->service_id = service;
         history->metadata_len = (uint16_t)input->immutable_metadata.size;
         history->source = source;

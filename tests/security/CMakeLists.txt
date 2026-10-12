@@ -5,9 +5,23 @@ set(DMP_SODIUM_PIN "40c22448d6e8f42be56c45f739b52a5c8d21c8ca")
 set(DMP_LIBSODIUM_PIN "d24faf56214469b354b01c8ba36257e04737101e")
 
 function(dmp_require_revision directory expected)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${directory}" rev-parse HEAD
-        OUTPUT_VARIABLE actual OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE result)
+    set(_gitfile "${directory}/.git")
+    if(EXISTS "${_gitfile}" AND NOT IS_DIRECTORY "${_gitfile}")
+        file(READ "${_gitfile}" _gitfile_contents)
+        string(REGEX MATCH "^gitdir:[ \t]*([^\r\n]+)" _gitfile_match "${_gitfile_contents}")
+        if(NOT _gitfile_match)
+            message(FATAL_ERROR "Invalid Git directory pointer at ${_gitfile}")
+        endif()
+        get_filename_component(_gitdir "${CMAKE_MATCH_1}" ABSOLUTE BASE_DIR "${directory}")
+        execute_process(COMMAND "${GIT_EXECUTABLE}" "--git-dir=${_gitdir}"
+            "--work-tree=${directory}" rev-parse HEAD
+            OUTPUT_VARIABLE actual OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE result)
+    else()
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${directory}" rev-parse HEAD
+            OUTPUT_VARIABLE actual OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE result)
+    endif()
     if(NOT result EQUAL 0 OR NOT actual STREQUAL expected)
         message(FATAL_ERROR "Unexpected provider source revision at ${directory}: ${actual}")
     endif()
@@ -150,7 +164,7 @@ dmp_strict_target(dmp_test_endpoint_sec)
 if(MSVC)
     target_compile_definitions(dmp_test_endpoint_sec PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
-foreach(name activation alter loss isolate reassembly ttl acl rotation result fragdeny drain context repair)
+foreach(name activation alter loss result_loss receipt_loss sample_invalid_request validator_duplicate_skipped retained_rejection_reassembly freshness_terminal_rejection isolate reassembly ttl acl rotation result fragdeny drain context repair)
     add_test(NAME endpoint.protected_${name} COMMAND dmp_test_endpoint_sec ${name})
     set_tests_properties(endpoint.protected_${name} PROPERTIES TIMEOUT 60 LABELS "endpoint")
 endforeach()

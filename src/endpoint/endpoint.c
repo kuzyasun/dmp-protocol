@@ -6,6 +6,10 @@
 
 static void freshness_consume_key(dmp_endpoint *endpoint, dmp_message_key key,
                                   uint32_t service);
+static void freshness_consume_frame(dmp_endpoint *endpoint, const dmp_frame_view *frame,
+                                    uint32_t service, dmp_identity_handle context,
+                                    dmp_time_ms now);
+static int freshness_command(uint8_t type);
 static void freshness_maintenance(dmp_endpoint *endpoint, dmp_time_ms now);
 static void freshness_clear_attempt(dmp_endpoint *endpoint, uint32_t attempt);
 
@@ -67,6 +71,18 @@ static dmp_core_limits limits_of(const dmp_endpoint *endpoint)
     limits.max_frame_bytes = endpoint->profile.encoded_mtu;
     limits.max_message_bytes = endpoint->profile.message_bytes;
     limits.max_fragments = endpoint->profile.fragments;
+    return limits;
+}
+
+/* Receive a structurally valid over-profile REQ far enough to return its
+ * authenticated STATUS=3 decision. Reassembly and all non-REQ traffic still
+ * enforce the admitted message limit before state changes. */
+static dmp_core_limits receive_limits_of(const dmp_endpoint *endpoint)
+{
+    dmp_core_limits limits = limits_of(endpoint);
+    if (limits.max_message_bytes < endpoint->profile.encoded_mtu) {
+        limits.max_message_bytes = endpoint->profile.encoded_mtu;
+    }
     return limits;
 }
 
@@ -716,6 +732,8 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     endpoint->mem.profile = &endpoint->profile;
     endpoint->notice = storage->notice;
     endpoint->notice_user = storage->notice_user;
+    endpoint->validate_request = storage->validate_request;
+    endpoint->validate_request_user = storage->validate_request_user;
     endpoint->outer = *storage->transport;
     endpoint->tx_generation = 1U;
     if (required_freshness != 0U) {
@@ -886,6 +904,18 @@ static void freshness_consume_key(dmp_endpoint *endpoint, dmp_message_key key, u
     }
 }
 
+static void freshness_consume_frame(dmp_endpoint *endpoint, const dmp_frame_view *frame,
+                                    uint32_t service, dmp_identity_handle context,
+                                    dmp_time_ms now)
+{
+    dmp_message_key source;
+    if (frame != NULL && freshness_required(&endpoint->profile, service) &&
+        freshness_command(frame->fields.type) &&
+        dmp_identity_source_key(frame, &endpoint->identity, context, now, &source) == DMP_OK) {
+        freshness_consume_key(endpoint, source, service);
+    }
+}
+
 static void freshness_maintenance(dmp_endpoint *endpoint, dmp_time_ms now)
 {
     size_t i;
@@ -939,7 +969,7 @@ static void use_context(dmp_endpoint *endpoint, dmp_identity_handle handle)
     endpoint->reliability.storage.context = handle;
 }
 
-static void cancel_epoch_requests(dmp_endpoint *endpoint, dmp_time_ms now, int only_past_drain)
+static void cancel_epoch_senders(dmp_endpoint *endpoint, dmp_time_ms now, int only_past_drain)
 {
     size_t index;
 
@@ -950,7 +980,8 @@ static void cancel_epoch_requests(dmp_endpoint *endpoint, dmp_time_ms now, int o
         dmp_reliability_sender_slot *sender = &endpoint->mem.senders[index];
         dmp_reliability_handle handle;
 
-        if (sender->live == 0U || sender->kind != DMP_REL_SENDER_REQUEST ||
+        if (sender->live == 0U ||
+            (sender->kind != DMP_REL_SENDER_REQUEST && sender->kind != DMP_REL_SENDER_DATA) ||
             sender->phase == DMP_REL_PHASE_TERMINAL) {
             continue;
         }
@@ -975,7 +1006,7 @@ static void end_drain(dmp_endpoint *endpoint, dmp_time_ms now)
     if (endpoint->drain_live == 0U) {
         return;
     }
-    cancel_epoch_requests(endpoint, now, 0);
+    cancel_epoch_senders(endpoint, now, 0);
     if (endpoint->association != NULL) {
         (void)dmp_hs_cancel(endpoint->association, endpoint->drain_attempt);
     }
@@ -1092,7 +1123,7 @@ dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, d
     endpoint->association_attempt = attempt_index;
     use_context(endpoint, fresh);
     /* Original deadlines stay. Work that runs past the drain bound is not moved. */
-    cancel_epoch_requests(endpoint, now, 1);
+    cancel_epoch_senders(endpoint, now, 1);
     if (now >= bound) {
         end_drain(endpoint, now);
     }
@@ -1116,7 +1147,8 @@ dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now)
             dmp_reliability_sender_slot *sender = &endpoint->mem.senders[index];
             dmp_reliability_handle handle;
 
-            if (sender->live == 0U || sender->kind != DMP_REL_SENDER_REQUEST ||
+            if (sender->live == 0U ||
+                (sender->kind != DMP_REL_SENDER_REQUEST && sender->kind != DMP_REL_SENDER_DATA) ||
                 sender->phase == DMP_REL_PHASE_TERMINAL) {
                 continue;
             }
@@ -2038,8 +2070,7 @@ static dmp_status reject_authenticated_req(dmp_endpoint *endpoint, const dmp_fra
     dmp_reliability_input input;
     dmp_bytes metadata;
     dmp_status status;
-    if (frame->fields.type != DMP_TYPE_REQ ||
-        (frame->fields.options & DMP_OPT_ACK_REQ) == 0U) {
+    if (frame->fields.type != DMP_TYPE_REQ) {
         return DMP_OK;
     }
     logical.fields.options = (uint8_t)(logical.fields.options & (uint8_t)~DMP_OPT_FRAG);
@@ -2050,6 +2081,7 @@ static dmp_status reject_authenticated_req(dmp_endpoint *endpoint, const dmp_fra
     input.plaintext = frame->payload;
     status = immutable_metadata(endpoint, &logical, &metadata);
     if (status != DMP_OK) {
+        freshness_consume_frame(endpoint, frame, service, context, now);
         return status;
     }
     input.immutable_metadata = metadata;
@@ -2059,7 +2091,96 @@ static dmp_status reject_authenticated_req(dmp_endpoint *endpoint, const dmp_fra
         status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
     }
     use_context(endpoint, endpoint->context);
+    freshness_consume_frame(endpoint, frame, service, context, now);
     return status == DMP_OK || status == DMP_DUPLICATE ? DMP_OK : status;
+}
+
+static dmp_status validate_request_before_accept(dmp_endpoint *endpoint,
+                                                 const dmp_frame_view *frame,
+                                                 uint32_t service,
+                                                 dmp_identity_handle context,
+                                                 dmp_bytes payload,
+                                                 int run_application_validator,
+                                                 dmp_time_ms now, int *handled,
+                                                 int *retained_rejection)
+{
+    uint32_t protocol_status = 0U;
+    uint32_t message_size;
+    dmp_status status;
+
+    if (handled == NULL || retained_rejection == NULL || !bytes_ok(payload)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    *handled = 0;
+    *retained_rejection = 0;
+    if (frame->fields.type != DMP_TYPE_REQ || service == 0U) {
+        return DMP_OK;
+    }
+
+    /* SEC-1 duplicates are resolved from retained identity state before any
+     * application policy runs again. A new request remains unaccepted until
+     * all policy checks below have passed. */
+    if (secured(endpoint) && (frame->fields.options & DMP_OPT_FRAG) == 0U) {
+        dmp_reliability_input input;
+        dmp_bytes metadata;
+        memset(&input, 0, sizeof input);
+        input.frame = frame;
+        input.service_id = service;
+        input.plaintext = payload;
+        status = immutable_metadata(endpoint, frame, &metadata);
+        if (status != DMP_OK) {
+            freshness_consume_frame(endpoint, frame, service, context, now);
+            *handled = 1;
+            return status;
+        }
+        input.immutable_metadata = metadata;
+        use_context(endpoint, context);
+        {
+            bool was_rejected = false;
+            status = dmp_reliability_req_is_retained(&endpoint->reliability, &input,
+                                                     &was_rejected, now);
+            if (status == DMP_DUPLICATE && was_rejected) {
+                *retained_rejection = 1;
+            }
+        }
+        use_context(endpoint, endpoint->context);
+        if (status == DMP_DUPLICATE) {
+            return DMP_OK;
+        }
+        if (status != DMP_OK) {
+            freshness_consume_frame(endpoint, frame, service, context, now);
+            *handled = 1;
+            return status;
+        }
+    }
+    if ((frame->fields.options & DMP_OPT_ACK_REQ) == 0U) {
+        protocol_status = 7U;
+    } else {
+        message_size = (frame->fields.options & DMP_OPT_FRAG) != 0U
+                           ? frame->fields.fragment.total_size
+                           : (uint32_t)payload.size;
+        if (message_size > endpoint->profile.message_bytes) {
+            protocol_status = 3U;
+        } else if (run_application_validator && secured(endpoint) &&
+                   endpoint->validate_request != NULL) {
+            protocol_status = endpoint->validate_request(endpoint->validate_request_user, frame,
+                                                         service, payload);
+            if (protocol_status > 7U) {
+                freshness_consume_frame(endpoint, frame, service, context, now);
+                return DMP_INVALID_ARGUMENT;
+            }
+        }
+    }
+    if (protocol_status == 0U) {
+        return DMP_OK;
+    }
+    *handled = 1;
+    /* Protocol errors must not become an unauthenticated response oracle. An
+     * unsecured endpoint drops the invalid request without accepting it. */
+    if (!secured(endpoint)) {
+        return DMP_OK;
+    }
+    return reject_authenticated_req(endpoint, frame, service, context, protocol_status, now);
 }
 
 static int freshness_duplicate_grant(dmp_endpoint *endpoint, dmp_message_key key,
@@ -2340,41 +2461,47 @@ static int freshness_command(uint8_t type)
  * this local view: the saved assembly and the wire bytes stay fragmented. */
 static dmp_status present_assembled(dmp_endpoint *endpoint, const dmp_frame_view *frame,
                                     uint32_t service, dmp_identity_handle context, dmp_bytes full,
-                                    dmp_time_ms now)
+                                    dmp_time_ms now, int *deliver_assembled)
 {
     dmp_frame_view logical;
     dmp_reliability_input input;
     dmp_bytes metadata;
     dmp_status status;
+    int handled = 0;
+    int retained_rejection = 0;
+
+    if (deliver_assembled == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    *deliver_assembled = 0;
 
     logical = *frame;
     logical.fields.options = (uint8_t)(logical.fields.options & (uint8_t)~DMP_OPT_FRAG);
     memset(&logical.fields.fragment, 0, sizeof logical.fields.fragment);
     logical.payload = full;
+    status = validate_request_before_accept(endpoint, &logical, service, context, full, 1, now,
+                                            &handled, &retained_rejection);
+    if (status != DMP_OK || handled != 0) {
+        return status;
+    }
     memset(&input, 0, sizeof input);
     input.frame = &logical;
     input.service_id = service;
     input.plaintext = full;
     status = immutable_metadata(endpoint, &logical, &metadata);
     if (status != DMP_OK) {
-        if (freshness_required(&endpoint->profile, service)) {
-            dmp_message_key source;
-            if (dmp_identity_source_key(frame, &endpoint->identity, context, now, &source) == DMP_OK) {
-                freshness_consume_key(endpoint, source, service);
-            }
-        }
+        freshness_consume_frame(endpoint, frame, service, context, now);
         return status;
     }
     input.immutable_metadata = metadata;
     use_context(endpoint, context);
     status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
     use_context(endpoint, endpoint->context);
-    if (status != DMP_BUSY && status != DMP_INCOMPLETE &&
-        freshness_required(&endpoint->profile, service) && freshness_command(frame->fields.type)) {
-        dmp_message_key source;
-        if (dmp_identity_source_key(frame, &endpoint->identity, context, now, &source) == DMP_OK) {
-            freshness_consume_key(endpoint, source, service);
-        }
+    if (status != DMP_BUSY && status != DMP_INCOMPLETE) {
+        freshness_consume_frame(endpoint, frame, service, context, now);
+    }
+    if ((status == DMP_OK || status == DMP_DUPLICATE) && retained_rejection == 0) {
+        *deliver_assembled = 1;
     }
     return status;
 }
@@ -2429,6 +2556,7 @@ static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *fr
         dmp_message_key source;
         const dmp_reassembly_slot *slot;
         dmp_status accepted;
+        int deliver_assembled;
 
         if (dmp_identity_source_key(frame, &endpoint->identity, context, now, &source) != DMP_OK) {
             return DMP_DUPLICATE;
@@ -2440,7 +2568,7 @@ static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *fr
         /* A fresh-PN probe of an accepted transfer repeats the receipt. It
          * does not dispatch the payload again. */
         accepted = present_assembled(endpoint, frame, service, context, assembly_bytes(endpoint, slot),
-                                     now);
+                                     now, &deliver_assembled);
         if (accepted != DMP_OK && accepted != DMP_DUPLICATE && accepted != DMP_BUSY) {
             return accepted;
         }
@@ -2452,19 +2580,23 @@ static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *fr
     {
         dmp_reassembly_message message;
         dmp_reliability_handle none;
+        int deliver_assembled = 1;
         memset(&none, 0, sizeof none);
         status = dmp_reassembly_get(&endpoint->reassembly, handle, &message);
         if (status != DMP_OK) {
             return status;
         }
         if (ack_req_logical(frame)) {
-            status = present_assembled(endpoint, frame, service, context, message.payload, now);
+            status = present_assembled(endpoint, frame, service, context, message.payload, now,
+                                       &deliver_assembled);
             if (status != DMP_OK && status != DMP_DUPLICATE) {
                 return status;
             }
         }
-        emit(endpoint, DMP_ENDPOINT_ASSEMBLED, none, message.service_id, 0U, message.payload,
-             message.source);
+        if (deliver_assembled != 0) {
+            emit(endpoint, DMP_ENDPOINT_ASSEMBLED, none, message.service_id, 0U, message.payload,
+                 message.source);
+        }
         /* Keep the completed slot. release clears the RESERVED tombstone, so
          * the same SEQ could be assembled again. Replay is DMP_DUPLICATE while
          * this assembly remains. Poll expires only an incomplete transfer. */
@@ -2481,7 +2613,7 @@ static int matching_attempt(const dmp_endpoint *endpoint, dmp_bytes core, uint32
     uint32_t cid;
 
     memset(&view, 0, sizeof view);
-    limits = limits_of(endpoint);
+    limits = receive_limits_of(endpoint);
     parsed = dmp_core_parse(core, &limits, &view);
     if (parsed.status != DMP_OK || (view.fields.options & DMP_OPT_SECURITY) == 0U ||
         endpoint->association == NULL) {
@@ -2573,7 +2705,7 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
             rx_context = endpoint->drain_context;
         }
     } else {
-        limits = limits_of(endpoint);
+        limits = receive_limits_of(endpoint);
         parsed = dmp_core_parse(core, &limits, &view);
         if (parsed.status != DMP_OK) {
             return parsed.status;
@@ -2705,6 +2837,24 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
                 return reject_authenticated_req(endpoint, &view, service, rx_context, 6U, now);
             }
             return DMP_OK;
+        }
+    }
+    if (view.fields.type == DMP_TYPE_REQ && service != 0U) {
+        int handled = 0;
+        int retained_rejection = 0;
+        int run_validator = (view.fields.options & DMP_OPT_FRAG) == 0U;
+        status = validate_request_before_accept(endpoint, &view, service, rx_context, view.payload,
+                                                run_validator, now, &handled,
+                                                &retained_rejection);
+        if (status != DMP_OK || handled != 0) {
+            return status;
+        }
+    } else if (service != 0U) {
+        uint32_t message_size = (view.fields.options & DMP_OPT_FRAG) != 0U
+                                    ? view.fields.fragment.total_size
+                                    : (uint32_t)view.payload.size;
+        if (message_size > endpoint->profile.message_bytes) {
+            return DMP_LIMIT_EXHAUSTED;
         }
     }
     if (view.fields.type == DMP_TYPE_FRAG_STATUS) {

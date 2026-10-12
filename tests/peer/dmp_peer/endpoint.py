@@ -3308,6 +3308,14 @@ class PeerEndpoint:
             self._retain_rejection(sender_key, frame, service_id, 3, err_frame, geometry=geometry)
             return
 
+        if service_id == 1 and frame.payload_descriptor is not None:
+            # SAMPLE-1 fixes its representation in the selected profile and
+            # does not accept PAYLOAD_DESC or infer an alternate schema.
+            err_frame = self._build_err_frame(sender_key, service_id, status=2, payload=b"", is_reliable=False)
+            self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
+            self._retain_rejection(sender_key, frame, service_id, 2, err_frame, geometry=geometry)
+            return
+
         # Check missing ACK_REQ
         if not (frame.options & 2):
             # STATUS 7: invalid application request shape

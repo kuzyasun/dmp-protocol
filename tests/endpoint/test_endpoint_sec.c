@@ -110,9 +110,13 @@ typedef struct {
     dmp_reliability_handle pending;
     int accepts;
     int results;
+    uint32_t last_status;
+    int drop_result_receipt;
     int telems;
     int assembled;
     int unknowns;
+    int data_unknowns;
+    uint32_t data_unknown_service;
     uint8_t req[MESSAGE];
     size_t req_n;
     size_t request_service;
@@ -215,6 +219,9 @@ static const uint8_t *p23_static_override;
 static uint32_t p23_pin_commits;
 static dmp_config p23_effective_config;
 static dmp_hs_budget p23_effective_budget;
+static int g_validate_sample1_requests;
+static uint32_t g_sample1_validator_calls;
+static uint32_t g_sample1_forced_status;
 
 static const uint8_t DIRECT_SHA[DMP_PROFILE_SHA256_BYTES] = {
     0x29, 0xcb, 0x7b, 0x91, 0xee, 0x0c, 0x26, 0x9b, 0xc1, 0x4a, 0xc4, 0x3e, 0x3a, 0x7c, 0x8f, 0xd8,
@@ -223,6 +230,27 @@ static const uint8_t DIRECT_SHA[DMP_PROFILE_SHA256_BYTES] = {
 static const uint8_t READ_RSP[SAMPLE1_READ_BYTES] = {
     0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x2c, 0x01, 0x00,
     0x00};
+
+static uint32_t validate_sample1_request(void *user, const dmp_frame_view *frame,
+                                         uint32_t service_id, dmp_bytes payload)
+{
+    (void)user;
+    g_sample1_validator_calls++;
+    if (service_id != 1U) {
+        return 0U;
+    }
+    if (g_sample1_forced_status != 0U) {
+        return g_sample1_forced_status;
+    }
+    if ((frame->fields.options & DMP_OPT_PAYLOAD_DESC) != 0U) {
+        return 2U;
+    }
+    if (payload.size != 1U || payload.data == NULL ||
+        (payload.data[0] != SAMPLE1_READ && payload.data[0] != SAMPLE1_STATUS)) {
+        return 7U;
+    }
+    return 0U;
+}
 
 static dmp_bytes span(const void *data, size_t size)
 {
@@ -252,11 +280,16 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
   }
   if (notice->event == DMP_ENDPOINT_RESULT) {
     self->app.results++;
+    self->app.last_status = notice->wire_status;
     self->app.result_n = notice->payload.size <= sizeof self->app.result
                              ? notice->payload.size
                              : 0U;
     if (self->app.result_n != 0U && notice->payload.data != NULL) {
       memcpy(self->app.result, notice->payload.data, self->app.result_n);
+    }
+    if (self->app.drop_result_receipt) {
+      self->app.drop_result_receipt = 0;
+      self->wire.drop_remaining = 1;
     }
     return;
   }
@@ -276,6 +309,11 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
   }
   if (notice->event == DMP_ENDPOINT_UNKNOWN) {
     self->app.unknowns++;
+    return;
+  }
+  if (notice->event == DMP_ENDPOINT_DATA_UNKNOWN) {
+    self->app.data_unknowns++;
+    self->app.data_unknown_service = notice->service_id;
   }
 }
 
@@ -625,6 +663,9 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   storage.transport = &self->transport;
   storage.notice = on_notice;
   storage.notice_user = self;
+  if (g_validate_sample1_requests) {
+    storage.validate_request = validate_sample1_request;
+  }
   storage.senders = self->senders;
   storage.sender_capacity = SENDERS;
   storage.sender_payload = self->sender_payload;
@@ -1395,6 +1436,83 @@ static int test_loss(void)
     return 0;
 }
 
+static int test_result_loss(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t req[1];
+    dmp_reliability_handle handle;
+    dmp_time_ms now = 20000U;
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) || !drive_nn(&env, &index) ||
+        !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+    sample1_read_req(req);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) == DMP_OK);
+    /* Drop the first protected RSP after the producer accepts the READ. */
+    left.wire.drop_remaining = 1;
+    CHECK(pump(now, 3) == 0);
+    CHECK(left.app.accepts == 1);
+    CHECK(left.wire.drop_remaining == 0);
+    CHECK(right.app.results == 0);
+    CHECK(pump(now + 1280U, 8) == 0);
+    CHECK(left.app.accepts == 1);
+    CHECK(right.app.results == 1);
+    CHECK(right.app.result_n == sizeof READ_RSP);
+    CHECK(memcmp(right.app.result, READ_RSP, sizeof READ_RSP) == 0);
+    CHECK(right.app.unknowns == 0);
+    close_session(&env);
+    return 0;
+}
+
+static int test_receipt_loss(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t req[1];
+    dmp_reliability_handle handle;
+    dmp_time_ms now = 20000U;
+    int right_submits;
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) || !drive_nn(&env, &index) ||
+        !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+    sample1_read_req(req);
+    right.app.drop_result_receipt = 1;
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) == DMP_OK);
+    CHECK(pump(now, 8) == 0);
+    CHECK(left.app.accepts == 1);
+    CHECK(right.app.results == 1);
+    CHECK(right.wire.drop_remaining == 0);
+    right_submits = right.wire.submits;
+
+    /* The first protected receipt was dropped during result delivery. The
+     * producer retries its cached protected RSP; the duplicate is re-acked
+     * without another application result callback. */
+    CHECK(pump(now + 1280U, 8) == 0);
+    CHECK(right.wire.submits == right_submits + 1);
+    CHECK(left.app.accepts == 1);
+    CHECK(right.app.results == 1);
+    CHECK(pump(now + 1390U, 4) == 0);
+    CHECK(right.wire.submits == right_submits + 1);
+    CHECK(left.app.accepts == 1);
+    CHECK(right.app.results == 1);
+    close_session(&env);
+    return 0;
+}
+
 static void tune_alt(dmp_hs_config *initiator, dmp_hs_config *responder)
 {
     initiator->next_rx_cid = 100U;
@@ -1811,6 +1929,381 @@ static int protected_err_status(const uint8_t *framed, size_t n, dmp_time_ms now
     return 1;
 }
 
+static int expect_request_rejection(session *env, uint32_t seq, uint8_t options,
+                                    dmp_bytes payload, int with_descriptor,
+                                    uint32_t expected_status, dmp_time_ms now)
+{
+    dmp_frame_spec spec;
+    uint8_t sealed[MTU];
+    uint8_t wrapped[FRAME_CAP];
+    size_t sealed_n = 0U;
+    size_t wrapped_n = 0U;
+    int queued = left.wire.n;
+    uint32_t wire_status = 0U;
+
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_REQ;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | options);
+    spec.fields.seq = seq;
+    spec.payload = payload;
+    if (with_descriptor) {
+        spec.fields.descriptor.flags = 3U;
+        spec.fields.descriptor.codec = 0U;
+        spec.fields.descriptor.schema = 42U;
+        spec.fields.descriptor.schema_version = 1U;
+    }
+    if (dmp_hs_seal_logical(env->responder, 0U, &spec, sealed, sizeof sealed, &sealed_n) !=
+            DMP_HS_OK ||
+        !wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) ||
+        dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) != DMP_OK) {
+        return 0;
+    }
+    left.wire.now = now;
+    if (dmp_endpoint_poll(&left.endpoint, now) != DMP_OK || left.wire.n != queued + 1 ||
+        !protected_err_status(left.wire.q[queued].frame, left.wire.q[queued].len, now,
+                              &wire_status)) {
+        return 0;
+    }
+    return wire_status == expected_status;
+}
+
+static void issue_test_freshness(node *receiver, uint32_t attempt, dmp_time_ms now,
+                                 const uint8_t token[16])
+{
+    dmp_endpoint_freshness_slot *freshness = &receiver->freshness[0];
+    const dmp_identity_slot *identity =
+        &receiver->endpoint.identity.slots[receiver->endpoint.context.slot];
+    memset(freshness, 0, sizeof *freshness);
+    memcpy(freshness->token, token, sizeof freshness->token);
+    freshness->expires_at = now + 12000U;
+    freshness->record_until = now + 18000U;
+    freshness->peer_epoch = identity->peer.epoch;
+    freshness->principal = identity->peer.origin_id;
+    freshness->attempt = attempt;
+    freshness->result_slot = UINT32_MAX;
+    freshness->granted_lifetime_ms = 12000U;
+    freshness->state = DMP_ENDPOINT_FRESHNESS_ISSUED;
+}
+
+static int test_sample_invalid_request(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t invalid_length[2] = {SAMPLE1_READ, 0U};
+    uint8_t invalid_status[2] = {SAMPLE1_STATUS, 2U};
+    uint8_t invalid_opcode = 3U;
+    uint8_t read = SAMPLE1_READ;
+    dmp_time_ms now = 20000U;
+    uint32_t validator_calls;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    g_sample1_validator_calls = 0U;
+    g_sample1_forced_status = 0U;
+    g_validate_sample1_requests = 1;
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0) {
+        g_validate_sample1_requests = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_requests = 0;
+    if (bind_pair(&env, index) != 0) {
+        close_session(&env);
+        return 1;
+    }
+
+    /* At a two-byte profile limit this is malformed SAMPLE-1, STATUS=7.
+     * At a one-byte limit the size decision takes precedence, STATUS=3. */
+    left.endpoint.profile.message_bytes = 2U;
+    CHECK(expect_request_rejection(&env, 100U, DMP_OPT_ACK_REQ,
+                                   span(invalid_length, sizeof invalid_length), 0, 7U, now));
+    validator_calls = g_sample1_validator_calls;
+    CHECK(expect_request_rejection(&env, 100U, DMP_OPT_ACK_REQ,
+                                   span(invalid_length, sizeof invalid_length), 0, 7U, now));
+    CHECK(g_sample1_validator_calls == validator_calls);
+    left.endpoint.profile.message_bytes = 1U;
+    CHECK(expect_request_rejection(&env, 101U, DMP_OPT_ACK_REQ,
+                                   span(invalid_length, sizeof invalid_length), 0, 3U, now));
+    CHECK(expect_request_rejection(&env, 101U, DMP_OPT_ACK_REQ,
+                                   span(invalid_length, sizeof invalid_length), 0, 3U, now));
+    left.endpoint.profile.message_bytes = 2U;
+    CHECK(expect_request_rejection(&env, 102U, DMP_OPT_ACK_REQ,
+                                   span(&invalid_opcode, sizeof invalid_opcode), 0, 7U, now));
+    CHECK(expect_request_rejection(&env, 103U, DMP_OPT_ACK_REQ, span(NULL, 0U), 0, 7U, now));
+    CHECK(expect_request_rejection(&env, 104U, DMP_OPT_ACK_REQ,
+                                   span(invalid_status, sizeof invalid_status), 0, 7U, now));
+    CHECK(expect_request_rejection(&env, 105U,
+                                   (uint8_t)(DMP_OPT_ACK_REQ | DMP_OPT_PAYLOAD_DESC),
+                                   span(&read, sizeof read), 1, 2U, now));
+    CHECK(expect_request_rejection(&env, 106U, 0U, span(&read, sizeof read), 0, 7U, now));
+    /* A retransmitted no-ACK request with a fresh PN replays the retained
+     * rejection and still cannot reach the application. */
+    CHECK(expect_request_rejection(&env, 106U, 0U, span(&read, sizeof read), 0, 7U, now));
+    CHECK(expect_request_rejection(&env, 107U, DMP_OPT_ACK_REQ,
+                                   span(&invalid_opcode, sizeof invalid_opcode), 0, 7U, now));
+    CHECK(expect_request_rejection(&env, 107U, DMP_OPT_ACK_REQ,
+                                   span(&invalid_opcode, sizeof invalid_opcode), 0, 7U,
+                                   now + 6001U));
+    CHECK(left.app.accepts == 0);
+    close_session(&env);
+    return 0;
+}
+
+static int test_validator_duplicate_skipped(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t read = SAMPLE1_READ;
+    uint8_t sealed[MTU];
+    uint8_t wrapped[FRAME_CAP];
+    size_t sealed_n = 0U;
+    size_t wrapped_n = 0U;
+    dmp_frame_spec spec;
+    dmp_time_ms now = 20000U;
+    uint32_t validator_calls;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    g_sample1_validator_calls = 0U;
+    g_sample1_forced_status = 0U;
+    g_validate_sample1_requests = 1;
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0) {
+        g_validate_sample1_requests = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_requests = 0;
+    if (bind_pair(&env, index) != 0) {
+        close_session(&env);
+        return 1;
+    }
+
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_REQ;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ);
+    spec.fields.seq = 108U;
+    spec.payload = span(&read, sizeof read);
+    CHECK(dmp_hs_seal_logical(env.responder, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(left.app.accepts == 1);
+    validator_calls = g_sample1_validator_calls;
+
+    /* Retained identity wins before application policy; this fresh-PN retry
+     * must not invoke a now-different validator policy. */
+    g_sample1_forced_status = 7U;
+    CHECK(dmp_hs_seal_logical(env.responder, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(g_sample1_validator_calls == validator_calls);
+    CHECK(left.app.accepts == 1);
+    g_sample1_forced_status = 0U;
+    close_session(&env);
+    return 0;
+}
+
+static int test_retained_rejection_reassembly(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t invalid_opcode = 3U;
+    uint8_t fragmented_body[32];
+    uint8_t sealed[MTU];
+    uint8_t wrapped[FRAME_CAP];
+    size_t sealed_n = 0U;
+    size_t wrapped_n = 0U;
+    int queued;
+    uint32_t validator_calls;
+    uint32_t wire_status = 0U;
+    dmp_frame_spec spec;
+    dmp_time_ms now = 20000U;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    g_sample1_validator_calls = 0U;
+    g_sample1_forced_status = 0U;
+    g_validate_sample1_requests = 1;
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0) {
+        g_validate_sample1_requests = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_requests = 0;
+    if (bind_pair(&env, index) != 0) {
+        close_session(&env);
+        return 1;
+    }
+
+    CHECK(expect_request_rejection(&env, 122U, DMP_OPT_ACK_REQ,
+                                   span(&invalid_opcode, sizeof invalid_opcode), 0, 7U, now));
+    validator_calls = g_sample1_validator_calls;
+    CHECK(left.app.accepts == 0);
+    queued = left.wire.n;
+
+    memset(fragmented_body, 0x44, sizeof fragmented_body);
+    fragmented_body[0] = invalid_opcode;
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_REQ;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_FRAG);
+    spec.fields.seq = 122U;
+    spec.fields.fragment.chunk_size = 16U;
+    spec.fields.fragment.total_size = sizeof fragmented_body;
+    spec.payload = span(fragmented_body, 16U);
+    CHECK(dmp_hs_seal_logical(env.responder, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) == DMP_INCOMPLETE);
+
+    spec.fields.fragment.index = 1U;
+    spec.payload = span(fragmented_body + 16U, 16U);
+    CHECK(dmp_hs_seal_logical(env.responder, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(g_sample1_validator_calls == validator_calls);
+    CHECK(left.app.accepts == 0);
+    CHECK(left.app.assembled == 0);
+
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.n == queued + 1);
+    CHECK(protected_err_status(left.wire.q[queued].frame, left.wire.q[queued].len, now,
+                               &wire_status));
+    CHECK(wire_status == 7U);
+    close_session(&env);
+    return 0;
+}
+
+static int test_freshness_terminal_rejection(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t token[16];
+    uint8_t extension[18];
+    uint8_t invalid_opcode = 3U;
+    uint8_t read = SAMPLE1_READ;
+    uint8_t fragmented_body[32];
+    uint8_t sealed[MTU];
+    uint8_t wrapped[FRAME_CAP];
+    size_t sealed_n = 0U;
+    size_t wrapped_n = 0U;
+    dmp_frame_spec spec;
+    dmp_time_ms now = 20000U;
+    dmp_time_ms after_rejection;
+    dmp_status status;
+    size_t i;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    g_sample1_validator_calls = 0U;
+    g_sample1_forced_status = 0U;
+    g_validate_sample1_requests = 1;
+    if (boot_node(&left, 1, 16U, 16U, now) != 0 ||
+        boot_node(&right, 0, 16U, 16U, now) != 0) {
+        g_validate_sample1_requests = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_requests = 0;
+    if (bind_pair(&env, index) != 0) {
+        close_session(&env);
+        return 1;
+    }
+
+    left.endpoint.profile.freshness_required_mask = 1U;
+    left.endpoint.profile.freshness_tokens_per_association = 1U;
+    left.endpoint.profile.freshness_lease_ms = 12000U;
+    left.endpoint.profile.freshness_token_record_ms = 18000U;
+    memset(token, 0x31, sizeof token);
+    issue_test_freshness(&left, index, now, token);
+    extension[0] = 25U;
+    extension[1] = 16U;
+    memcpy(extension + 2U, token, sizeof token);
+
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_REQ;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_EXT);
+    spec.fields.seq = 120U;
+    spec.extensions = span(extension, sizeof extension);
+    spec.payload = span(&invalid_opcode, sizeof invalid_opcode);
+    CHECK(dmp_hs_seal_logical(env.responder, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(left.freshness[0].state == DMP_ENDPOINT_FRESHNESS_CONSUMED);
+    CHECK(left.app.accepts == 0);
+
+    /* Once the rejection identity expires, the spent token cannot authorize a
+     * different payload under the same SEQ. */
+    after_rejection = now + 6001U;
+    left.wire.now = after_rejection;
+    CHECK(dmp_endpoint_poll(&left.endpoint, after_rejection) == DMP_OK);
+    spec.payload = span(&read, sizeof read);
+    CHECK(dmp_hs_seal_logical(env.responder, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    status = dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), after_rejection);
+    CHECK(status == DMP_OK);
+    CHECK(left.app.accepts == 0);
+    CHECK(left.freshness[0].state == DMP_ENDPOINT_FRESHNESS_CONSUMED);
+
+    memset(token, 0x52, sizeof token);
+    issue_test_freshness(&left, index, after_rejection, token);
+    memcpy(extension + 2U, token, sizeof token);
+    for (i = 0U; i < sizeof fragmented_body; i++) {
+        fragmented_body[i] = (uint8_t)(0x40U + (uint8_t)i);
+    }
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_REQ;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_FRAG | DMP_OPT_EXT);
+    spec.fields.seq = 121U;
+    spec.fields.fragment.chunk_size = 16U;
+    spec.fields.fragment.total_size = sizeof fragmented_body;
+    spec.extensions = span(extension, sizeof extension);
+    spec.payload = span(fragmented_body, 16U);
+    CHECK(dmp_hs_seal_logical(env.responder, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    status = dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), after_rejection);
+    CHECK(status == DMP_INCOMPLETE);
+    spec.fields.fragment.index = 1U;
+    spec.payload = span(fragmented_body + 16U, 16U);
+    CHECK(dmp_hs_seal_logical(env.responder, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), after_rejection) == DMP_OK);
+    CHECK(left.freshness[0].state == DMP_ENDPOINT_FRESHNESS_CONSUMED);
+    CHECK(left.app.accepts == 0);
+    CHECK(left.app.assembled == 0);
+    close_session(&env);
+    return 0;
+}
+
 static int test_acl(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -2054,6 +2547,58 @@ static int test_rotation(void)
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) ==
           DMP_AUTHENTICATION_FAILURE);
     CHECK(dmp_hs_send_application(env.responder, next_resp) != DMP_HS_OK);
+    close_session(&env);
+
+    /* A zero-duration rotation closes the old shared association. An
+     * unrelated service-2 DATA exchange must settle as unknown and must not
+     * retry on the newly active association. */
+    memset(&env, 0, sizeof env);
+    now = 50000U;
+    if (!make_pair(&env, &port, fixture, NULL, NULL, 0) || !drive_nn(&env, &index) ||
+        !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    env.now = now;
+    CHECK(boot_node_slots(&left, 1, 64U, 16U, now, 2U) == 0);
+    CHECK(boot_node_slots(&right, 0, 64U, 16U, now, 2U) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+    CHECK(dmp_endpoint_set_drain_ms(&right.endpoint, 0U) == DMP_OK);
+    {
+        const uint8_t data[] = {0xA1U, 0xB2U, 0xC3U};
+        int old_submits;
+        right.wire.drop_remaining = 1;
+        CHECK(dmp_endpoint_submit_data(&right.endpoint, 2U, span(data, sizeof data), span(NULL, 0U),
+                                       now, &handle) == DMP_OK);
+        right.wire.now = now;
+        CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+        CHECK(right.wire.saved_len > 0U);
+        CHECK(stream_protection(right.wire.saved, right.wire.saved_len, now, &old_cid, NULL, NULL) ==
+              1);
+        CHECK(right.app.data_unknowns == 0);
+        old_submits = right.wire.submits;
+        if (!drive_rotation(&env, fixture, &next_init, &next_resp, 0x5aU) ||
+            !activate_at(&env, next_init, next_resp)) {
+            close_session(&env);
+            return 1;
+        }
+        CHECK(dmp_endpoint_rotate(&right.endpoint, next_resp, now) == DMP_OK);
+        CHECK(right.endpoint.drain_live == 0U);
+        CHECK(right.app.data_unknowns == 1);
+        CHECK(right.app.data_unknown_service == 2U);
+        right.wire.n = 0;
+        CHECK(dmp_endpoint_poll(&right.endpoint, now + 100U) == DMP_OK);
+        CHECK(right.wire.submits == old_submits);
+        CHECK(right.wire.n == 0);
+        CHECK(dmp_endpoint_submit_data(&right.endpoint, 2U, span(data, sizeof data), span(NULL, 0U),
+                                       now + 100U, &handle) == DMP_OK);
+        right.wire.now = now + 100U;
+        CHECK(dmp_endpoint_poll(&right.endpoint, now + 100U) == DMP_OK);
+        CHECK(right.wire.n == 1);
+        CHECK(stream_protection(right.wire.q[0].frame, right.wire.q[0].len, now + 100U,
+                                &new_cid, NULL, NULL) == 1);
+        CHECK(new_cid != old_cid);
+    }
     close_session(&env);
     return 0;
 }
@@ -3771,6 +4316,24 @@ int main(int argc, char **argv) {
   if (strcmp(name, "loss") == 0 || strcmp(name, "all") == 0) {
     failed |= test_loss();
   }
+  if (strcmp(name, "result_loss") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_result_loss();
+  }
+  if (strcmp(name, "receipt_loss") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_receipt_loss();
+  }
+  if (strcmp(name, "sample_invalid_request") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_sample_invalid_request();
+  }
+  if (strcmp(name, "validator_duplicate_skipped") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_validator_duplicate_skipped();
+  }
+  if (strcmp(name, "retained_rejection_reassembly") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_retained_rejection_reassembly();
+  }
+  if (strcmp(name, "freshness_terminal_rejection") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_freshness_terminal_rejection();
+  }
   if (strcmp(name, "isolate") == 0 || strcmp(name, "all") == 0) {
     failed |= test_isolate();
   }
@@ -3803,6 +4366,11 @@ int main(int argc, char **argv) {
   }
   if (strcmp(name, "activation") != 0 && strcmp(name, "alter") != 0 &&
       strcmp(name, "loss") != 0 && strcmp(name, "isolate") != 0 &&
+      strcmp(name, "result_loss") != 0 && strcmp(name, "receipt_loss") != 0 &&
+      strcmp(name, "sample_invalid_request") != 0 &&
+      strcmp(name, "validator_duplicate_skipped") != 0 &&
+      strcmp(name, "retained_rejection_reassembly") != 0 &&
+      strcmp(name, "freshness_terminal_rejection") != 0 &&
       strcmp(name, "reassembly") != 0 && strcmp(name, "ttl") != 0 &&
       strcmp(name, "acl") != 0 && strcmp(name, "rotation") != 0 &&
       strcmp(name, "result") != 0 && strcmp(name, "fragdeny") != 0 &&

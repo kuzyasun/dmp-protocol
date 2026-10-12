@@ -59,6 +59,17 @@ typedef struct {
 /* Synchronous, serialized, and must not reenter the endpoint. */
 typedef void (*dmp_endpoint_notice_fn)(void *user, const dmp_endpoint_notice *notice);
 
+/* Optional application policy for authenticated, unfragmented requests and
+ * complete reassembled requests. Return 0 to accept or STATUS 1..7 to retain
+ * a protocol rejection before reliability accepts the request. The frame is
+ * the logical request view and plaintext borrows endpoint storage until the
+ * callback returns. This callback must be deterministic and must not reenter
+ * the endpoint. */
+typedef uint32_t (*dmp_endpoint_request_validate_fn)(void *user,
+                                                     const dmp_frame_view *frame,
+                                                     uint32_t service_id,
+                                                     dmp_bytes plaintext);
+
 /* Every buffer is caller-owned for the whole endpoint lifetime. Slot counts
  * must be at least the admitted profile. Extra bytes do not raise quotas.
  * stream_tx must hold one Stream R encoding of encoded_mtu plus the one-byte
@@ -71,6 +82,8 @@ typedef struct {
     dmp_transport *transport;
     dmp_endpoint_notice_fn notice;
     void *notice_user;
+    dmp_endpoint_request_validate_fn validate_request;
+    void *validate_request_user;
     dmp_reliability_sender_slot *senders;
     size_t sender_capacity;
     uint8_t *sender_payload;
@@ -184,6 +197,8 @@ typedef struct {
     dmp_stream_decoder decoder;
     dmp_endpoint_notice_fn notice;
     void *notice_user;
+    dmp_endpoint_request_validate_fn validate_request;
+    void *validate_request_user;
     dmp_endpoint_storage mem;
     dmp_endpoint_tx tx[DMP_ENDPOINT_TX_SLOTS];
     uint64_t tx_generation;
@@ -262,7 +277,8 @@ dmp_status dmp_endpoint_set_drain_ms(dmp_endpoint *endpoint, uint32_t drain_ms);
 dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, dmp_time_ms now);
 
 /* Local revocation. Destroys the bound and draining associations and reports
- * unresolved outbound requests as unknown. No received frame calls this. */
+ * unresolved outbound requests/data with their unknown or locally-unsent
+ * outcomes. No received frame calls this. */
 dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now);
 
 /* Unfragmented reliable REQ. Payload must fit in one core frame. Copies on

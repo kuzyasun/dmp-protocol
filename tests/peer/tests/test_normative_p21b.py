@@ -21,7 +21,16 @@ from dmp_peer.events import (
     TxSubmit,
     TxTerminal,
 )
-from dmp_peer.frame import CoreFrame, Extension, Fragment, decode_uleb, encode_frame, encode_uleb, parse_frame
+from dmp_peer.frame import (
+    CoreFrame,
+    Extension,
+    Fragment,
+    PayloadDescriptor,
+    decode_uleb,
+    encode_frame,
+    encode_uleb,
+    parse_frame,
+)
 from dmp_peer.reassembly import ConflictError, QuotaError, ReassemblyError, ReassemblyManager
 from dmp_peer.sample1 import Sample, SampleConsumer, SampleEpochError, SampleEpochStore, SampleProducer
 from dmp_peer.stream_r import encode_stream_r
@@ -404,12 +413,42 @@ class NormativeP21BCasesTests(unittest.TestCase):
         self.assertIn((1, 20, 9, 111), self.endpoint_10.delivery.rejections)
         self.assertEqual(self.endpoint_10.delivery.rejections[(1, 20, 9, 111)].status, 7)
 
+        service1 = next(svc for svc in self.endpoint_10.manifest.values["services"] if svc["id"] == 1)
+        service1["request_bytes"] = 2
+        bad_status = CoreFrame(message_type=0, options=0x03, sequence=114, payload=b"\x02\x02")
+        self.endpoint_10.handle(Receive(link=0, bytes=encode_stream_r(encode_frame(bad_status)), at_ms=20))
+        self.assertEqual(self.endpoint_10.delivery.rejections[(1, 20, 9, 114)].status, 7)
+
+        missing_ack = CoreFrame(message_type=0, options=0x01, sequence=115, payload=b"\x01")
+        self.endpoint_10.handle(Receive(link=0, bytes=encode_stream_r(encode_frame(missing_ack)), at_ms=20))
+        self.assertEqual(self.endpoint_10.delivery.rejections[(1, 20, 9, 115)].status, 7)
+
+        unsupported_schema = CoreFrame(
+            message_type=0,
+            options=0x03,
+            sequence=116,
+            payload_descriptor=PayloadDescriptor(flags=3, codec_id=0, schema_id=42, schema_version=1),
+            payload=b"\x01",
+        )
+        self.endpoint_10.handle(
+            Receive(link=0, bytes=encode_stream_r(encode_frame(unsupported_schema)), at_ms=20)
+        )
+        self.assertEqual(self.endpoint_10.delivery.rejections[(1, 20, 9, 116)].status, 2)
+
     def test_case_s_a1_size_order(self):
         """s-a1-size-order: STATUS=7 if admitted by size; STATUS=3 if too large first."""
         # Size limit in manifest for service 1 request is 1 byte
         oversize = CoreFrame(message_type=0, options=0x03, sequence=112, payload=b"\x01\x00")
         self.endpoint_20.handle(Receive(link=0, bytes=encode_stream_r(encode_frame(oversize)), at_ms=20))
         self.assertEqual(self.endpoint_20.delivery.rejections[(1, 10, 7, 112)].status, 3)
+
+        service1 = next(svc for svc in self.endpoint_10.manifest.values["services"] if svc["id"] == 1)
+        service1["request_bytes"] = 2
+        admitted_malformed = CoreFrame(message_type=0, options=0x03, sequence=117, payload=b"\x01\x00")
+        self.endpoint_10.handle(
+            Receive(link=0, bytes=encode_stream_r(encode_frame(admitted_malformed)), at_ms=21)
+        )
+        self.assertEqual(self.endpoint_10.delivery.rejections[(1, 20, 9, 117)].status, 7)
 
     def test_case_s_a1_delivery(self):
         """s-a1-delivery: Exact lengths; retained result replay; NO_SAMPLE reliable ERR=64 empty."""
