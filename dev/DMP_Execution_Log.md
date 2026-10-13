@@ -2667,3 +2667,13 @@ encryption and nonce advancement. The provider target build was current and
 the focused provider CTest passed 1/1; independent review found no actionable
 issue. This does not prove endpoint packet-number allocation or target/physical
 behavior.
+
+`security.provider_adapter::wrong-phase-handshake-output` invokes read during
+the NNpsk0 initiator's WRITE_MESSAGE phase, then write after Flight 1 has moved
+the same owner to READ_MESSAGE. Each wrong-action call maps Noise
+`INVALID_STATE` to `DMP_PROVIDER_INVALID`, zeros output length, wipes only the
+declared 64-byte capacity, preserves the tail sentinel and provider accounting,
+and leaves the handshake usable. The same owner then emits exact Flight 1 and
+accepts exact Flight 2 payload. Provider build was current, focused CTest passed
+1/1, and independent review found no actionable issue. This does not establish
+fatal post-read handling, endpoint integration, or target/physical behavior.

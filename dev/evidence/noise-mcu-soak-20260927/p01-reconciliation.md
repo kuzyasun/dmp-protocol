@@ -368,3 +368,17 @@ before encryption or nonce advancement. The provider build was current and the
 focused provider CTest passed 1/1; independent review found no actionable
 issue. This is host primitive evidence only; endpoint PN allocation, MCU
 runtime, physical operation, and P01C remain open.
+
+## Handshake wrong-phase output recovery — 2026-10-13
+
+`security.provider_adapter::wrong-phase-handshake-output` calls read on an
+NNpsk0 initiator in WRITE_MESSAGE, then calls write on that same handshake in
+READ_MESSAGE. Both operational wrong-action failures return
+`DMP_PROVIDER_INVALID`, zero the output length, wipe exactly the declared
+64-byte output capacity, preserve the tail sentinel and allocation/release/
+block/retained accounting, and do not poison the handshake. The owner produces
+the exact Flight 1 fixture and accepts the exact Flight 2 payload afterward.
+Provider build was current and focused CTest passed 1/1; independent review
+found no actionable issue. This covers Noise wrong-phase guards only, not
+fatal post-read abort semantics, endpoint integration, MCU runtime, physical
+operation, or P01C.

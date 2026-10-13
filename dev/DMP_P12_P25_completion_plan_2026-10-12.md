@@ -381,3 +381,17 @@ criteria.
   independent review. P01 remains open for other provider/adapter and P01C
   target requirements. Hardware checks stay deferred to milestone 5; host
   memory figures do not guarantee hardware operation.
+
+## 2026-10-13 — P01 provider output and phase recovery
+
+- Added live provider-adapter recovery checks for cipher encryption rejected
+  before nonce advancement due to a short output capacity, and for handshake
+  read/write calls made in the wrong Noise phase. Each failure is followed by
+  exact fixture output on the same cipher or handshake.
+- The provider target build was current and focused
+  `security.provider_adapter` CTest passed 1/1 for each package. Independent
+  read-only review found no actionable issue in either package.
+- These are host provider-boundary results. Endpoint packet-number allocation,
+  fatal post-read handling, integrated target memory/runtime, physical behavior,
+  and P01C remain open. Hardware qualification remains deferred until the final
+  plan phase; host memory figures do not guarantee hardware operation.

@@ -275,3 +275,16 @@ build was current, focused `security.provider_adapter` CTest passed 1/1, and
 independent review found no actionable issue. This is primitive-wrapper host
 evidence only; endpoint PN allocation, target runtime, physical operation, and
 P01C remain open.
+
+## P01 handshake wrong-phase recovery follow-up — 2026-10-13
+
+`security.provider_adapter::wrong-phase-handshake-output` exercises read in
+WRITE_MESSAGE and write in READ_MESSAGE on the same NNpsk0 initiator. Each
+Noise `INVALID_STATE` is mapped to `DMP_PROVIDER_INVALID`; the adapter zeros
+output length, wipes exactly the declared 64-byte capacity, preserves the tail
+sentinel and provider accounting, and retains a usable handshake. The same
+owner then emits exact Flight 1 and accepts exact Flight 2 payload. Provider
+build was current, focused `security.provider_adapter` CTest passed 1/1, and
+independent review found no actionable issue. This proves live wrong-action
+guard behavior in the host provider adapter only; fatal post-read handling,
+endpoint integration, target runtime, physical operation, and P01C remain open.

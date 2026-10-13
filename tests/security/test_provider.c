@@ -1158,6 +1158,118 @@ done:
     return passed;
 }
 
+static int test_wrong_phase_handshake_output(void)
+{
+    enum { OUTPUT_CAPACITY = 64U };
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    uint8_t output[128];
+    size_t output_len;
+    size_t blocks_before;
+    size_t retained_before;
+    unsigned calls_before;
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count != 2U ||
+        fixture->flights[0].message.size > OUTPUT_CAPACITY ||
+        fixture->flights[1].plaintext.size > OUTPUT_CAPACITY) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    calls_before = port.alloc_calls;
+    releases_before = port.release_calls;
+    /* Valid API arguments reach Noise's wrong-action guard before any read
+     * transition. INVALID_STATE maps to INVALID and the adapter wipes output. */
+    memset(output, 0xA5, sizeof(output));
+    output_len = 0x1234U;
+    status = dmp_provider_handshake_read(provider, &handshake, fixture->flights[1].message.data,
+                                         fixture->flights[1].message.size, output,
+                                         OUTPUT_CAPACITY, &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0U ||
+        !all_zero(output, OUTPUT_CAPACITY) ||
+        !all_value(output + OUTPUT_CAPACITY, sizeof(output) - OUTPUT_CAPACITY, 0xA5U) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != calls_before || port.release_calls != releases_before) {
+        fprintf(stderr, "wrong-phase read changed output bounds or owned state\n");
+        goto done;
+    }
+    status = dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                          fixture->flights[0].plaintext.size, output,
+                                          OUTPUT_CAPACITY, &output_len);
+    if (status != DMP_PROVIDER_OK ||
+        !bytes_match("flight 1 after wrong-phase read", output, output_len,
+                     fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+        fprintf(stderr, "handshake did not recover after wrong-phase read\n");
+        goto done;
+    }
+
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    calls_before = port.alloc_calls;
+    releases_before = port.release_calls;
+    /* The successful first flight advances the same owner to READ_MESSAGE.
+     * The rejected write must not regenerate that flight or abort the owner. */
+    memset(output, 0xB6, sizeof(output));
+    output_len = 0x2345U;
+    status = dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                          fixture->flights[0].plaintext.size, output,
+                                          OUTPUT_CAPACITY, &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0U ||
+        !all_zero(output, OUTPUT_CAPACITY) ||
+        !all_value(output + OUTPUT_CAPACITY, sizeof(output) - OUTPUT_CAPACITY, 0xB6U) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != calls_before || port.release_calls != releases_before) {
+        fprintf(stderr, "wrong-phase write changed output bounds or owned state\n");
+        goto done;
+    }
+    status = dmp_provider_handshake_read(provider, &handshake, fixture->flights[1].message.data,
+                                         fixture->flights[1].message.size, output,
+                                         OUTPUT_CAPACITY, &output_len);
+    if (status != DMP_PROVIDER_OK ||
+        !bytes_match("flight 2 payload after wrong-phase write", output, output_len,
+                     fixture->flights[1].plaintext.data, fixture->flights[1].plaintext.size)) {
+        fprintf(stderr, "handshake did not recover after wrong-phase write\n");
+        goto done;
+    }
+    passed = dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+             all_zero(&handshake, sizeof(handshake)) &&
+             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
+             port.alloc_calls == port.release_calls &&
+             release_clean(&port, "wrong-phase handshake cleanup");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "wrong-phase provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_short_handshake_read_output(void)
 {
     enum { PAYLOAD_CAPACITY = 3U };
@@ -2096,6 +2208,7 @@ int main(void)
     expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
     expect_case("premature-split-output", test_premature_split_output());
+    expect_case("wrong-phase-handshake-output", test_wrong_phase_handshake_output());
     expect_case("short-handshake-read-output", test_short_handshake_read_output());
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("low-order", test_low_order());
