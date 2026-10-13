@@ -2540,20 +2540,18 @@ MTU/message bounds. The
 four_parallel manifest row and P01 remain partial; target runtime, physical
 operation, and P01C stay deferred to the final hardware phase.
 
-## 2026-10-13 — P01 NNpsk0 handshake-open allocation ordinal sweep
+## 2026-10-13 — P01 handshake-open allocation ordinal sweep
 
 Added `security.handshake-open-allocation-sweep`. It injects `NO_MEMORY` at
-each of the eight allocator calls reached while opening a valid NNpsk0
-initiator. Every failure leaves the handshake wrapper zeroed, provider block
-count and retained bytes at zero, and every released block erased. After each
-failure, the same provider successfully opens and closes a fresh handshake.
-Failure ordinal 9 is beyond the constructor's allocations and successfully
-opens; the test closes it and confirms counters return to zero. The focused
-provider CTest passed 1/1; direct output reports eight failing ordinals and
-successful boundary ordinal 9. Independent GPT-6.1-sol High review found no
-actionable issue.
+each allocator call reached by NNpsk0 initiator/responder and XX
+initiator/responder constructors. The four paths reached 8/8/10/10 failure
+ordinals; the next ordinal (9/9/11/11) opened successfully. Every failure
+leaves the handshake wrapper zeroed, provider block count and retained bytes at
+zero, and every released block erased. After each failure, the same provider
+successfully opens and closes a fresh handshake. The focused provider CTest
+passed 1/1; direct output records the counts and boundaries. Independent
+GPT-6.1-sol High review found no actionable issue.
 
-This is a host constructor-cleanup regression for the NNpsk0 initiator path.
-It does not cover XX or responder constructors, other API failure branches,
-full handshake recovery, target allocators, or hardware behavior; P01/P01C
-remain open.
+This is host constructor-cleanup evidence for the two selected suites and both
+roles. It does not cover other provider API failure branches, full handshake
+recovery, target allocators, or hardware behavior; P01/P01C remain open.

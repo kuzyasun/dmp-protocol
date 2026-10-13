@@ -266,16 +266,16 @@ the final hardware phase.
 
 ## NNpsk0 handshake-open allocation ordinal sweep — 2026-10-13
 
-`security.handshake-open-allocation-sweep` injects failure into every one of
-the eight allocator calls reached by a valid NNpsk0 initiator constructor. Each
-`NO_MEMORY` result leaves the handshake wrapper zeroed, provider block and
-retained counts at zero, and released storage erased; the same provider then
-successfully opens/closes a fresh handshake. Ordinal 9 is beyond the
-constructor's allocations, opens successfully, and cleans up to zero counts.
-The focused provider build and `security.provider_adapter` CTest passed 1/1;
-direct output reports eight failing ordinals and the ordinal-9 success
-boundary. Independent GPT-6.1-sol High review found no actionable issue.
+`security.handshake-open-allocation-sweep` injects failure into every
+allocator call reached by NNpsk0 initiator/responder and XX initiator/responder
+constructors. The four paths reached 8/8/10/10 failure ordinals; the next
+ordinal (9/9/11/11) opened successfully. Each `NO_MEMORY` result leaves the
+handshake wrapper zeroed, provider block and retained counts at zero, and
+released storage erased; the same provider then successfully opens/closes a
+fresh handshake. The focused provider build and `security.provider_adapter`
+CTest passed 1/1; direct output records all four counts and boundaries.
+Independent GPT-6.1-sol High review found no actionable issue.
 
-This closes only NNpsk0 initiator constructor allocation cleanup. It does not
-cover XX/responder, other provider/Noise failure branches, full handshake
-recovery, target allocation behavior, or P01C.
+This closes only allocation cleanup during these four constructors. It does
+not cover other provider/Noise failure branches, full handshake recovery,
+target allocation behavior, or P01C.
