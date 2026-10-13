@@ -2630,3 +2630,13 @@ erases released blocks. A valid open on the same provider then writes exact
 fixture flight 1 and closes cleanly. The focused provider CTest passed 1/1;
 independent review found no actionable issue. This closes only that constructor
 failure branch, not the complete provider failure/erasure inventory.
+
+`security.provider_adapter::short-ciphertext-output` supplies a 15-byte record
+to the live ChaChaPoly decryptor, below its 16-byte MAC length but after the
+adapter's argument checks. Noise rejects it with `INVALID_LENGTH`; the adapter
+returns `DMP_PROVIDER_INVALID`, clears the length and exactly the 32-byte
+declared output capacity, preserves the tail sentinel and provider accounting,
+then successfully decrypts the exact fixture record on the same cipher. The
+focused provider build and CTest passed; independent review found no actionable
+issue. This covers short-MAC rejection before tag verification, not endpoint
+replay policy or target behavior.

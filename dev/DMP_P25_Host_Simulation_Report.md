@@ -70,6 +70,12 @@ entire current CTest inventory was rerun.
   passed; independent review found no actionable issue. These checks do not
   close the per-endpoint four-peer `four_parallel` row, prove a delivered
   4096-byte exchange, or establish target or physical behavior.
+- A further provider case submits a 15-byte ciphertext to the live ChaChaPoly
+  decryptor. It confirms the short-MAC `INVALID_LENGTH` path clears only the
+  declared 32-byte output capacity, preserves the tail and resource accounting,
+  and allows exact fixture decryption on the same cipher afterward. The focused
+  provider CTest passed 1/1; independent review found no issue. This remains
+  primitive-wrapper host evidence, not endpoint replay or target evidence.
 - A recent full host CTest attempt did not complete: after the subprocess
   harness passed with workspace-local TEMP/TMP, the process-isolated minimal
   endpoint lifecycle test could not establish its host loopback peer and timed
