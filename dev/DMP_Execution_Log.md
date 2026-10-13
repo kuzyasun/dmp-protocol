@@ -1962,3 +1962,441 @@ passed 1/1. These are host handshake checks only; the full P01 mapping and
 target/resource requirements remain open. Independent read-only review found no
 actionable findings after verifying the fixed-length cache comparisons and
 deadline checks across elapsed virtual time.
+
+## 2026-10-13 — P12 normative row reconciliation
+
+Audited all 34 cases whose `primary_gate` includes P12 and updated
+`dev/DMP_Normative_Cases.json` with exact primary C checks, independent P21
+peer checks, and the evidence-log reference. Kept primary, peer, and P23 interop
+results separate; P23 `not-applicable` remains no evidence for an application
+requirement. Eight rows are now `passed` across the recorded applicable gates;
+26 are `partial` with a specific `primary_remaining`.
+
+Fresh host check: `ctest --test-dir build/host --output-on-failure -R
+'^(endpoint\..*|reliability\.direct|reassembly\.direct|security\.provider_adapter|security\.handshake)$'`
+passed 43/43. `python -m json.tool dev/DMP_Normative_Cases.json` and
+`git diff --check --ignore-submodules=all` passed. The mapped P21 row tests are
+covered by the previously recorded independent-peer run (410 passed, 51
+skipped); no peer rerun was performed in this step.
+
+The audit found `tests/endpoint/test_endpoint.c::publish_sample` stops when
+`sample_index == UINT32_MAX`, while the reference application requires a fresh
+durable epoch after index exhaustion. No primary path couples that new epoch to
+closing all old-epoch associations. Existing protected generic rotation
+coverage checks a shared service-2 DATA unknown outcome, but not a SAMPLE-1
+epoch transition. P12 remains running; these are host/application gaps. No
+platform storage adapter, MCU, physical transport, hardware, or P01C evidence
+was produced.
+
+
+## 2026-10-13 — P12 SAMPLE-1 index-exhaustion rollover
+
+Updated the host SAMPLE-1 producer model so both source-state restart and
+`sample_index == UINT32_MAX` reserve a distinct epoch. The old-association
+closure callback must succeed before the new epoch is published at index 1. A
+failed close after reservation stops publication and leaves the reserved value
+skipped. Updated `endpoint.sample_epoch_restart` and added
+`endpoint.sample_epoch_index_exhaustion` for both transition paths and
+fail-closed behavior.
+
+The first CMake regeneration attempt was denied while creating scratch files in
+the system temporary directory. Re-ran with `TEMP` and `TMP` set to the
+permitted non-Git visualizations directory. `cmake --build build/host --target
+dmp_test_endpoint` passed; focused CTest passed 44/44; restart plus index-exhaustion tests passed 2/2.
+JSON parsing and `git diff --check --ignore-submodules=all` passed.
+
+This is still a host-model seam: association closure and persistence are
+callbacks/stubs, not a production platform adapter. No actual endpoint-wide
+old-epoch association enumeration, durable storage, target runtime, MCU,
+physical transport, hardware or P01C qualification was performed. P12 remains
+running.
+
+## 2026-10-13 — P12 primary C golden-vector crosswalk
+
+Added `test_v224_golden_fragments` in `tests/reassembly/test_reassembly.c`.
+It parses the exact §22.4 bytes, delivers fragment index 1 before index 0,
+and checks the assembled `AA BB CC` payload. Added
+`test_v229_golden_exchange_bytes` in `tests/core/test_codec.c`; it encodes and
+parses the exact §22.9 immediate RSP and result ACK, including both full
+REPLY_TO values, and compares every output byte with the specification.
+Promoted the three corresponding P12 ledger rows from partial to passed while
+keeping peer evidence and P23 not-applicable status separate. The P12 ledger is
+now 11 passed / 23 partial across its 34 rows.
+
+Validation: `cmake --build build/host --target dmp_test_codec
+dmp_test_reassembly` succeeded. `ctest --test-dir build/host
+--output-on-failure -R '^(core\.codec|reassembly\.direct)$'` passed 2/2.
+Follow-up validation: `ctest --test-dir build/host --output-on-failure -R
+'^(core\.codec|endpoint\..*|reliability\.direct|reassembly\.direct|security\.provider_adapter|security\.handshake)$'`
+passed 45/45 after the additions. `python -m json.tool
+dev/DMP_Normative_Cases.json` and `git diff --check --ignore-submodules=all`
+also passed.
+
+These additions verify host codec/reassembly and wire bytes. They do not add
+application-level epoch persistence/association adapters or establish MCU or
+hardware operation; P12 remains open for its remaining software requirements,
+and P01C/final P25 target qualification remains deferred.
+
+## 2026-10-13 — P12 SEC-1 NO_SAMPLE exchange
+
+Added `test_protected_sample_no_sample` to drive a READ through the primary
+SEC-1 endpoint, complete it as application ERR STATUS=64 with an empty payload,
+and verify the emitted protected ERR shape and status. The requester accepts
+that result, sends its receipt, then submits a second READ with a distinct
+reliability handle and receives the successful sample result. The ledger now
+marks SAMPLE-1 A1 delivery and A4 NO_SAMPLE/new-READ rows passed; the A2 row
+remains partial because its manifest-derived timeout and protected
+initialization-exhaustion requirements are still open. P12 stands at 13 passed
+and 21 partial of 34 rows.
+
+Validation: `cmake --build build/host --target dmp_test_endpoint_sec`
+succeeded; `endpoint.protected_sample_no_sample` passed 1/1, and the combined
+focused CTest filter passed 46/46. `python -m json.tool
+dev/DMP_Normative_Cases.json` and `git diff --check --ignore-submodules=all`
+passed. This is a host SEC-1 test, not target/runtime or hardware evidence.
+
+## 2026-10-13 — P12 SEC-1 error-status contract
+
+Added `test_protected_err_status_contract`. It captures a live protected READ
+identity, injects authenticated terminal ERR frames for every reserved STATUS
+8–63, and verifies the endpoint returns `DMP_UNSUPPORTED` without delivering a
+result or terminating that request. The same request then receives an
+application ERR STATUS=64 with ACK_REQ and a receipt. `protected_err_status`
+now also checks the ERR type, SEC-1 flag, and ACK_REQ rule for protocol versus
+application statuses. The codec fixture continues to verify that protocol
+STATUS 1–7 cannot carry ACK_REQ.
+
+The P12 ledger now records 14 passed / 20 partial of 34 rows. The protocol
+STATUS row is passed across primary/peer evidence; the separate rejection and
+timeout row remains partial for full per-code coverage and correlation
+exhaustion.
+
+Validation: `cmake --build build/host --target dmp_test_endpoint_sec`
+succeeded; `endpoint.protected_err_status_contract` passed 1/1. The combined
+focused CTest filter and final ledger/diff checks are recorded after this
+addition below.
+
+Final validation after this addition: the combined focused host CTest filter
+passed 47/47. `python -m json.tool dev/DMP_Normative_Cases.json`, the P12
+primary-reference existence scan (no missing paths/symbols), and
+`git diff --check --ignore-submodules=all` passed.
+
+## 2026-10-13 — P12 manifest-derived SAMPLE-1 timing
+
+Changed `tests/endpoint/CMakeLists.txt` to read SAMPLE-1 initialization
+attempts, retry interval, deadline, and NO_SAMPLE status from
+`profiles/deployments/direct-nnpsk0.json` at configure time. The test directory
+tracks that manifest as a configure dependency, so changing its values
+reconfigures the test target. Removed the duplicated C enum literals. No
+manifest, schema, or wire behavior changed.
+
+Updated `test_sample_init_budget` to use the manifest deadline (12000 ms) and
+explicitly reject the delayed completion after the matching reliable request
+has expired; the consumer remains failed and unsynchronized with no live sample.
+`cmake --build build/host --target dmp_test_endpoint` passed, and
+`endpoint.sample_init_budget` passed 1/1. This closes the handwritten-timing
+gap but leaves protected primary initialization coverage open.
+
+## 2026-10-13 — P12 rejection STATUS and correlation capacity
+
+Expanded `test_reply_status_and_control_shapes` to reject reliable protocol ERR
+frames with ACK_REQ for every STATUS value 1–7. Extended
+`test_quota_and_validation` to exhaust the correlation table while a second
+sender slot and a different service remain available. The second request is
+refused with `DMP_QUOTA_EXHAUSTED`; the live first request, payload, service,
+correlation deadline, and output handle remain unchanged.
+
+The §22.8 rejection/timeout primary row now passes. The P12 ledger stands at
+15 passed / 19 partial of 34; unrelated application and SAMPLE-1 lifecycle
+gaps remain. `cmake --build build/host --target dmp_test_codec
+dmp_test_reliability` succeeded, and focused CTest passed 2/2 for
+`core.codec` and `reliability.direct`. This host evidence does not qualify
+target RAM, runtime behavior, or hardware.
+
+## 2026-10-13 — P12 protected SAMPLE-1 initialization and ordering
+
+Added `endpoint.protected_sample_initialization`. It exchanges early TELEM,
+two READ requests, and results over real protected SEC-1 endpoint paths. The
+reference application discards pre-sync telemetry, selects only the current
+request handle, establishes the sample from its READ result, advances to a
+newer TELEM value, and ignores an older same-epoch READ snapshot that arrives
+after newer telemetry. First-boot, early-TELEM, and same-epoch old-snapshot
+primary rows are now passed. P12 stands at 18 passed / 16 partial of 34.
+
+The protected scenario does not implement the manifest-timed initialization
+retry/deadline state machine and does not test protected epoch-switch,
+previous-association, or concurrent publication races; those rows remain
+partial. `cmake --build build/host --target dmp_test_endpoint_sec` succeeded,
+`endpoint.protected_sample_initialization` passed 1/1, and the combined
+focused host CTest filter passed 48/48. This remains host SEC-1 evidence, not
+MCU/runtime or hardware qualification.
+
+## 2026-10-13 — P12 protected SAMPLE-1 negative shapes
+
+Added `endpoint.protected_sample_invalid_result`. It sends an authenticated
+RSP under the wrong SERVICE for a live READ and confirms the READ remains
+pending with no result event. A correctly correlated protected RSP carrying a
+STATUS payload reaches the application but does not synchronize SAMPLE-1.
+Protected TELEM payloads of 15 and 17 bytes are rejected at the application
+boundary without changing sample state. Existing `test_sample_invalid_request`
+covers malformed READ request shapes through SEC-1.
+
+The row remains partial because the single-peer primary profile cannot provide
+a second authenticated sender/association for the remaining wrong-sender
+variant. The focused new test passed 1/1, and the combined focused host CTest
+filter passed 49/49. This is host evidence only.
+
+## 2026-10-13 — P12 protected SAMPLE-1 initialization deadline
+
+Added `endpoint.protected_sample_init_timeout`, with its initialization policy
+compiled from `profiles/deployments/direct-nnpsk0.json`. The case uses the
+manifest values `init_attempts=1`, `init_retry_ms=5`, `init_deadline_ms=12000`,
+and `timing.result_deadline_ms=12000`. A protected READ reaches the application,
+but no result is completed; polling at the deadline emits one UNKNOWN, leaves
+the SAMPLE-1 tracker unsynchronized, and rejects a late server completion as
+`DMP_STALE_HANDLE`. The manifest path is a CMake configure dependency so policy
+changes rebuild the endpoint test with the new values.
+
+Promoted `s-a2-no-sample` and `s-a4-timeout` to primary passed. The designated
+READ row remains partial because protected retry scheduling, cancellation, and
+stale-designation supersession are still absent. P12 now stands at 20 passed /
+14 partial of 34. `cmake --build build/host --target dmp_test_endpoint_sec`
+completed with no work pending, and the focused host CTest filter passed 50/50.
+This closes only host/SEC-1 evidence; it does not establish MCU resource fit or
+hardware behavior.
+
+## 2026-10-13 — P12 protected SAMPLE-1 delivery loss state
+
+Extended the actual SEC-1 request-loss, RSP-loss, and receipt-loss endpoint
+cases to pass each delivered READ result through the SAMPLE-1 correlation and
+initialization tracker. A lost request does not reach the producer until its
+retry; a lost RSP leaves the consumer unsynchronized until the retained result
+arrives; and a lost receipt causes a protected cached-RSP retry without a second
+application result or a second sample-state transition. All three cases finish
+with exactly epoch 1/index 2/value 300 and no sample violations.
+
+`cmake --build build/host --target dmp_test_endpoint_sec` rebuilt the modified
+test. CTest filter `endpoint.(protected_loss|protected_result_loss|protected_receipt_loss)`
+passed 3/3. This extends the P12 host/SEC-1 delivery evidence; it makes no MCU
+or hardware claim.
+
+## 2026-10-13 — P12 protected SAMPLE-1 epoch transition and shared work
+
+Extended `endpoint.protected_rotation` with a protected SAMPLE-1 transition
+while service-1 READ and service-2 DATA share the old association. The active
+READ cannot be abandoned (`DMP_BUSY`). Once both endpoints move to a fresh
+SEC-1 association with zero drain, the old READ sender reports UNKNOWN, the
+service-2 DATA reports DATA_UNKNOWN, and a late app completion is rejected as
+`DMP_STALE_HANDLE`.
+
+This exposed that rejecting the old completion alone left its accepted request
+history occupying a quota slot. Added `dmp_endpoint_abandon_request` and its
+reliability primitive: it discards only an accepted, incomplete READ whose
+source association is closed or expired; active and live-draining requests
+remain busy. The transition test abandons the closed-generation request, sends
+new-epoch telemetry (discarded before sync), then completes a new READ and
+establishes epoch 42/index 1/value 900. No wire fields changed. This closes the
+host endpoint case; it does not supply the durable target epoch store tracked
+separately by `s-a4-persistence`.
+
+`cmake --build build/host --target dmp_test_endpoint_sec dmp_test_reliability`
+and the focused endpoint/core/reliability/reassembly/security CTest filter
+passed; the latter was 50/50. P12 stands at 21 passed / 13 partial of 34.
+
+## 2026-10-13 — P12 protected stale-sample host reconciliation
+
+The protected primary tests now cover all remaining `main228-sample-stale`
+cases: a lower READ snapshot cannot roll back newer same-epoch telemetry;
+closing the old SEC-1 association rejects its late READ result before a new
+epoch is initialized; and request, result, and receipt loss each produce one
+SAMPLE-1 state transition with no duplicate result side effect. The corresponding
+cases are `endpoint.protected_sample_initialization`,
+`endpoint.protected_rotation`, `endpoint.protected_loss`,
+`endpoint.protected_result_loss`, and `endpoint.protected_receipt_loss`.
+
+Validation: `cmake --build build/host --target dmp_test_provider
+dmp_test_handshake dmp_test_endpoint_sec` reported no work pending; the focused
+CTest expression selecting those five endpoint cases plus
+`security.provider_adapter` and `security.handshake` passed 7/7. The P12
+primary ledger is now 22 passed / 12 partial of 34. No target storage or
+hardware evidence follows from this host result.
+
+The latest attempted full `ctest --test-dir build/host --output-on-failure`
+did not complete. `harness.subprocess` first failed because the sandbox denied
+its default TEMP path; rerunning only that CTest with TEMP and TMP set to
+`build/host/ctest-tmp` passed 1/1. The process-isolated
+`memory.test-direct-minimal-128.endpoint_lifecycle` test then timed out because
+its host TCP peer IPC could not connect. The suite was interrupted after this
+failure rather than repeatedly entering the same blocked host IPC case. Full
+CTest is not green or complete in this environment.
+
+## 2026-10-13 — P01 handshake-owner cleanup regression
+
+Added `cleanup-erases-owner` to `security.handshake`. It schedules both an
+NNpsk0/PSK handshake and an XX/local-static handshake so the owner contains
+each configured credential type and active provider state, calls
+`dmp_hs_cleanup`, checks every byte of each opaque owner is zero, and checks
+that provider allocator blocks were zero before release.
+This adds a direct host oracle for whole-owner teardown and supplements the
+provider's existing failure/cleanup tests; it does not claim complete target
+secret erasure or integrated resource acceptance.
+
+Validation: `cmake --build build/host --target dmp_test_handshake` succeeded;
+`ctest --test-dir build/host --output-on-failure -R "^security\.handshake$"`
+passed 1/1. Running the executable directly reported `ok cleanup-erases-owner`
+along with all existing handshake cases.
+
+## 2026-10-13 — P12 protected late sample result on draining association
+
+Added `endpoint.protected_sample_late_assoc`. It admits a SAMPLE-1 READ on a
+real SEC-1 association, rotates both endpoints while that association drains,
+then completes the old READ with epoch 41 after the app has selected epoch 42,
+index 1, value 900. The protected response remains correlated to its original
+READ handle, but does not alter the selected sample cache. The requester sends
+the result ACK on the old receive CID (different from the new association CID),
+and the producer's result record is marked acknowledged.
+
+Validation: regenerated the host CMake build with TEMP/TMP redirected to the
+permitted workspace temp directory, built `dmp_test_endpoint_sec`, and ran
+`ctest --test-dir build/host --output-on-failure -R
+"^endpoint\.protected_sample_late_assoc$"`; it passed 1/1. This closes the
+protected prior-association/epoch-switch result case. The P12 rows for atomic
+concurrent cache update and protected superseded-designation result remain
+partial. No target storage or hardware evidence was produced.
+
+## 2026-10-13 — P12 protected SAMPLE-1 designation supersession
+
+Added `endpoint.protected_sample_superseded`. A SEC-1 READ remains a valid
+transport request after the application invalidates its designated full
+handle. Its correlated protected result is delivered and acknowledged but
+cannot initialize the sample cache; a later READ with the current designation
+does initialize the cache. The test does not create concurrent app requests:
+the deployment profile permits one initialization attempt at a time.
+
+Validation: built `dmp_test_endpoint_sec` and ran
+`ctest --test-dir build/host --output-on-failure -R
+"^endpoint\.protected_sample_superseded$"`; it passed 1/1. The active
+DIRECT-1 manifest sets `init_attempts` to 1, so protected retry scheduling
+remains unexercised and the P12 row stays partial. This is host/SEC-1 evidence,
+not MCU resource or physical hardware evidence.
+
+The same protected designation case completed the primary gap in
+`s-a4-late-result`; promoted that row to passed alongside its already-passing
+peer evidence. P12 stands at 23 passed / 11 partial primary rows of 34. This
+does not change the separate retry-scheduling limitation in `s-a2-designated-read`.
+
+## 2026-10-13 — P12 protected prior-cache invalidation
+
+Reconciled `endpoint.protected_rotation` with `s-a2-unsync`. The SEC-1 case
+begins with an established epoch 41/index 7 sample and an in-flight READ, then
+closes the old association during replacement. The receiver is unsynchronized
+with that old tuple, discards early epoch 42 telemetry, and establishes the
+new cache only after a correlated epoch 42/index 1 READ. The row is now passed
+across primary and peer evidence.
+
+Validation: `ctest --test-dir build/host --output-on-failure -R
+"^endpoint\.protected_rotation$"` passed 1/1. P12 stands at 24 passed / 10
+partial primary rows of 34. This is host/SEC-1 evidence, not target storage or
+physical qualification.
+
+## 2026-10-13 — P12 protected service-2 immediate result
+
+Added `endpoint.protected_service2_immediate` for the DIRECT-1 enabled opaque
+service. Over SEC-1, a service-2 REQ receives its immediate reliable RSP, the
+requester sends the result ACK, and there is no separate request ACK. The same
+case injects an authenticated request for unsupported service 3 and confirms
+it is rejected before the application request callback. The 64-byte opaque
+payload is within the manifest's configured maxima; P23 separately covers the
+large fragmented workload. The normative `main228-immediate-rule` primary row
+is now passed; its peer result and P23 not-applicable disposition remain
+separate. P12 stands at 25 passed / 9 partial primary rows of 34.
+
+Validation: `cmake --build build/host --target dmp_test_endpoint_sec` had no
+work pending. The focused endpoint selection
+`ctest --test-dir build/host --output-on-failure -R
+"^endpoint\\.(sample_.*|protected_sample_.*|protected_service2_immediate)$"`
+passed 20/20. This remains host SEC-1 evidence and does not prove target
+resource fit or physical operation; hardware qualification stays at the final
+plan phase.
+
+## 2026-10-13 — P01 bounded handshake-flight cache lifetime
+
+Added `security.handshake::cached-flight-lifetime`. The case copies the cached
+flight, allows exactly two retransmissions under a two-response budget, then
+checks a third retry is refused without another Noise write or deadline
+extension. At the absolute attempt deadline the attempt expires, secrets are
+cleared, and `dmp_hs_cached_flight` no longer exposes a live cache. This is
+provider/owner evidence; it does not simulate a transport send failing before
+or after the adapter writes bytes, which remains an adapter-level acceptance
+item.
+
+Validation: `cmake --build build/host --target dmp_test_handshake` succeeded;
+`ctest --test-dir build/host --output-on-failure -R
+"^security\\.handshake$"` passed 1/1. No target or physical test was run.
+
+## 2026-10-13 — P25 host/simulation evidence consolidation
+
+Created `dev/DMP_P25_Host_Simulation_Report.md` to consolidate the accepted
+P19 memory measurements, P21 provenance disposition, P22/P23 host-simulation
+scope, P24 equivalent-workload smoke, current focused P12/P01 host checks, and
+the remaining P12/P01/P01C gates. The report pins the exact P19/P23/P24
+manifest digests and recorded P24 endpoint executable hash. It distinguishes
+host requested-byte estimates from target RAM, simulated time from physical
+latency, and peer interop results from underlying normative-row status.
+
+P25 remains pending. P12 still has nine partial primary rows; P01 host resource
+and adapter evidence is incomplete; P01C target and physical qualification is
+deferred to the final phase. The P21 actual-read/access-boundary provenance
+limitation is retained, and no clean-room, production-readiness, or guaranteed
+hardware-operation claim is made.
+
+
+## 2026-10-13 follow-up — P01 cached-flight test review correction
+
+Hardened `security.handshake::cached-flight-lifetime` after independent review:
+initialize the session before the fixture-failure path, move `env.now` forward
+between retries, and assert the original absolute deadline after each successful
+retry. This makes a retry-time deadline reset observable and avoids cleanup of
+uninitialized pointers when a fixture is absent.
+
+Validation: `cmake --build build/host --target dmp_test_handshake` succeeded;
+`ctest --test-dir build/host --output-on-failure -R
+"^security\.handshake$"` passed 1/1. The independent GPT-6.1-sol High re-review
+found no actionable issue. RBO agent discovery returned `fetch failed`; this
+focused host check used the already-authorized local validation path. No target
+or physical test was run. This closes the test-claim correction only; adapter
+transport fault injection, aggregate resources, target runtime and P01C remain
+open.
+
+## 2026-10-13 — P12 protected reinitialization snapshot, result schema, and fragmentation
+
+Corrected the protected same-epoch association-rotation scenario: the old
+draining-association result and the new selected-association READ both use epoch
+41. The old result has a higher index but its prior designation is invalidated;
+it is acknowledged on the old receive CID without changing the retained
+index-7/value-700 cache. A READ on the new association returns index 6 and
+restores synchronization without rolling that cache back. This is the protected
+reconnect proof for `s-a4-old-snapshot` and `s-a4-late-result`.
+
+Added an optional endpoint result-schema callback. Unfragmented RSP payloads
+are checked after authentication and before reliable acceptance or receipt;
+fragment slices skip the callback and the assembled logical RSP is checked
+after reassembly. Regressions prove that a malformed correlated RSP leaves the
+request available for a later valid result, a valid fragmented READ result is
+accepted, and a malformed fragmented READ result produces no RESULT or receipt.
+The SAMPLE-1 app-boundary checks reject 15-byte and 17-byte TELEM payloads.
+This adds one callback pointer to endpoint storage/object and changes no wire
+fields; target RAM impact remains unmeasured.
+
+Validation: `cmake --build build/host --target dmp_test_endpoint_sec` succeeded.
+The focused CTest filter for `endpoint.sample_late_assoc`, protected
+initialization, association rotation, malformed result/TELEM, and valid/malformed
+fragmented results passed **7/7**. Independent GPT-6.1-sol High review confirmed
+the prior malformed-RSP, cache rollback, association-rotation, and fragment
+validation findings are resolved; no source findings remain. The normative
+ledger now maps the protected reconnect case to `test_protected_sample_late_assoc`
+and retains P12 at 25 passed / 9 partial of 34.
+
+This is host SEC-1 evidence only. MCU resource/runtime checks and physical
+hardware qualification remain deferred to the final phase; acceptable host
+memory figures do not guarantee operation on hardware.

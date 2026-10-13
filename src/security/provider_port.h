@@ -3,8 +3,12 @@
  *
  * Ownership. The caller owns the provider storage from dmp_provider_size()
  * and every handshake, cipher, and byte buffer. Setup copies the ports and
- * publishes the provider only after startup succeeds. Failure leaves no ready
- * provider, no output length, and wiped caller output. Cleanup erases tracked
+ * publishes the provider only after startup succeeds. For output-producing
+ * operations, early argument/state validation failures leave caller buffers
+ * and length values untouched, except where an operation documents a
+ * different invalid-state output rule. Once validation succeeds and an
+ * operation is attempted, operational failures set output lengths to zero
+ * and wipe the declared output capacity. Cleanup erases tracked
  * Noise blocks and registered handshake/cipher objects. Close those objects
  * first; cleanup still erases any that remain.
  *
@@ -101,7 +105,10 @@ dmp_provider_status dmp_provider_handshake_hash(
     dmp_provider *provider, const dmp_provider_handshake *handshake,
     uint8_t hash[32]);
 /* Read the remote static public key already held by an XX handshake.
- * Does not write, split, or change the Noise mapping. */
+ * Does not write, split, or change the Noise mapping. A NULL provider,
+ * handshake, or output pointer is argument validation and leaves any
+ * reachable output untouched. A non-NULL closed/invalid handshake returns
+ * INVALID and wipes public_key. */
 dmp_provider_status dmp_provider_handshake_remote_public(
     dmp_provider *provider, const dmp_provider_handshake *handshake,
     uint8_t public_key[32]);

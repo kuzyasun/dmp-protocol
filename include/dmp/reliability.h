@@ -355,6 +355,13 @@ dmp_status dmp_reliability_cancel(dmp_reliability *engine,
                                   dmp_reliability_handle handle,
                                   dmp_time_ms now);
 
+/* Drop an application-held accepted REQ without sending a result. The owner
+ * must first close or expire the request's association. Active requests cannot
+ * be abandoned; their duplicate-suppression history remains live until the
+ * normal terminal result or deadline. */
+dmp_status dmp_reliability_abandon_request(dmp_reliability *engine,
+                                           dmp_reliability_handle request);
+
 /* Process one already integrity/authentication/context/application-validated
  * input. Resolve and match full identity and service before changing exchange
  * state. A new REQ must have ACK_REQ, SEQ and supported direct/unfragmented

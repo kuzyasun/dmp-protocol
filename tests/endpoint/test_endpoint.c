@@ -33,11 +33,6 @@ enum {
     QUEUE = 16,
     FRAME_CAP = 512,
     BODY = 320,
-    /* profiles/deployments/direct-nnpsk0.json sample budget. Not parsed here. */
-    SAMPLE_INIT_ATTEMPTS = 1,
-    SAMPLE_INIT_RETRY_MS = 5,
-    SAMPLE_INIT_DEADLINE_MS = 12000,
-    SAMPLE_NO_SAMPLE = 64,
     /* Application save result. Only SAVED reserves an epoch. */
     SAMPLE_EPOCH_SAVED = 1,
     SAMPLE_EPOCH_FAILED = 2,
@@ -52,12 +47,17 @@ typedef struct {
     int outcome;
     int reserves;
     int reserved_count;
+    int close_allowed;
+    int closes;
+    uint64_t closed_epoch;
 } sample_epoch_port;
 
 /* Writes *epoch only after the application says the save succeeded. */
 static int reserve_sample_epoch(void *user, uint64_t *epoch);
+static int close_sample_epoch_associations(void *user, uint64_t old_epoch);
 
 typedef int (*reserve_sample_epoch_fn)(void *user, uint64_t *epoch);
+typedef int (*close_sample_epoch_fn)(void *user, uint64_t old_epoch);
 
 typedef struct node node;
 
@@ -138,6 +138,7 @@ typedef struct {
     uint32_t live_index;
     uint32_t live_value;
     reserve_sample_epoch_fn reserve_epoch;
+    close_sample_epoch_fn close_epoch_associations;
     void *epoch_user;
     int epoch_ready;
     int publication_stopped;
@@ -850,20 +851,34 @@ static int reserve_sample_epoch(void *user, uint64_t *epoch)
     return SAMPLE_EPOCH_SAVED;
 }
 
+static int close_sample_epoch_associations(void *user, uint64_t old_epoch)
+{
+    sample_epoch_port *port = user;
+
+    if (port == NULL || !port->close_allowed) {
+        return 0;
+    }
+    port->closes++;
+    port->closed_epoch = old_epoch;
+    return 1;
+}
+
 static void attach_epoch_port(node *self, sample_epoch_port *port)
 {
     self->app.reserve_epoch = reserve_sample_epoch;
+    self->app.close_epoch_associations = close_sample_epoch_associations;
     self->app.epoch_user = port;
 }
 
-/* First publication reserves an epoch. A later call with the same saved value
- * is a restart, not a new reservation and not a recovery authorization. */
+/* The host app model asks its persistent port for a fresh epoch after first
+ * publication, source-state loss, and sample-index exhaustion. */
 static int publish_sample(node *self, uint32_t value, dmp_time_ms now)
 {
     app *state = &self->app;
     sample_epoch_port *port = state->epoch_user;
     uint8_t telem[SAMPLE1_TELEM_BYTES];
     uint64_t reserved = 0U;
+    uint64_t old_epoch = 0U;
     size_t n;
     int save;
 
@@ -871,26 +886,36 @@ static int publish_sample(node *self, uint32_t value, dmp_time_ms now)
         return 1;
     }
     if (!state->epoch_ready) {
-        if (port != NULL && port->have_saved) {
-            state->epoch = port->saved;
-            state->epoch_ready = 1;
-        } else {
-            save = state->reserve_epoch(state->epoch_user, &reserved);
-            if (save != SAMPLE_EPOCH_SAVED) {
-                state->publication_stopped = 1;
-                state->epoch_ready = 0;
-                return 1;
-            }
-            state->epoch = reserved;
-            state->epoch_ready = 1;
-            state->index = 0U;
+        int have_old_epoch = port != NULL && port->have_saved;
+
+        if (have_old_epoch) {
+            old_epoch = port->saved;
         }
+        save = state->reserve_epoch(state->epoch_user, &reserved);
+        if (save != SAMPLE_EPOCH_SAVED || (have_old_epoch && reserved == old_epoch) ||
+            (have_old_epoch &&
+             (state->close_epoch_associations == NULL ||
+              !state->close_epoch_associations(state->epoch_user, old_epoch)))) {
+            state->publication_stopped = 1;
+            state->epoch_ready = 0;
+            return 1;
+        }
+        state->epoch = reserved;
+        state->epoch_ready = 1;
+        state->index = 0U;
     }
-    /* Do not wrap. A next epoch would be another ordinary reserve_sample_epoch
-     * call, not identity reissue and not state-loss recovery. */
+    /* Index exhaustion consumes a fresh durable epoch. Do not expose it until
+     * every association bound to the old sample epoch has been closed. */
     if (state->index == UINT32_MAX) {
-        state->publication_stopped = 1;
-        return 1;
+        save = state->reserve_epoch(state->epoch_user, &reserved);
+        if (save != SAMPLE_EPOCH_SAVED || reserved == state->epoch ||
+            state->close_epoch_associations == NULL ||
+            !state->close_epoch_associations(state->epoch_user, state->epoch)) {
+            state->publication_stopped = 1;
+            return 1;
+        }
+        state->epoch = reserved;
+        state->index = 0U;
     }
     state->index++;
     state->value = value;
@@ -911,6 +936,7 @@ static int test_sample_epoch_restart(void)
     memset(&port, 0, sizeof port);
     port.next_candidate = 41U;
     port.outcome = SAMPLE_EPOCH_SAVED;
+    port.close_allowed = 1;
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
     CHECK(left.ids[0].local.epoch == 7U);
@@ -933,16 +959,19 @@ static int test_sample_epoch_restart(void)
     left.app.epoch_ready = 0;
     left.app.publication_stopped = 0;
     CHECK(publish_sample(&left, 301U, now) == 0);
-    CHECK(port.reserves == reserves);
-    CHECK(port.saved == 41U);
-    CHECK(left.app.epoch == 41U);
+    CHECK(port.reserves == reserves + 1);
+    CHECK(port.reserved_count == 2);
+    CHECK(port.saved == 42U);
+    CHECK(port.closes == 1);
+    CHECK(port.closed_epoch == 41U);
+    CHECK(left.app.epoch == 42U);
     CHECK(left.app.index == 1U);
     CHECK(left.app.have_sample == 1);
     CHECK(left.app.publication_stopped == 0);
     CHECK(pump(now, 4) == 0);
     CHECK(left.wire.submits > submits);
     CHECK(right.app.telem_n == SAMPLE1_TELEM_BYTES);
-    CHECK(sample1_load_u64(right.app.telem) == 41U);
+    CHECK(sample1_load_u64(right.app.telem) == 42U);
     CHECK(sample1_load_u32(right.app.telem + 8) == 1U);
     CHECK(sample1_load_u32(right.app.telem + 12) == 301U);
     CHECK(left.ids[0].local.epoch == 7U);
@@ -1008,6 +1037,73 @@ static int test_sample_epoch_indeterminate(void)
     CHECK(port.have_saved == 0);
     CHECK(left.ids[0].local.epoch == 7U);
     CHECK(left.ids[0].local.origin_id == 10U);
+    return 0;
+}
+
+static int test_sample_epoch_index_exhaustion(void)
+{
+    sample_epoch_port port;
+    dmp_time_ms now = 1000U;
+    int submits;
+
+    memset(&port, 0, sizeof port);
+    port.next_candidate = 41U;
+    port.outcome = SAMPLE_EPOCH_SAVED;
+    port.close_allowed = 1;
+    CHECK(boot(&left, 1, now) == 0);
+    CHECK(boot(&right, 0, now) == 0);
+    attach_epoch_port(&left, &port);
+    CHECK(publish_sample(&left, 300U, now) == 0);
+    CHECK(pump(now, 4) == 0);
+    CHECK(left.app.epoch == 41U);
+    CHECK(left.app.index == 1U);
+    CHECK(port.reserves == 1);
+    submits = left.wire.submits;
+
+    left.app.index = UINT32_MAX;
+    CHECK(publish_sample(&left, 301U, now + 1U) == 0);
+    CHECK(port.reserves == 2);
+    CHECK(port.reserved_count == 2);
+    CHECK(port.saved == 42U);
+    CHECK(port.closes == 1);
+    CHECK(port.closed_epoch == 41U);
+    CHECK(left.app.epoch == 42U);
+    CHECK(left.app.index == 1U);
+    CHECK(left.app.value == 301U);
+    CHECK(left.app.publication_stopped == 0);
+    CHECK(pump(now + 1U, 4) == 0);
+    CHECK(left.wire.submits > submits);
+    CHECK(right.app.telem_n == SAMPLE1_TELEM_BYTES);
+    CHECK(sample1_load_u64(right.app.telem) == 42U);
+    CHECK(sample1_load_u32(right.app.telem + 8U) == 1U);
+    CHECK(sample1_load_u32(right.app.telem + 12U) == 301U);
+
+    /* If association closure fails after the durable reservation, fail closed
+     * and leave the consumed epoch skipped rather than publishing through the
+     * old association or attempting the same reservation again. */
+    memset(&port, 0, sizeof port);
+    port.next_candidate = 41U;
+    port.outcome = SAMPLE_EPOCH_SAVED;
+    CHECK(boot(&left, 1, now) == 0);
+    CHECK(boot(&right, 0, now) == 0);
+    attach_epoch_port(&left, &port);
+    CHECK(publish_sample(&left, 300U, now) == 0);
+    CHECK(pump(now, 4) == 0);
+    left.app.index = UINT32_MAX;
+    submits = left.wire.submits;
+    CHECK(publish_sample(&left, 302U, now + 1U) != 0);
+    CHECK(left.app.publication_stopped == 1);
+    CHECK(left.app.epoch_ready == 1);
+    CHECK(left.app.epoch == 41U);
+    CHECK(left.app.index == UINT32_MAX);
+    CHECK(port.reserves == 2);
+    CHECK(port.reserved_count == 2);
+    CHECK(port.saved == 42U);
+    CHECK(port.closes == 0);
+    CHECK(left.wire.submits == submits);
+    CHECK(publish_sample(&left, 303U, now + 2U) != 0);
+    CHECK(port.reserves == 2);
+    CHECK(left.wire.submits == submits);
     return 0;
 }
 
@@ -1527,13 +1623,15 @@ static int test_sample_no_sample(void)
     return 0;
 }
 
-/* A2 steps 2 and 4. Consumer init clock is 5000 ms; reliability
- * result_deadline_ms stays 12000. 5000 is handwritten, not the manifest. */
+/* A2 steps 2 and 4. Consumer initialization timing comes from the selected
+ * deployment manifest; reliability result_deadline_ms is a separate budget. */
 static int test_sample_init_budget(void)
 {
     dmp_reliability_handle handle;
+    uint8_t late_payload[SAMPLE1_READ_BYTES];
+    size_t late_payload_size;
     dmp_time_ms now = 1000U;
-    const dmp_time_ms init_clock_ms = 5000U;
+    const dmp_time_ms init_clock_ms = SAMPLE_INIT_DEADLINE_MS;
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
     right.app.init_deadline = now + init_clock_ms;
@@ -1566,8 +1664,14 @@ static int test_sample_init_budget(void)
     CHECK(right.app.synchronized == 0);
     CHECK(right.app.live_index == 0U);
     left.app.hold_complete = 0;
+    left.app.have_pending = 0;
+    late_payload_size = sample1_read_rsp(late_payload, 1U, 2U, 300U);
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                span(late_payload, late_payload_size),
+                                now + init_clock_ms + (dmp_time_ms)SAMPLE_INIT_RETRY_MS) ==
+          DMP_STALE_HANDLE);
     CHECK(pump(now + init_clock_ms + (dmp_time_ms)SAMPLE_INIT_RETRY_MS, 8) == 0);
-    CHECK(right.app.results == 1);
+    CHECK(right.app.results == 0);
     CHECK(right.app.init_failed == 1);
     CHECK(right.app.synchronized == 0);
     CHECK(right.app.live_index == 0U);
@@ -1818,6 +1922,9 @@ int main(int argc, char **argv)
     if (strcmp(name, "sample_epoch_indeterminate") == 0 || strcmp(name, "all") == 0) {
         failed |= test_sample_epoch_indeterminate();
     }
+    if (strcmp(name, "sample_epoch_index_exhaustion") == 0 || strcmp(name, "all") == 0) {
+        failed |= test_sample_epoch_index_exhaustion();
+    }
     if (strcmp(name, "sample1") != 0 && strcmp(name, "sample_snapshot") != 0 &&
         strcmp(name, "fragment") != 0 && strcmp(name, "fragment_replay") != 0 &&
         strcmp(name, "fragment_tlv") != 0 && strcmp(name, "retry") != 0 &&
@@ -1829,6 +1936,7 @@ int main(int argc, char **argv)
         strcmp(name, "sample_invalid") != 0 && strcmp(name, "sample_epoch_restart") != 0 &&
         strcmp(name, "sample_epoch_fail") != 0 &&
         strcmp(name, "sample_epoch_indeterminate") != 0 &&
+        strcmp(name, "sample_epoch_index_exhaustion") != 0 &&
         strcmp(name, "all") != 0) {
         (void)fprintf(stderr, "unknown test %s\n", name);
         return 2;

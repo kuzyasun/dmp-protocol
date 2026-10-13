@@ -45,6 +45,19 @@ static int all_zero(const void *data, size_t size)
     return 1;
 }
 
+static int all_value(const void *data, size_t size, uint8_t value)
+{
+    const uint8_t *bytes = (const uint8_t *)data;
+    size_t index;
+
+    for (index = 0U; index < size; ++index) {
+        if (bytes[index] != value) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int bytes_match(const char *what, const uint8_t *actual, size_t actual_size,
                        const uint8_t *expected, size_t expected_size)
 {
@@ -484,6 +497,140 @@ static int exchange(dmp_provider *provider, const noise_fixture_probe_fixture_t 
                        fixture->handshake_hash.data, fixture->handshake_hash.size) &&
            bytes_match("responder hash", resp_hash, sizeof(resp_hash),
                        fixture->handshake_hash.data, fixture->handshake_hash.size);
+}
+
+static int test_output_contract(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    dmp_provider_cipher cipher;
+    uint8_t output[64];
+    size_t output_len;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count == 0U) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    memset(&cipher, 0, sizeof(cipher));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    memset(output, 0xD4, 32U);
+    status = dmp_provider_handshake_remote_public(provider, NULL, output);
+    if (status != DMP_PROVIDER_INVALID || !all_value(output, 32U, 0xD4U)) {
+        fprintf(stderr, "remote-public null-handshake validation changed caller output\n");
+        goto done;
+    }
+
+    memset(output, 0xA5, sizeof(output));
+    output_len = 0x1234U;
+    status = dmp_provider_handshake_write(provider, &handshake, NULL, 1U, output,
+                                          sizeof(output), &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0x1234U ||
+        !all_value(output, sizeof(output), 0xA5U)) {
+        fprintf(stderr, "handshake-write validation changed caller output\n");
+        goto done;
+    }
+    memset(output, 0xB6, sizeof(output));
+    output_len = 0x1357U;
+    status = dmp_provider_handshake_read(provider, &handshake, NULL, 1U, output,
+                                         sizeof(output), &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0x1357U ||
+        !all_value(output, sizeof(output), 0xB6U)) {
+        fprintf(stderr, "handshake-read validation changed caller output\n");
+        goto done;
+    }
+
+    if (dmp_provider_handshake_close(provider, &handshake) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    memset(output, 0xE5, 32U);
+    status = dmp_provider_handshake_remote_public(provider, &handshake, output);
+    if (status != DMP_PROVIDER_INVALID || !all_zero(output, 32U)) {
+        fprintf(stderr, "remote-public closed-handshake failure did not wipe output\n");
+        goto done;
+    }
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    memset(output, 0xA5, sizeof(output));
+    output_len = 0x1234U;
+    status = dmp_provider_handshake_write(
+        provider, &handshake, fixture->flights[0].plaintext.data,
+        fixture->flights[0].plaintext.size, output, 1U, &output_len);
+    if (status == DMP_PROVIDER_OK || output_len != 0U || !all_zero(output, 1U) ||
+        !all_value(output + 1U, sizeof(output) - 1U, 0xA5U)) {
+        fprintf(stderr, "short handshake-write output was not bounded and wiped\n");
+        goto done;
+    }
+
+    if (dmp_provider_cipher_from_key(provider, &cipher, fixture->i_to_r_key.data,
+                                     fixture->i_to_r_key.size) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    memset(output, 0x5A, sizeof(output));
+    output_len = 0x2345U;
+    status = dmp_provider_cipher_encrypt(provider, &cipher, UINT64_MAX, NULL, 0U,
+                                         output, 3U, sizeof(output), &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0x2345U ||
+        !all_value(output, sizeof(output), 0x5AU)) {
+        fprintf(stderr, "cipher-encrypt validation changed caller output\n");
+        goto done;
+    }
+
+    memcpy(output, "abc", 3U);
+    memset(output + 3U, 0x5A, sizeof(output) - 3U);
+    output_len = 0x3456U;
+    status = dmp_provider_cipher_encrypt(provider, &cipher, 0U, NULL, 0U,
+                                         output, 3U, 3U, &output_len);
+    if (status == DMP_PROVIDER_OK || output_len != 0U || !all_zero(output, 3U) ||
+        !all_value(output + 3U, sizeof(output) - 3U, 0x5AU)) {
+        fprintf(stderr, "short cipher-encrypt output was not bounded and wiped\n");
+        goto done;
+    }
+
+    memset(output, 0xC3, sizeof(output));
+    output_len = 0x4567U;
+    status = dmp_provider_cipher_decrypt(provider, &cipher, 0U, NULL, 0U,
+                                         output, 4U, 3U, &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0x4567U ||
+        !all_value(output, sizeof(output), 0xC3U)) {
+        fprintf(stderr, "cipher-decrypt validation changed caller output\n");
+        goto done;
+    }
+
+    passed = dmp_provider_cipher_close(provider, &cipher) == DMP_PROVIDER_OK &&
+             dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
+             release_clean(&port, "output contract");
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size());
+
+done:
+    if (!passed) {
+        dmp_provider_cleanup(provider);
+    }
+    free(provider);
+    return passed;
 }
 
 static int test_wrong_psk(void)
@@ -943,6 +1090,89 @@ done:
     return passed;
 }
 
+static int test_split_partial_registration_cleanup(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    enum { FILLER_COUNT = 9 };
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake initiator;
+    dmp_provider_handshake responder;
+    dmp_provider_cipher fillers[FILLER_COUNT];
+    dmp_provider_cipher send;
+    dmp_provider_cipher receive;
+    size_t index;
+    size_t blocks_before_split;
+    size_t retained_before_split;
+    unsigned releases_before_split;
+    dmp_provider_status split_status;
+    int passed = 0;
+
+    memset(&port, 0, sizeof(port));
+    memset(&initiator, 0, sizeof(initiator));
+    memset(&responder, 0, sizeof(responder));
+    memset(fillers, 0, sizeof(fillers));
+    memset(&send, 0xA5, sizeof(send));
+    memset(&receive, 0xA5, sizeof(receive));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (fixture == NULL || dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK ||
+        !exchange(provider, fixture, &initiator, &responder, 0)) {
+        goto done;
+    }
+
+    for (index = 0U; index < FILLER_COUNT; ++index) {
+        if (dmp_provider_cipher_from_key(provider, &fillers[index], fixture->i_to_r_key.data,
+                                         fixture->i_to_r_key.size) != DMP_PROVIDER_OK) {
+            fprintf(stderr, "split partial cleanup: filler open %zu failed\n", index);
+            goto done;
+        }
+    }
+    blocks_before_split = dmp_provider_block_count(provider);
+    retained_before_split = dmp_provider_retained(provider);
+    releases_before_split = port.release_calls;
+    /* The two exchange states plus nine filler ciphers occupy eleven of twelve
+     * child slots. Split can register its send child, then must unwind when
+     * registration of the receive child has no slot. */
+    split_status = dmp_provider_handshake_split(provider, &initiator, &send, &receive);
+    if (split_status != DMP_PROVIDER_NO_MEMORY ||
+        !all_zero(&send, sizeof(send)) || !all_zero(&receive, sizeof(receive)) ||
+        dmp_provider_block_count(provider) > blocks_before_split ||
+        dmp_provider_retained(provider) > retained_before_split ||
+        port.release_calls <= releases_before_split) {
+        fprintf(stderr,
+                "split cleanup status=%d blocks=%zu/%zu retained=%zu/%zu releases=%u/%u send_zero=%d receive_zero=%d\n",
+                (int)split_status, dmp_provider_block_count(provider), blocks_before_split,
+                dmp_provider_retained(provider), retained_before_split, port.release_calls,
+                releases_before_split, all_zero(&send, sizeof(send)),
+                all_zero(&receive, sizeof(receive)));
+        goto done;
+    }
+
+    passed = dmp_provider_handshake_close(provider, &initiator) == DMP_PROVIDER_OK &&
+             dmp_provider_handshake_close(provider, &responder) == DMP_PROVIDER_OK;
+    for (index = 0U; index < FILLER_COUNT; ++index) {
+        if (dmp_provider_cipher_close(provider, &fillers[index]) != DMP_PROVIDER_OK) {
+            passed = 0;
+        }
+    }
+    passed = passed && dmp_provider_block_count(provider) == 0U &&
+             dmp_provider_retained(provider) == 0U && release_clean(&port, "split partial cleanup");
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size());
+
+done:
+    if (!passed) {
+        dmp_provider_cleanup(provider);
+    }
+    free(provider);
+    return passed;
+}
+
 static int test_cleanup(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -993,12 +1223,14 @@ int main(void)
     expect_case("init", test_init());
     expect_case("entropy", test_entropy());
     expect_case("oom", test_oom());
+    expect_case("output-contract", test_output_contract());
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("low-order", test_low_order());
     expect_case("pn-aad-nnpsk0", test_pn_aad(nn));
     expect_case("pn-aad-xx", test_pn_aad(xx));
     expect_case("suite-nnpsk0", test_suite(nn));
     expect_case("suite-xx", test_suite(xx));
+    expect_case("split-partial-registration-cleanup", test_split_partial_registration_cleanup());
     expect_case("cleanup", test_cleanup());
     if (g_failures != 0) {
         fprintf(stderr, "%d provider adapter case(s) failed\n", g_failures);

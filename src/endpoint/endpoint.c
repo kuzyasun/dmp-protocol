@@ -42,6 +42,12 @@ static int message_key_eq(dmp_message_key a, dmp_message_key b)
            a.origin.origin_id == b.origin.origin_id && a.origin.epoch == b.origin.epoch;
 }
 
+static int message_origin_eq(dmp_message_origin a, dmp_message_origin b)
+{
+    return a.namespace_id == b.namespace_id && a.origin_id == b.origin_id &&
+           a.epoch == b.epoch;
+}
+
 static int freshness_service_index(const dmp_admitted_profile *profile, uint32_t service)
 {
     if (service == profile->service_id[0]) {
@@ -734,6 +740,7 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     endpoint->notice_user = storage->notice_user;
     endpoint->validate_request = storage->validate_request;
     endpoint->validate_request_user = storage->validate_request_user;
+    endpoint->validate_result = storage->validate_result;
     endpoint->outer = *storage->transport;
     endpoint->tx_generation = 1U;
     if (required_freshness != 0U) {
@@ -1412,12 +1419,35 @@ static dmp_status endpoint_complete_for_lifetime(dmp_endpoint *endpoint,
     if (request.slot < endpoint->mem.history_capacity && endpoint->mem.history != NULL) {
         dmp_reliability_history_slot *history = &endpoint->mem.history[request.slot];
         if (history->live != 0U && history->generation == request.generation) {
+            dmp_identity_slot *active = NULL;
+            dmp_identity_slot *draining = NULL;
+            int source_is_active = 0;
+            int source_is_draining = 0;
+
+            if (endpoint->context.slot < endpoint->identity.capacity) {
+                active = &endpoint->identity.slots[endpoint->context.slot];
+                source_is_active = active->generation == endpoint->context.generation &&
+                                   active->state == DMP_IDENTITY_SLOT_ACTIVE &&
+                                   message_origin_eq(history->source.origin, active->peer);
+            }
+            if (endpoint->drain_live != 0U &&
+                endpoint->drain_context.slot < endpoint->identity.capacity) {
+                draining = &endpoint->identity.slots[endpoint->drain_context.slot];
+                source_is_draining = draining->generation == endpoint->drain_context.generation &&
+                                    draining->state == DMP_IDENTITY_SLOT_DRAINING &&
+                                    message_origin_eq(history->source.origin, draining->peer);
+            }
+            if (!source_is_active && !source_is_draining) {
+                return DMP_STALE_HANDLE;
+            }
+            if (source_is_draining && dmp_deadline_reached(now, draining->not_after)) {
+                return DMP_DEADLINE_EXPIRED;
+            }
             /* Local RESULT permission applies with or without a live drain. */
             if (!local_action(endpoint, history->service_id, DMP_ENDPOINT_PERMIT_RESULT)) {
                 return DMP_UNSUPPORTED;
             }
-            if (endpoint->drain_live != 0U &&
-                history->source.origin.epoch == endpoint->drain_peer_epoch) {
+            if (source_is_draining) {
                 use_context(endpoint, endpoint->drain_context);
                 swapped = 1;
             }
@@ -1441,6 +1471,56 @@ dmp_status dmp_endpoint_complete(dmp_endpoint *endpoint, dmp_reliability_handle 
     }
     return endpoint_complete_for_lifetime(endpoint, request, application_err, wire_status, payload,
                                           endpoint->profile.result_cache_ms, now);
+}
+
+dmp_status dmp_endpoint_abandon_request(dmp_endpoint *endpoint,
+                                        dmp_reliability_handle request,
+                                        dmp_time_ms now)
+{
+    dmp_reliability_history_slot *history;
+    dmp_status status;
+
+    if (!ready(endpoint)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (request.slot >= endpoint->mem.history_capacity || endpoint->mem.history == NULL) {
+        return DMP_STALE_HANDLE;
+    }
+    history = &endpoint->mem.history[request.slot];
+    if (history->live == 0U || history->generation != request.generation ||
+        history->decision != 0U) {
+        return DMP_STALE_HANDLE;
+    }
+    if (endpoint->pending_grant_live != 0U &&
+        endpoint->pending_grant_request.slot == request.slot &&
+        endpoint->pending_grant_request.generation == request.generation) {
+        return DMP_BUSY;
+    }
+    if (endpoint->revoked == 0U && endpoint->context.slot < endpoint->identity.capacity) {
+        const dmp_identity_slot *active = &endpoint->identity.slots[endpoint->context.slot];
+        if (active->generation == endpoint->context.generation &&
+            active->state == DMP_IDENTITY_SLOT_ACTIVE &&
+            message_origin_eq(history->source.origin, active->peer)) {
+            return DMP_BUSY;
+        }
+    }
+    if (endpoint->drain_live != 0U &&
+        endpoint->drain_context.slot < endpoint->identity.capacity) {
+        const dmp_identity_slot *draining =
+            &endpoint->identity.slots[endpoint->drain_context.slot];
+        if (draining->generation == endpoint->drain_context.generation &&
+            draining->state == DMP_IDENTITY_SLOT_DRAINING &&
+            message_origin_eq(history->source.origin, draining->peer) &&
+            !dmp_deadline_reached(now, draining->not_after)) {
+            return DMP_BUSY;
+        }
+    }
+
+    status = dmp_reliability_abandon_request(&endpoint->reliability, request);
+    if (status == DMP_OK) {
+        expire_drain(endpoint, now);
+    }
+    return status;
 }
 
 static dmp_status stage_telem(dmp_endpoint *endpoint, uint32_t service_id, dmp_bytes payload,
@@ -2183,6 +2263,25 @@ static dmp_status validate_request_before_accept(dmp_endpoint *endpoint,
     return reject_authenticated_req(endpoint, frame, service, context, protocol_status, now);
 }
 
+static dmp_status validate_result_before_accept(dmp_endpoint *endpoint,
+                                                const dmp_frame_view *frame,
+                                                uint32_t service, dmp_bytes payload,
+                                                int *handled)
+{
+    if (endpoint == NULL || frame == NULL || handled == NULL || !bytes_ok(payload)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    *handled = 0;
+    if (frame->fields.type != DMP_TYPE_RSP || service == 0U ||
+        endpoint->validate_result == NULL) {
+        return DMP_OK;
+    }
+    if (!endpoint->validate_result(endpoint->validate_request_user, frame, service, payload)) {
+        *handled = 1;
+    }
+    return DMP_OK;
+}
+
 static int freshness_duplicate_grant(dmp_endpoint *endpoint, dmp_message_key key,
                                      uint32_t attempt, uint32_t requested_lifetime)
 {
@@ -2481,6 +2580,10 @@ static dmp_status present_assembled(dmp_endpoint *endpoint, const dmp_frame_view
     logical.payload = full;
     status = validate_request_before_accept(endpoint, &logical, service, context, full, 1, now,
                                             &handled, &retained_rejection);
+    if (status != DMP_OK || handled != 0) {
+        return status;
+    }
+    status = validate_result_before_accept(endpoint, &logical, service, full, &handled);
     if (status != DMP_OK || handled != 0) {
         return status;
     }
@@ -2855,6 +2958,14 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
                                     : (uint32_t)view.payload.size;
         if (message_size > endpoint->profile.message_bytes) {
             return DMP_LIMIT_EXHAUSTED;
+        }
+    }
+    if (view.fields.type == DMP_TYPE_RSP && service != 0U &&
+        (view.fields.options & DMP_OPT_FRAG) == 0U) {
+        int handled = 0;
+        status = validate_result_before_accept(endpoint, &view, service, view.payload, &handled);
+        if (status != DMP_OK || handled != 0) {
+            return status;
         }
     }
     if (view.fields.type == DMP_TYPE_FRAG_STATUS) {

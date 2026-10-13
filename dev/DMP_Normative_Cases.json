@@ -488,10 +488,22 @@
       "peer_test_id": "planned/p21b/v224-fragments",
       "peer_gate": "P21B",
       "interop_gate": "P23",
-      "scope": "Unit/independent-codec golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; protected rerun later; not implementation in this assignment",
-      "status": "not-run",
+      "scope": "Unit codec/reassembly golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; protected rerun later; not implementation in this assignment",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites."
+      "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/reassembly/test_reassembly.c::test_stride_and_order",
+        "tests/endpoint/test_endpoint.c::test_fragment",
+        "tests/reassembly/test_reassembly.c::test_v224_golden_fragments"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-primary-c-golden-vector-crosswalk",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_v224_fragments_reverse_arrival"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "v225-desc",
@@ -838,9 +850,22 @@
       "peer_gate": "P21B",
       "interop_gate": "P23",
       "scope": "Unit/independent-codec golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; bytes and exchange; not implementation in this assignment",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites."
+      "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint.c::test_result_loss",
+        "tests/reliability/test_reliability.c::test_duplicate_metadata_and_service",
+        "tests/core/test_codec.c::test_v229_golden_exchange_bytes"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-primary-c-golden-vector-crosswalk",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_v229_immediate_rsp_and_result_ack"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "v229-result-ack",
@@ -853,9 +878,22 @@
       "peer_gate": "P21B",
       "interop_gate": "P23",
       "scope": "Unit/independent-codec golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; not implementation in this assignment",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites."
+      "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_receipt_loss",
+        "tests/endpoint/test_endpoint.c::test_duplicate",
+        "tests/reliability/test_reliability.c::test_receipt_loss_and_retry",
+        "tests/core/test_codec.c::test_v229_golden_exchange_bytes"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-primary-c-golden-vector-crosswalk",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_v229_immediate_rsp_and_result_ack"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "v2210-empty-ext",
@@ -1045,9 +1083,21 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected cases rerun with real SEC-1",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status."
+      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/reassembly/test_reassembly.c::test_conflicts_and_retries",
+        "tests/endpoint/test_endpoint.c::test_fragment_replay",
+        "tests/endpoint/test_endpoint_sec.c::test_reassembly"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_main228_fragment_conflict"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "main228-relay-cooldown",
@@ -1144,9 +1194,24 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected cases rerun with real SEC-1",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status."
+      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_retry",
+        "tests/endpoint/test_endpoint.c::test_result_loss",
+        "tests/endpoint/test_endpoint.c::test_receipt_loss",
+        "tests/endpoint/test_endpoint.c::test_duplicate",
+        "tests/endpoint/test_endpoint_sec.c::test_result_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_receipt_loss"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_main228_req_result_loss"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "main228-reject-err-timeout",
@@ -1159,9 +1224,28 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected cases rerun with real SEC-1",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status."
+      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/reliability/test_reliability.c::test_rejection_and_status",
+        "tests/reliability/test_reliability.c::test_late_cancel_and_retention",
+        "tests/reliability/test_reliability.c::test_quota_and_validation",
+        "tests/core/test_codec.c::test_reply_status_and_control_shapes",
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_retained_rejection_reassembly",
+        "tests/endpoint/test_endpoint_sec.c::test_freshness_terminal_rejection",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_err_status_contract"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-rejection-status-and-correlation-capacity",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_main228_reject_err_timeout"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "main228-stopwait",
@@ -1264,9 +1348,29 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected cases rerun with real SEC-1",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status."
+      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint.c::test_sample_same_epoch",
+        "tests/endpoint/test_endpoint.c::test_sample_new_epoch",
+        "tests/endpoint/test_endpoint.c::test_sample_late_assoc",
+        "tests/endpoint/test_endpoint.c::test_sample_superseded",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization",
+        "tests/endpoint/test_endpoint_sec.c::test_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_result_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_receipt_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_rotation"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-stale-sample-host-reconciliation",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_main228_sample_stale"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "main228-control-reserve",
@@ -1339,9 +1443,25 @@
       "peer_gate": "P21B/P21D",
       "interop_gate": "P23",
       "scope": "host simulation; protected cases rerun with real SEC-1",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status."
+      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/reassembly/test_reassembly.c::test_stride_and_order",
+        "tests/reassembly/test_reassembly.c::test_limits_do_not_reserve",
+        "tests/reassembly/test_reassembly.c::test_quotas",
+        "tests/reassembly/test_reassembly.c::test_handles_and_overflow",
+        "tests/endpoint/test_endpoint.c::test_fragment_tlv",
+        "tests/endpoint/test_endpoint_sec.c::test_reassembly",
+        "tests/endpoint/test_endpoint_sec.c::test_frag_deny"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_main228_fixed_geometry"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "main228-full-compact-ref",
@@ -1384,9 +1504,23 @@
       "peer_gate": "P21B",
       "interop_gate": "P23",
       "scope": "host simulation; protected cases rerun with real SEC-1",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status."
+      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint_sec.c::test_sample_invalid_request",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_service2_immediate",
+        "tests/reliability/test_reliability.c::test_rejection_and_status"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-service2-immediate",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_main228_immediate_rule"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "main228-protocol-status",
@@ -1399,17 +1533,26 @@
       "peer_gate": "P21A/P21B",
       "interop_gate": "P23",
       "scope": "host simulation; protected cases rerun with real SEC-1",
-      "status": "partial",
-      "primary_result": "partial",
+      "status": "passed",
+      "primary_result": "passed",
       "primary_checks": [
         "tests/core/test_codec.c::test_reply_status_and_control_shapes",
-        "tests/core/test_codec.c::test_nested_error_offsets_and_zero_default"
+        "tests/core/test_codec.c::test_nested_error_offsets_and_zero_default",
+        "tests/reliability/test_reliability.c::test_rejection_and_status",
+        "tests/endpoint/test_endpoint_sec.c::test_sample_invalid_request",
+        "tests/endpoint/test_endpoint_sec.c::test_retained_rejection_reassembly",
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_err_status_contract"
       ],
-      "primary_evidence": "dev/evidence/codec-framing-20260927/README.md",
-      "peer_result": "not-run",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-sec-1-error-status-contract",
+      "peer_result": "passed",
       "interop_result": "not-applicable",
-      "primary_remaining": "P10/P12 retained rejection, loss/retry, execution and reliable terminal ERR behavior remain unimplemented.",
-      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status."
+      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_main228_protocol_status"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "main228-service-canon",
@@ -2776,13 +2919,24 @@
       "peer_gate": "P21A/P21B",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "passed",
       "interop_checks": [
         "tests/peer/tests/test_p23_c_endpoint_interop.py::TestP23CPrimaryInterop.test_c_endpoint_produces_sample1_accepted_by_python_peer",
         "tests/peer/tests/test_p23_mixed_endpoint_path.py::TestP23MixedEndpointPath.test_sec1_sample_exchange_crosses_mixed_path_in_both_directions"
       ],
-      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates."
+      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint_sec.c::test_result"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_service"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a1-invalid",
@@ -2801,7 +2955,7 @@
         "tests/endpoint/test_endpoint_sec.c::test_sample_invalid_request",
         "tests/endpoint/test_endpoint_sec.c::test_retained_rejection_reassembly"
       ],
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--retained-rejection-across-fragmented-replay",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
       "peer_result": "passed",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_invalid",
@@ -2847,13 +3001,30 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "passed",
       "interop_checks": [
         "tests/peer/tests/test_p23_c_endpoint_interop.py::TestP23CPrimaryInterop.test_sample_and_large_request_result_from_c_to_peer",
         "tests/peer/tests/test_p23_c_endpoint_interop.py::TestP23CPrimaryInterop.test_large_request_result_from_peer_to_c"
       ],
-      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates."
+      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint.c::test_result_loss",
+        "tests/endpoint/test_endpoint.c::test_receipt_loss",
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_result_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_receipt_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_no_sample"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-sec-1-no-sample-exchange",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_delivery",
+        "tests/peer/tests/test_p21c_protected_p21b.py::TestP21CProtectedP21B.test_p21b_protected_sample1_no_sample_and_status_rows"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a1-epoch",
@@ -2866,9 +3037,23 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_restart",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_fail",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_indeterminate",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_index_exhaustion"
+      ],
+      "primary_remaining": "The deterministic host persistence port covers reservation/restart/failure outcomes only; no production storage adapter or durable target result exists.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-index-exhaustion-rollover",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_epoch"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a1-epoch-transition",
@@ -2881,9 +3066,23 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_new_epoch",
+        "tests/endpoint/test_endpoint_sec.c::test_rotation",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_index_exhaustion",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_restart"
+      ],
+      "primary_remaining": "Tests cover sample epoch selection and generic association rotation separately; they do not prove the producer closes every old-epoch association and serializes that transition with READ, publication, and activation.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-index-exhaustion-rollover",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_epoch_transition"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a2-unsync",
@@ -2896,9 +3095,23 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization",
+        "tests/endpoint/test_endpoint_sec.c::test_rotation"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-prior-cache-invalidation",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a2_unsync"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a2-designated-read",
@@ -2911,13 +3124,29 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "passed",
       "interop_checks": [
         "tests/peer/tests/test_p23_c_endpoint_interop.py::TestP23CPrimaryInterop.test_c_endpoint_produces_sample1_accepted_by_python_peer",
         "tests/peer/tests/test_p23_c_endpoint_interop.py::TestP23CPrimaryInterop.test_sample_and_large_request_result_from_c_to_peer"
       ],
-      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates."
+      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_init_budget",
+        "tests/endpoint/test_endpoint.c::test_sample_superseded",
+        "tests/endpoint/test_endpoint.c::test_sample_late_assoc",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_init_timeout",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_superseded"
+      ],
+      "primary_remaining": "Protected timeout and stale-designation supersession are covered. The active deployment manifest permits one initialization attempt, so protected retry scheduling is not exercised.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-sample-designation-supersession",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a2_designated_read"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a2-correlated-result",
@@ -2930,13 +3159,29 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "passed",
       "interop_checks": [
         "tests/peer/tests/test_p23_c_endpoint_interop.py::TestP23CPrimaryInterop.test_sample_and_large_request_result_from_c_to_peer",
         "tests/peer/tests/test_p23_mixed_endpoint_path.py::TestP23MixedEndpointPath.test_sec1_sample_exchange_crosses_mixed_path_in_both_directions"
       ],
-      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates."
+      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint.c::test_sample_same_epoch",
+        "tests/endpoint/test_endpoint.c::test_sample_new_epoch",
+        "tests/endpoint/test_endpoint.c::test_sample_late_assoc",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_late_assoc"
+      ],
+      "primary_remaining": "Protected current-handle correlation, stale same-epoch ordering, and an old-epoch result returned on a draining association are covered. Atomic concurrent update remains open.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-late-sample-result-on-draining-association",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a2_correlated_result"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a2-no-sample",
@@ -2949,9 +3194,23 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint.c::test_sample_init_budget",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_init_timeout"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-sample-init-timeout",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a2_no_sample"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a2-live-late",
@@ -2964,9 +3223,24 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_same_epoch",
+        "tests/endpoint/test_endpoint.c::test_sample_new_epoch",
+        "tests/endpoint/test_endpoint.c::test_sample_late_assoc",
+        "tests/endpoint/test_endpoint.c::test_sample_superseded",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_late_assoc"
+      ],
+      "primary_remaining": "Protected SEC-1 now verifies that an old-epoch result arriving on a live draining association keeps its request correlation and ACK path while leaving the new sample cache unchanged. Atomic concurrent result/association update remains open.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-late-sample-result-on-draining-association",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a2_live_late"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a3-positive",
@@ -2979,13 +3253,26 @@
       "peer_gate": "P21B",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "passed",
       "interop_checks": [
         "tests/peer/tests/test_p23_c_endpoint_interop.py::TestP23CPrimaryInterop.test_sample_and_large_request_result_from_c_to_peer",
         "tests/peer/tests/test_p23_mixed_endpoint_path.py::TestP23MixedEndpointPath.test_sec1_sample_exchange_crosses_mixed_path_in_both_directions"
       ],
-      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates."
+      "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_result"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a3_positive_and_negative",
+        "tests/peer/tests/test_p21c_protected_p21b.py::TestP21CProtectedP21B.test_p21b_protected_sample1_no_sample_and_status_rows"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a3-negative",
@@ -2998,9 +3285,25 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_invalid",
+        "tests/endpoint/test_endpoint_sec.c::test_sample_invalid_request",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_invalid_result",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_invalid_telem",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_fragmented_result",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_invalid_fragmented_result"
+      ],
+      "primary_remaining": "SEC-1 coverage rejects wrong-service and malformed correlated results before completion, including malformed fragmented results after reassembly, and rejects 15/17-byte TELEM payloads at the SAMPLE-1 application boundary. A wrong authenticated sender/association case remains untested in the single-peer primary profile.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-reinitialization-snapshot-result-schema-and-fragmentation",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a3_positive_and_negative"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-firstboot",
@@ -3013,9 +3316,22 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-sample-initialization-and-ordering",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_firstboot"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-early-telem",
@@ -3028,9 +3344,22 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample1",
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-sample-initialization-and-ordering",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_early_telem"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-no-sample-read",
@@ -3043,9 +3372,20 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_no_sample",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_no_sample"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-sec-1-no-sample-exchange",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_no_sample_read"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-loss",
@@ -3058,9 +3398,24 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_retry",
+        "tests/endpoint/test_endpoint.c::test_result_loss",
+        "tests/endpoint/test_endpoint.c::test_receipt_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_result_loss",
+        "tests/endpoint/test_endpoint_sec.c::test_receipt_loss"
+      ],
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-sample-1-delivery-loss-state",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_loss"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-timeout",
@@ -3073,9 +3428,21 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_init_budget",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_init_timeout"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-sample-init-timeout",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_timeout"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-old-snapshot",
@@ -3088,9 +3455,22 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_same_epoch",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_late_assoc"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-reinitialization-snapshot-result-schema-and-fragmentation",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_old_snapshot"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-restart",
@@ -3103,9 +3483,23 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_restart",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_fail",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_indeterminate",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_index_exhaustion"
+      ],
+      "primary_remaining": "Index exhaustion now reserves a distinct next epoch and tests fail-closed when old-association closure fails. Reservation and closure callbacks remain host stubs; target durable storage and a production association-transition adapter are absent.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-index-exhaustion-rollover",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_restart"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-late-result",
@@ -3118,9 +3512,23 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_late_assoc",
+        "tests/endpoint/test_endpoint.c::test_sample_superseded",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_late_assoc",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_superseded"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-reinitialization-snapshot-result-schema-and-fragmentation",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_late_result"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-assoc-race",
@@ -3133,9 +3541,21 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_late_assoc",
+        "tests/endpoint/test_endpoint_sec.c::test_rotation"
+      ],
+      "primary_remaining": "The host tests sequence association replacement around a delayed result but do not prove an atomic concurrent update/cancel race through primary SEC-1.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_assoc_race"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-persistence",
@@ -3148,9 +3568,22 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "partial",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_restart",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_fail",
+        "tests/endpoint/test_endpoint.c::test_sample_epoch_indeterminate"
+      ],
+      "primary_remaining": "Only a deterministic host port is exercised; target durable commit, rollback/counter-loss diagnostics, and production fail-stop behavior are unverified.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_persistence"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "s-a4-close-shared",
@@ -3163,9 +3596,21 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "not-run",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints."
+      "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint_sec.c::test_rotation",
+        "tests/reliability/test_reliability.c::test_late_cancel_and_retention"
+      ],
+      "primary_remaining": "",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-sample-1-epoch-transition-close",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_close_shared"
+      ],
+      "peer_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck"
     },
     {
       "id": "manifest-reject-aesgcm",

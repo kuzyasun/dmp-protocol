@@ -111,6 +111,7 @@ typedef struct {
     int accepts;
     int results;
     uint32_t last_status;
+    dmp_reliability_handle result_request;
     int drop_result_receipt;
     int telems;
     int assembled;
@@ -125,6 +126,16 @@ typedef struct {
     uint8_t body[MESSAGE];
     size_t body_n;
 } app;
+
+typedef struct {
+    int synchronized;
+    int discarded;
+    int rollbacks;
+    int violations;
+    uint64_t epoch;
+    uint32_t index;
+    uint32_t value;
+} sample_tracker;
 
 struct node {
     dmp_endpoint endpoint;
@@ -220,6 +231,7 @@ static uint32_t p23_pin_commits;
 static dmp_config p23_effective_config;
 static dmp_hs_budget p23_effective_budget;
 static int g_validate_sample1_requests;
+static int g_validate_sample1_results;
 static uint32_t g_sample1_validator_calls;
 static uint32_t g_sample1_forced_status;
 
@@ -252,6 +264,22 @@ static uint32_t validate_sample1_request(void *user, const dmp_frame_view *frame
     return 0U;
 }
 
+static int validate_sample1_result(void *user, const dmp_frame_view *frame,
+                                   uint32_t service_id, dmp_bytes payload)
+{
+    uint64_t epoch;
+    uint32_t index;
+    (void)user;
+    if (frame == NULL || frame->fields.type != DMP_TYPE_RSP || service_id != 1U ||
+        payload.data == NULL || payload.size != SAMPLE1_READ_BYTES ||
+        payload.data[0] != SAMPLE1_READ) {
+        return 0;
+    }
+    epoch = sample1_load_u64(payload.data + 1U);
+    index = sample1_load_u32(payload.data + 9U);
+    return epoch != 0U && index != 0U;
+}
+
 static dmp_bytes span(const void *data, size_t size)
 {
     dmp_bytes bytes;
@@ -281,6 +309,7 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
   if (notice->event == DMP_ENDPOINT_RESULT) {
     self->app.results++;
     self->app.last_status = notice->wire_status;
+    self->app.result_request = notice->request;
     self->app.result_n = notice->payload.size <= sizeof self->app.result
                              ? notice->payload.size
                              : 0U;
@@ -315,6 +344,90 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
     self->app.data_unknowns++;
     self->app.data_unknown_service = notice->service_id;
   }
+}
+
+static int same_handle(dmp_reliability_handle left, dmp_reliability_handle right)
+{
+    return left.slot == right.slot && left.generation == right.generation;
+}
+
+static int sample_observe_telem(sample_tracker *state, dmp_bytes payload)
+{
+    uint64_t epoch;
+    uint32_t index;
+    uint32_t value;
+
+    if (state == NULL || payload.data == NULL || payload.size != SAMPLE1_TELEM_BYTES) {
+        return 1;
+    }
+    epoch = sample1_load_u64(payload.data);
+    index = sample1_load_u32(payload.data + 8U);
+    value = sample1_load_u32(payload.data + 12U);
+    if (epoch == 0U || index == 0U) {
+        state->violations++;
+        return 0;
+    }
+    if (!state->synchronized) {
+        state->discarded++;
+        return 0;
+    }
+    if (epoch != state->epoch) {
+        state->violations++;
+    } else if (index > state->index) {
+        state->index = index;
+        state->value = value;
+    } else if (index < state->index) {
+        state->rollbacks++;
+    } else if (value != state->value) {
+        state->violations++;
+    }
+    return 0;
+}
+
+static int sample_accept_read_result(sample_tracker *state, const app *result,
+                                     dmp_reliability_handle designated)
+{
+    uint64_t epoch;
+    uint32_t index;
+    uint32_t value;
+
+    if (state == NULL || result == NULL || result->last_status != 0U ||
+        result->result_n != SAMPLE1_READ_BYTES || result->result[0] != SAMPLE1_READ ||
+        !same_handle(result->result_request, designated)) {
+        return 1;
+    }
+    epoch = sample1_load_u64(result->result + 1U);
+    index = sample1_load_u32(result->result + 9U);
+    value = sample1_load_u32(result->result + 13U);
+    if (epoch == 0U || index == 0U) {
+        state->violations++;
+        return 0;
+    }
+    if (!state->synchronized) {
+        if (state->epoch == epoch && state->index != 0U) {
+            if (index > state->index) {
+                state->index = index;
+                state->value = value;
+            } else if (index == state->index && value != state->value) {
+                state->violations++;
+            }
+        } else {
+            state->epoch = epoch;
+            state->index = index;
+            state->value = value;
+        }
+        state->synchronized = 1;
+    } else if (epoch != state->epoch) {
+        state->violations++;
+    } else if (index > state->index) {
+        state->index = index;
+        state->value = value;
+    } else if (index < state->index) {
+        state->rollbacks++;
+    } else if (value != state->value) {
+        state->violations++;
+    }
+    return 0;
 }
 
 static dmp_status wire_submit(void *context,
@@ -666,6 +779,9 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   if (g_validate_sample1_requests) {
     storage.validate_request = validate_sample1_request;
   }
+  if (g_validate_sample1_results) {
+    storage.validate_result = validate_sample1_result;
+  }
   storage.senders = self->senders;
   storage.sender_capacity = SENDERS;
   storage.sender_payload = self->sender_payload;
@@ -802,6 +918,10 @@ static int deliver_all(node *from, node *to, dmp_time_ms now)
     for (i = 0; i < n; i++) {
         dmp_status status = DMP_OK;
         CHECK(deliver_one(from, to, i, now, &status) == 0);
+        if (status != DMP_OK && status != DMP_INCOMPLETE && status != DMP_DUPLICATE) {
+            (void)fprintf(stderr, "endpoint RX returned %d for frame %d of %d\n", (int)status,
+                          i + 1, n);
+        }
         CHECK(status == DMP_OK || status == DMP_INCOMPLETE || status == DMP_DUPLICATE);
     }
     from->wire.n = 0;
@@ -1404,6 +1524,7 @@ static int test_loss(void)
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
     session env;
     port_ctx port;
+    sample_tracker state = {0};
     uint32_t index = 0U;
     uint8_t req[1];
     dmp_reliability_handle handle;
@@ -1432,6 +1553,9 @@ static int test_loss(void)
     CHECK(left.app.accepts == 1);
     CHECK(right.app.results == 1);
     CHECK(memcmp(right.app.result, READ_RSP, sizeof READ_RSP) == 0);
+    CHECK(sample_accept_read_result(&state, &right.app, handle) == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 1U && state.index == 2U &&
+          state.value == 300U && state.violations == 0);
     close_session(&env);
     return 0;
 }
@@ -1441,6 +1565,7 @@ static int test_result_loss(void)
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
     session env;
     port_ctx port;
+    sample_tracker state = {0};
     uint32_t index = 0U;
     uint8_t req[1];
     dmp_reliability_handle handle;
@@ -1461,12 +1586,16 @@ static int test_result_loss(void)
     CHECK(left.app.accepts == 1);
     CHECK(left.wire.drop_remaining == 0);
     CHECK(right.app.results == 0);
+    CHECK(state.synchronized == 0);
     CHECK(pump(now + 1280U, 8) == 0);
     CHECK(left.app.accepts == 1);
     CHECK(right.app.results == 1);
     CHECK(right.app.result_n == sizeof READ_RSP);
     CHECK(memcmp(right.app.result, READ_RSP, sizeof READ_RSP) == 0);
     CHECK(right.app.unknowns == 0);
+    CHECK(sample_accept_read_result(&state, &right.app, handle) == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 1U && state.index == 2U &&
+          state.value == 300U && state.violations == 0);
     close_session(&env);
     return 0;
 }
@@ -1476,6 +1605,7 @@ static int test_receipt_loss(void)
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
     session env;
     port_ctx port;
+    sample_tracker state = {0};
     uint32_t index = 0U;
     uint8_t req[1];
     dmp_reliability_handle handle;
@@ -1496,6 +1626,9 @@ static int test_receipt_loss(void)
     CHECK(left.app.accepts == 1);
     CHECK(right.app.results == 1);
     CHECK(right.wire.drop_remaining == 0);
+    CHECK(sample_accept_read_result(&state, &right.app, handle) == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 1U && state.index == 2U &&
+          state.value == 300U && state.violations == 0);
     right_submits = right.wire.submits;
 
     /* The first protected receipt was dropped during result delivery. The
@@ -1505,6 +1638,8 @@ static int test_receipt_loss(void)
     CHECK(right.wire.submits == right_submits + 1);
     CHECK(left.app.accepts == 1);
     CHECK(right.app.results == 1);
+    CHECK(state.synchronized == 1 && state.epoch == 1U && state.index == 2U &&
+          state.value == 300U && state.violations == 0);
     CHECK(pump(now + 1390U, 4) == 0);
     CHECK(right.wire.submits == right_submits + 1);
     CHECK(left.app.accepts == 1);
@@ -1895,6 +2030,10 @@ static int protected_err_status(const uint8_t *framed, size_t n, dmp_time_ms now
     if (parsed.status != DMP_OK) {
         return 0;
     }
+    if (view.fields.type != DMP_TYPE_ERR ||
+        (view.fields.options & DMP_OPT_SECURITY) == 0U) {
+        return 0;
+    }
     while (cursor < view.extensions.size) {
         dmp_extension_view ext;
         size_t at = 0U;
@@ -1925,7 +2064,130 @@ static int protected_err_status(const uint8_t *framed, size_t n, dmp_time_ms now
     if (found == 0) {
         return 0;
     }
+    if ((wire >= 64U) != ((view.fields.options & DMP_OPT_ACK_REQ) != 0U)) {
+        return 0;
+    }
     *status_out = wire;
+    return 1;
+}
+
+static int protected_frame_type_seq(const uint8_t *framed, size_t n, dmp_time_ms now,
+                                    uint8_t *type_out, uint32_t *seq_out)
+{
+    uint8_t core[MTU];
+    size_t core_n = 0U;
+    dmp_core_limits limits = {MTU, MESSAGE, 32U};
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+
+    if (!unwrap_core(framed, n, core, sizeof core, &core_n, now)) {
+        return 0;
+    }
+    memset(&view, 0, sizeof view);
+    parsed = dmp_core_parse(span(core, core_n), &limits, &view);
+    if (parsed.status != DMP_OK || parsed.offset != core_n ||
+        (view.fields.options & DMP_OPT_SECURITY) == 0U) {
+        return 0;
+    }
+    if (type_out != NULL) {
+        *type_out = view.fields.type;
+    }
+    if (seq_out != NULL) {
+        *seq_out = view.fields.seq;
+    }
+    return 1;
+}
+
+static size_t encode_test_uleb32(uint32_t value, uint8_t *out)
+{
+    size_t size = 0U;
+    do {
+        uint8_t byte = (uint8_t)(value & 0x7FU);
+        value >>= 7;
+        if (value != 0U) {
+            byte |= 0x80U;
+        }
+        out[size++] = byte;
+    } while (value != 0U);
+    return size;
+}
+
+static int seal_sample_result(session *env, uint32_t attempt, uint32_t own_seq,
+                              uint32_t reply_seq, uint32_t service, dmp_bytes payload,
+                              uint8_t wrapped[FRAME_CAP], size_t *wrapped_n)
+{
+    dmp_frame_spec spec;
+    uint8_t extensions[16];
+    uint8_t value[5];
+    uint8_t sealed[MTU];
+    size_t value_n;
+    size_t ext_n = 0U;
+    size_t sealed_n = 0U;
+
+    if (env == NULL || wrapped_n == NULL || (payload.size != 0U && payload.data == NULL)) {
+        return 0;
+    }
+    value_n = encode_test_uleb32(reply_seq, value);
+    extensions[ext_n++] = 0x05U; /* REPLY_TO, compact SEC-1 form. */
+    extensions[ext_n++] = (uint8_t)value_n;
+    memcpy(extensions + ext_n, value, value_n);
+    ext_n += value_n;
+    if (service != 1U) {
+        value_n = encode_test_uleb32(service, value);
+        extensions[ext_n++] = 0x11U; /* Explicit nondefault SERVICE. */
+        extensions[ext_n++] = (uint8_t)value_n;
+        memcpy(extensions + ext_n, value, value_n);
+        ext_n += value_n;
+    }
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_RSP;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_EXT);
+    spec.fields.seq = own_seq;
+    spec.extensions = span(extensions, ext_n);
+    spec.payload = payload;
+    if (dmp_hs_seal_logical(env->initiator, attempt, &spec, sealed, sizeof sealed, &sealed_n) !=
+            DMP_HS_OK ||
+        !wrap_core(sealed, sealed_n, wrapped, FRAME_CAP, wrapped_n)) {
+        return 0;
+    }
+    return 1;
+}
+
+static int seal_sample_result_fragment(session *env, uint32_t attempt, uint32_t own_seq,
+                                       uint32_t reply_seq, uint32_t fragment_index,
+                                       uint32_t chunk_size, uint32_t total_size, dmp_bytes payload,
+                                       uint8_t wrapped[FRAME_CAP], size_t *wrapped_n)
+{
+    dmp_frame_spec spec;
+    uint8_t extensions[8];
+    uint8_t value[5];
+    uint8_t sealed[MTU];
+    size_t value_n;
+    size_t ext_n = 0U;
+    size_t sealed_n = 0U;
+
+    if (env == NULL || wrapped_n == NULL || (payload.size != 0U && payload.data == NULL)) {
+        return 0;
+    }
+    value_n = encode_test_uleb32(reply_seq, value);
+    extensions[ext_n++] = 0x05U; /* REPLY_TO, compact SEC-1 form. */
+    extensions[ext_n++] = (uint8_t)value_n;
+    memcpy(extensions + ext_n, value, value_n);
+    ext_n += value_n;
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_RSP;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_FRAG | DMP_OPT_EXT);
+    spec.fields.seq = own_seq;
+    spec.fields.fragment.index = fragment_index;
+    spec.fields.fragment.chunk_size = chunk_size;
+    spec.fields.fragment.total_size = total_size;
+    spec.extensions = span(extensions, ext_n);
+    spec.payload = payload;
+    if (dmp_hs_seal_logical(env->initiator, attempt, &spec, sealed, sizeof sealed, &sealed_n) !=
+            DMP_HS_OK ||
+        !wrap_core(sealed, sealed_n, wrapped, FRAME_CAP, wrapped_n)) {
+        return 0;
+    }
     return 1;
 }
 
@@ -1965,6 +2227,853 @@ static int expect_request_rejection(session *env, uint32_t seq, uint8_t options,
         return 0;
     }
     return wire_status == expected_status;
+}
+
+static int test_protected_sample_no_sample(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t read = SAMPLE1_READ;
+    uint8_t core[MTU];
+    size_t core_n = 0U;
+    dmp_core_limits limits = {MTU, MESSAGE, 32U};
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+    dmp_reliability_handle first;
+    dmp_reliability_handle second;
+    uint32_t status = 0U;
+    dmp_time_ms now = 20000U;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof read), now, &first) ==
+          DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending);
+
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, true, 64U,
+                                span(NULL, 0U), now) == DMP_OK);
+    left.app.have_pending = 0;
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    CHECK(unwrap_core(left.wire.q[0].frame, left.wire.q[0].len, core, sizeof core,
+                      &core_n, now));
+    memset(&view, 0, sizeof view);
+    parsed = dmp_core_parse(span(core, core_n), &limits, &view);
+    CHECK(parsed.status == DMP_OK && parsed.offset == core_n);
+    CHECK(view.fields.type == DMP_TYPE_ERR);
+    CHECK((view.fields.options & DMP_OPT_SECURITY) != 0U);
+    CHECK(view.payload.size == 0U);
+    CHECK(protected_err_status(left.wire.q[0].frame, left.wire.q[0].len, now, &status));
+    CHECK(status == 64U);
+
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(right.app.results == 1);
+    CHECK(right.app.last_status == 64U);
+    CHECK(right.app.result_n == 0U);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof read), now + 1U,
+                                  &second) == DMP_OK);
+    CHECK(first.slot != second.slot || first.generation != second.generation);
+    CHECK(pump(now + 1U, 4) == 0);
+    CHECK(left.app.accepts == 2);
+    CHECK(right.app.results == 2);
+    CHECK(right.app.last_status == 0U);
+    CHECK(right.app.result_n == sizeof READ_RSP);
+    CHECK(memcmp(right.app.result, READ_RSP, sizeof READ_RSP) == 0);
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_sample_initialization(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    sample_tracker state = {0};
+    uint32_t index = 0U;
+    uint8_t read[SAMPLE1_READ_BYTES];
+    uint8_t response[SAMPLE1_READ_BYTES];
+    uint8_t telem[SAMPLE1_TELEM_BYTES];
+    dmp_reliability_handle first;
+    dmp_reliability_handle second;
+    dmp_time_ms now = 20000U;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+
+    CHECK(sample1_telem(telem, 9U, 1U, 100U) == sizeof telem);
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now) == DMP_OK);
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(right.app.telems == 1);
+    CHECK(sample_observe_telem(&state, span(telem, sizeof telem)) == 0);
+    CHECK(state.synchronized == 0 && state.discarded == 1);
+
+    CHECK(sample1_read_req(read) == 1U);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(read, 1U), now, &first) == DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending);
+    CHECK(sample1_read_rsp(response, 9U, 2U, 200U) == sizeof response);
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                span(response, sizeof response), now) == DMP_OK);
+    left.app.have_pending = 0;
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(right.app.results == 1);
+    CHECK(sample_accept_read_result(&state, &right.app, first) == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 9U && state.index == 2U &&
+          state.value == 200U);
+    CHECK(state.discarded == 1 && state.violations == 0);
+
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+
+    CHECK(sample1_telem(telem, 9U, 3U, 300U) == sizeof telem);
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now + 1U) ==
+          DMP_OK);
+    left.wire.now = now + 1U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 1U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 1U) == 0);
+    CHECK(sample_observe_telem(&state, span(telem, sizeof telem)) == 0);
+    CHECK(state.index == 3U && state.value == 300U);
+
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(read, 1U), now + 2U, &second) ==
+          DMP_OK);
+    right.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 2U) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now + 2U) == 0);
+    CHECK(left.app.accepts == 2 && left.app.have_pending);
+
+    CHECK(sample1_telem(telem, 9U, 4U, 400U) == sizeof telem);
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now + 2U) ==
+          DMP_OK);
+    left.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 2U) == 0);
+    CHECK(sample_observe_telem(&state, span(telem, sizeof telem)) == 0);
+    CHECK(state.index == 4U && state.value == 400U);
+
+    CHECK(sample1_read_rsp(response, 9U, 3U, 350U) == sizeof response);
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                span(response, sizeof response), now + 2U) == DMP_OK);
+    left.app.have_pending = 0;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 2U) == 0);
+    CHECK(right.app.results == 2);
+    CHECK(sample_accept_read_result(&state, &right.app, second) == 0);
+    CHECK(state.index == 4U && state.value == 400U && state.rollbacks == 1 &&
+          state.violations == 0);
+
+    right.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 2U) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now + 2U) == 0);
+    left.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_service2_immediate(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t request_payload[64];
+    uint8_t response_payload[64];
+    uint8_t invalid_service_payload = 0x5aU;
+    uint8_t extensions[] = {0x11U, 0x01U, 0x03U};
+    uint8_t sealed[MTU];
+    uint8_t wrapped[FRAME_CAP];
+    uint8_t core[MTU];
+    size_t sealed_n = 0U;
+    size_t wrapped_n = 0U;
+    size_t core_n = 0U;
+    size_t i;
+    uint32_t round;
+    dmp_time_ms at;
+    dmp_core_limits limits = {MTU, MESSAGE, 32U};
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+    dmp_frame_spec spec;
+    dmp_reliability_handle request;
+    dmp_time_ms now = 20000U;
+
+    memset(&env, 0, sizeof(env));
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    env.now = now;
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+    for (i = 0U; i < sizeof(request_payload); ++i) {
+        request_payload[i] = (uint8_t)(0x40U + (uint8_t)(i & 0x3fU));
+        response_payload[i] = (uint8_t)(0x80U + (uint8_t)(i & 0x3fU));
+    }
+
+    /* DIRECT-1's enabled OPAQUE service exercises an immediate reliable RSP
+     * over the protected endpoint. Large request/result slicing is covered
+     * separately by the P23 workload. */
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 2U,
+                                  span(request_payload, sizeof(request_payload)), now,
+                                  &request) == DMP_OK);
+    for (round = 0U; round < 32U && left.app.accepts == 0; ++round) {
+        at = now + round;
+        right.wire.now = at;
+        CHECK(dmp_endpoint_poll(&right.endpoint, at) == DMP_OK);
+        CHECK(right.wire.n != 0);
+        CHECK(deliver_all(&right, &left, at) == 0);
+    }
+    CHECK(left.app.accepts == 1 && left.app.request_service == 2U &&
+          left.app.req_n == sizeof(request_payload));
+    CHECK(memcmp(left.app.req, request_payload, sizeof(request_payload)) == 0);
+    CHECK(left.wire.n == 0);
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                span(response_payload, sizeof(response_payload)), now + round) ==
+          DMP_OK);
+    left.app.have_pending = 0;
+    for (round = 0U; round < 32U && right.app.results == 0; ++round) {
+        at = now + 20U + round;
+        left.wire.now = at;
+        CHECK(dmp_endpoint_poll(&left.endpoint, at) == DMP_OK);
+        CHECK(left.wire.n != 0);
+        for (i = 0U; i < (size_t)left.wire.n; ++i) {
+            memset(&view, 0, sizeof(view));
+            CHECK(unwrap_core(left.wire.q[i].frame, left.wire.q[i].len, core, sizeof(core),
+                              &core_n, at));
+            parsed = dmp_core_parse(span(core, core_n), &limits, &view);
+            CHECK(parsed.status == DMP_OK && parsed.offset == core_n);
+            CHECK(view.fields.type == DMP_TYPE_RSP);
+            CHECK((view.fields.options & (DMP_OPT_SECURITY | DMP_OPT_ACK_REQ)) ==
+                  (DMP_OPT_SECURITY | DMP_OPT_ACK_REQ));
+        }
+        CHECK(deliver_all(&left, &right, at) == 0);
+    }
+    CHECK(right.app.results == 1 && same_handle(right.app.result_request, request));
+    CHECK(right.app.last_status == 0U && right.app.result_n == sizeof(response_payload));
+    CHECK(memcmp(right.app.result, response_payload, sizeof(response_payload)) == 0);
+    at += 1U;
+    right.wire.now = at;
+    CHECK(dmp_endpoint_poll(&right.endpoint, at) == DMP_OK);
+    CHECK(right.wire.n != 0);
+    for (i = 0U; i < (size_t)right.wire.n; ++i) {
+        uint8_t type = 0U;
+        CHECK(protected_frame_type_seq(right.wire.q[i].frame, right.wire.q[i].len, at,
+                                       &type, NULL));
+        CHECK(type == DMP_TYPE_ACK);
+    }
+    CHECK(deliver_all(&right, &left, now) == 0);
+    at += 1U;
+    left.wire.now = at;
+    CHECK(dmp_endpoint_poll(&left.endpoint, at) == DMP_OK);
+
+    /* A valid protected REQ for a service outside DIRECT-1 must be rejected
+     * before the endpoint emits an application request callback. */
+    memset(&spec, 0, sizeof(spec));
+    spec.fields.type = DMP_TYPE_REQ;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_EXT);
+    spec.fields.seq = 700U;
+    spec.extensions = span(extensions, sizeof(extensions));
+    spec.payload = span(&invalid_service_payload, sizeof(invalid_service_payload));
+    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof(sealed), &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof(wrapped), &wrapped_n));
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), at + 1U) == DMP_UNSUPPORTED);
+    CHECK(right.app.accepts == 0 && right.wire.n == 0);
+
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_sample_late_assoc(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    sample_tracker state = {0};
+    uint32_t index = 0U;
+    uint32_t next_init = 0U;
+    uint32_t next_resp = 0U;
+    uint32_t old_cid = 0U;
+    uint32_t new_cid = 0U;
+    uint32_t ack_cid = 0U;
+    uint8_t req[SAMPLE1_READ_BYTES];
+    uint8_t response[SAMPLE1_READ_BYTES];
+    dmp_reliability_handle handle;
+    dmp_reliability_handle current_handle;
+    dmp_reliability_handle old_pending;
+    dmp_time_ms now = 20000U;
+    size_t result_slot = RESULTS;
+    size_t i;
+
+    memset(&env, 0, sizeof(env));
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    env.now = now;
+    CHECK(boot_node_slots(&left, 1, 64U, 16U, now, 2U) == 0);
+    CHECK(boot_node_slots(&right, 0, 64U, 16U, now, 2U) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+    CHECK(dmp_endpoint_set_drain_ms(&left.endpoint, 30000U) == DMP_OK);
+    CHECK(dmp_endpoint_set_drain_ms(&right.endpoint, 30000U) == DMP_OK);
+
+    state.synchronized = 1;
+    state.epoch = 41U;
+    state.index = 7U;
+    state.value = 700U;
+    CHECK(sample1_read_req(req) == 1U);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) ==
+          DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(right.wire.n == 1);
+    CHECK(stream_protection(right.wire.q[0].frame, right.wire.q[0].len, now, &old_cid, NULL,
+                            NULL) == 1);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending);
+    old_pending = left.app.pending;
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(right.wire.n == 0);
+
+    CHECK(drive_rotation(&env, fixture, &next_init, &next_resp, 0x5aU));
+    CHECK(activate_at(&env, next_init, next_resp));
+    CHECK(dmp_endpoint_rotate(&left.endpoint, next_init, now + 1U) == DMP_OK);
+    CHECK(dmp_endpoint_rotate(&right.endpoint, next_resp, now + 1U) == DMP_OK);
+    CHECK(left.endpoint.drain_live != 0U && right.endpoint.drain_live != 0U);
+    new_cid = dmp_hs_rx_cid(env.initiator, next_init);
+    CHECK(new_cid != 0U && new_cid != old_cid);
+
+    /* Association replacement returns the consumer to unsynchronized while
+     * retaining the prior same-epoch cache for rollback protection. The old
+     * request designation is invalidated before a new READ is issued. */
+    state.synchronized = 0;
+    current_handle.slot = UINT32_MAX;
+    current_handle.generation = UINT32_MAX;
+
+    /* A higher-index old-SA result can be correlated and ACKed, but it no
+     * longer owns the selected association's initialization generation. */
+    CHECK(sample1_read_rsp(response, 41U, 8U, 800U) == sizeof(response));
+    CHECK(dmp_endpoint_complete(&left.endpoint, old_pending, false, 0U,
+                                span(response, sizeof(response)), now + 2U) == DMP_OK);
+    left.app.have_pending = 0;
+    left.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    CHECK(deliver_all(&left, &right, now + 2U) == 0);
+    CHECK(right.app.results == 1 && same_handle(right.app.result_request, handle));
+    CHECK(sample_accept_read_result(&state, &right.app, current_handle) != 0);
+    CHECK(state.synchronized == 0 && state.epoch == 41U && state.index == 7U &&
+          state.value == 700U && state.violations == 0 && state.rollbacks == 0);
+
+    right.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 2U) == DMP_OK);
+    CHECK(right.wire.n == 1);
+    CHECK(stream_protection(right.wire.q[0].frame, right.wire.q[0].len, now + 2U, &ack_cid,
+                            NULL, NULL) == 1);
+    CHECK(ack_cid == old_cid && ack_cid != new_cid);
+    CHECK(deliver_all(&right, &left, now + 2U) == 0);
+    for (i = 0U; i < RESULTS; ++i) {
+        if (left.results[i].live != 0U) {
+            result_slot = i;
+            break;
+        }
+    }
+    CHECK(result_slot < RESULTS && left.results[result_slot].acknowledged != 0U);
+
+    /* A new READ on the selected association returns a same-epoch snapshot
+     * older than the retained cache; it syncs without rollback. */
+    CHECK(sample1_read_req(req) == 1U);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now + 3U,
+                                  &current_handle) == DMP_OK);
+    right.wire.now = now + 3U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 3U) == DMP_OK);
+    CHECK(right.wire.n == 1);
+    CHECK(deliver_all(&right, &left, now + 3U) == 0);
+    CHECK(left.app.accepts == 2 && left.app.have_pending);
+    CHECK(sample1_read_rsp(response, 41U, 6U, 600U) == sizeof(response));
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                span(response, sizeof(response)), now + 4U) == DMP_OK);
+    left.app.have_pending = 0;
+    left.wire.now = now + 4U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 4U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 4U) == 0);
+    CHECK(right.app.results == 2 && same_handle(right.app.result_request, current_handle));
+    CHECK(sample_accept_read_result(&state, &right.app, current_handle) == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 41U && state.index == 7U &&
+          state.value == 700U && state.violations == 0 && state.rollbacks == 0);
+    CHECK(left.app.accepts == 2);
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_sample_superseded(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    sample_tracker state = {0};
+    uint32_t index = 0U;
+    uint8_t read = SAMPLE1_READ;
+    uint8_t old_response[SAMPLE1_READ_BYTES];
+    uint8_t current_response[SAMPLE1_READ_BYTES];
+    dmp_reliability_handle superseded;
+    dmp_reliability_handle retired_designation;
+    dmp_reliability_handle designated;
+    dmp_reliability_handle current_pending;
+    dmp_time_ms now = 20000U;
+
+    memset(&env, 0, sizeof(env));
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    env.now = now;
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+
+    /* The app invalidates this full-handle designation while the protected
+     * READ remains in flight, before a replacement READ can be submitted. */
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof(read)), now,
+                                  &superseded) == DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending);
+    current_pending = left.app.pending;
+    retired_designation = superseded;
+    retired_designation.generation++;
+    CHECK(!same_handle(superseded, retired_designation));
+
+    CHECK(sample1_read_rsp(old_response, 41U, 8U, 800U) == sizeof(old_response));
+    CHECK(dmp_endpoint_complete(&left.endpoint, current_pending, false, 0U,
+                                span(old_response, sizeof(old_response)), now + 2U) == DMP_OK);
+    left.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 2U) == 0);
+    CHECK(right.app.results == 1 && same_handle(right.app.result_request, superseded));
+    CHECK(sample_accept_read_result(&state, &right.app, retired_designation) != 0);
+    CHECK(state.synchronized == 0 && state.epoch == 0U && state.index == 0U &&
+          state.value == 0U && state.violations == 0);
+
+    right.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 2U) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now + 2U) == 0);
+    left.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof(read)), now + 3U,
+                                  &designated) == DMP_OK);
+    right.wire.now = now + 3U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 3U) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now + 3U) == 0);
+    CHECK(left.app.accepts == 2 && left.app.have_pending);
+    current_pending = left.app.pending;
+    CHECK(!same_handle(superseded, designated));
+
+    CHECK(sample1_read_rsp(current_response, 42U, 1U, 900U) == sizeof(current_response));
+    CHECK(dmp_endpoint_complete(&left.endpoint, current_pending, false, 0U,
+                                span(current_response, sizeof(current_response)), now + 3U) ==
+          DMP_OK);
+    left.app.have_pending = 0;
+    left.wire.now = now + 3U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 3U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 3U) == 0);
+    CHECK(right.app.results == 2 && same_handle(right.app.result_request, designated));
+    CHECK(sample_accept_read_result(&state, &right.app, designated) == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 42U && state.index == 1U &&
+          state.value == 900U && state.violations == 0);
+
+    right.wire.now = now + 3U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 3U) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now + 3U) == 0);
+    left.wire.now = now + 3U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 3U) == DMP_OK);
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_sample_init_timeout(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    sample_tracker state = {0};
+    uint32_t index = 0U;
+    uint8_t read = SAMPLE1_READ;
+    uint8_t response[SAMPLE1_READ_BYTES];
+    dmp_reliability_handle designated;
+    dmp_status late_status;
+    dmp_time_ms now = 20000U;
+    dmp_time_ms deadline = now + SAMPLE_INIT_DEADLINE_MS;
+    uint32_t attempts = 0U;
+    int init_failed = 0;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    CHECK(SAMPLE_INIT_ATTEMPTS > 0U && SAMPLE_INIT_RETRY_MS > 0U);
+    CHECK(SAMPLE_INIT_DEADLINE_MS > 0U);
+    CHECK(SAMPLE_INIT_DEADLINE_MS <= SAMPLE_RESULT_DEADLINE_MS);
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof read), now,
+                                  &designated) == DMP_OK);
+    attempts++;
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending);
+
+    right.wire.now = deadline;
+    CHECK(dmp_endpoint_poll(&right.endpoint, deadline) == DMP_OK);
+    CHECK(right.app.unknowns == 1 && right.app.results == 0);
+    if (attempts >= SAMPLE_INIT_ATTEMPTS || deadline >= now + SAMPLE_INIT_DEADLINE_MS) {
+        init_failed = 1;
+    }
+    CHECK(init_failed == 1 && state.synchronized == 0);
+    CHECK(attempts == 1U);
+
+    CHECK(sample1_read_rsp(response, 9U, 1U, 100U) == sizeof response);
+    left.wire.now = deadline;
+    CHECK(dmp_endpoint_poll(&left.endpoint, deadline) == DMP_OK);
+    late_status = dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                        span(response, sizeof response), deadline);
+    if (late_status != DMP_STALE_HANDLE) {
+        (void)fprintf(stderr, "late SAMPLE-1 completion returned %d\n", (int)late_status);
+    }
+    CHECK(late_status == DMP_STALE_HANDLE);
+    left.app.have_pending = 0;
+    CHECK(state.synchronized == 0 && state.index == 0U && state.value == 0U);
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_sample_invalid_result(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    sample_tracker state = {0};
+    uint32_t index = 0U;
+    uint8_t read = SAMPLE1_READ;
+    uint8_t valid[SAMPLE1_READ_BYTES];
+    uint8_t malformed[SAMPLE1_STATUS_BYTES] = {SAMPLE1_STATUS, 2U};
+    uint8_t wrapped[FRAME_CAP];
+    size_t wrapped_n = 0U;
+    dmp_reliability_handle request;
+    dmp_message_key request_key;
+    dmp_time_ms now = 20000U;
+    uint32_t own_seq = 300U;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_results = 1;
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0) {
+        g_validate_sample1_results = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_results = 0;
+    CHECK(bind_pair(&env, index) == 0);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof read), now, &request) ==
+          DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending);
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    request_key = right.senders[request.slot].own;
+    CHECK(sample1_read_rsp(valid, 9U, 2U, 200U) == sizeof valid);
+
+    /* The authenticated peer cannot complete this READ under another service. */
+    CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 2U,
+                             span(valid, sizeof valid), wrapped, &wrapped_n));
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(right.app.results == 0 && right.senders[request.slot].live == 1U);
+
+    /* A protected, correlated RSP with an invalid SAMPLE-1 result schema is
+     * dropped before reliability acceptance, so the same READ remains live. */
+    CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 1U,
+                             span(malformed, sizeof malformed), wrapped, &wrapped_n));
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(right.app.results == 0 && right.senders[request.slot].live == 1U &&
+          right.wire.n == 0);
+    CHECK(state.synchronized == 0 && state.violations == 0);
+
+    /* A later valid result for the same request is accepted and can sync. */
+    CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 1U,
+                             span(valid, sizeof valid), wrapped, &wrapped_n));
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + 1U) == DMP_OK);
+    CHECK(right.app.results == 1 && right.app.last_status == 0U);
+    CHECK(sample_accept_read_result(&state, &right.app, request) == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 9U && state.index == 2U &&
+          state.value == 200U && state.violations == 0);
+
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_sample_invalid_telem(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    sample_tracker state = {0};
+    uint32_t index = 0U;
+    uint8_t telem[SAMPLE1_TELEM_BYTES + 1U] = {0};
+    dmp_time_ms now = 20000U;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+
+    /* The endpoint transports opaque bytes; the application rejects both
+     * short and schema-invalid SAMPLE-1 TELEM payloads before state changes. */
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, 15U), now) == DMP_OK);
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(right.app.telems == 1);
+    CHECK(sample_observe_telem(&state, span(telem, 15U)) != 0);
+    CHECK(state.synchronized == 0 && state.violations == 0);
+
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now + 1U) ==
+          DMP_OK);
+    left.wire.now = now + 1U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 1U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 1U) == 0);
+    CHECK(right.app.telems == 2);
+    CHECK(sample_observe_telem(&state, span(telem, sizeof telem)) != 0);
+    CHECK(state.synchronized == 0 && state.violations == 0);
+
+    close_session(&env);
+    return 0;
+}
+
+static int run_protected_sample_fragmented_result(int valid_result)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t read = SAMPLE1_READ;
+    uint8_t result[SAMPLE1_READ_BYTES];
+    uint8_t wrapped[FRAME_CAP];
+    size_t wrapped_n = 0U;
+    dmp_reliability_handle request;
+    dmp_message_key request_key;
+    dmp_time_ms now = 20000U;
+    uint32_t fragment;
+    dmp_status status;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_results = 1;
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0) {
+        g_validate_sample1_results = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_results = 0;
+    CHECK(bind_pair(&env, index) == 0);
+
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, 1U), now, &request) == DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending);
+    request_key = right.senders[request.slot].own;
+
+    if (valid_result != 0) {
+        CHECK(sample1_read_rsp(result, 9U, 2U, 200U) == sizeof result);
+    } else {
+        memset(result, 0, sizeof result);
+        result[0] = SAMPLE1_STATUS;
+    }
+    for (fragment = 0U; fragment < 2U; ++fragment) {
+        size_t offset = (size_t)fragment * 16U;
+        size_t slice_n = sizeof result - offset;
+        if (slice_n > 16U) {
+            slice_n = 16U;
+        }
+        CHECK(seal_sample_result_fragment(&env, index, 300U, request_key.seq, fragment, 16U,
+                                         sizeof result, span(result + offset, slice_n), wrapped,
+                                         &wrapped_n));
+        status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + fragment);
+        CHECK(status == (fragment == 0U ? DMP_INCOMPLETE : DMP_OK));
+    }
+    if (valid_result != 0) {
+        CHECK(right.app.results == 1 && right.app.last_status == 0U);
+        CHECK(right.app.result_n == sizeof result &&
+              memcmp(right.app.result, result, sizeof result) == 0);
+    } else {
+        CHECK(right.app.results == 0 && right.senders[request.slot].live != 0U && right.wire.n == 0);
+    }
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_sample_fragmented_result(void)
+{
+    return run_protected_sample_fragmented_result(1);
+}
+
+static int test_protected_sample_invalid_fragmented_result(void)
+{
+    return run_protected_sample_fragmented_result(0);
+}
+
+static int test_protected_err_status_contract(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t read = SAMPLE1_READ;
+    uint8_t request_type = 0U;
+    uint32_t request_seq = 0U;
+    uint8_t extensions[12];
+    uint8_t sealed[MTU];
+    uint8_t wrapped[FRAME_CAP];
+    size_t sealed_n = 0U;
+    size_t wrapped_n = 0U;
+    size_t ext_n;
+    dmp_frame_spec spec;
+    dmp_reliability_handle request;
+    dmp_bytes empty = span(NULL, 0U);
+    uint32_t wire_status = 0U;
+    uint8_t response_type = 0U;
+    uint32_t own_seq = 200U;
+    uint32_t status;
+    dmp_status receive_status;
+    dmp_time_ms now = 20000U;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof read), now, &request) ==
+          DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(protected_frame_type_seq(right.wire.last, right.wire.last_len, now, &request_type,
+                                   &request_seq));
+    CHECK(request_type == DMP_TYPE_REQ && request_seq < 128U);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending);
+
+    /* Core parsing rejects ACK_REQ on STATUS 1-7 before a protected record can
+     * be constructed; the codec regression covers that rule. The authenticated
+     * endpoint must also reject every reserved STATUS 8-63 for local delivery. */
+    for (status = 8U; status <= 63U; ++status) {
+        memset(&spec, 0, sizeof spec);
+        ext_n = 0U;
+        extensions[ext_n++] = 0x05U;
+        extensions[ext_n++] = 1U;
+        ext_n += encode_test_uleb32(request_seq, extensions + ext_n);
+        extensions[ext_n++] = 0x15U;
+        extensions[ext_n++] = 1U;
+        extensions[ext_n++] = (uint8_t)status;
+        spec.fields.type = (uint8_t)DMP_TYPE_ERR;
+        spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT);
+        spec.fields.seq = own_seq++;
+        spec.extensions = span(extensions, ext_n);
+        spec.payload = empty;
+        CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+              DMP_HS_OK);
+        CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n));
+        receive_status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now);
+        if (receive_status != DMP_UNSUPPORTED) {
+            (void)fprintf(stderr, "reserved STATUS=%lu returned %d\n", (unsigned long)status,
+                          (int)receive_status);
+        }
+        CHECK(receive_status == DMP_UNSUPPORTED);
+        CHECK(right.app.results == 0);
+    }
+
+    /* A valid terminal application ERR=64 remains reliable and completes the
+     * same request after the invalid responses were rejected. */
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, true, 64U, empty, now) ==
+          DMP_OK);
+    left.app.have_pending = 0;
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    CHECK(protected_frame_type_seq(left.wire.q[0].frame, left.wire.q[0].len, now,
+                                   &response_type, NULL));
+    CHECK(response_type == DMP_TYPE_ERR);
+    CHECK(protected_err_status(left.wire.q[0].frame, left.wire.q[0].len, now, &wire_status));
+    CHECK(wire_status == 64U);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(right.app.results == 1 && right.app.last_status == 64U && right.app.result_n == 0U);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    close_session(&env);
+    return 0;
 }
 
 static void issue_test_freshness(node *receiver, uint32_t attempt, dmp_time_ms now,
@@ -2393,9 +3502,12 @@ static int test_rotation(void)
     uint32_t old_cid = 0U;
     uint32_t new_cid = 0U;
     uint8_t req[1];
+    uint8_t response[SAMPLE1_READ_BYTES];
     uint8_t saved[FRAME_CAP];
     size_t saved_len = 0U;
     dmp_reliability_handle handle;
+    dmp_reliability_handle sample_handle;
+    sample_tracker sample_state = {0};
     dmp_time_ms now = 20000U;
     int accepts;
 
@@ -2549,9 +3661,10 @@ static int test_rotation(void)
     CHECK(dmp_hs_send_application(env.responder, next_resp) != DMP_HS_OK);
     close_session(&env);
 
-    /* A zero-duration rotation closes the old shared association. An
-     * unrelated service-2 DATA exchange must settle as unknown and must not
-     * retry on the newly active association. */
+    /* A SAMPLE-1 epoch change closes the old shared association. A pending
+     * READ is settled as unknown, and unrelated service-2 DATA is not retried
+     * on the newly active association. The next READ initializes the new
+     * sample epoch after pre-sync telemetry is discarded. */
     memset(&env, 0, sizeof env);
     now = 50000U;
     if (!make_pair(&env, &port, fixture, NULL, NULL, 0) || !drive_nn(&env, &index) ||
@@ -2563,7 +3676,26 @@ static int test_rotation(void)
     CHECK(boot_node_slots(&left, 1, 64U, 16U, now, 2U) == 0);
     CHECK(boot_node_slots(&right, 0, 64U, 16U, now, 2U) == 0);
     CHECK(bind_pair(&env, index) == 0);
+    CHECK(dmp_endpoint_set_drain_ms(&left.endpoint, 0U) == DMP_OK);
     CHECK(dmp_endpoint_set_drain_ms(&right.endpoint, 0U) == DMP_OK);
+    sample_state.synchronized = 1;
+    sample_state.epoch = 41U;
+    sample_state.index = 7U;
+    sample_state.value = 700U;
+    sample1_read_req(req);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now,
+                                  &sample_handle) == DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    left.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending == 1);
+    CHECK(right.app.results == 0);
+    CHECK(dmp_endpoint_abandon_request(&left.endpoint, left.app.pending, now) == DMP_BUSY);
+    /* The reference application discards the prior generation at transition. */
+    sample_state.synchronized = 0;
     {
         const uint8_t data[] = {0xA1U, 0xB2U, 0xC3U};
         int old_submits;
@@ -2582,10 +3714,17 @@ static int test_rotation(void)
             close_session(&env);
             return 1;
         }
+        CHECK(dmp_endpoint_rotate(&left.endpoint, next_init, now) == DMP_OK);
         CHECK(dmp_endpoint_rotate(&right.endpoint, next_resp, now) == DMP_OK);
         CHECK(right.endpoint.drain_live == 0U);
+        CHECK(right.app.unknowns == 1);
         CHECK(right.app.data_unknowns == 1);
         CHECK(right.app.data_unknown_service == 2U);
+        CHECK(right.app.results == 0 && sample_state.synchronized == 0);
+        CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                    span(READ_RSP, sizeof READ_RSP), now) == DMP_STALE_HANDLE);
+        CHECK(dmp_endpoint_abandon_request(&left.endpoint, left.app.pending, now) == DMP_OK);
+        left.app.have_pending = 0;
         right.wire.n = 0;
         CHECK(dmp_endpoint_poll(&right.endpoint, now + 100U) == DMP_OK);
         CHECK(right.wire.submits == old_submits);
@@ -2598,6 +3737,42 @@ static int test_rotation(void)
         CHECK(stream_protection(right.wire.q[0].frame, right.wire.q[0].len, now + 100U,
                                 &new_cid, NULL, NULL) == 1);
         CHECK(new_cid != old_cid);
+
+        /* Use the full SAMPLE-1 frame; req above is only the one-byte READ. */
+        {
+            uint8_t telem[SAMPLE1_TELEM_BYTES];
+            CHECK(sample1_telem(telem, 42U, 1U, 900U) == sizeof telem);
+            CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U,
+                                            span(telem, sizeof telem), now + 100U) == DMP_OK);
+            left.wire.now = now + 100U;
+            CHECK(dmp_endpoint_poll(&left.endpoint, now + 100U) == DMP_OK);
+            CHECK(deliver_all(&left, &right, now + 100U) == 0);
+            right.wire.now = now + 100U;
+            CHECK(dmp_endpoint_poll(&right.endpoint, now + 100U) == DMP_OK);
+            CHECK(deliver_all(&right, &left, now + 100U) == 0);
+            CHECK(right.app.telems == 1);
+            CHECK(sample_observe_telem(&sample_state, span(telem, sizeof telem)) == 0);
+            CHECK(sample_state.synchronized == 0 && sample_state.discarded == 1);
+        }
+        CHECK(sample1_read_req(req) == 1U);
+        CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now + 200U,
+                                      &sample_handle) == DMP_OK);
+        right.wire.now = now + 200U;
+        CHECK(dmp_endpoint_poll(&right.endpoint, now + 200U) == DMP_OK);
+        CHECK(deliver_all(&right, &left, now + 200U) == 0);
+        CHECK(left.app.accepts == 2 && left.app.have_pending == 1);
+        CHECK(sample1_read_rsp(response, 42U, 1U, 900U) == sizeof response);
+        CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                    span(response, sizeof response), now + 200U) == DMP_OK);
+        left.app.have_pending = 0;
+        left.wire.now = now + 200U;
+        CHECK(dmp_endpoint_poll(&left.endpoint, now + 200U) == DMP_OK);
+        CHECK(deliver_all(&left, &right, now + 200U) == 0);
+        CHECK(right.app.results == 1);
+        CHECK(sample_accept_read_result(&sample_state, &right.app, sample_handle) == 0);
+        CHECK(sample_state.synchronized == 1 && sample_state.epoch == 42U &&
+              sample_state.index == 1U && sample_state.value == 900U &&
+              sample_state.violations == 0);
     }
     close_session(&env);
     return 0;
@@ -4325,6 +5500,39 @@ int main(int argc, char **argv) {
   if (strcmp(name, "sample_invalid_request") == 0 || strcmp(name, "all") == 0) {
     failed |= test_sample_invalid_request();
   }
+  if (strcmp(name, "sample_no_sample") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_no_sample();
+  }
+  if (strcmp(name, "sample_initialization") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_initialization();
+  }
+  if (strcmp(name, "service2_immediate") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_service2_immediate();
+  }
+  if (strcmp(name, "sample_late_assoc") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_late_assoc();
+  }
+  if (strcmp(name, "sample_superseded") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_superseded();
+  }
+  if (strcmp(name, "sample_init_timeout") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_init_timeout();
+  }
+  if (strcmp(name, "sample_invalid_result") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_invalid_result();
+  }
+  if (strcmp(name, "sample_invalid_telem") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_invalid_telem();
+  }
+  if (strcmp(name, "sample_fragmented_result") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_fragmented_result();
+  }
+  if (strcmp(name, "sample_invalid_fragmented_result") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_invalid_fragmented_result();
+  }
+  if (strcmp(name, "err_status_contract") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_err_status_contract();
+  }
   if (strcmp(name, "validator_duplicate_skipped") == 0 || strcmp(name, "all") == 0) {
     failed |= test_validator_duplicate_skipped();
   }
@@ -4368,6 +5576,17 @@ int main(int argc, char **argv) {
       strcmp(name, "loss") != 0 && strcmp(name, "isolate") != 0 &&
       strcmp(name, "result_loss") != 0 && strcmp(name, "receipt_loss") != 0 &&
       strcmp(name, "sample_invalid_request") != 0 &&
+      strcmp(name, "sample_no_sample") != 0 &&
+      strcmp(name, "sample_initialization") != 0 &&
+      strcmp(name, "service2_immediate") != 0 &&
+      strcmp(name, "sample_late_assoc") != 0 &&
+      strcmp(name, "sample_superseded") != 0 &&
+      strcmp(name, "sample_init_timeout") != 0 &&
+      strcmp(name, "sample_invalid_result") != 0 &&
+      strcmp(name, "sample_invalid_telem") != 0 &&
+      strcmp(name, "sample_fragmented_result") != 0 &&
+      strcmp(name, "sample_invalid_fragmented_result") != 0 &&
+      strcmp(name, "err_status_contract") != 0 &&
       strcmp(name, "validator_duplicate_skipped") != 0 &&
       strcmp(name, "retained_rejection_reassembly") != 0 &&
       strcmp(name, "freshness_terminal_rejection") != 0 &&

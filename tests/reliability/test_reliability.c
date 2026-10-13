@@ -750,6 +750,31 @@ static int test_quota_and_validation(void)
           DMP_BUSY);
     CHECK(side_a.senders[0].generation == first.generation);
     CHECK(side_a.correlations[1].live == 0U);
+
+    /* Correlation exhaustion is independent of the sender and per-service
+     * gates: a second service cannot consume or alter the first operation. */
+    CHECK(prepare(&side_a, 0, 0) == 0);
+    side_a.profile.sender_slots = 2U;
+    side_a.profile.application_queue_slots = 2U;
+    side_a.profile.operations_per_service = 1U;
+    side_a.profile.correlation_slots = 1U;
+    bind_node(&side_a);
+    CHECK(dmp_reliability_init(&side_a.engine, &side_a.storage) == DMP_OK);
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING), 20U, 1U,
+                                     &first) == DMP_OK);
+    memcpy(saved, side_a.sender_payload, sizeof PING);
+    deadline = side_a.correlations[0].correlation_deadline;
+    second.slot = 4U;
+    second.generation = 8U;
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 2U, span(PONG, sizeof PONG), 20U, 1U,
+                                     &second) == DMP_QUOTA_EXHAUSTED);
+    CHECK(second.slot == 4U && second.generation == 8U);
+    CHECK(side_a.senders[first.slot].live == 1U);
+    CHECK(side_a.senders[first.slot].service_id == 1U);
+    CHECK(memcmp(side_a.sender_payload, saved, sizeof PING) == 0);
+    CHECK(side_a.correlations[0].live == 1U);
+    CHECK(side_a.correlations[0].correlation_deadline == deadline);
+    CHECK(side_a.correlations[1].live == 0U);
     return 0;
 }
 

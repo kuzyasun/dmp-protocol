@@ -21,9 +21,14 @@
  * ACL, freshness leases, rotation, and endpoint S10 cases are outside this
  * owner.
  *
- * The caller serializes each attempt. After AEAD the window is rechecked
- * and marked in that same call; this module does not take a lock. The last
- * sealed frame and the last accepted plaintext are attempt-owned and are
+ * The caller serializes each attempt. Ingress payload pointers are borrowed
+ * only for the duration of dmp_hs_offer; partial input and input held for
+ * acceptance are copied into owner storage before return. The pointers
+ * returned by dmp_hs_cached_flight and dmp_hs_protected_frame are read-only
+ * borrows into the owner, valid until that attempt's corresponding output is
+ * replaced/invalidated or the owner is cleaned up. After AEAD the window is
+ * rechecked and marked in that same call; this module does not take a lock.
+ * The last sealed frame and the last accepted plaintext are attempt-owned and are
  * replaced by the next seal or accept. Protected receive uses those buffers
  * and does not allocate.
  * SEC-1 requires a nonzero locally unique receive CID and does not define

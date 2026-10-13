@@ -109,6 +109,19 @@ static void expect_case(const char *name, int passed)
     g_failures++;
 }
 
+static int all_zero(const void *data, size_t size)
+{
+    const uint8_t *bytes = (const uint8_t *)data;
+    size_t index;
+
+    for (index = 0U; index < size; ++index) {
+        if (bytes[index] != 0U) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int hex_decode(const char *hex, uint8_t *out, size_t cap, size_t *length)
 {
     size_t chars = strlen(hex);
@@ -672,6 +685,88 @@ static int test_duplicate_loss_and_processed_conflict(void)
 done:
     close_session(&env);
     return passed;
+}
+
+static void tune_cached_lifetime(dmp_hs_config *initiator, dmp_hs_config *responder)
+{
+    initiator->budget.attempt_deadline_ms = 2000U;
+    initiator->budget.cached_responses = 2U;
+    (void)responder;
+}
+
+static int test_cached_flight_lifetime(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env = {0};
+    port_ctx port;
+    uint8_t saved[120];
+    size_t cached_len = 0U;
+    size_t saved_len = 0U;
+    uint32_t index = 0U;
+    uint32_t writes;
+    uint64_t deadline;
+    const uint8_t *cached;
+    const uint8_t *borrowed_cached;
+    int passed = 0;
+
+    if (fixture == NULL ||
+        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_cached_lifetime) ||
+        dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        close_session(&env);
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+    if (cached == NULL || cached_len == 0U || cached_len > sizeof(saved)) {
+        goto done;
+    }
+    borrowed_cached = cached;
+    saved_len = cached_len;
+    memcpy(saved, cached, saved_len);
+    deadline = dmp_hs_deadline(env.initiator, index);
+    writes = dmp_hs_noise_writes(env.initiator, index);
+
+    env.now = deadline - 1500U;
+    if (dmp_hs_retransmit(env.initiator, index) != DMP_HS_OK ||
+        dmp_hs_deadline(env.initiator, index) != deadline) {
+        fprintf(stderr, "first cached-flight retry was refused before its deadline\n");
+        goto done;
+    }
+    env.now = deadline - 1000U;
+    if (dmp_hs_retransmit(env.initiator, index) != DMP_HS_OK ||
+        dmp_hs_deadline(env.initiator, index) != deadline) {
+        fprintf(stderr, "second cached-flight retry was refused before its deadline\n");
+        goto done;
+    }
+    env.now = deadline - 500U;
+    if (dmp_hs_retransmits(env.initiator, index) != 2U ||
+        dmp_hs_retransmit(env.initiator, index) != DMP_HS_REFUSED ||
+        dmp_hs_retransmits(env.initiator, index) != 2U ||
+        dmp_hs_noise_writes(env.initiator, index) != writes ||
+        dmp_hs_deadline(env.initiator, index) != deadline) {
+        fprintf(stderr, "cached-flight retry budget or absolute deadline changed\n");
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+    if (cached != borrowed_cached || cached_len != saved_len ||
+        !bytes_match("cached flight remains stable through bounded retransmits", cached,
+                     cached_len, saved, saved_len)) {
+        goto done;
+    }
+
+    env.now = deadline;
+    if (dmp_hs_retransmit(env.initiator, index) != DMP_HS_EXPIRED ||
+        !dmp_hs_terminal(env.initiator, index) || !dmp_hs_secrets_wiped(env.initiator, index) ||
+        dmp_hs_noise_writes(env.initiator, index) != writes ||
+        dmp_hs_retransmits(env.initiator, index) != 2U ||
+        dmp_hs_cached_flight(env.initiator, index, &cached_len) != NULL || cached_len != 0U) {
+        fprintf(stderr, "expired attempt still exposed or retransmitted its cached flight\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    close_session(&env);
+    return passed && !port.nonzero_release;
 }
 
 static void tune_episode(dmp_hs_config *initiator, dmp_hs_config *responder);
@@ -1423,6 +1518,7 @@ static int test_scratch_serial_partial_stale(void)
     uint8_t flight1[120];
     uint8_t partial_a[8];
     uint8_t partial_b[8];
+    uint8_t partial_expected[8];
     uint8_t held[8];
     size_t flight1_len = 0U;
     size_t held_len = 0U;
@@ -1456,6 +1552,7 @@ static int test_scratch_serial_partial_stale(void)
     cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
     memcpy(partial_a, cached, sizeof(partial_a));
     memcpy(partial_b, partial_a, sizeof(partial_b));
+    memcpy(partial_expected, partial_a, sizeof(partial_expected));
     partial_b[0] ^= 0x01U;
     memset(&ingress, 0, sizeof(ingress));
     ingress.payload = partial_a;
@@ -1464,10 +1561,17 @@ static int test_scratch_serial_partial_stale(void)
     if (dmp_hs_offer(env.initiator, &ingress, NULL) != DMP_HS_DROPPED) {
         goto done;
     }
+    memset(partial_a, 0xA5, sizeof(partial_a));
+    if (!dmp_hs_copy_partial(env.initiator, held, sizeof(held), &held_len) ||
+        !bytes_match("partial input copied before return", held, held_len,
+                     partial_expected, sizeof(partial_expected))) {
+        fprintf(stderr, "partial input remained borrowed after dmp_hs_offer\n");
+        goto done;
+    }
     ingress.payload = partial_b;
     if (dmp_hs_offer(env.initiator, &ingress, NULL) != DMP_HS_DROPPED ||
         !dmp_hs_copy_partial(env.initiator, held, sizeof(held), &held_len) ||
-        !bytes_match("partial", held, held_len, partial_a, sizeof(partial_a)) ||
+        !bytes_match("partial", held, held_len, partial_expected, sizeof(partial_expected)) ||
         dmp_hs_total_reads(env.initiator) != 0U || dmp_hs_noise_writes(env.initiator, index) != 1U) {
         fprintf(stderr, "incomplete conflict overwrote retained bytes\n");
         goto done;
@@ -1615,6 +1719,7 @@ static int test_epoch_hash_alloc(void)
     port_ctx port;
     uint8_t flight1[120];
     uint8_t flight2[80];
+    uint8_t saved_flight2[80];
     size_t flight1_len = 0U;
     size_t flight2_len = 0U;
     size_t hash_size;
@@ -1654,11 +1759,13 @@ static int test_epoch_hash_alloc(void)
         goto done;
     }
     memcpy(flight2, cached, flight2_len);
+    memcpy(saved_flight2, flight2, flight2_len);
     set_ingress(&ingress, flight2, flight2_len, ID_RESP, ID_INIT, 2U, NN_EPOCH);
     if (dmp_hs_offer(env.initiator, &ingress, &completion) != DMP_HS_AWAITING) {
         fprintf(stderr, "flight 2 was not held for accept\n");
         goto done;
     }
+    memset(flight2, 0xA5, flight2_len);
     port.watch_size = hash_size;
     port.watch_calls = 0U;
     status = dmp_hs_accept(env.initiator, &completion);
@@ -1670,6 +1777,24 @@ static int test_epoch_hash_alloc(void)
         fprintf(stderr, "accept allocated a hash state or changed epochs (%d, %u)\n",
                 (int)status, hash_allocs);
         goto done;
+    }
+    {
+        uint32_t reads = dmp_hs_total_reads(env.initiator);
+        uint32_t noise_reads = dmp_hs_noise_reads(env.initiator, completion.attempt_index);
+        uint32_t writes = dmp_hs_noise_writes(env.initiator, completion.attempt_index);
+        uint64_t deadline = dmp_hs_deadline(env.initiator, completion.attempt_index);
+
+        set_ingress(&ingress, saved_flight2, flight2_len, ID_RESP, ID_INIT, 2U, NN_EPOCH);
+        if (dmp_hs_offer(env.initiator, &ingress, NULL) != DMP_HS_OK ||
+            dmp_hs_total_reads(env.initiator) != reads ||
+            dmp_hs_noise_reads(env.initiator, completion.attempt_index) != noise_reads ||
+            dmp_hs_noise_writes(env.initiator, completion.attempt_index) != writes ||
+            dmp_hs_deadline(env.initiator, completion.attempt_index) != deadline ||
+            !dmp_hs_candidate(env.initiator, completion.attempt_index) ||
+            dmp_hs_terminal(env.initiator, completion.attempt_index)) {
+            fprintf(stderr, "accepted flight-2 duplicate changed the candidate\n");
+            goto done;
+        }
     }
     first_release = port.nonzero_release;
     close_session(&env);
@@ -1824,6 +1949,7 @@ static int test_finish_ready(void)
     uint8_t wrong_cipher[64];
     uint8_t app[64];
     uint8_t accepted[8];
+    const uint8_t *borrowed_finish;
     size_t finish_len = 0U;
     size_t ready_len = 0U;
     size_t app_len = 0U;
@@ -1842,9 +1968,16 @@ static int test_finish_ready(void)
         fprintf(stderr, "candidate state emitted application traffic\n");
         goto done;
     }
-    if (dmp_hs_confirm(env.initiator, index) != DMP_HS_OK || !copy_protected(env.initiator, index, finish, sizeof(finish), &finish_len) ||
+    if (dmp_hs_confirm(env.initiator, index) != DMP_HS_OK ||
+        (borrowed_finish = dmp_hs_protected_frame(env.initiator, index, NULL)) == NULL ||
+        !copy_protected(env.initiator, index, finish, sizeof(finish), &finish_len) ||
         !bytes_match("finish", finish, finish_len, fixture->finish.frame.data, fixture->finish.frame.size) ||
-        dmp_hs_send_application(env.initiator, index) != DMP_HS_NOT_ACTIVE) {
+        borrowed_finish != dmp_hs_protected_frame(env.initiator, index, NULL) ||
+        !bytes_match("borrowed FINISH frame", borrowed_finish, finish_len, finish, finish_len) ||
+        dmp_hs_send_application(env.initiator, index) != DMP_HS_NOT_ACTIVE ||
+        borrowed_finish != dmp_hs_protected_frame(env.initiator, index, NULL) ||
+        !bytes_match("borrowed FINISH survives refused send", borrowed_finish, finish_len,
+                     finish, finish_len)) {
         fprintf(stderr, "FINISH was not the published protected frame or it activated early\n");
         goto done;
     }
@@ -2333,11 +2466,60 @@ static int test_replay_ceiling(void)
     return 1;
 }
 
+static int test_cleanup_erases_owner(void)
+{
+    static const char *const fixture_names[] = {"nnpsk0", "xx"};
+    size_t fixture_index;
+
+    for (fixture_index = 0U;
+         fixture_index < sizeof(fixture_names) / sizeof(fixture_names[0]); ++fixture_index) {
+        const noise_fixture_probe_fixture_t *fixture = find_fixture(fixture_names[fixture_index]);
+        session env;
+        port_ctx port;
+        dmp_hs *owner;
+        const uint8_t *cached;
+        size_t cached_len = 0U;
+        uint32_t index = 0U;
+        int pairing = fixture_index == 1U;
+
+        memset(&env, 0, sizeof(env));
+        memset(&port, 0, sizeof(port));
+        if (fixture == NULL ||
+            !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, pairing, NULL) ||
+            dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+            close_session(&env);
+            return 0;
+        }
+        cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+        if (cached == NULL || cached_len == 0U || port.alloc_calls == 0U) {
+            close_session(&env);
+            return 0;
+        }
+
+        owner = env.initiator;
+        dmp_hs_cleanup(owner);
+        if (!all_zero(owner, dmp_hs_size()) || port.nonzero_release) {
+            env.initiator = NULL;
+            free(owner);
+            close_session(&env);
+            return 0;
+        }
+        env.initiator = NULL;
+        free(owner);
+        close_session(&env);
+        if (port.nonzero_release) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int main(void)
 {
     expect_case("nn-candidate", test_nn_candidate());
     expect_case("preread-conflict", test_preread_and_conflict());
     expect_case("duplicate-loss-processed-conflict", test_duplicate_loss_and_processed_conflict());
+    expect_case("cached-flight-lifetime", test_cached_flight_lifetime());
     expect_case("invalid-authenticated-payload-restart", test_invalid_authenticated_payload_restart());
     expect_case("low-order-dh-abort", test_low_order_dh_abort());
     expect_case("wrong-psk", test_wrong_psk());
@@ -2357,6 +2539,7 @@ int main(void)
     expect_case("replay-ceiling", test_replay_ceiling());
     expect_case("enroll-not-active", test_enroll_not_active());
     expect_case("failed-aead-limit", test_failed_aead_limit());
+    expect_case("cleanup-erases-owner", test_cleanup_erases_owner());
     if (g_failures != 0) {
         fprintf(stderr, "%d handshake case(s) failed\n", g_failures);
         return 1;

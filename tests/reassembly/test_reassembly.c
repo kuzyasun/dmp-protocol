@@ -593,6 +593,41 @@ static int test_stride_and_order(void)
     return 0;
 }
 
+static int test_v224_golden_fragments(void)
+{
+    static const uint8_t final_first[] = {0x47, 0x07, 0x09, 0x09, 0x01, 0x02, 0x03, 0xCC};
+    static const uint8_t first_second[] = {0x47, 0x07, 0x09, 0x09, 0x00, 0x02, 0x03, 0xAA, 0xBB};
+    static const uint8_t expected[] = {0xAA, 0xBB, 0xCC};
+    dmp_core_limits limits = {MAX_MTU, MAX_MSG, 8U};
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+    dmp_reassembly_input input;
+    dmp_reassembly_handle handle = sentinel();
+    dmp_reassembly_message message;
+
+    CHECK(boot(1U, 1U, 1U, 1U, 8U, 2U, MAX_MTU, 1000U, 0) == 0);
+    parsed = dmp_core_parse(span(final_first, sizeof final_first), &limits, &view);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof final_first);
+    memset(&input, 0, sizeof input);
+    input.frame = &view;
+    input.context = g.ctx;
+    input.service_id = 1U;
+    input.plaintext = view.payload;
+    CHECK(dmp_reassembly_on_fragment(&g.engine, &input, 10U, &handle) == DMP_INCOMPLETE);
+    CHECK(untouched(handle));
+
+    parsed = dmp_core_parse(span(first_second, sizeof first_second), &limits, &view);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof first_second);
+    input.frame = &view;
+    input.plaintext = view.payload;
+    CHECK(dmp_reassembly_on_fragment(&g.engine, &input, 20U, &handle) == DMP_OK);
+    CHECK(dmp_reassembly_get(&g.engine, handle, &message) == DMP_OK);
+    CHECK(message.source.seq == 9U);
+    CHECK(message.payload.size == sizeof expected);
+    CHECK(memcmp(message.payload.data, expected, sizeof expected) == 0);
+    return 0;
+}
+
 static int test_conflicts_and_retries(void)
 {
     uint8_t body[16];
@@ -1323,6 +1358,9 @@ int main(void)
         return 1;
     }
     if (test_stride_and_order() != 0) {
+        return 1;
+    }
+    if (test_v224_golden_fragments() != 0) {
         return 1;
     }
     if (test_conflicts_and_retries() != 0) {

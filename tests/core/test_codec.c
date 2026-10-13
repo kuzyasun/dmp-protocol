@@ -40,6 +40,48 @@ static int test_independent_golden_vectors(void)
     CHECK(dmp_core_check_role(&v, &role) == DMP_OK);
     return 0;
 }
+
+static int test_v229_golden_exchange_bytes(void)
+{
+    static const uint8_t rsp[] = {0x41, 0x11, 0x83, 0x09, 0x05, 0x0B, 0x01, 0x0A, 0x07,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A, 0xBB};
+    static const uint8_t ack[] = {0x46, 0x11, 0x81, 0x2B, 0x05, 0x0B, 0x01, 0x14, 0x09,
+                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09};
+    static const uint8_t rsp_reply_to[] = {0x05, 0x0B, 0x01, 0x0A, 0x07, 0x00, 0x00,
+                                           0x00, 0x00, 0x00, 0x00, 0x00, 0x2A};
+    static const uint8_t ack_reply_to[] = {0x05, 0x0B, 0x01, 0x14, 0x09, 0x00, 0x00,
+                                           0x00, 0x00, 0x00, 0x00, 0x00, 0x09};
+    static const uint8_t result[] = {0xBB};
+    uint8_t out[sizeof rsp];
+    dmp_frame_spec frame;
+    dmp_frame_view view;
+    size_t written;
+
+    memset(&frame, 0, sizeof frame);
+    frame.fields.type = DMP_TYPE_RSP;
+    frame.fields.options = DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_EXT;
+    frame.fields.seq = 9U;
+    frame.extensions = (dmp_bytes){rsp_reply_to, sizeof rsp_reply_to};
+    frame.payload = (dmp_bytes){result, sizeof result};
+    CHECK(dmp_core_encode(&frame, &limits, (dmp_buffer){out, sizeof out}, &written) == DMP_OK);
+    CHECK(written == sizeof rsp);
+    CHECK(memcmp(out, rsp, sizeof rsp) == 0);
+    CHECK(parse_ok(out, written, &view));
+    CHECK(view.fields.type == DMP_TYPE_RSP && view.fields.seq == 9U);
+
+    frame.fields.type = DMP_TYPE_ACK;
+    frame.fields.options = DMP_OPT_SEQ | DMP_OPT_EXT;
+    frame.fields.seq = 43U;
+    frame.extensions = (dmp_bytes){ack_reply_to, sizeof ack_reply_to};
+    frame.payload = (dmp_bytes){NULL, 0U};
+    CHECK(dmp_core_encode(&frame, &limits, (dmp_buffer){out, sizeof out}, &written) == DMP_OK);
+    CHECK(written == sizeof ack);
+    CHECK(memcmp(out, ack, sizeof ack) == 0);
+    CHECK(parse_ok(out, written, &view));
+    CHECK(view.fields.type == DMP_TYPE_ACK && view.fields.seq == 43U);
+    return 0;
+}
+
 static int test_uleb_boundaries(void)
 {
     /* Canonical UINT32_MAX and UINT64_MAX are independent literal fixtures. */
@@ -229,7 +271,16 @@ static int test_reply_status_and_control_shapes(void)
     CHECK(parse_ok(compact_reply_ack,sizeof compact_reply_ack,&v));
     CHECK(dmp_core_parse((dmp_bytes){compact_plain_reply,sizeof compact_plain_reply},&limits,&v).status == DMP_MALFORMED);
     CHECK(dmp_core_parse((dmp_bytes){full_secure_reply,sizeof full_secure_reply},&limits,&v).status == DMP_MALFORMED);
-    CHECK(dmp_core_parse((dmp_bytes){err_status1_ackreq,sizeof err_status1_ackreq},&limits,&v).status == DMP_MALFORMED);
+    {
+        uint8_t err_ackreq[sizeof err_status1_ackreq];
+        uint32_t status;
+        memcpy(err_ackreq, err_status1_ackreq, sizeof err_ackreq);
+        for (status = 1U; status <= 7U; ++status) {
+            /* The STATUS value is the last extension byte before the payload. */
+            err_ackreq[sizeof err_ackreq - 2U] = (uint8_t)status;
+            CHECK(dmp_core_parse((dmp_bytes){err_ackreq,sizeof err_ackreq},&limits,&v).status == DMP_MALFORMED);
+        }
+    }
     CHECK(parse_ok(err_status8,sizeof err_status8,&v));
     CHECK(dmp_core_check_role(&v,&role) == DMP_UNSUPPORTED);
     CHECK(parse_ok(err_status64,sizeof err_status64,&v));
@@ -363,6 +414,7 @@ static int test_header_and_capacity_boundaries(void)
 int main(void)
 {
     CHECK(test_independent_golden_vectors() == 0);
+    CHECK(test_v229_golden_exchange_bytes() == 0);
     CHECK(test_uleb_boundaries() == 0);
     CHECK(test_malformed_and_limits() == 0);
     CHECK(test_roles_and_safe_unknown() == 0);

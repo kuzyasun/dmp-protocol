@@ -152,6 +152,22 @@ target_link_libraries(dmp_test_endpoint PRIVATE
 
 add_executable(dmp_test_endpoint_sec
     "${PROJECT_SOURCE_DIR}/tests/endpoint/test_endpoint_sec.c" "${_fixture_header}")
+# Use the active deployment's SAMPLE-1 initialization budget in protected
+# endpoint regressions too; changing the manifest reconfigures this target.
+set(_sample_manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/direct-nnpsk0.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_sample_manifest}")
+file(READ "${_sample_manifest}" _sample_manifest_json)
+string(JSON _sample_init_attempts GET "${_sample_manifest_json}" sample init_attempts)
+string(JSON _sample_init_retry_ms GET "${_sample_manifest_json}" sample init_retry_ms)
+string(JSON _sample_init_deadline_ms GET "${_sample_manifest_json}" sample init_deadline_ms)
+string(JSON _sample_no_sample_status GET "${_sample_manifest_json}" sample no_sample_status)
+string(JSON _sample_result_deadline_ms GET "${_sample_manifest_json}" timing result_deadline_ms)
+target_compile_definitions(dmp_test_endpoint_sec PRIVATE
+    SAMPLE_INIT_ATTEMPTS=${_sample_init_attempts}
+    SAMPLE_INIT_RETRY_MS=${_sample_init_retry_ms}
+    SAMPLE_INIT_DEADLINE_MS=${_sample_init_deadline_ms}
+    SAMPLE_NO_SAMPLE=${_sample_no_sample_status}
+    SAMPLE_RESULT_DEADLINE_MS=${_sample_result_deadline_ms})
 target_include_directories(dmp_test_endpoint_sec PRIVATE
     "${PROJECT_SOURCE_DIR}/src/security"
     "${PROJECT_SOURCE_DIR}/tests/endpoint"
@@ -164,7 +180,7 @@ dmp_strict_target(dmp_test_endpoint_sec)
 if(MSVC)
     target_compile_definitions(dmp_test_endpoint_sec PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
-foreach(name activation alter loss result_loss receipt_loss sample_invalid_request validator_duplicate_skipped retained_rejection_reassembly freshness_terminal_rejection isolate reassembly ttl acl rotation result fragdeny drain context repair)
+foreach(name activation alter loss result_loss receipt_loss sample_invalid_request sample_no_sample sample_initialization service2_immediate sample_late_assoc sample_superseded sample_init_timeout sample_invalid_result sample_invalid_telem sample_fragmented_result sample_invalid_fragmented_result err_status_contract validator_duplicate_skipped retained_rejection_reassembly freshness_terminal_rejection isolate reassembly ttl acl rotation result fragdeny drain context repair)
     add_test(NAME endpoint.protected_${name} COMMAND dmp_test_endpoint_sec ${name})
     set_tests_properties(endpoint.protected_${name} PROPERTIES TIMEOUT 60 LABELS "endpoint")
 endforeach()

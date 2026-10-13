@@ -70,6 +70,17 @@ typedef uint32_t (*dmp_endpoint_request_validate_fn)(void *user,
                                                      uint32_t service_id,
                                                      dmp_bytes plaintext);
 
+/* Optional application schema check for an RSP on a non-control service.
+ * Run after authentication/size/reassembly and before reliability can accept
+ * the result or queue its receipt. Return nonzero only for a valid result;
+ * zero silently drops the response so the matching request remains active.
+ * The frame is the logical response view and plaintext borrows endpoint
+ * storage until the callback returns. It shares validate_request_user as its
+ * context; it must be deterministic, side-effect-free and non-reentrant so a
+ * retransmitted result cannot change application state before acceptance. */
+typedef int (*dmp_endpoint_result_validate_fn)(void *user, const dmp_frame_view *frame,
+                                               uint32_t service_id, dmp_bytes plaintext);
+
 /* Every buffer is caller-owned for the whole endpoint lifetime. Slot counts
  * must be at least the admitted profile. Extra bytes do not raise quotas.
  * stream_tx must hold one Stream R encoding of encoded_mtu plus the one-byte
@@ -84,6 +95,7 @@ typedef struct {
     void *notice_user;
     dmp_endpoint_request_validate_fn validate_request;
     void *validate_request_user;
+    dmp_endpoint_result_validate_fn validate_result;
     dmp_reliability_sender_slot *senders;
     size_t sender_capacity;
     uint8_t *sender_payload;
@@ -199,6 +211,7 @@ typedef struct {
     void *notice_user;
     dmp_endpoint_request_validate_fn validate_request;
     void *validate_request_user;
+    dmp_endpoint_result_validate_fn validate_result;
     dmp_endpoint_storage mem;
     dmp_endpoint_tx tx[DMP_ENDPOINT_TX_SLOTS];
     uint64_t tx_generation;
@@ -308,6 +321,11 @@ dmp_status dmp_endpoint_submit_event(dmp_endpoint *endpoint, uint32_t service_id
 dmp_status dmp_endpoint_complete(dmp_endpoint *endpoint, dmp_reliability_handle request,
                                  bool application_err, uint32_t wire_status,
                                  dmp_bytes payload, dmp_time_ms now);
+/* Discard an app-held request after its peer association has closed or expired.
+ * No wire result is sent; active or still-draining requests return DMP_BUSY. */
+dmp_status dmp_endpoint_abandon_request(dmp_endpoint *endpoint,
+                                        dmp_reliability_handle request,
+                                        dmp_time_ms now);
 
 /* Best-effort unfragmented TELEM. An unsent staged sample is replaced.
  * A sample that does not fit one frame returns DMP_LIMIT_EXHAUSTED. */

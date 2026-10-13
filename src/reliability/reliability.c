@@ -2978,3 +2978,40 @@ dmp_status dmp_reliability_complete(dmp_reliability *engine, dmp_reliability_han
         engine, request, application_err, wire_status, payload,
         engine->profile.result_cache_ms, now);
 }
+
+dmp_status dmp_reliability_abandon_request(dmp_reliability *engine,
+                                           dmp_reliability_handle request)
+{
+    dmp_reliability_history_slot *history;
+    dmp_reliability_result_slot *result;
+    dmp_reliability_sender_slot *sender;
+
+    if (!ready(engine)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (request.slot >= engine->storage.history_capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    history = &engine->storage.history[request.slot];
+    if (history->live == 0U || history->generation != request.generation ||
+        history->decision != 0U || history->type != DMP_TYPE_REQ ||
+        history->result_slot >= engine->storage.result_capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    result = &engine->storage.results[history->result_slot];
+    if (result->live == 0U || result->generation != history->result_generation ||
+        result->deadline != 0U) {
+        return DMP_STALE_HANDLE;
+    }
+    sender = sender_of_result(engine, result);
+    if (sender == NULL || sender->kind != KIND_RESULT ||
+        sender->phase != DMP_REL_PHASE_AWAIT_RESULT || sender->tx_live ||
+        sender->burst_inflight != 0U) {
+        return DMP_BUSY;
+    }
+
+    release_sender(sender);
+    release_result(result);
+    release_history(history);
+    return DMP_OK;
+}
