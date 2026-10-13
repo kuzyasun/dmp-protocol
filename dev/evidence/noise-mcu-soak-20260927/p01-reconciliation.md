@@ -213,3 +213,28 @@ endpoint emits UNKNOWN and no LOCAL_UNSENT event.
 This is endpoint-wrapper/transport-contract evidence. It does not connect the
 production handshake owner's cached flights to `dmp_transport`, and does not
 close same-owner serialization or hardware behavior.
+
+## Provider split, remote-key, and cleanup host follow-up — 2026-10-13
+
+`security.provider_adapter` now also covers three reachable lifecycle cases.
+The output-contract case checks that a live NNpsk0 handshake with no peer key
+returns REJECTED and wipes `remote_public` output. The Split case injects OOM
+at the additional Noise cipher allocation, asserts zeroed output wrappers and
+unchanged block/retained/release accounting, then retries Split successfully
+on the same handshake. General provider cleanup now runs with both a live
+handshake and a live cipher wrapper and checks both are erased along with
+released allocations.
+
+The adapter's block-table guard returns before invoking the custom allocator
+when all tracking slots are occupied, so `remember_block`'s defensive failure
+path is not reached through the ordinary allocator path and is not claimed as
+covered. The current Noise Split implementation allocates its second cipher
+before publishing either output, so partial Split outputs are not produced by
+the tested OOM path. Exhaustive allocation-ordinal cleanup remains open.
+
+The provider target built and `security.provider_adapter` passed 1/1. Independent
+GPT-6.1-sol High review found no remaining issue after test failure cleanup was
+added. Focused `git diff --ignore-submodules=all --check` passed. This adds host
+regression evidence only. Aggregate four-peer resources, production
+cached-flight transport integration, target runtime, physical operation, and
+P01C remain open; hardware qualification stays deferred to the final phase.

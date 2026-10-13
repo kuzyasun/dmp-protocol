@@ -622,6 +622,13 @@ static int test_output_contract(void)
         goto done;
     }
 
+    memset(output, 0xA5, 32U);
+    status = dmp_provider_handshake_remote_public(provider, &handshake, output);
+    if (status != DMP_PROVIDER_REJECTED || !all_zero(output, 32U)) {
+        fprintf(stderr, "remote-public before peer key did not reject and wipe output\n");
+        goto done;
+    }
+
     memset(output, 0xD4, 32U);
     status = dmp_provider_handshake_remote_public(provider, NULL, output);
     if (status != DMP_PROVIDER_INVALID || !all_value(output, 32U, 0xD4U)) {
@@ -1262,6 +1269,75 @@ done:
     return passed;
 }
 
+static int test_split_allocation_failure_retry(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake initiator;
+    dmp_provider_handshake responder;
+    dmp_provider_cipher send;
+    dmp_provider_cipher receive;
+    size_t blocks_before;
+    size_t retained_before;
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    memset(&port, 0, sizeof(port));
+    memset(&initiator, 0, sizeof(initiator));
+    memset(&responder, 0, sizeof(responder));
+    memset(&send, 0xA5, sizeof(send));
+    memset(&receive, 0xA5, sizeof(receive));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (fixture == NULL || dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK ||
+        !exchange(provider, fixture, &initiator, &responder, 0)) {
+        goto done;
+    }
+
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    releases_before = port.release_calls;
+    port.fail_alloc_at = port.alloc_calls + 1U;
+    status = dmp_provider_handshake_split(provider, &initiator, &send, &receive);
+    port.fail_alloc_at = 0U;
+    if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(&send, sizeof(send)) ||
+        !all_zero(&receive, sizeof(receive)) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.release_calls != releases_before || !release_clean(&port, "split allocation failure")) {
+        fprintf(stderr,
+                "split allocation failure status=%d blocks=%zu/%zu retained=%zu/%zu releases=%u/%u\n",
+                (int)status, dmp_provider_block_count(provider), blocks_before,
+                dmp_provider_retained(provider), retained_before, port.release_calls,
+                releases_before);
+        goto done;
+    }
+
+    status = dmp_provider_handshake_split(provider, &initiator, &send, &receive);
+    if (status != DMP_PROVIDER_OK ||
+        dmp_provider_cipher_close(provider, &send) != DMP_PROVIDER_OK ||
+        dmp_provider_cipher_close(provider, &receive) != DMP_PROVIDER_OK) {
+        fprintf(stderr, "split retry after allocation failure did not recover\n");
+        goto done;
+    }
+    passed = dmp_provider_handshake_close(provider, &initiator) == DMP_PROVIDER_OK &&
+             dmp_provider_handshake_close(provider, &responder) == DMP_PROVIDER_OK &&
+             dmp_provider_block_count(provider) == 0U &&
+             dmp_provider_retained(provider) == 0U && release_clean(&port, "split retry");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size());
+    free(provider);
+    return passed;
+}
+
 static int test_cipher_child_capacity_cleanup(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -1398,6 +1474,7 @@ static int test_cleanup(void)
     dmp_provider *provider;
     dmp_provider_handshake handshake;
     dmp_provider_handshake_keys keys;
+    dmp_provider_cipher cipher;
     int passed = 0;
 
     if (fixture == NULL) {
@@ -1405,6 +1482,7 @@ static int test_cleanup(void)
     }
     memset(&port, 0, sizeof(port));
     memset(&handshake, 0, sizeof(handshake));
+    memset(&cipher, 0, sizeof(cipher));
     provider = (dmp_provider *)calloc(1, dmp_provider_size());
     if (provider == NULL) {
         return 0;
@@ -1416,14 +1494,17 @@ static int test_cleanup(void)
     fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
     if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
                                     DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK ||
-        dmp_provider_block_count(provider) == 0U) {
+        dmp_provider_block_count(provider) == 0U ||
+        dmp_provider_cipher_from_key(provider, &cipher, fixture->i_to_r_key.data,
+                                     fixture->i_to_r_key.size) != DMP_PROVIDER_OK) {
         goto done;
     }
     dmp_provider_cleanup(provider);
     passed = all_zero(provider, dmp_provider_size()) && all_zero(&handshake, sizeof(handshake)) &&
-             release_clean(&port, "cleanup");
+             all_zero(&cipher, sizeof(cipher)) && release_clean(&port, "cleanup");
 
 done:
+    dmp_provider_cleanup(provider);
     free(provider);
     return passed;
 }
@@ -1448,6 +1529,7 @@ int main(void)
     expect_case("pn-aad-xx", test_pn_aad(xx));
     expect_case("suite-nnpsk0", test_suite(nn));
     expect_case("suite-xx", test_suite(xx));
+    expect_case("split-allocation-failure-retry", test_split_allocation_failure_retry());
     expect_case("split-partial-registration-cleanup", test_split_partial_registration_cleanup());
     expect_case("cipher-child-capacity-cleanup", test_cipher_child_capacity_cleanup());
     expect_case("cleanup", test_cleanup());

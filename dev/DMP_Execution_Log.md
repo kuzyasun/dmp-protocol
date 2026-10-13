@@ -2464,3 +2464,32 @@ CTest cases passed 31/31 and P23 interop cases passed 13/13 before that final
 cleanup-only correction. The production handshake owner still lacks a
 `dmp_transport` send path, so this does not close cached-handshake-flight
 transport lifecycle evidence. Aggregate resource tests and P01C remain open.
+
+## 2026-10-13 — P01 provider split, remote-key, and cleanup regressions
+
+Added three reachable host regressions in `tests/security/test_provider.c`.
+`output-contract` now checks that `remote_public` on a live NNpsk0 handshake
+before receiving a peer key returns REJECTED and clears all 32 output bytes.
+`split-allocation-failure-retry` fails the additional Noise cipher allocation
+made during Split, checks NO_MEMORY, cleared output wrappers and unchanged
+block/retained/release accounting, then successfully retries Split on the same
+handshake and closes all owners. `cleanup` now leaves an opened cipher alive
+alongside a handshake and verifies provider cleanup wipes both wrappers and
+all released Noise allocations.
+
+The suspected `remember_block` failure is not reached through the public
+allocator path: `noise_allocator_allocate` rejects a full block table before
+calling the custom allocator, so this follow-up does not claim coverage for
+that defensive fallback. Partial Noise Split outputs are likewise not produced
+by the current Noise implementation: Split allocates its second cipher before
+publishing either output. The new case covers the reachable allocation error
+and retry. Exhaustive backend/allocation-ordinal cleanup remains open.
+
+Validation: `cmake --build build/host --target dmp_test_provider` succeeded;
+`ctest --test-dir build/host --output-on-failure -R
+"^security\\.provider_adapter$"` passed 1/1. Independent GPT-6.1-sol High
+review found no actionable issues after cleanup was added to the test's shared
+failure exit. `git diff --ignore-submodules=all --check` passed. This is
+host-provider evidence only; target runtime,
+whole-DMP RAM, physical operation, four-peer aggregate resources, and P01C
+remain open. Hardware qualification stays scheduled for the final phase.
