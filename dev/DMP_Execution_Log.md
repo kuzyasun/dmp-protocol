@@ -2612,3 +2612,12 @@ These are narrow host regressions. They do not prove delivery of a 4096-byte
 exchange, map manifest `mtu_bytes` to `encoded_mtu`, close `four_parallel`, or
 establish endpoint-target or physical behavior. No API, runtime implementation,
 manifest, or wire contract changed.
+
+`security.provider_adapter::short-handshake-read-output` adds a separate
+failure-path case using the valid NNpsk0 flight 2, whose decrypted four-byte
+payload exceeds a three-byte output capacity. It requires `DMP_PROVIDER_INVALID`,
+zero length, erasure of only those three declared bytes, preservation of the
+sentinel beyond the capacity, and clean handshake/provider teardown. The focused
+provider CTest passed 1/1. This is provider host evidence; the failed attempt is
+closed rather than reused, consistent with SEC-1's abort-on-admitted-read-error
+rule.

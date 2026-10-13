@@ -912,6 +912,73 @@ done:
     return passed;
 }
 
+static int test_short_handshake_read_output(void)
+{
+    enum { PAYLOAD_CAPACITY = 3U };
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    uint8_t message[CASE_BUFFER];
+    uint8_t payload[16];
+    size_t message_len = 0U;
+    size_t payload_len = 0x1234U;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count != 2U ||
+        fixture->flights[1].plaintext.size <= PAYLOAD_CAPACITY) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK ||
+        dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                     fixture->flights[0].plaintext.size, message, sizeof(message),
+                                     &message_len) != DMP_PROVIDER_OK ||
+        !bytes_match("short-read preceding flight", message, message_len,
+                     fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+        goto done;
+    }
+
+    /* Flight 2 is the valid expected fixture response. Noise authenticates and
+     * decrypts it before detecting that its four-byte payload exceeds capacity;
+     * INVALID_LENGTH maps to INVALID, and this attempt is closed after failure. */
+    memset(payload, 0xA5, sizeof(payload));
+    status = dmp_provider_handshake_read(provider, &handshake, fixture->flights[1].message.data,
+                                         fixture->flights[1].message.size, payload,
+                                         PAYLOAD_CAPACITY, &payload_len);
+    if (status != DMP_PROVIDER_INVALID || payload_len != 0U ||
+        !all_zero(payload, PAYLOAD_CAPACITY) ||
+        !all_value(payload + PAYLOAD_CAPACITY, sizeof(payload) - PAYLOAD_CAPACITY, 0xA5U)) {
+        fprintf(stderr, "short handshake-read failure did not erase only declared output\n");
+        goto done;
+    }
+    passed = dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+             all_zero(&handshake, sizeof(handshake)) &&
+             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
+             release_clean(&port, "short handshake-read cleanup");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "short handshake-read provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_wrong_psk(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -1707,6 +1774,7 @@ int main(void)
     expect_case("handshake-open-allocation-sweep", test_handshake_open_allocation_sweep());
     expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
+    expect_case("short-handshake-read-output", test_short_handshake_read_output());
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("low-order", test_low_order());
     expect_case("pn-aad-nnpsk0", test_pn_aad(nn));
