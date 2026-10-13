@@ -62,14 +62,14 @@ entire current CTest inventory was rerun.
   surviving-owner traffic; its focused `security.provider_adapter` CTest
   passed 1/1 and independent review found no issue. Other P01/P01C requirements
   remain open.
-- The 2026-10-13 follow-up adds premature Noise hash-output recovery and
-  short-read capacity wiping assertions to `security.provider_adapter`, plus a
-  one-peer endpoint-boundary test for both configured services, 256/257-byte
-  encoded-core admission, and 4096/4097-byte request admission. The focused
-  provider and endpoint CTests passed 3/3 together; independent review found no
-  actionable issue. These checks do not close the per-endpoint four-peer
-  `four_parallel` row, prove a delivered 4096-byte exchange, or establish
-  target or physical behavior.
+- The 2026-10-13 follow-up adds premature Noise hash-output recovery,
+  short-read capacity wiping, and post-allocation constructor-cleanup assertions
+  to `security.provider_adapter`, plus a one-peer endpoint-boundary test for
+  both configured services, 256/257-byte encoded-core admission, and
+  4096/4097-byte request admission. The focused provider and endpoint CTests
+  passed; independent review found no actionable issue. These checks do not
+  close the per-endpoint four-peer `four_parallel` row, prove a delivered
+  4096-byte exchange, or establish target or physical behavior.
 - A recent full host CTest attempt did not complete: after the subprocess
   harness passed with workspace-local TEMP/TMP, the process-isolated minimal
   endpoint lifecycle test could not establish its host loopback peer and timed

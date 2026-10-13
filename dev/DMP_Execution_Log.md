@@ -2621,3 +2621,12 @@ sentinel beyond the capacity, and clean handshake/provider teardown. The focused
 provider CTest passed 1/1. This is provider host evidence; the failed attempt is
 closed rather than reused, consistent with SEC-1's abort-on-admitted-read-error
 rule.
+
+`security.provider_adapter::late-constructor-validation-cleanup` supplies a
+NULL/nonempty prologue after Noise state allocation, ephemeral installation,
+and PSK installation. The adapter returns `DMP_PROVIDER_INVALID`, zeros the
+handshake wrapper, balances allocation/releases with no retained blocks, and
+erases released blocks. A valid open on the same provider then writes exact
+fixture flight 1 and closes cleanly. The focused provider CTest passed 1/1;
+independent review found no actionable issue. This closes only that constructor
+failure branch, not the complete provider failure/erasure inventory.
