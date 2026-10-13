@@ -2657,3 +2657,13 @@ allocation/release/block/retained accounting unchanged. The same handshake
 then writes exact fixture flight 1 and closes cleanly. The focused provider
 build and CTest passed 1/1; independent review found no actionable issue. This
 is a wrapper phase-refusal case, not SEC-1 authenticated-read failure evidence.
+
+`security.provider_adapter::output-contract` now also checks a live cipher's
+short-capacity encrypt failure. The wrapper returns `DMP_PROVIDER_INVALID`,
+zeros output length, wipes only the declared three-byte capacity, preserves
+the tail sentinel and provider accounting, then encrypts the exact NNpsk0 PN0
+fixture on the same cipher. This backend's capacity guard runs before
+encryption and nonce advancement. The provider target build was current and
+the focused provider CTest passed 1/1; independent review found no actionable
+issue. This does not prove endpoint packet-number allocation or target/physical
+behavior.

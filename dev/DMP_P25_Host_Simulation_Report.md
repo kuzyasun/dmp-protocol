@@ -262,3 +262,16 @@ revocation. The host endpoint and P23 interop suites passed. This does not
 exercise a production handshake-flight submission path; cached handshake
 transport integration, aggregate resources, and hardware qualification remain
 open.
+
+## P01 cipher short-capacity recovery follow-up — 2026-10-13
+
+`security.provider_adapter::output-contract` now exercises a live cipher
+encrypt call whose declared capacity is below the backend's minimum. It checks
+`DMP_PROVIDER_INVALID`, zero output length, wiping of exactly the declared
+three-byte capacity, preservation of the tail sentinel, and unchanged provider
+resource accounting. The same cipher then encrypts the exact NNpsk0 PN0 fixture;
+the Noise backend rejects before encryption and nonce advancement. Provider
+build was current, focused `security.provider_adapter` CTest passed 1/1, and
+independent review found no actionable issue. This is primitive-wrapper host
+evidence only; endpoint PN allocation, target runtime, physical operation, and
+P01C remain open.

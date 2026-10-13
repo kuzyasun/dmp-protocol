@@ -885,9 +885,13 @@ static int exchange(dmp_provider *provider, const noise_fixture_probe_fixture_t 
                        fixture->handshake_hash.data, fixture->handshake_hash.size);
 }
 
+static int encrypt_packet(dmp_provider *provider, dmp_provider_cipher *cipher,
+                          const noise_fixture_probe_packet_t *packet, const char *what);
+
 static int test_output_contract(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    const noise_fixture_probe_packet_t *packet;
     port_ctx port;
     dmp_provider_ports ports;
     dmp_provider *provider;
@@ -898,11 +902,16 @@ static int test_output_contract(void)
     uint8_t hash[32];
     size_t blocks_before_hash;
     size_t retained_before_hash;
+    size_t blocks_before_encrypt;
+    size_t retained_before_encrypt;
+    unsigned calls_before_encrypt;
+    unsigned releases_before_encrypt;
     size_t output_len;
     dmp_provider_status status;
     int passed = 0;
 
-    if (fixture == NULL || fixture->flight_count == 0U) {
+    if (fixture == NULL || fixture->flight_count == 0U ||
+        (packet = find_packet(fixture, 0U, 0U)) == NULL) {
         return 0;
     }
     memset(&port, 0, sizeof(port));
@@ -1019,14 +1028,30 @@ static int test_output_contract(void)
         goto done;
     }
 
+    blocks_before_encrypt = dmp_provider_block_count(provider);
+    retained_before_encrypt = dmp_provider_retained(provider);
+    calls_before_encrypt = port.alloc_calls;
+    releases_before_encrypt = port.release_calls;
     memcpy(output, "abc", 3U);
     memset(output + 3U, 0x5A, sizeof(output) - 3U);
     output_len = 0x3456U;
     status = dmp_provider_cipher_encrypt(provider, &cipher, 0U, NULL, 0U,
                                          output, 3U, 3U, &output_len);
-    if (status == DMP_PROVIDER_OK || output_len != 0U || !all_zero(output, 3U) ||
-        !all_value(output + 3U, sizeof(output) - 3U, 0x5AU)) {
+    if (status != DMP_PROVIDER_INVALID || output_len != 0U || !all_zero(output, 3U) ||
+        !all_value(output + 3U, sizeof(output) - 3U, 0x5AU) ||
+        dmp_provider_block_count(provider) != blocks_before_encrypt ||
+        dmp_provider_retained(provider) != retained_before_encrypt ||
+        port.alloc_calls != calls_before_encrypt || port.release_calls != releases_before_encrypt) {
         fprintf(stderr, "short cipher-encrypt output was not bounded and wiped\n");
+        goto done;
+    }
+    /* Noise's capacity guard precedes encryption and nonce advancement. No
+     * ciphertext was produced under PN 0; the fixture is its first successful use. */
+    if (!encrypt_packet(provider, &cipher, packet, "PN0 after short-capacity encryption") ||
+        dmp_provider_block_count(provider) != blocks_before_encrypt ||
+        dmp_provider_retained(provider) != retained_before_encrypt ||
+        port.alloc_calls != calls_before_encrypt || port.release_calls != releases_before_encrypt) {
+        fprintf(stderr, "cipher did not recover after short-capacity encryption\n");
         goto done;
     }
 
@@ -1041,7 +1066,9 @@ static int test_output_contract(void)
     }
 
     passed = dmp_provider_cipher_close(provider, &cipher) == DMP_PROVIDER_OK &&
+             all_zero(&cipher, sizeof(cipher)) &&
              dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+             all_zero(&handshake, sizeof(handshake)) &&
              dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
              release_clean(&port, "output contract");
     dmp_provider_cleanup(provider);

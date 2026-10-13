@@ -355,3 +355,16 @@ handshake then writes the exact fixture flight 1 and closes cleanly. The
 provider target build and focused CTest passed 1/1; independent review found no
 actionable issue. This covers the initial WRITE_MESSAGE phase only, not
 authenticated-read failure/abort behavior or target/physical operation.
+
+## Cipher short-capacity encryption recovery — 2026-10-13
+
+The `security.provider_adapter::output-contract` case now sends a live
+NNpsk0 cipher an output capacity of three bytes. It verifies
+`DMP_PROVIDER_INVALID`, zero output length, wiping only those three bytes,
+preserving the tail sentinel, and unchanged allocation/release/block/retained
+accounting. It then encrypts the exact PN0 fixture on the same cipher and
+matches its ciphertext and tag. The Noise backend's capacity guard rejects
+before encryption or nonce advancement. The provider build was current and the
+focused provider CTest passed 1/1; independent review found no actionable
+issue. This is host primitive evidence only; endpoint PN allocation, MCU
+runtime, physical operation, and P01C remain open.
