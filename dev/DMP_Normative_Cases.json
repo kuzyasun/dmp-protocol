@@ -3159,14 +3159,14 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "partial",
+      "status": "passed",
       "interop_result": "passed",
       "interop_checks": [
         "tests/peer/tests/test_p23_c_endpoint_interop.py::TestP23CPrimaryInterop.test_sample_and_large_request_result_from_c_to_peer",
         "tests/peer/tests/test_p23_mixed_endpoint_path.py::TestP23MixedEndpointPath.test_sec1_sample_exchange_crosses_mixed_path_in_both_directions"
       ],
       "interop_evidence": "Positive SAMPLE-1 bytes and correlated READ/result were exchanged under exact P23 manifest identities; lifecycle negatives and persistence remain local gates.",
-      "primary_result": "partial",
+      "primary_result": "passed",
       "primary_checks": [
         "tests/endpoint/test_endpoint.c::test_sample1",
         "tests/endpoint/test_endpoint.c::test_sample_same_epoch",
@@ -3175,8 +3175,8 @@
         "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization",
         "tests/endpoint/test_endpoint_sec.c::test_protected_sample_late_assoc"
       ],
-      "primary_remaining": "Protected current-handle correlation, stale same-epoch ordering, and an old-epoch result returned on a draining association are covered. Atomic concurrent update remains open.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-late-sample-result-on-draining-association",
+      "primary_remaining": "No remaining host requirement within the documented serialized-call contract; concurrent calls are unsupported by the endpoint API.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-serialized-sample1-callback-update-and-association-orderings",
       "peer_result": "passed",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a2_correlated_result"
@@ -3223,10 +3223,10 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "partial",
+      "status": "passed",
       "interop_result": "not-applicable",
       "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
-      "primary_result": "partial",
+      "primary_result": "passed",
       "primary_checks": [
         "tests/endpoint/test_endpoint.c::test_sample_same_epoch",
         "tests/endpoint/test_endpoint.c::test_sample_new_epoch",
@@ -3234,8 +3234,8 @@
         "tests/endpoint/test_endpoint.c::test_sample_superseded",
         "tests/endpoint/test_endpoint_sec.c::test_protected_sample_late_assoc"
       ],
-      "primary_remaining": "Protected SEC-1 now verifies that an old-epoch result arriving on a live draining association keeps its request correlation and ACK path while leaving the new sample cache unchanged. Atomic concurrent result/association update remains open.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-late-sample-result-on-draining-association",
+      "primary_remaining": "No remaining host requirement within the documented serialized-call contract; concurrent calls are unsupported by the endpoint API.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-serialized-sample1-callback-update-and-association-orderings",
       "peer_result": "passed",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a2_live_late"
@@ -3542,16 +3542,18 @@
       "peer_gate": "P21B/P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected repeat at P15/P21C",
-      "status": "partial",
+      "status": "passed",
       "interop_result": "not-applicable",
       "interop_evidence": "P23 exercises positive SAMPLE-1 transport and correlated reads only. This row is an application validation, initialization lifecycle, variant fixture, persistence, or restart obligation; P23 does not claim it was replayed across independent endpoints.",
-      "primary_result": "partial",
+      "primary_result": "passed",
       "primary_checks": [
         "tests/endpoint/test_endpoint.c::test_sample_late_assoc",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_initialization",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_late_assoc",
         "tests/endpoint/test_endpoint_sec.c::test_rotation"
       ],
-      "primary_remaining": "The host tests sequence association replacement around a delayed result but do not prove an atomic concurrent update/cancel race through primary SEC-1.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-host-endpoint-and-peer-recheck",
+      "primary_remaining": "The host owner commits the correlated result before its next serialized replacement operation; replacement invalidates the designation, preserves the cached sample as unsynchronized, and a new designated READ resynchronizes without rollback. Concurrent calls are unsupported by the endpoint API.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-serialized-sample1-callback-update-and-association-orderings",
       "peer_result": "passed",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_assoc_race"

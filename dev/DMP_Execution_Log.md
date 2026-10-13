@@ -2567,3 +2567,27 @@ allocations, and provider block/retained counters return to zero. The focused
 provider CTest passed 1/1 and direct output reports two failing ordinals and
 boundary 3. This remains host provider evidence, not target allocator or
 hardware qualification; P01/P01C remain open.
+
+## 2026-10-13 — P12 serialized SAMPLE-1 callback update and association orderings
+
+The protected SAMPLE-1 host harness now applies correlated READ results inside
+the synchronous endpoint notice callback. `dmp_endpoint` documents that calls
+are serialized, and that the callback is synchronous and must not reenter the
+endpoint. The test verifies the app state is committed before the callback
+returns, so a later replacement/cancel operation cannot interleave between
+endpoint correlation and SAMPLE-1 state update.
+
+`endpoint.protected_sample_initialization` checks result acceptance before a
+later association rotation, including a higher-index telemetry update. The
+serialized sample owner then invalidates the old READ designation and marks
+the retained cache unsynchronized on replacement. A new designated READ on
+the replacement association resynchronizes the same epoch/index without
+rollback. `endpoint.protected_sample_late_assoc` checks rotation before an old
+draining-association result, rejects the invalidated designation in the
+callback, rejects an old-association packet that names the new READ without
+invoking the callback, then accepts the result from the selected association.
+The endpoint security target rebuilt and both focused CTests passed (2/2) after
+the replacement/resynchronization assertion. This closes the host cases for
+correlated result, live late result, and association order under the documented
+single-owner contract; it does not claim concurrent multi-core calls, a
+production SAMPLE-1 association-owner adapter, or durable storage.

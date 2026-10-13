@@ -74,6 +74,7 @@ enum {
 };
 
 typedef struct node node;
+typedef struct sample_tracker sample_tracker;
 
 typedef struct {
   int used;
@@ -114,6 +115,8 @@ typedef struct {
     int results;
     uint32_t last_status;
     dmp_reliability_handle result_request;
+    unsigned sample_update_attempts;
+    int sample_update_status;
     int drop_result_receipt;
     int telems;
     int assembled;
@@ -131,7 +134,7 @@ typedef struct {
     size_t body_n;
 } app;
 
-typedef struct {
+struct sample_tracker {
     int synchronized;
     int discarded;
     int rollbacks;
@@ -139,13 +142,15 @@ typedef struct {
     uint64_t epoch;
     uint32_t index;
     uint32_t value;
-} sample_tracker;
+};
 
 struct node {
     dmp_endpoint endpoint;
     dmp_transport transport;
     wire wire;
     app app;
+    sample_tracker *sample_state;
+    dmp_reliability_handle sample_designated;
     dmp_identity_slot ids[2];
     dmp_reliability_sender_slot senders[SENDERS];
     uint8_t sender_payload[SENDERS * MESSAGE];
@@ -171,6 +176,9 @@ struct node {
     uint8_t stream_tx[STREAM_CAP];
     uint8_t stream_rx[STREAM_CAP];
 };
+
+static int sample_accept_read_result(sample_tracker *state, const app *result,
+                                     dmp_reliability_handle designated);
 
 typedef struct script {
     const uint8_t *data[16];
@@ -320,6 +328,12 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
     if (self->app.result_n != 0U && notice->payload.data != NULL) {
       memcpy(self->app.result, notice->payload.data, self->app.result_n);
     }
+    if (self->sample_state != NULL) {
+      self->app.sample_update_attempts++;
+      self->app.sample_update_status =
+          sample_accept_read_result(self->sample_state, &self->app,
+                                    self->sample_designated);
+    }
     if (self->app.drop_result_receipt) {
       self->app.drop_result_receipt = 0;
       self->wire.drop_remaining = 1;
@@ -440,6 +454,26 @@ static int sample_accept_read_result(sample_tracker *state, const app *result,
         state->violations++;
     }
     return 0;
+}
+
+static dmp_status sample_rotate_association(node *self, uint32_t attempt_index,
+                                            dmp_time_ms now)
+{
+    dmp_status status;
+
+    if (self == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    status = dmp_endpoint_rotate(&self->endpoint, attempt_index, now);
+    if (status == DMP_OK && self->sample_state != NULL) {
+        /* The application owner serializes association replacement with
+         * SAMPLE-1 state. Keep the last sample as cache, but require a new
+         * designated READ before presenting it as synchronized/live. */
+        self->sample_state->synchronized = 0;
+        self->sample_designated.slot = UINT32_MAX;
+        self->sample_designated.generation = UINT32_MAX;
+    }
+    return status;
 }
 
 static dmp_status wire_submit(void *context,
@@ -2395,6 +2429,8 @@ static int test_protected_sample_initialization(void)
     port_ctx port;
     sample_tracker state = {0};
     uint32_t index = 0U;
+    uint32_t next_init = 0U;
+    uint32_t next_resp = 0U;
     uint8_t read[SAMPLE1_READ_BYTES];
     uint8_t response[SAMPLE1_READ_BYTES];
     uint8_t telem[SAMPLE1_TELEM_BYTES];
@@ -2407,9 +2443,12 @@ static int test_protected_sample_initialization(void)
         close_session(&env);
         return 1;
     }
-    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
-    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(boot_node_slots(&left, 1, 64U, 16U, now, 2U) == 0);
+    CHECK(boot_node_slots(&right, 0, 64U, 16U, now, 2U) == 0);
     CHECK(bind_pair(&env, index) == 0);
+    CHECK(dmp_endpoint_set_drain_ms(&left.endpoint, 30000U) == DMP_OK);
+    CHECK(dmp_endpoint_set_drain_ms(&right.endpoint, 30000U) == DMP_OK);
+    right.sample_state = &state;
 
     CHECK(sample1_telem(telem, 9U, 1U, 100U) == sizeof telem);
     CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now) == DMP_OK);
@@ -2422,6 +2461,7 @@ static int test_protected_sample_initialization(void)
 
     CHECK(sample1_read_req(read) == 1U);
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(read, 1U), now, &first) == DMP_OK);
+    right.sample_designated = first;
     right.wire.now = now;
     CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
     CHECK(deliver_all(&right, &left, now) == 0);
@@ -2434,7 +2474,7 @@ static int test_protected_sample_initialization(void)
     CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
     CHECK(deliver_all(&left, &right, now) == 0);
     CHECK(right.app.results == 1);
-    CHECK(sample_accept_read_result(&state, &right.app, first) == 0);
+    CHECK(right.app.sample_update_attempts == 1U && right.app.sample_update_status == 0);
     CHECK(state.synchronized == 1 && state.epoch == 9U && state.index == 2U &&
           state.value == 200U);
     CHECK(state.discarded == 1 && state.violations == 0);
@@ -2456,6 +2496,7 @@ static int test_protected_sample_initialization(void)
 
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(read, 1U), now + 2U, &second) ==
           DMP_OK);
+    right.sample_designated = second;
     right.wire.now = now + 2U;
     CHECK(dmp_endpoint_poll(&right.endpoint, now + 2U) == DMP_OK);
     CHECK(deliver_all(&right, &left, now + 2U) == 0);
@@ -2477,7 +2518,7 @@ static int test_protected_sample_initialization(void)
     CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
     CHECK(deliver_all(&left, &right, now + 2U) == 0);
     CHECK(right.app.results == 2);
-    CHECK(sample_accept_read_result(&state, &right.app, second) == 0);
+    CHECK(right.app.sample_update_attempts == 2U && right.app.sample_update_status == 0);
     CHECK(state.index == 4U && state.value == 400U && state.rollbacks == 1 &&
           state.violations == 0);
 
@@ -2486,6 +2527,45 @@ static int test_protected_sample_initialization(void)
     CHECK(deliver_all(&right, &left, now + 2U) == 0);
     left.wire.now = now + 2U;
     CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+
+    /* A result callback commits SAMPLE-1 state before the serialized owner
+     * can replace its association in the next operation. */
+    env.now = now + 3U;
+    CHECK(drive_rotation(&env, fixture, &next_init, &next_resp, 0x61U));
+    CHECK(activate_at(&env, next_init, next_resp));
+    CHECK(sample_rotate_association(&left, next_init, now + 3U) == DMP_OK);
+    CHECK(sample_rotate_association(&right, next_resp, now + 3U) == DMP_OK);
+    CHECK(right.app.sample_update_attempts == 2U && right.app.sample_update_status == 0);
+    CHECK(state.synchronized == 0 && state.epoch == 9U && state.index == 4U &&
+          state.value == 400U && state.rollbacks == 1 && state.violations == 0);
+    CHECK(right.sample_designated.slot == UINT32_MAX &&
+          right.sample_designated.generation == UINT32_MAX);
+
+    /* The replacement is live, but the cached sample is not presented until
+     * a new designated READ synchronizes the consumer again. */
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(read, 1U), now + 4U,
+                                  &first) == DMP_OK);
+    right.sample_designated = first;
+    right.wire.now = now + 4U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 4U) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now + 4U) == 0);
+    CHECK(left.app.accepts == 3 && left.app.have_pending);
+    CHECK(sample1_read_rsp(response, 9U, 4U, 400U) == sizeof response);
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                span(response, sizeof response), now + 4U) == DMP_OK);
+    left.app.have_pending = 0;
+    left.wire.now = now + 4U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 4U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 4U) == 0);
+    CHECK(right.app.results == 3U && right.app.sample_update_attempts == 3U &&
+          right.app.sample_update_status == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 9U && state.index == 4U &&
+          state.value == 400U && state.rollbacks == 1 && state.violations == 0);
+    right.wire.now = now + 4U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 4U) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now + 4U) == 0);
+    left.wire.now = now + 4U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 4U) == DMP_OK);
     close_session(&env);
     return 0;
 }
@@ -2677,6 +2757,10 @@ static int test_protected_sample_late_assoc(void)
     state.synchronized = 0;
     current_handle.slot = UINT32_MAX;
     current_handle.generation = UINT32_MAX;
+    /* SAMPLE-1 applies correlated results synchronously in the serialized
+     * endpoint notice callback, so a later replacement cannot interleave. */
+    right.sample_state = &state;
+    right.sample_designated = current_handle;
 
     /* A higher-index old-SA result can be correlated and ACKed, but it no
      * longer owns the selected association's initialization generation. */
@@ -2689,7 +2773,7 @@ static int test_protected_sample_late_assoc(void)
     CHECK(left.wire.n == 1);
     CHECK(deliver_all(&left, &right, now + 2U) == 0);
     CHECK(right.app.results == 1 && same_handle(right.app.result_request, handle));
-    CHECK(sample_accept_read_result(&state, &right.app, current_handle) != 0);
+    CHECK(right.app.sample_update_attempts == 1U && right.app.sample_update_status != 0);
     CHECK(state.synchronized == 0 && state.epoch == 41U && state.index == 7U &&
           state.value == 700U && state.violations == 0 && state.rollbacks == 0);
 
@@ -2713,6 +2797,7 @@ static int test_protected_sample_late_assoc(void)
     CHECK(sample1_read_req(req) == 1U);
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now + 3U,
                                   &current_handle) == DMP_OK);
+    right.sample_designated = current_handle;
     right.wire.now = now + 3U;
     CHECK(dmp_endpoint_poll(&right.endpoint, now + 3U) == DMP_OK);
     CHECK(right.wire.n == 1);
@@ -2731,7 +2816,7 @@ static int test_protected_sample_late_assoc(void)
                              wrapped, &wrapped_n));
     CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + 4U) == DMP_OK);
     CHECK(right.app.results == 1 && right.senders[current_handle.slot].live != 0U &&
-          right.wire.n == 0);
+          right.app.sample_update_attempts == 1U && right.wire.n == 0);
     CHECK(state.synchronized == 0 && state.epoch == 41U && state.index == 7U &&
           state.value == 700U && state.violations == 0 && state.rollbacks == 0);
 
@@ -2745,7 +2830,7 @@ static int test_protected_sample_late_assoc(void)
     CHECK(dmp_endpoint_poll(&left.endpoint, now + 5U) == DMP_OK);
     CHECK(deliver_all(&left, &right, now + 5U) == 0);
     CHECK(right.app.results == 2 && same_handle(right.app.result_request, current_handle));
-    CHECK(sample_accept_read_result(&state, &right.app, current_handle) == 0);
+    CHECK(right.app.sample_update_attempts == 2U && right.app.sample_update_status == 0);
     CHECK(state.synchronized == 1 && state.epoch == 41U && state.index == 7U &&
           state.value == 700U && state.violations == 0 && state.rollbacks == 0);
     CHECK(left.app.accepts == 2);

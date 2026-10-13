@@ -17,7 +17,7 @@ clean-room or complete-independence claim is made.
 
 | Area | Recorded state | Scope boundary |
 |---|---|---|
-| P12 endpoint/SAMPLE-1 | Running; 25 passed / 9 partial among 34 primary rows | Host and SEC-1 evidence. Remaining rows include durable epoch storage and production association-transition/concurrency integration. |
+| P12 endpoint/SAMPLE-1 | Running; 28 passed / 6 partial among 34 primary rows | Host and SEC-1 evidence. Remaining rows include durable epoch storage, production association-transition integration, and profile-dependent retry scheduling. |
 | P13–P20 | Accepted for their recorded package scopes | Each package's linked evidence remains authoritative; this summary does not expand its gate. |
 | P21 independent peer | Owner-accepted for host/peer functionality | Historical actual-input/read-set and enforced access-boundary records are incomplete. |
 | P22 mixed Stream R/packet binding | Done for host/simulation | No physical transport or MCU claim. Reviewed snapshot hash: `0D126BC55389C446496EA6EA213FE28D7F7E93AD3F8F4F119F9F7D7F275208FF`. |
@@ -155,12 +155,16 @@ independence claim is made.
 
 ## Open software and final qualification gates
 
-- P12 still has nine partial primary rows. The current known gaps include
+- P12 now has six partial primary rows. The current known gaps include
   production durable SAMPLE-1 epoch storage and fail-stop behavior, a production
-  adapter that couples epoch rollover to closure of old associations, atomic
-  association/result updates, a wrong-authenticated-sender negative case, and
-  protected initialization retry scheduling under a profile that permits more
-  than one attempt.
+  adapter that couples epoch rollover to closure of old associations, a
+  wrong-authenticated-sender negative case, and protected initialization retry
+  scheduling under a profile that permits more than one attempt. The three
+  result/association ordering rows now pass under the endpoint's documented
+  serialized-call contract; this is not evidence for concurrent calls from
+  multiple threads. The protected host case also invalidates the old READ
+  designation on association replacement, preserves the sample as an
+  unsynchronized cache, and requires a new designated READ to resynchronize.
 - P01 host evidence still lacks the declared `four_parallel` four-peer /
   four-pending / two-crypto-slot resource scenario and exhaustive buffer
   ownership/failure output reconciliation. Recent provider OOM/capacity tests
@@ -182,7 +186,7 @@ independence claim is made.
   limitation described above. Re-run an appropriate complete host gate after
   software edits and environment access are settled.
 
-The nine remaining P12 primary rows stay partial for distinct reasons; none is
+The six remaining P12 primary rows stay partial for distinct reasons; none is
 counted as a pass by P23 peer or interop results:
 
 | P12 row | Remaining evidence | Next gate |
@@ -190,11 +194,8 @@ counted as a pass by P23 peer or interop results:
 | `s-a1-epoch` | The host persistence port is deterministic test scaffolding; no production durable epoch store exists. | Implement the selected production storage adapter and qualify durable commit/failure behavior in P01C. |
 | `s-a1-epoch-transition` | Sample epoch selection and generic rotation are separate tests; no production owner serializes READ, publication, activation, and closure of every old-epoch association. | Define and implement the production transition owner, then test its ordering and failure behavior. |
 | `s-a2-designated-read` | Protected timeout and supersession are covered, but DIRECT-1 permits one initialization attempt, so retry scheduling is absent. | Preserve the one-attempt policy or authorize a profile revision and revalidate its hash and dependent evidence. |
-| `s-a2-correlated-result` | Current-handle correlation and stale-result checks pass; atomic concurrent result/state update is not established. | Define the caller serialization/locking boundary and add a matching regression. |
-| `s-a2-live-late` | A late result on a draining association is ACKed without changing the current sample; concurrent result/association update is not established. | Close with the same explicit serialization contract and concurrent-update regression. |
 | `s-a3-negative` | Wrong service, status, and payload lengths are rejected; a wrong authenticated sender/association is not exercised in the single-peer profile. | Add an authorized multi-peer test profile/fixture or retain this as outside the active profile. |
 | `s-a4-restart` | Epoch reservation and association-closure callbacks remain host stubs. | Implement production persistence/closure adapters and qualify restart behavior in P01C. |
-| `s-a4-assoc-race` | Sequential replacement/result cases exist; a concurrent SEC-1 result-versus-cancel/replacement race is not covered. | Define the serialization boundary and add a concurrent regression through the protected endpoint. |
 | `s-a4-persistence` | Durable target commit, rollback/counter-loss diagnostics, and production fail-stop behavior are unverified. | Complete the production storage/fail-stop path and the P01C target qualification. |
 
 ## Reproduction and linked evidence
