@@ -85,6 +85,7 @@ typedef struct {
   dmp_tx_complete_fn complete;
   void *owner;
   dmp_tx_token token;
+  dmp_tx_outcome outcome;
 } pending_completion;
 
 typedef struct {
@@ -97,6 +98,7 @@ typedef struct {
   int submits;
   int drop_remaining;
   int reject_remaining;
+  dmp_tx_outcome completion_outcome;
   uint8_t saved[FRAME_CAP];
   size_t saved_len;
   uint8_t last[FRAME_CAP];
@@ -116,7 +118,9 @@ typedef struct {
     int telems;
     int assembled;
     int unknowns;
+    int local_unsent;
     int data_unknowns;
+    int data_local_unsent;
     uint32_t data_unknown_service;
     uint8_t req[MESSAGE];
     size_t req_n;
@@ -340,9 +344,17 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
     self->app.unknowns++;
     return;
   }
+  if (notice->event == DMP_ENDPOINT_LOCAL_UNSENT) {
+    self->app.local_unsent++;
+    return;
+  }
   if (notice->event == DMP_ENDPOINT_DATA_UNKNOWN) {
     self->app.data_unknowns++;
     self->app.data_unknown_service = notice->service_id;
+    return;
+  }
+  if (notice->event == DMP_ENDPOINT_DATA_LOCAL_UNSENT) {
+    self->app.data_local_unsent++;
   }
 }
 
@@ -455,12 +467,13 @@ static dmp_status wire_submit(void *context,
     }
     if (link->synchronous_completion) {
       submission->complete(submission->owner, submission->token,
-                           DMP_TX_TRANSMITTED, link->now);
+                           link->completion_outcome, link->now);
     } else {
       pending_completion *pending = &link->pending[link->pending_count++];
       pending->complete = submission->complete;
       pending->owner = submission->owner;
       pending->token = submission->token;
+      pending->outcome = link->completion_outcome;
     }
     return DMP_OK;
   }
@@ -474,12 +487,13 @@ static dmp_status wire_submit(void *context,
   link->n++;
   if (link->synchronous_completion) {
     submission->complete(submission->owner, submission->token,
-                         DMP_TX_TRANSMITTED, link->now);
+                         link->completion_outcome, link->now);
   } else {
     pending_completion *pending = &link->pending[link->pending_count++];
     pending->complete = submission->complete;
     pending->owner = submission->owner;
     pending->token = submission->token;
+    pending->outcome = link->completion_outcome;
   }
   return DMP_OK;
 }
@@ -1471,6 +1485,78 @@ static int test_activation(void)
     failed = 0;
     close_session(&env);
     return failed;
+}
+
+static int test_transport_reject_retry(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t req[1];
+    dmp_reliability_handle handle;
+    pending_completion pending;
+    dmp_time_ms now = 20000U;
+    int submits_before;
+
+    if (fixture == NULL) {
+        return 1;
+    }
+    if (!make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    /* Exercise the delayed-copy completion path rather than the direct
+     * profile's default synchronous callback. */
+    g_p23_copy_async_binding = 1;
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0 || bind_pair(&env, index) != 0) {
+        g_p23_copy_async_binding = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_p23_copy_async_binding = 0;
+
+    sample1_read_req(req);
+    submits_before = right.wire.submits;
+    /* reliability_poll may make several bounded passes in one call. Keep the
+     * fake transport rejecting through that poll, then explicitly allow the
+     * queued operation to retry on the next poll. */
+    right.wire.reject_remaining = (int)(right.endpoint.reliability.storage.sender_capacity +
+                                        right.endpoint.reliability.storage.adapter_capacity + 16U);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, sizeof req), now, &handle) ==
+          DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(right.wire.submits == submits_before);
+    CHECK(right.wire.n == 0 && right.wire.pending_count == 0);
+    CHECK(right.wire.reject_remaining > 0);
+    CHECK(right.endpoint.wire_busy == 0U);
+    CHECK(right.endpoint.reliability.storage.senders[handle.slot].live != 0U);
+    CHECK(right.endpoint.reliability.storage.senders[handle.slot].possibly_sent == 0U);
+
+    /* The same queued request is accepted on a later poll. The fake transport
+     * has copied the frame, but its completion leaves delivery uncertain. */
+    right.wire.reject_remaining = 0;
+    right.wire.completion_outcome = DMP_TX_POSSIBLY_TRANSMITTED;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 1U) == DMP_OK);
+    CHECK(right.wire.submits == submits_before + 1);
+    CHECK(right.wire.n == 1 && right.wire.pending_count == 1);
+    pending = right.wire.pending[0];
+    right.wire.pending_count = 0;
+    CHECK(pending.complete != NULL);
+    pending.complete(pending.owner, pending.token, pending.outcome, now + 1U);
+    CHECK(right.endpoint.wire_busy == 0U);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 1U) == DMP_OK);
+    CHECK(right.endpoint.reliability.storage.senders[handle.slot].possibly_sent == 1U);
+
+    /* Revocation must report uncertainty, not claim a local unsent request. */
+    CHECK(dmp_endpoint_revoke(&right.endpoint, now + 2U) == DMP_OK);
+    CHECK(right.app.unknowns == 1);
+    CHECK(right.app.local_unsent == 0);
+    close_session(&env);
+    return 0;
 }
 
 static int test_alter(void)
@@ -4383,7 +4469,7 @@ static int p23_settle_wire(p23_batch *batch) {
       return 0;
     }
     /* The adapter-owned copy is now also in the immutable process batch. */
-    pending.complete(pending.owner, pending.token, DMP_TX_TRANSMITTED,
+    pending.complete(pending.owner, pending.token, pending.outcome,
                      right.wire.now);
     if (!p23_drain_wire(batch)) {
       return 0;
@@ -4529,7 +4615,7 @@ static int p23_complete_tx(uint64_t now, uint32_t count, p23_batch *batch) {
     if (pending.complete == NULL) {
       return 0;
     }
-    pending.complete(pending.owner, pending.token, DMP_TX_TRANSMITTED,
+    pending.complete(pending.owner, pending.token, pending.outcome,
                      right.wire.now);
     if (!p23_drain_wire(batch)) {
       return 0;
@@ -5485,6 +5571,9 @@ int main(int argc, char **argv) {
   if (strcmp(name, "activation") == 0 || strcmp(name, "all") == 0) {
     failed |= test_activation();
   }
+  if (strcmp(name, "transport_reject_retry") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_transport_reject_retry();
+  }
   if (strcmp(name, "alter") == 0 || strcmp(name, "all") == 0) {
     failed |= test_alter();
   }
@@ -5572,7 +5661,8 @@ int main(int argc, char **argv) {
   if (strcmp(name, "repair") == 0 || strcmp(name, "all") == 0) {
     failed |= test_selective_repair();
   }
-  if (strcmp(name, "activation") != 0 && strcmp(name, "alter") != 0 &&
+  if (strcmp(name, "activation") != 0 && strcmp(name, "transport_reject_retry") != 0 &&
+      strcmp(name, "alter") != 0 &&
       strcmp(name, "loss") != 0 && strcmp(name, "isolate") != 0 &&
       strcmp(name, "result_loss") != 0 && strcmp(name, "receipt_loss") != 0 &&
       strcmp(name, "sample_invalid_request") != 0 &&

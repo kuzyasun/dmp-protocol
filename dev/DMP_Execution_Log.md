@@ -2445,3 +2445,22 @@ The independent GPT-6.1-sol High review found no actionable issue. Validation:
 These are named host failure branches, not exhaustive allocation-failure
 coverage or target/runtime evidence. Aggregate four-peer resources, transport
 send-fault boundaries, target/runtime measurements, and P01C remain open.
+
+## 2026-10-13 — P01 endpoint transport rejection and uncertain completion
+
+Added `endpoint.protected_transport_reject_retry` in
+`tests/endpoint/test_endpoint_sec.c`. The SEC-1 test harness rejects a submit
+with `DMP_BUSY` before acceptance and verifies no frame/completion was created,
+the original request remains queued, and its `possibly_sent` flag stays clear.
+The next poll accepts the copied frame; a delayed
+`DMP_TX_POSSIBLY_TRANSMITTED` callback passes through the endpoint wrapper, and
+revocation reports UNKNOWN without LOCAL_UNSENT. No production code or
+transport/API contract changed.
+
+The independent GPT-6.1-sol High review found no actionable issue after a
+missing-fixture cleanup guard was corrected. Validation: the endpoint target
+built; the focused CTest passed 1/1 after the correction; all protected endpoint
+CTest cases passed 31/31 and P23 interop cases passed 13/13 before that final
+cleanup-only correction. The production handshake owner still lacks a
+`dmp_transport` send path, so this does not close cached-handshake-flight
+transport lifecycle evidence. Aggregate resource tests and P01C remain open.

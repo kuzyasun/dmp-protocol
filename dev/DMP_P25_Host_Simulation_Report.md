@@ -162,14 +162,17 @@ independence claim is made.
   protected initialization retry scheduling under a profile that permits more
   than one attempt.
 - P01 host evidence still lacks the declared `four_parallel` four-peer /
-  four-pending / two-crypto-slot resource scenario, complete host mapping of
-  transport/send-failure boundaries, and exhaustive buffer ownership/failure
-  output reconciliation. Recent provider OOM/capacity tests cover only their
-  named branches. `cached-flight-lifetime` now checks the provider
-  retry ceiling, cache stability, absolute deadline and expiry; it does not
-  simulate adapter send faults. The current endpoint binds one peer plus one
-  draining association; a test-only four-peer scheduler would not establish
-  supported multi-peer composition or actual concurrent provider execution.
+  four-pending / two-crypto-slot resource scenario and exhaustive buffer
+  ownership/failure output reconciliation. Recent provider OOM/capacity tests
+  cover only their named branches. `cached-flight-lifetime` checks the provider
+  retry ceiling, cache stability, absolute deadline and expiry; the new
+  `endpoint.protected_transport_reject_retry` checks pre-accept BUSY and an
+  accepted uncertain completion through the endpoint wrapper. The production
+  handshake owner still has no `dmp_transport` submission path, so its cached
+  flight send-fault lifecycle remains open. The current endpoint binds one peer
+  plus one draining association; a test-only four-peer scheduler would not
+  establish supported multi-peer composition or actual concurrent provider
+  execution.
 - P01C remains open for integrated target RAM/stack measurements, hardware
   entropy and energy evidence, the C3 reset diagnostic gate, and a selected
   non-Espressif board/runtime. The final hardware phase must use explicitly
@@ -216,3 +219,13 @@ CTest passed 1/1; an independent GPT-6.1-sol High review found no actionable
 issue. These named host cases do not establish exhaustive cleanup, aggregate
 four-peer resources, endpoint/MCU memory, or physical operation. Hardware
 qualification remains a final-phase gate.
+
+## P01 endpoint transport boundary follow-up — 2026-10-13
+
+`endpoint.protected_transport_reject_retry` now proves the endpoint wrapper
+preserves an admitted request after a pre-accept transport `BUSY` and forwards
+an accepted `DMP_TX_POSSIBLY_TRANSMITTED` completion as an unknown outcome at
+revocation. The host endpoint and P23 interop suites passed. This does not
+exercise a production handshake-flight submission path; cached handshake
+transport integration, aggregate resources, and hardware qualification remain
+open.
