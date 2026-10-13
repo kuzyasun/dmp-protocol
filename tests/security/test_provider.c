@@ -440,6 +440,7 @@ static int test_dh_shared_allocation_failure(void)
     dmp_provider_ports ports;
     dmp_provider *provider;
     uint8_t shared[32];
+    uint8_t public_key[32];
     unsigned releases_before;
     dmp_provider_status status;
     int passed = 0;
@@ -454,6 +455,37 @@ static int test_dh_shared_allocation_failure(void)
     }
     set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
     if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    /* Public-key construction has one owned Noise state; failure must wipe
+     * the caller output without disturbing provider accounting. */
+    memset(public_key, 0xA5, sizeof(public_key));
+    releases_before = port.release_calls;
+    port.fail_alloc_at = port.alloc_calls + 1U;
+    status = dmp_provider_dh_public(provider, fixture->init_ephemeral.data, public_key);
+    port.fail_alloc_at = 0U;
+    if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(public_key, sizeof(public_key)) ||
+        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+        port.release_calls != releases_before) {
+        fprintf(stderr, "DH public allocation failure status=%d releases=%u/%u output_zero=%d\n",
+                (int)status, port.release_calls, releases_before,
+                all_zero(public_key, sizeof(public_key)));
+        goto done;
+    }
+
+    /* Fail the first DH state allocation, before any state is owned. */
+    memset(shared, 0xA5, sizeof(shared));
+    releases_before = port.release_calls;
+    port.fail_alloc_at = port.alloc_calls + 1U;
+    status = dmp_provider_dh_shared(provider, fixture->init_ephemeral.data,
+                                    fixture->resp_ephemeral.data, shared);
+    port.fail_alloc_at = 0U;
+    if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(shared, sizeof(shared)) ||
+        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+        port.release_calls != releases_before) {
+        fprintf(stderr, "DH first allocation failure status=%d releases=%u/%u output_zero=%d\n",
+                (int)status, port.release_calls, releases_before, all_zero(shared, sizeof(shared)));
         goto done;
     }
 
@@ -1239,6 +1271,9 @@ static int test_cipher_child_capacity_cleanup(void)
     dmp_provider_ports ports;
     dmp_provider *provider;
     dmp_provider_cipher ciphers[CIPHER_CAP];
+    dmp_provider_cipher allocation_failure;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
     size_t count = 0U;
     size_t blocks_before;
     size_t retained_before;
@@ -1251,12 +1286,34 @@ static int test_cipher_child_capacity_cleanup(void)
     }
     memset(&port, 0, sizeof(port));
     memset(ciphers, 0, sizeof(ciphers));
+    memset(&allocation_failure, 0xA5, sizeof(allocation_failure));
+    memset(&handshake, 0xA5, sizeof(handshake));
     provider = (dmp_provider *)calloc(1, dmp_provider_size());
     if (provider == NULL) {
         return 0;
     }
     set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
     if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    releases_before = port.release_calls;
+    port.fail_alloc_at = port.alloc_calls + 1U;
+    status = dmp_provider_cipher_from_key(provider, &allocation_failure,
+                                          fixture->i_to_r_key.data,
+                                          fixture->i_to_r_key.size);
+    port.fail_alloc_at = 0U;
+    if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(&allocation_failure, sizeof(allocation_failure)) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.release_calls != releases_before || !release_clean(&port, "cipher allocation failure")) {
+        fprintf(stderr,
+                "cipher allocation failure status=%d blocks=%zu/%zu retained=%zu/%zu releases=%u/%u zero=%d\n",
+                (int)status, dmp_provider_block_count(provider), blocks_before,
+                dmp_provider_retained(provider), retained_before, port.release_calls,
+                releases_before, all_zero(&allocation_failure, sizeof(allocation_failure)));
         goto done;
     }
 
@@ -1287,6 +1344,27 @@ static int test_cipher_child_capacity_cleanup(void)
     }
     if (count == 0U || count == CIPHER_CAP || status != DMP_PROVIDER_NO_MEMORY) {
         fprintf(stderr, "cipher child capacity was not reached within %d slots\n", CIPHER_CAP);
+        goto done;
+    }
+
+    /* A new handshake allocates its Noise state before child registration.
+     * Exhaustion must release that temporary state and leave existing ciphers
+     * intact. */
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    releases_before = port.release_calls;
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    status = dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                         DMP_PROVIDER_ROLE_INITIATOR, &keys);
+    if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(&handshake, sizeof(handshake)) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.release_calls <= releases_before || !release_clean(&port, "handshake child capacity")) {
+        fprintf(stderr,
+                "handshake child exhaustion status=%d blocks=%zu/%zu retained=%zu/%zu releases=%u/%u zero=%d\n",
+                (int)status, dmp_provider_block_count(provider), blocks_before,
+                dmp_provider_retained(provider), retained_before, port.release_calls,
+                releases_before, all_zero(&handshake, sizeof(handshake)));
         goto done;
     }
 

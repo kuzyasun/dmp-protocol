@@ -206,3 +206,13 @@ P25 should remain pending until the remaining required software gates are
 resolved or explicitly dispositioned and P01C has completed. This report does
 not declare the DMP implementation ready for production or guaranteed to run
 on hardware.
+
+## P01 provider OOM follow-up — 2026-10-13
+
+Additional host regressions cover first-allocation failures in DH public-key,
+DH shared-secret, and cipher construction, plus handshake registration failure
+at actual provider child-table capacity. The provider adapter build and focused
+CTest passed 1/1; an independent GPT-6.1-sol High review found no actionable
+issue. These named host cases do not establish exhaustive cleanup, aggregate
+four-peer resources, endpoint/MCU memory, or physical operation. Hardware
+qualification remains a final-phase gate.

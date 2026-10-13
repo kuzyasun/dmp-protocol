@@ -2425,3 +2425,23 @@ Validation: `cmake --build build/host --target dmp_test_provider` succeeded;
 "^security\\.provider_adapter$"` passed 1/1; the focused `git diff --check`
 passed. The reviewer did not rerun tests. Aggregate four-peer resources,
 remaining branch-by-branch cleanup, target runtime, and P01C remain open.
+
+## 2026-10-13 follow-up — P01 provider first-allocation and handshake-capacity failures
+
+Extended the existing provider failure cases in `tests/security/test_provider.c`.
+The DH case now injects failure at the first allocation for both
+`dmp_provider_dh_public` and `dmp_provider_dh_shared`, checking `NO_MEMORY`,
+wiped output buffers, and unchanged provider block/retained/release accounting.
+The cipher case now also injects OOM at the first `cipher_from_key` allocation
+and checks the output wrapper is wiped with unchanged accounting. Once the real
+child table is full, a new `handshake_open` is also refused; the test checks
+temporary Noise state release, zeroed handshake output, restored counters, and
+that the already-open cipher still produces the fixture ciphertext/tag.
+
+The independent GPT-6.1-sol High review found no actionable issue. Validation:
+`cmake --build build/host --target dmp_test_provider` succeeded;
+`ctest --test-dir build/host --output-on-failure -R
+"^security\\.provider_adapter$"` passed 1/1; focused `git diff --check` passed.
+These are named host failure branches, not exhaustive allocation-failure
+coverage or target/runtime evidence. Aggregate four-peer resources, transport
+send-fault boundaries, target/runtime measurements, and P01C remain open.

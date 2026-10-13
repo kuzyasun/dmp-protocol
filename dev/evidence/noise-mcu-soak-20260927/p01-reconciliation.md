@@ -186,3 +186,17 @@ provider branch/secret-copy cleanup, the four-peer/four-pending/two-crypto-slot
 aggregate resource matrix, transport send-fault boundaries, target/runtime
 measurements, and P01C remain open. Hardware qualification stays scheduled for
 the final phase; acceptable host memory figures do not guarantee board operation.
+
+## First-allocation and handshake-capacity follow-up — 2026-10-13
+
+The same provider cases now cover first-allocation OOM in `dh_public`,
+`dh_shared`, and `cipher_from_key`, plus failure to register a new handshake
+when the actual child table is full. Assertions check wiped outputs, unchanged
+resource counters where no persistent owner is created, release of temporary
+Noise state after capacity refusal, and continued use of an existing cipher.
+Independent GPT-6.1-sol High review found no actionable issue; the provider
+target built and `security.provider_adapter` passed 1/1.
+
+This extends the named failure branches only. It does not complete the
+branch-by-branch provider cleanup map, four-peer/four-pending/two-crypto-slot
+resource scenario, transport send-fault coverage, target runtime, or P01C.
