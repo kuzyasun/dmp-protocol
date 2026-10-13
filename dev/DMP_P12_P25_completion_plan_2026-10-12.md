@@ -422,3 +422,20 @@ criteria.
   found no actionable issue. This closes one constructor branch only; the
   complete XX exchange, provider cleanup inventory, and target qualification
   remain open. Hardware qualification stays deferred to the final phase.
+
+## Current P12 ledger reconciliation — 2026-10-13
+
+- Recounted the 34 primary rows whose `primary_gate` includes P12 in
+  `dev/DMP_Normative_Cases.json`: 28 are passed and 6 remain partial. This
+  supersedes the earlier 25/9 progress snapshot above; the older entry is kept
+  as historical evidence.
+- The three additional passes close the correlated-result, late-result, and
+  association-order cases under the documented serialized single-owner
+  endpoint contract. `endpoint.protected_sample_initialization` and
+  `endpoint.protected_sample_late_assoc` passed 2/2; this is not a concurrent
+  multi-core guarantee or a production SAMPLE-1 ownership adapter.
+- The six partial rows remain `s-a1-epoch`, `s-a1-epoch-transition`,
+  `s-a2-designated-read`, `s-a3-negative`, `s-a4-restart`, and
+  `s-a4-persistence`. Their exact gates and decisions are listed in
+  `DMP_P25_Host_Simulation_Report.md`. Hardware checks remain deferred to the
+  final plan phase; host memory estimates do not guarantee hardware operation.
