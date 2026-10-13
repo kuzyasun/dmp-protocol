@@ -173,10 +173,14 @@ independence claim is made.
   `endpoint.protected_transport_reject_retry` checks pre-accept BUSY and an
   accepted uncertain completion through the endpoint wrapper. The production
   handshake owner still has no `dmp_transport` submission path, so its cached
-  flight send-fault lifecycle remains open. The current endpoint binds one peer
-  plus one draining association; a test-only four-peer scheduler would not
-  establish supported multi-peer composition or actual concurrent provider
-  execution.
+  flight send-fault lifecycle remains open. Source inspection confirms that
+  `dmp_reliability` rejects profiles where `peers != 1`, while `dmp_endpoint`
+  stores one active and one draining association. The declared sensitivity
+  counts are per endpoint, so four separate endpoints or the existing direct-
+  Noise worker test cannot close the four-peer resource row. Closing it requires
+  an owner decision on multi-peer endpoint scope; the manifest's `mtu_bytes`
+  also needs an explicit mapping to endpoint `encoded_mtu` before that bound is
+  treated as the same quantity.
 - P01C remains open for integrated target RAM/stack measurements, hardware
   entropy and energy evidence, the C3 reset diagnostic gate, and a selected
   non-Espressif board/runtime. The final hardware phase must use explicitly

@@ -294,3 +294,27 @@ are released and accounting returns to zero. The focused provider build,
 This closes only the DH shared-operation allocation ordinals. It does not
 close other provider failure branches, endpoint resource completeness, target
 allocator behavior, or P01C.
+
+## four_parallel endpoint contract boundary — 2026-10-13
+
+The manifest's `four_parallel` row is explicitly scoped to one endpoint and
+requires four peers, four active and four draining associations, four pending
+attempts, two crypto slots, two services, a 256-byte `mtu_bytes` value, and
+4,096-byte messages. The existing `dmp_parallel_four_parallel` host evidence
+only holds direct Noise state across two worker arenas; it does not create DMP
+endpoints or exercise the manifest's peer/service topology.
+
+Source inspection confirms the current endpoint contract cannot realize that
+row: `src/reliability/reliability.c::validate_storage` rejects
+`profile->peers != 1`, and `dmp_endpoint` owns one active association plus one
+draining association. Multiple separate endpoint objects would change the
+manifest's per-endpoint accounting and would not satisfy the declared topology.
+The row therefore remains partial pending an owner decision to expand the
+endpoint/reliability model. Also clarify whether `mtu_bytes` denotes
+`encoded_mtu` before claiming the 256-byte bound against endpoint admission;
+DIRECT-1 currently distinguishes forward/return MTU 256 from encoded MTU 263.
+No manifest, public API, or implementation was changed in this follow-up.
+
+The software resource row remains open independently of final P01C target
+measurements. Host RAM estimates and direct-Noise allocation counters do not
+guarantee whole-device hardware operation.
