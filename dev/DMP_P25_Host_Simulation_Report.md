@@ -81,6 +81,11 @@ entire current CTest inventory was rerun.
   the same provider. The provider CTest passed 1/1 and independent review found
   no issue. This does not claim full XX completion or exhaustive secret-copy
   erasure.
+- A premature Split case confirms a fresh NNpsk0 owner rejects Split in its
+  initial write phase, zeros both output wrappers without changing provider
+  accounting, and then writes exact flight 1 on the same handshake. The
+  provider CTest passed 1/1; independent review found no issue. It does not
+  cover authenticated-read failures.
 - A recent full host CTest attempt did not complete: after the subprocess
   harness passed with workspace-local TEMP/TMP, the process-isolated minimal
   endpoint lifecycle test could not establish its host loopback peer and timed

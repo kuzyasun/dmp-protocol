@@ -2649,3 +2649,11 @@ erases released state, then opens the valid XX fixture on the same provider
 and writes exact flight 1. The focused provider build and CTest passed 1/1;
 independent review found no actionable issue. This proves cleanup and recovery
 through flight 1, not full XX completion or the complete secret-copy inventory.
+
+`security.provider_adapter::premature-split-output` calls Split on a fresh
+NNpsk0 initiator in its initial WRITE_MESSAGE phase. It returns
+`DMP_PROVIDER_REJECTED`, zeros both sentinel cipher wrappers, and leaves
+allocation/release/block/retained accounting unchanged. The same handshake
+then writes exact fixture flight 1 and closes cleanly. The focused provider
+build and CTest passed 1/1; independent review found no actionable issue. This
+is a wrapper phase-refusal case, not SEC-1 authenticated-read failure evidence.

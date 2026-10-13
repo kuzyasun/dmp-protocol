@@ -1055,6 +1055,82 @@ done:
     return passed;
 }
 
+static int test_premature_split_output(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    dmp_provider_cipher send;
+    dmp_provider_cipher receive;
+    uint8_t message[CASE_BUFFER];
+    size_t message_len = 0U;
+    size_t blocks_before;
+    size_t retained_before;
+    unsigned calls_before;
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count == 0U) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    memset(&send, 0xA5, sizeof(send));
+    memset(&receive, 0xB6, sizeof(receive));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    calls_before = port.alloc_calls;
+    releases_before = port.release_calls;
+    /* This live owner passes wrapper validation, so Split erases its output
+     * wrappers before rejecting the initial WRITE_MESSAGE phase. */
+    status = dmp_provider_handshake_split(provider, &handshake, &send, &receive);
+    if (status != DMP_PROVIDER_REJECTED || !all_zero(&send, sizeof(send)) ||
+        !all_zero(&receive, sizeof(receive)) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != calls_before || port.release_calls != releases_before) {
+        fprintf(stderr, "premature Split changed outputs or owned handshake accounting\n");
+        goto done;
+    }
+    status = dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                          fixture->flights[0].plaintext.size, message,
+                                          sizeof(message), &message_len);
+    if (status != DMP_PROVIDER_OK ||
+        !bytes_match("flight after premature Split", message, message_len,
+                     fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+        fprintf(stderr, "handshake did not recover after premature Split\n");
+        goto done;
+    }
+    passed = dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+             all_zero(&handshake, sizeof(handshake)) &&
+             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
+             release_clean(&port, "premature Split recovery cleanup");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "premature Split provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_short_handshake_read_output(void)
 {
     enum { PAYLOAD_CAPACITY = 3U };
@@ -1992,6 +2068,7 @@ int main(void)
     expect_case("late-static-constructor-validation-cleanup", test_late_static_constructor_validation_cleanup());
     expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
+    expect_case("premature-split-output", test_premature_split_output());
     expect_case("short-handshake-read-output", test_short_handshake_read_output());
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("low-order", test_low_order());
