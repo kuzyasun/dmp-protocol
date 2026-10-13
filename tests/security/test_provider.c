@@ -15,6 +15,7 @@ typedef struct port_ctx {
     int fail_read;
     int fail_entropy;
     int fail_alloc;
+    unsigned fail_alloc_at;
     int nonzero_release;
     unsigned alloc_calls;
     unsigned release_calls;
@@ -131,7 +132,7 @@ static void *port_allocate(void *ctx, size_t size)
     port_ctx *port = (port_ctx *)ctx;
 
     port->alloc_calls++;
-    if (port->fail_alloc || size == 0U) {
+    if (port->fail_alloc || port->alloc_calls == port->fail_alloc_at || size == 0U) {
         return NULL;
     }
     return calloc(1, size);
@@ -428,6 +429,62 @@ done:
     if (!passed) {
         dmp_provider_cleanup(provider);
     }
+    free(provider);
+    return passed;
+}
+
+static int test_dh_shared_allocation_failure(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    uint8_t shared[32];
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    /* Fail the second allocator request after the shared operation starts;
+     * the output and any state allocated before failure must be cleared. */
+    memset(shared, 0xA5, sizeof(shared));
+    releases_before = port.release_calls;
+    port.fail_alloc_at = port.alloc_calls + 2U;
+    status = dmp_provider_dh_shared(provider, fixture->init_ephemeral.data,
+                                    fixture->resp_ephemeral.data, shared);
+    port.fail_alloc_at = 0U;
+    if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(shared, sizeof(shared)) ||
+        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+        port.release_calls <= releases_before || !release_clean(&port, "DH allocation failure")) {
+        fprintf(stderr,
+                "DH allocation failure status=%d blocks=%zu retained=%zu releases=%u/%u output_zero=%d\n",
+                (int)status, dmp_provider_block_count(provider), dmp_provider_retained(provider),
+                port.release_calls, releases_before, all_zero(shared, sizeof(shared)));
+        goto done;
+    }
+
+    memset(shared, 0, sizeof(shared));
+    status = dmp_provider_dh_shared(provider, fixture->init_ephemeral.data,
+                                    fixture->resp_ephemeral.data, shared);
+    passed = status == DMP_PROVIDER_OK && !all_zero(shared, sizeof(shared)) &&
+             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
+             release_clean(&port, "DH allocation recovery");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size());
     free(provider);
     return passed;
 }
@@ -1173,6 +1230,88 @@ done:
     return passed;
 }
 
+static int test_cipher_child_capacity_cleanup(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    const noise_fixture_probe_packet_t *probe_packet;
+    enum { CIPHER_CAP = 16 };
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_cipher ciphers[CIPHER_CAP];
+    size_t count = 0U;
+    size_t blocks_before;
+    size_t retained_before;
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(ciphers, 0, sizeof(ciphers));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    while (count < CIPHER_CAP) {
+        blocks_before = dmp_provider_block_count(provider);
+        retained_before = dmp_provider_retained(provider);
+        releases_before = port.release_calls;
+        memset(&ciphers[count], 0xA5, sizeof(ciphers[count]));
+        status = dmp_provider_cipher_from_key(provider, &ciphers[count],
+                                              fixture->i_to_r_key.data,
+                                              fixture->i_to_r_key.size);
+        if (status == DMP_PROVIDER_OK) {
+            count++;
+            continue;
+        }
+        if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(&ciphers[count], sizeof(ciphers[count])) ||
+            dmp_provider_block_count(provider) != blocks_before ||
+            dmp_provider_retained(provider) != retained_before ||
+            port.release_calls <= releases_before || !release_clean(&port, "cipher child capacity")) {
+            fprintf(stderr,
+                    "cipher child exhaustion status=%d blocks=%zu/%zu retained=%zu/%zu releases=%u/%u object_zero=%d\n",
+                    (int)status, dmp_provider_block_count(provider), blocks_before,
+                    dmp_provider_retained(provider), retained_before, port.release_calls,
+                    releases_before, all_zero(&ciphers[count], sizeof(ciphers[count])));
+            goto done;
+        }
+        break;
+    }
+    if (count == 0U || count == CIPHER_CAP || status != DMP_PROVIDER_NO_MEMORY) {
+        fprintf(stderr, "cipher child capacity was not reached within %d slots\n", CIPHER_CAP);
+        goto done;
+    }
+
+    probe_packet = find_packet(fixture, 0U, 0U);
+    if (probe_packet == NULL ||
+        !encrypt_packet(provider, &ciphers[0], probe_packet, "cipher survives child capacity")) {
+        fprintf(stderr, "existing cipher did not survive child capacity refusal\n");
+        goto done;
+    }
+
+    passed = 1;
+
+done:
+    for (size_t index = 0U; index < count; ++index) {
+        if (dmp_provider_cipher_close(provider, &ciphers[index]) != DMP_PROVIDER_OK) {
+            passed = 0;
+        }
+    }
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "cipher child capacity cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_cleanup(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -1223,6 +1362,7 @@ int main(void)
     expect_case("init", test_init());
     expect_case("entropy", test_entropy());
     expect_case("oom", test_oom());
+    expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("low-order", test_low_order());
@@ -1231,6 +1371,7 @@ int main(void)
     expect_case("suite-nnpsk0", test_suite(nn));
     expect_case("suite-xx", test_suite(xx));
     expect_case("split-partial-registration-cleanup", test_split_partial_registration_cleanup());
+    expect_case("cipher-child-capacity-cleanup", test_cipher_child_capacity_cleanup());
     expect_case("cleanup", test_cleanup());
     if (g_failures != 0) {
         fprintf(stderr, "%d provider adapter case(s) failed\n", g_failures);

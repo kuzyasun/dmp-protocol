@@ -55,9 +55,13 @@ entire current CTest inventory was rerun.
   validator adds one callback pointer to the endpoint object; the current run
   is host-only and does not measure target RAM.
 - P01 provider/handshake regressions passed their focused 2/2 CTests after
-  independent review. They now cover the `remote_public` closed-owner wipe
-  exception and replay of the original cached AWAITING flight after caller RX
-  mutation. Other P01/P01C requirements remain open.
+  independent review. They cover the `remote_public` closed-owner wipe
+  exception, replay of the original cached AWAITING flight after caller RX
+  mutation, and bounded retry/cache expiry. The latest provider-only follow-up
+  adds DH allocation-failure cleanup and cipher child-capacity refusal with
+  surviving-owner traffic; its focused `security.provider_adapter` CTest
+  passed 1/1 and independent review found no issue. Other P01/P01C requirements
+  remain open.
 - A recent full host CTest attempt did not complete: after the subprocess
   harness passed with workspace-local TEMP/TMP, the process-isolated minimal
   endpoint lifecycle test could not establish its host loopback peer and timed
@@ -159,8 +163,9 @@ independence claim is made.
   than one attempt.
 - P01 host evidence still lacks the declared `four_parallel` four-peer /
   four-pending / two-crypto-slot resource scenario, complete host mapping of
-  transport/send-failure boundaries, and the full buffer ownership/failure
-  output reconciliation. `cached-flight-lifetime` now checks the provider
+  transport/send-failure boundaries, and exhaustive buffer ownership/failure
+  output reconciliation. Recent provider OOM/capacity tests cover only their
+  named branches. `cached-flight-lifetime` now checks the provider
   retry ceiling, cache stability, absolute deadline and expiry; it does not
   simulate adapter send faults. The current endpoint binds one peer plus one
   draining association; a test-only four-peer scheduler would not establish

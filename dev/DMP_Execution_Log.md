@@ -2400,3 +2400,28 @@ and retains P12 at 25 passed / 9 partial of 34.
 This is host SEC-1 evidence only. MCU resource/runtime checks and physical
 hardware qualification remain deferred to the final phase; acceptable host
 memory figures do not guarantee operation on hardware.
+
+## 2026-10-13 — P01 provider operational-failure ownership regressions
+
+Added two linked host-provider cases in `tests/security/test_provider.c`.
+`dh-shared-allocation-failure` fails the second custom allocator request after
+the DH shared operation has allocated its local state. It checks `NO_MEMORY`,
+a zeroed 32-byte shared-secret output, release of temporary state, zero tracked
+blocks/retained bytes, and a successful DH operation on the same provider after
+the injected failure is removed. `cipher-child-capacity-cleanup` fills the
+actual adapter child table, then checks the first capacity refusal against
+pre-call counters: the output cipher is zeroed, the temporary Noise state is
+released, and retained/block counts do not change. A previously opened cipher
+still emits the exact fixture ciphertext and tag after the refusal.
+
+The independent GPT-6.1-sol High review found no actionable issue. It confirmed
+that the DH OOM occurs after local DH allocation but before installing the
+private key; it does not cover every provider allocation/failure ordinal. The
+tests do not change provider behavior, public APIs, wire bytes, or hardware
+claims.
+
+Validation: `cmake --build build/host --target dmp_test_provider` succeeded;
+`ctest --test-dir build/host --output-on-failure -R
+"^security\\.provider_adapter$"` passed 1/1; the focused `git diff --check`
+passed. The reviewer did not rerun tests. Aggregate four-peer resources,
+remaining branch-by-branch cleanup, target runtime, and P01C remain open.

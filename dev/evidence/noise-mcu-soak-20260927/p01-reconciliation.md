@@ -162,3 +162,27 @@ ctest --test-dir build/host -R "^(security\.provider_adapter|security\.handshake
 
 The focused build completed and both CTests passed (2/2). This is host-only
 evidence; target, MCU, and physical checks remain pending.
+
+## Provider operational-failure regressions — 2026-10-13
+
+Two additional cases in `tests/security/test_provider.c` extend, but do not
+complete, the failure-output and owned-state map. `dh-shared-allocation-failure`
+injects OOM on the second allocator request after local DH state is allocated;
+it checks the shared-secret output is cleared, temporary tracked state is
+released, provider counters return to zero, and a later DH call succeeds on the
+same provider. The injected failure occurs before the private key is installed.
+
+`cipher-child-capacity-cleanup` fills the adapter's real child table. It checks
+the first refused `cipher_from_key` call directly: the output wrapper is wiped,
+the temporary Noise object is released, and pre-call block/retained counts are
+unchanged. An already-open cipher still matches its exact fixture ciphertext
+and tag after the refusal. This is provider state survival in a single host
+process, not a multi-peer concurrency or endpoint-scheduler test.
+
+Independent GPT-6.1-sol High review found no actionable issue. The focused
+provider build succeeded and `security.provider_adapter` passed 1/1; the
+focused diff check passed. This closes only these failure branches. Exhaustive
+provider branch/secret-copy cleanup, the four-peer/four-pending/two-crypto-slot
+aggregate resource matrix, transport send-fault boundaries, target/runtime
+measurements, and P01C remain open. Hardware qualification stays scheduled for
+the final phase; acceptable host memory figures do not guarantee board operation.
