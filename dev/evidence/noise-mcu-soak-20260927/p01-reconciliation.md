@@ -332,3 +332,15 @@ The provider target build and focused CTest passed 1/1; independent review found
 no actionable issue. This is primitive-wrapper host evidence only; endpoint
 replay/failure-budget, other provider branches, target runtime, physical
 operation and P01C remain open.
+
+## XX late static-key constructor cleanup — 2026-10-13
+
+`security.provider_adapter::late-static-constructor-validation-cleanup` uses
+the XX initiator fixture with its required 32-byte local static key and no PSK.
+The test injects a NULL/nonempty prologue after the adapter has installed that
+key in Noise state. It checks `DMP_PROVIDER_INVALID`, a zeroed wrapper, balanced
+allocation/release counts, no live blocks/retained bytes, and erased released
+state. The same provider then writes the exact fixture flight 1 and closes
+cleanly. The focused provider build and CTest passed 1/1; independent review
+found no actionable issue. This does not establish full XX completion,
+exhaustive secret-copy cleanup, or target/physical behavior.

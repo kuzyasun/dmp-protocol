@@ -2640,3 +2640,12 @@ then successfully decrypts the exact fixture record on the same cipher. The
 focused provider build and CTest passed; independent review found no actionable
 issue. This covers short-MAC rejection before tag verification, not endpoint
 replay policy or target behavior.
+
+`security.provider_adapter::late-static-constructor-validation-cleanup` checks
+the corresponding late-failure path for XX. Its 32-byte initiator static key
+is installed in Noise state before NULL/nonempty prologue validation fails.
+The adapter returns `DMP_PROVIDER_INVALID`, zeros the wrapper, balances and
+erases released state, then opens the valid XX fixture on the same provider
+and writes exact flight 1. The focused provider build and CTest passed 1/1;
+independent review found no actionable issue. This proves cleanup and recovery
+through flight 1, not full XX completion or the complete secret-copy inventory.
