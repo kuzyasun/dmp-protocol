@@ -1270,6 +1270,137 @@ done:
     return passed;
 }
 
+static int test_closed_wrapper_output(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    dmp_provider_cipher cipher;
+    dmp_provider_cipher send;
+    dmp_provider_cipher receive;
+    uint8_t output[64];
+    uint8_t hash[32];
+    size_t output_len;
+    size_t blocks_before;
+    size_t retained_before;
+    unsigned calls_before;
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count != 2U || fixture->i_to_r_key.size != 32U) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    memset(&cipher, 0, sizeof(cipher));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK ||
+        dmp_provider_cipher_from_key(provider, &cipher, fixture->i_to_r_key.data,
+                                     fixture->i_to_r_key.size) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    if (dmp_provider_handshake_close(provider, &handshake) != DMP_PROVIDER_OK ||
+        dmp_provider_cipher_close(provider, &cipher) != DMP_PROVIDER_OK ||
+        !all_zero(&handshake, sizeof(handshake)) || !all_zero(&cipher, sizeof(cipher)) ||
+        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U) {
+        fprintf(stderr, "closed-wrapper setup did not release live provider children\n");
+        goto done;
+    }
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    calls_before = port.alloc_calls;
+    releases_before = port.release_calls;
+
+    memset(output, 0xA5, sizeof(output));
+    output_len = 0x1234U;
+    status = dmp_provider_handshake_write(provider, &handshake,
+                                          fixture->flights[0].plaintext.data,
+                                          fixture->flights[0].plaintext.size, output,
+                                          sizeof(output), &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0x1234U ||
+        !all_value(output, sizeof(output), 0xA5U)) {
+        fprintf(stderr, "closed handshake-write changed caller output\n");
+        goto done;
+    }
+    memset(output, 0xB6, sizeof(output));
+    output_len = 0x2345U;
+    status = dmp_provider_handshake_read(provider, &handshake,
+                                         fixture->flights[1].message.data,
+                                         fixture->flights[1].message.size, output,
+                                         sizeof(output), &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0x2345U ||
+        !all_value(output, sizeof(output), 0xB6U)) {
+        fprintf(stderr, "closed handshake-read changed caller output\n");
+        goto done;
+    }
+    memset(hash, 0xC7, sizeof(hash));
+    status = dmp_provider_handshake_hash(provider, &handshake, hash);
+    if (status != DMP_PROVIDER_INVALID || !all_value(hash, sizeof(hash), 0xC7U)) {
+        fprintf(stderr, "closed handshake-hash changed caller output\n");
+        goto done;
+    }
+    memset(hash, 0xD8, sizeof(hash));
+    status = dmp_provider_handshake_remote_public(provider, &handshake, hash);
+    if (status != DMP_PROVIDER_INVALID || !all_zero(hash, sizeof(hash))) {
+        fprintf(stderr, "closed remote-public did not erase its output\n");
+        goto done;
+    }
+    memset(&send, 0xE9, sizeof(send));
+    memset(&receive, 0xFA, sizeof(receive));
+    status = dmp_provider_handshake_split(provider, &handshake, &send, &receive);
+    if (status != DMP_PROVIDER_INVALID || !all_value(&send, sizeof(send), 0xE9U) ||
+        !all_value(&receive, sizeof(receive), 0xFAU)) {
+        fprintf(stderr, "closed handshake-split changed caller wrappers\n");
+        goto done;
+    }
+
+    memset(output, 0x3B, sizeof(output));
+    output_len = 0x3456U;
+    status = dmp_provider_cipher_encrypt(provider, &cipher, 0U, NULL, 0U, output,
+                                         0U, sizeof(output), &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0x3456U ||
+        !all_value(output, sizeof(output), 0x3BU)) {
+        fprintf(stderr, "closed cipher-encrypt changed caller output\n");
+        goto done;
+    }
+    memset(output, 0x4C, sizeof(output));
+    output_len = 0x4567U;
+    status = dmp_provider_cipher_decrypt(provider, &cipher, 0U, NULL, 0U, output,
+                                         0U, sizeof(output), &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0x4567U ||
+        !all_value(output, sizeof(output), 0x4CU)) {
+        fprintf(stderr, "closed cipher-decrypt changed caller output\n");
+        goto done;
+    }
+    if (dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != calls_before || port.release_calls != releases_before) {
+        fprintf(stderr, "closed-wrapper calls changed provider resource accounting\n");
+        goto done;
+    }
+    passed = release_clean(&port, "closed-wrapper output contract");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "closed-wrapper provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_short_handshake_read_output(void)
 {
     enum { PAYLOAD_CAPACITY = 3U };
@@ -2208,6 +2339,7 @@ int main(void)
     expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
     expect_case("premature-split-output", test_premature_split_output());
+    expect_case("closed-wrapper-output", test_closed_wrapper_output());
     expect_case("wrong-phase-handshake-output", test_wrong_phase_handshake_output());
     expect_case("short-handshake-read-output", test_short_handshake_read_output());
     expect_case("wrong-psk", test_wrong_psk());

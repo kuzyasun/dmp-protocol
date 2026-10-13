@@ -382,3 +382,16 @@ Provider build was current and focused CTest passed 1/1; independent review
 found no actionable issue. This covers Noise wrong-phase guards only, not
 fatal post-read abort semantics, endpoint integration, MCU runtime, physical
 operation, or P01C.
+
+## Closed-wrapper output contract — 2026-10-13
+
+`security.provider_adapter::closed-wrapper-output` closes live handshake and
+cipher wrappers, then exercises their consumer APIs. Closed read/write/hash,
+Split, cipher encrypt, and cipher decrypt return `DMP_PROVIDER_INVALID` while
+preserving their caller output buffers/lengths. The closed `remote_public` path
+also returns INVALID but erases its 32-byte output. The test verifies wrappers
+are zeroed and calls do not change provider allocation/release/block/retained
+accounting. Provider build and focused CTest passed 1/1; independent review
+found no actionable issue. This is invalid-handle host evidence, not
+operational Noise failures, endpoint lifecycle/concurrency, exhaustive
+secret-copy cleanup, MCU runtime, physical operation, or P01C.

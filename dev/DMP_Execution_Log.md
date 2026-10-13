@@ -2677,3 +2677,12 @@ and leaves the handshake usable. The same owner then emits exact Flight 1 and
 accepts exact Flight 2 payload. Provider build was current, focused CTest passed
 1/1, and independent review found no actionable issue. This does not establish
 fatal post-read handling, endpoint integration, or target/physical behavior.
+
+`security.provider_adapter::closed-wrapper-output` closes a live NNpsk0
+handshake and cipher, then checks their invalid-handle paths. Read, write, hash,
+Split, encrypt, and decrypt return `DMP_PROVIDER_INVALID` without changing
+caller outputs; the `remote_public` closed-handle path returns INVALID and
+zeros its 32-byte key output. Calls leave wrappers erased and provider resource
+accounting unchanged. Provider build and focused CTest passed; independent
+review found no actionable issue. This is closed-wrapper boundary evidence,
+not operational Noise failure, endpoint lifecycle, or target behavior.

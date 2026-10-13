@@ -288,3 +288,16 @@ build was current, focused `security.provider_adapter` CTest passed 1/1, and
 independent review found no actionable issue. This proves live wrong-action
 guard behavior in the host provider adapter only; fatal post-read handling,
 endpoint integration, target runtime, physical operation, and P01C remain open.
+
+## P01 closed-wrapper output follow-up — 2026-10-13
+
+`security.provider_adapter::closed-wrapper-output` closes a live NNpsk0
+handshake and cipher, then exercises their invalid-handle paths. Read, write,
+hash, Split, encrypt, and decrypt return `DMP_PROVIDER_INVALID` without
+changing caller outputs; `remote_public` also returns INVALID and zeros its
+32-byte output. The wrappers remain erased and provider resource accounting
+does not change. Provider build and focused `security.provider_adapter` CTest
+passed 1/1; independent review found no actionable issue. This is closed-handle
+host boundary evidence only; operational Noise failure paths, endpoint
+lifecycle/concurrency, complete secret-copy inventory, target runtime, physical
+operation, and P01C remain open.

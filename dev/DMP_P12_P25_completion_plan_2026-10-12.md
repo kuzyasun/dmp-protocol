@@ -395,3 +395,9 @@ criteria.
   fatal post-read handling, integrated target memory/runtime, physical behavior,
   and P01C remain open. Hardware qualification remains deferred until the final
   plan phase; host memory figures do not guarantee hardware operation.
+- 2026-10-13 follow-up: `security.provider_adapter::closed-wrapper-output`
+  verifies invalid calls through closed handshake/cipher wrappers, including
+  their distinct output rules and unchanged provider accounting. Focused
+  provider CTest passed 1/1; independent review found no actionable issue.
+  This closes only a host invalid-handle boundary; operational failures and
+  target/physical qualification remain open.
