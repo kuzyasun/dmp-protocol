@@ -2532,8 +2532,28 @@ Validation used the isolated host harness because ordinary project
 reconfiguration could not read the Noise submodule Git metadata in this
 environment. `ctest --test-dir build/p01-four-parallel-host/build
 --output-on-failure -R "^dmp_parallel_four_parallel$"` passed 1/1, and direct
-JSON output reported success with the above metrics. Independent review is
-pending. This does not model peer IDs, service registry, real endpoint
-association/draining state, return windows, or MTU/message bounds. The
+JSON output reported success with the above metrics. Independent GPT-6.1-sol
+High review found no actionable issue after correcting the callback overlap,
+failed-barrier counts, and traffic-check metrics. This does not model peer IDs,
+service registry, real endpoint association/draining state, return windows, or
+MTU/message bounds. The
 four_parallel manifest row and P01 remain partial; target runtime, physical
 operation, and P01C stay deferred to the final hardware phase.
+
+## 2026-10-13 — P01 NNpsk0 handshake-open allocation ordinal sweep
+
+Added `security.handshake-open-allocation-sweep`. It injects `NO_MEMORY` at
+each of the eight allocator calls reached while opening a valid NNpsk0
+initiator. Every failure leaves the handshake wrapper zeroed, provider block
+count and retained bytes at zero, and every released block erased. After each
+failure, the same provider successfully opens and closes a fresh handshake.
+Failure ordinal 9 is beyond the constructor's allocations and successfully
+opens; the test closes it and confirms counters return to zero. The focused
+provider CTest passed 1/1; direct output reports eight failing ordinals and
+successful boundary ordinal 9. Independent GPT-6.1-sol High review found no
+actionable issue.
+
+This is a host constructor-cleanup regression for the NNpsk0 initiator path.
+It does not cover XX or responder constructors, other API failure branches,
+full handshake recovery, target allocators, or hardware behavior; P01/P01C
+remain open.

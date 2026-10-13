@@ -433,6 +433,109 @@ done:
     return passed;
 }
 
+static int test_handshake_open_allocation_sweep(void)
+{
+    enum { MAX_FAIL_ORDINAL = 64U };
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    unsigned ordinal;
+    unsigned failed_ordinals = 0U;
+    int reached_success = 0;
+    int passed = 0;
+
+    if (fixture == NULL)
+        return 0;
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL)
+        return 0;
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK)
+        goto done;
+
+    for (ordinal = 1U; ordinal <= MAX_FAIL_ORDINAL; ++ordinal) {
+        unsigned calls_before = port.alloc_calls;
+        unsigned calls_used;
+        dmp_provider_status status;
+
+        memset(&handshake, 0xA5, sizeof(handshake));
+        port.fail_alloc_at = calls_before + ordinal;
+        status = dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                             DMP_PROVIDER_ROLE_INITIATOR, &keys);
+        port.fail_alloc_at = 0U;
+        calls_used = port.alloc_calls - calls_before;
+
+        if (status == DMP_PROVIDER_NO_MEMORY && calls_used == ordinal) {
+            if (!all_zero(&handshake, sizeof(handshake)) ||
+                dmp_provider_block_count(provider) != 0U ||
+                dmp_provider_retained(provider) != 0U || !release_clean(&port, "open OOM")) {
+                fprintf(stderr,
+                        "open allocation ordinal %u leaked state: blocks=%zu retained=%zu zero=%d\n",
+                        ordinal, dmp_provider_block_count(provider),
+                        dmp_provider_retained(provider), all_zero(&handshake, sizeof(handshake)));
+                goto done;
+            }
+            ++failed_ordinals;
+
+            /* A failed constructor must leave the same provider usable. */
+            memset(&handshake, 0xA5, sizeof(handshake));
+            status = dmp_provider_handshake_open(provider, &handshake,
+                                                 fixture->protocol_name,
+                                                 DMP_PROVIDER_ROLE_INITIATOR, &keys);
+            if (status != DMP_PROVIDER_OK ||
+                dmp_provider_handshake_close(provider, &handshake) != DMP_PROVIDER_OK ||
+                !all_zero(&handshake, sizeof(handshake)) ||
+                dmp_provider_block_count(provider) != 0U ||
+                dmp_provider_retained(provider) != 0U ||
+                !release_clean(&port, "open OOM recovery")) {
+                fprintf(stderr, "provider did not recover after open allocation ordinal %u\n",
+                        ordinal);
+                goto done;
+            }
+            continue;
+        }
+
+        /* The first ordinal beyond all constructor allocations must succeed. */
+        if (status == DMP_PROVIDER_OK && calls_used < ordinal &&
+            dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+            all_zero(&handshake, sizeof(handshake)) &&
+            dmp_provider_block_count(provider) == 0U &&
+            dmp_provider_retained(provider) == 0U &&
+            release_clean(&port, "open allocation sweep boundary")) {
+            reached_success = 1;
+            break;
+        }
+
+        fprintf(stderr,
+                "open allocation ordinal %u unexpected status=%d calls=%u blocks=%zu retained=%zu\n",
+                ordinal, (int)status, calls_used, dmp_provider_block_count(provider),
+                dmp_provider_retained(provider));
+        goto done;
+    }
+
+    passed = failed_ordinals != 0U && reached_success;
+    if (passed) {
+        printf("handshake-open allocation sweep: %u failing ordinals; ordinal %u is beyond allocation\n",
+               failed_ordinals, ordinal);
+    } else {
+        fprintf(stderr, "open allocation sweep incomplete: failed=%u boundary=%d\n",
+                failed_ordinals, reached_success);
+    }
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             all_zero(&handshake, sizeof(handshake)) && release_clean(&port, "open sweep cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_dh_shared_allocation_failure(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -1521,6 +1624,7 @@ int main(void)
     expect_case("init", test_init());
     expect_case("entropy", test_entropy());
     expect_case("oom", test_oom());
+    expect_case("handshake-open-allocation-sweep", test_handshake_open_allocation_sweep());
     expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
     expect_case("wrong-psk", test_wrong_psk());

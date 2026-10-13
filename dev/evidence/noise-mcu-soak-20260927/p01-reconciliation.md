@@ -259,5 +259,23 @@ workers, but does not model endpoint peer IDs/services, real association and
 draining lifecycle, return windows, or MTU/message bounds. Its manifest row
 remains partial. The isolated host CTest passed 1/1 because ordinary project
 reconfiguration could not read submodule Git metadata in this environment;
-independent review is pending. No target/runtime or physical evidence was
-produced, and P01C remains deferred to the final hardware phase.
+independent GPT-6.1-sol High review found no actionable issue after correcting
+callback overlap, failed-barrier counts, and traffic-check metrics. No
+target/runtime or physical evidence was produced, and P01C remains deferred to
+the final hardware phase.
+
+## NNpsk0 handshake-open allocation ordinal sweep — 2026-10-13
+
+`security.handshake-open-allocation-sweep` injects failure into every one of
+the eight allocator calls reached by a valid NNpsk0 initiator constructor. Each
+`NO_MEMORY` result leaves the handshake wrapper zeroed, provider block and
+retained counts at zero, and released storage erased; the same provider then
+successfully opens/closes a fresh handshake. Ordinal 9 is beyond the
+constructor's allocations, opens successfully, and cleans up to zero counts.
+The focused provider build and `security.provider_adapter` CTest passed 1/1;
+direct output reports eight failing ordinals and the ordinal-9 success
+boundary. Independent GPT-6.1-sol High review found no actionable issue.
+
+This closes only NNpsk0 initiator constructor allocation cleanup. It does not
+cover XX/responder, other provider/Noise failure branches, full handshake
+recovery, target allocation behavior, or P01C.
