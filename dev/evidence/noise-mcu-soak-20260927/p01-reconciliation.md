@@ -445,3 +445,14 @@ Flight 1 recovery and clean close on the same provider. The provider build was
 current and focused CTest passed 1/1; independent review found no actionable
 issue. Responder behavior, full exchange, remaining provider failure branches,
 and target qualification remain open.
+
+## Cipher plaintext larger than output capacity — 2026-10-13
+
+`security.provider_adapter::cipher-encrypt-input-over-capacity` calls encrypt
+with plaintext length 4 and declared output capacity 3. The backend rejects
+this `size > max_size` shape before the distinct MAC-capacity check. Assertions
+verify INVALID, zero output length, exact-capacity wipe with preserved tail,
+unchanged allocation/resource counters, exact PN0 recovery on the same cipher,
+and erased cleanup. Provider build was current, focused CTest passed 1/1, and
+independent review found no actionable issue. This is provider host evidence;
+endpoint send semantics and target qualification remain open.

@@ -2728,3 +2728,13 @@ Flight 1 on the same provider. The provider build was current and focused CTest
 passed 1/1; independent review found no actionable issue. These are constructor
 presence/length cases only, not a complete handshake or exhaustive failure
 inventory.
+
+`security.provider_adapter::cipher-encrypt-input-over-capacity` supplies four
+plaintext bytes with a declared output capacity of three. Adapter validation
+passes the call to Noise, which rejects `size > max_size` before its separate
+MAC-room check. The provider returns INVALID, zeros output length, wipes only
+the declared three bytes and preserves the tail sentinel; allocation and
+provider resource counters remain unchanged. The same cipher then emits exact
+fixture PN0 ciphertext/tag and closes cleanly. Provider build was current,
+focused CTest passed 1/1, and independent review found no actionable issue.
+This is a provider-boundary host case only.

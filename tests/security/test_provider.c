@@ -2225,6 +2225,78 @@ done:
     return passed;
 }
 
+static int test_cipher_encrypt_input_over_capacity(void)
+{
+    enum { PLAINTEXT_BYTES = 4U, OUTPUT_CAPACITY = 3U };
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    const noise_fixture_probe_packet_t *packet;
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_cipher cipher;
+    uint8_t output[64];
+    size_t output_len = 0x1234U;
+    size_t blocks_before;
+    size_t retained_before;
+    unsigned calls_before;
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || (packet = find_packet(fixture, 0U, 0U)) == NULL) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&cipher, 0, sizeof(cipher));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK ||
+        dmp_provider_cipher_from_key(provider, &cipher, fixture->i_to_r_key.data,
+                                     fixture->i_to_r_key.size) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    calls_before = port.alloc_calls;
+    releases_before = port.release_calls;
+    /* The input exists in caller storage, but exceeds the declared output
+     * capacity. Noise rejects size > max_size before the MAC-room check. */
+    memset(output, 0xA5, sizeof(output));
+    status = dmp_provider_cipher_encrypt(provider, &cipher, 0U, NULL, 0U, output,
+                                         PLAINTEXT_BYTES, OUTPUT_CAPACITY, &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0U ||
+        !all_zero(output, OUTPUT_CAPACITY) ||
+        !all_value(output + OUTPUT_CAPACITY, sizeof(output) - OUTPUT_CAPACITY, 0xA5U) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != calls_before || port.release_calls != releases_before) {
+        fprintf(stderr, "oversized cipher input rejection changed output bounds or owned state\n");
+        goto done;
+    }
+    if (!encrypt_packet(provider, &cipher, packet, "PN0 after oversized cipher input") ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != calls_before || port.release_calls != releases_before) {
+        fprintf(stderr, "cipher did not recover after oversized input rejection\n");
+        goto done;
+    }
+    passed = dmp_provider_cipher_close(provider, &cipher) == DMP_PROVIDER_OK &&
+             all_zero(&cipher, sizeof(cipher)) &&
+             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
+             port.alloc_calls == port.release_calls &&
+             release_clean(&port, "oversized cipher input cleanup");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "oversized cipher input provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_pn_aad(const noise_fixture_probe_fixture_t *fixture)
 {
     port_ctx port;
@@ -2753,6 +2825,7 @@ int main(void)
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("low-order", test_low_order());
     expect_case("short-ciphertext-output", test_short_ciphertext_output());
+    expect_case("cipher-encrypt-input-over-capacity", test_cipher_encrypt_input_over_capacity());
     expect_case("pn-aad-nnpsk0", test_pn_aad(nn));
     expect_case("pn-aad-xx", test_pn_aad(xx));
     expect_case("suite-nnpsk0", test_suite(nn));

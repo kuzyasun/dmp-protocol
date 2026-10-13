@@ -350,3 +350,14 @@ wrapper and released state, balance accounting, and recover with exact fixture
 Flight 1 on the same provider. Provider build was current, focused CTest passed
 1/1, and independent review found no actionable issue. This does not close the
 full handshake, exhaustive provider failure inventory, or target qualification.
+
+## P01 cipher input-over-capacity recovery — 2026-10-13
+
+`security.provider_adapter::cipher-encrypt-input-over-capacity` gives the
+adapter four plaintext bytes and a three-byte output capacity. Noise rejects
+the oversized input before checking space for its MAC. The test verifies
+INVALID, zero output length, an exact three-byte wipe with the tail preserved,
+unchanged resource accounting, then exact fixture PN0 recovery on the same
+cipher. Provider build was current, focused CTest passed 1/1, and independent
+review found no actionable issue. This remains host provider-boundary evidence;
+it does not establish endpoint transport or target behavior.

@@ -446,3 +446,9 @@ criteria.
   review found no actionable issue. This is constructor host evidence only;
   full-handshake and exhaustive failure inventory plus target qualification
   remain open.
+- 2026-10-13 P01 follow-up: `security.provider_adapter::cipher-encrypt-input-over-capacity`
+  covers plaintext length 4 with output capacity 3, a Noise size/max guard
+  distinct from MAC-capacity failure. It verifies bounded output wiping and
+  same-cipher exact PN0 recovery. Provider build was current; focused CTest
+  passed 1/1, and independent review found no actionable issue. Target and
+  endpoint transport qualification remain open.
