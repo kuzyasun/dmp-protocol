@@ -1728,13 +1728,13 @@ static dmp_status handle_ack(dmp_reliability *engine, dmp_message_key reply, uin
         }
         if (sender->kind == KIND_DATA) {
             if (!sender->result_seen) {
-                dmp_bytes empty;
-                empty.data = NULL;
-                empty.size = 0U;
+                dmp_bytes empty_ack;
+                empty_ack.data = NULL;
+                empty_ack.size = 0U;
                 sender->result_seen = true;
                 sender->phase = DMP_REL_PHASE_TERMINAL;
                 emit(engine, DMP_REL_EVENT_DATA_DELIVERED, sender_handle(engine, sender),
-                     sender->own, service, 0U, empty);
+                     sender->own, service, 0U, empty_ack);
             }
             if (sender->tx_live) {
                 cancel_tx(engine, sender);

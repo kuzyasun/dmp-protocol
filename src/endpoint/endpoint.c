@@ -383,7 +383,7 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
      * encoded_mtu. Does not seal and does not require an active attempt.
      * DMP_HS_APP_PLAIN_MAX remains the protected plaintext buffer ceiling. */
     if (out.data == NULL) {
-        dmp_core_limits limits;
+        dmp_core_limits dry_run_limits;
         dmp_buffer header_buf;
         uint8_t header[DMP_MAX_HEADER_BYTES];
         size_t header_len = 0U;
@@ -409,10 +409,10 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
                 spec.fields.security.receive_cid = cid;
             }
         }
-        limits = limits_of(endpoint);
+        dry_run_limits = limits_of(endpoint);
         header_buf.data = header;
         header_buf.capacity = sizeof header;
-        return dmp_core_encode_header(&spec, &limits, header_buf, &header_len);
+        return dmp_core_encode_header(&spec, &dry_run_limits, header_buf, &header_len);
     }
     if (protect) {
         dmp_status ready_status;
