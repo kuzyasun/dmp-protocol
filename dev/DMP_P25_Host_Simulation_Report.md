@@ -327,3 +327,15 @@ and focused `security.provider_adapter` CTest passed 1/1; independent review
 found no actionable issue. This is limited to these constructor paths and does
 not establish a complete handshake, exhaustive secret-copy cleanup, or target
 qualification.
+
+## P01 XX NULL static-key constructor cleanup — 2026-10-13
+
+`security.provider_adapter::xx-null-static-validation-cleanup` checks the XX
+initiator guard for NULL local static key with length 32 after Noise and
+ephemeral allocation. The failed wrapper and released blocks are erased,
+allocation/release accounting balances, and live/retained counts return to
+zero. A subsequent valid owner on the same provider emits exact fixture Flight
+1 and closes cleanly. Provider build was current, focused CTest passed 1/1,
+and independent review found no actionable issue. This covers one constructor
+branch and host recovery only; it does not close the full XX exchange,
+provider-wide cleanup inventory, or target qualification.

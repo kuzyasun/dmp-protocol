@@ -420,3 +420,15 @@ recovery and clean close on the same provider. Provider build and focused CTest
 passed 1/1; independent review found no actionable issue. This is evidence for
 these constructor branches only, not the full handshake, exhaustive secret
 copy cleanup, or target/physical qualification.
+
+## XX NULL static-key constructor failure — 2026-10-13
+
+`security.provider_adapter::xx-null-static-validation-cleanup` gives an XX
+initiator a NULL static-key pointer with a 32-byte declared length. The guard
+is reached after Noise state creation and ephemeral installation. The test
+checks INVALID, zero wrapper, balanced allocation/release accounting, erased
+released state, zero live/retained blocks, then exact XX Flight 1 recovery on
+the same provider and clean close. Build was current, focused CTest passed
+1/1, and independent review found no actionable issue. This covers the named
+constructor branch only; complete XX exchange, exhaustive cleanup, and target
+qualification remain open.

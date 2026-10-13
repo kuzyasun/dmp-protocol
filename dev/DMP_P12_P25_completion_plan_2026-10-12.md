@@ -415,3 +415,10 @@ criteria.
   found no actionable issue. This closes only those constructor branches;
   complete handshake, secret-copy inventory, and target qualification remain
   open. Hardware qualification stays deferred to the final plan phase.
+- 2026-10-13 follow-up: `security.provider_adapter::xx-null-static-validation-cleanup`
+  covers an XX initiator's NULL static-key rejection after Noise state and
+  ephemeral installation, followed by exact same-provider Flight 1 recovery.
+  Provider build was current; focused CTest passed 1/1. Independent review
+  found no actionable issue. This closes one constructor branch only; the
+  complete XX exchange, provider cleanup inventory, and target qualification
+  remain open. Hardware qualification stays deferred to the final phase.

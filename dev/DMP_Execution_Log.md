@@ -2707,3 +2707,13 @@ cleanly. Provider build and focused CTest passed 1/1; independent review found
 no actionable issue. This covers these constructor branches and recovery only,
 not the full handshake, complete provider secret-copy inventory, or target
 qualification.
+
+`security.provider_adapter::xx-null-static-validation-cleanup` passes a NULL
+local static-key pointer with declared length 32 to a fresh XX initiator. The
+guard runs after Noise allocation and ephemeral private-key installation, but
+before local static-key installation. The failure returns INVALID, zeros the
+wrapper, balances allocator calls/releases, erases released blocks, and leaves
+no live or retained state. A valid XX owner on the same provider then emits
+exact fixture Flight 1 and closes cleanly. Build was current, focused CTest
+passed 1/1, and independent review found no actionable issue. This covers this
+constructor branch and recovery only.

@@ -805,6 +805,80 @@ done:
     return passed;
 }
 
+static int test_xx_null_static_validation_cleanup(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("xx");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    uint8_t message[CASE_BUFFER];
+    size_t message_len = 0U;
+    unsigned calls_before;
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count == 0U ||
+        fixture->init_static.data == NULL || fixture->init_static.size != 32U ||
+        fixture->init_ephemeral.data == NULL || fixture->init_ephemeral.size != 32U) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0xA5, sizeof(handshake));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    /* Nonzero length passes the needs-static presence check. The NULL pointer
+     * is rejected after Noise creation and ephemeral private-key installation,
+     * before a local static private key can be installed. */
+    keys.local_static = NULL;
+    keys.local_static_len = 32U;
+    calls_before = port.alloc_calls;
+    releases_before = port.release_calls;
+    status = dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                         DMP_PROVIDER_ROLE_INITIATOR, &keys);
+    if (status != DMP_PROVIDER_INVALID || !all_zero(&handshake, sizeof(handshake)) ||
+        port.alloc_calls <= calls_before ||
+        port.alloc_calls - calls_before != port.release_calls - releases_before ||
+        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+        !release_clean(&port, "XX NULL static-key rejection")) {
+        fprintf(stderr, "XX NULL static-key rejection did not erase and release owned state\n");
+        goto done;
+    }
+
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK ||
+        dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                     fixture->flights[0].plaintext.size, message, sizeof(message),
+                                     &message_len) != DMP_PROVIDER_OK ||
+        !bytes_match("XX flight after NULL static-key rejection", message, message_len,
+                     fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+        fprintf(stderr, "provider did not recover after XX NULL static-key rejection\n");
+        goto done;
+    }
+    passed = dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+             all_zero(&handshake, sizeof(handshake)) &&
+             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
+             port.alloc_calls - calls_before == port.release_calls - releases_before &&
+             release_clean(&port, "XX NULL static-key recovery cleanup");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "XX NULL static-key provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_dh_shared_allocation_failure(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -2538,6 +2612,7 @@ int main(void)
     expect_case("late-constructor-validation-cleanup", test_late_constructor_validation_cleanup());
     expect_case("late-static-constructor-validation-cleanup", test_late_static_constructor_validation_cleanup());
     expect_case("late-key-validation-cleanup", test_late_key_validation_cleanup());
+    expect_case("xx-null-static-validation-cleanup", test_xx_null_static_validation_cleanup());
     expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
     expect_case("premature-split-output", test_premature_split_output());
