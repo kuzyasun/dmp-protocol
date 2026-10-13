@@ -2555,3 +2555,15 @@ GPT-6.1-sol High review found no actionable issue.
 This is host constructor-cleanup evidence for the two selected suites and both
 roles. It does not cover other provider API failure branches, full handshake
 recovery, target allocators, or hardware behavior; P01/P01C remain open.
+
+## 2026-10-13 — P01 DH shared allocation ordinal sweep
+
+Expanded `dh-shared-allocation-failure` to inject `NO_MEMORY` at both
+`dmp_provider_dh_shared` allocation ordinals and at ordinal 3, the successful
+boundary. The two failures wipe the shared-secret output and release all
+temporary state; each is followed by a successful shared-secret calculation
+on the same provider. The ordinal-3 boundary succeeds with exactly two
+allocations, and provider block/retained counters return to zero. The focused
+provider CTest passed 1/1 and direct output reports two failing ordinals and
+boundary 3. This remains host provider evidence, not target allocator or
+hardware qualification; P01/P01C remain open.

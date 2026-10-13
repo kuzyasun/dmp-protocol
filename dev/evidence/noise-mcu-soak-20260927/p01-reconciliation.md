@@ -279,3 +279,18 @@ Independent GPT-6.1-sol High review found no actionable issue.
 This closes only allocation cleanup during these four constructors. It does
 not cover other provider/Noise failure branches, full handshake recovery,
 target allocation behavior, or P01C.
+
+## DH shared allocation ordinal sweep — 2026-10-13
+
+The `dh-shared-allocation-failure` case now injects `NO_MEMORY` at both custom
+allocator calls used by `dmp_provider_dh_shared`. Each failure leaves the
+32-byte shared-secret output zeroed, returns provider block/retained counters
+to zero, and releases any partially allocated state. After each failure, a
+successful DH calculation on the same provider proves recovery. Failure
+ordinal 3 is beyond the two allocations and succeeds; both temporary states
+are released and accounting returns to zero. The focused provider build,
+`security.provider_adapter` CTest (1/1), and direct executable passed.
+
+This closes only the DH shared-operation allocation ordinals. It does not
+close other provider failure branches, endpoint resource completeness, target
+allocator behavior, or P01C.

@@ -574,6 +574,7 @@ static int test_dh_shared_allocation_failure(void)
     uint8_t shared[32];
     uint8_t public_key[32];
     unsigned releases_before;
+    unsigned ordinal;
     dmp_provider_status status;
     int passed = 0;
 
@@ -606,45 +607,66 @@ static int test_dh_shared_allocation_failure(void)
         goto done;
     }
 
-    /* Fail the first DH state allocation, before any state is owned. */
-    memset(shared, 0xA5, sizeof(shared));
-    releases_before = port.release_calls;
-    port.fail_alloc_at = port.alloc_calls + 1U;
-    status = dmp_provider_dh_shared(provider, fixture->init_ephemeral.data,
-                                    fixture->resp_ephemeral.data, shared);
-    port.fail_alloc_at = 0U;
-    if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(shared, sizeof(shared)) ||
-        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
-        port.release_calls != releases_before) {
-        fprintf(stderr, "DH first allocation failure status=%d releases=%u/%u output_zero=%d\n",
-                (int)status, port.release_calls, releases_before, all_zero(shared, sizeof(shared)));
-        goto done;
-    }
+    for (ordinal = 1U; ordinal <= 3U; ++ordinal) {
+        unsigned calls_before = port.alloc_calls;
+        unsigned calls_used;
 
-    /* Fail the second allocator request after the shared operation starts;
-     * the output and any state allocated before failure must be cleared. */
-    memset(shared, 0xA5, sizeof(shared));
-    releases_before = port.release_calls;
-    port.fail_alloc_at = port.alloc_calls + 2U;
-    status = dmp_provider_dh_shared(provider, fixture->init_ephemeral.data,
-                                    fixture->resp_ephemeral.data, shared);
-    port.fail_alloc_at = 0U;
-    if (status != DMP_PROVIDER_NO_MEMORY || !all_zero(shared, sizeof(shared)) ||
-        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
-        port.release_calls <= releases_before || !release_clean(&port, "DH allocation failure")) {
-        fprintf(stderr,
-                "DH allocation failure status=%d blocks=%zu retained=%zu releases=%u/%u output_zero=%d\n",
-                (int)status, dmp_provider_block_count(provider), dmp_provider_retained(provider),
-                port.release_calls, releases_before, all_zero(shared, sizeof(shared)));
-        goto done;
-    }
+        memset(shared, 0xA5, sizeof(shared));
+        releases_before = port.release_calls;
+        port.fail_alloc_at = calls_before + ordinal;
+        status = dmp_provider_dh_shared(provider, fixture->init_ephemeral.data,
+                                        fixture->resp_ephemeral.data, shared);
+        port.fail_alloc_at = 0U;
+        calls_used = port.alloc_calls - calls_before;
 
-    memset(shared, 0, sizeof(shared));
-    status = dmp_provider_dh_shared(provider, fixture->init_ephemeral.data,
-                                    fixture->resp_ephemeral.data, shared);
-    passed = status == DMP_PROVIDER_OK && !all_zero(shared, sizeof(shared)) &&
-             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
-             release_clean(&port, "DH allocation recovery");
+        if (ordinal <= 2U) {
+            unsigned expected_release_delta = ordinal - 1U;
+            if (status != DMP_PROVIDER_NO_MEMORY || calls_used != ordinal ||
+                !all_zero(shared, sizeof(shared)) ||
+                dmp_provider_block_count(provider) != 0U ||
+                dmp_provider_retained(provider) != 0U ||
+                port.release_calls - releases_before != expected_release_delta ||
+                !release_clean(&port, "DH shared OOM ordinal")) {
+                fprintf(stderr,
+                        "DH shared OOM ordinal %u status=%d calls=%u releases=%u/%u "
+                        "blocks=%zu retained=%zu output_zero=%d\n",
+                        ordinal, (int)status, calls_used, port.release_calls, releases_before,
+                        dmp_provider_block_count(provider), dmp_provider_retained(provider),
+                        all_zero(shared, sizeof(shared)));
+                goto done;
+            }
+
+            /* Each failed allocation leaves the same provider usable. */
+            memset(shared, 0, sizeof(shared));
+            status = dmp_provider_dh_shared(provider, fixture->init_ephemeral.data,
+                                            fixture->resp_ephemeral.data, shared);
+            if (status != DMP_PROVIDER_OK || all_zero(shared, sizeof(shared)) ||
+                dmp_provider_block_count(provider) != 0U ||
+                dmp_provider_retained(provider) != 0U ||
+                !release_clean(&port, "DH shared OOM recovery")) {
+                fprintf(stderr, "DH shared provider recovery failed after ordinal %u\n",
+                        ordinal);
+                goto done;
+            }
+            continue;
+        }
+
+        if (status != DMP_PROVIDER_OK || calls_used != 2U || all_zero(shared, sizeof(shared)) ||
+            dmp_provider_block_count(provider) != 0U ||
+            dmp_provider_retained(provider) != 0U ||
+            port.release_calls - releases_before != 2U ||
+            !release_clean(&port, "DH shared allocation boundary")) {
+            fprintf(stderr,
+                    "DH shared boundary ordinal %u status=%d calls=%u releases=%u/%u "
+                    "blocks=%zu retained=%zu output_zero=%d\n",
+                    ordinal, (int)status, calls_used, port.release_calls, releases_before,
+                    dmp_provider_block_count(provider), dmp_provider_retained(provider),
+                    all_zero(shared, sizeof(shared)));
+            goto done;
+        }
+    }
+    printf("DH shared allocation sweep: 2 failing ordinals; boundary 3\n");
+    passed = 1;
 
 done:
     dmp_provider_cleanup(provider);
