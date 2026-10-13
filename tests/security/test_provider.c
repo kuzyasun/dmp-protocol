@@ -879,6 +879,135 @@ done:
     return passed;
 }
 
+static int test_constructor_key_presence_matrix(void)
+{
+    enum { NULL_EPHEMERAL, OMIT_PSK, BAD_STATIC_LENGTH, OMIT_STATIC, EXTRA_STATIC, EXTRA_PSK };
+    static const struct {
+        const char *name;
+        size_t fixture_index;
+        int condition;
+    } variants[] = {
+        {"NN NULL ephemeral length 32", 0U, NULL_EPHEMERAL},
+        {"NN omitted required PSK", 0U, OMIT_PSK},
+        {"XX static length 31", 1U, BAD_STATIC_LENGTH},
+        {"XX omitted required static", 1U, OMIT_STATIC},
+        {"NN unexpected static", 0U, EXTRA_STATIC},
+        {"XX unexpected PSK", 1U, EXTRA_PSK}
+    };
+    const noise_fixture_probe_fixture_t *fixtures[] = {
+        find_fixture("nnpsk0"), find_fixture("xx")
+    };
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    uint8_t message[CASE_BUFFER];
+    size_t message_len = 0U;
+    size_t variant;
+    int passed = 0;
+
+    if (fixtures[0] == NULL || fixtures[1] == NULL ||
+        fixtures[0]->flight_count == 0U || fixtures[1]->flight_count == 0U ||
+        fixtures[0]->init_ephemeral.data == NULL || fixtures[0]->init_ephemeral.size != 32U ||
+        fixtures[1]->init_ephemeral.data == NULL || fixtures[1]->init_ephemeral.size != 32U ||
+        fixtures[0]->psk.data == NULL || fixtures[0]->psk.size != 32U ||
+        fixtures[0]->init_static.size != 0U || fixtures[1]->psk.size != 0U ||
+        fixtures[1]->init_static.data == NULL || fixtures[1]->init_static.size != 32U) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    for (variant = 0U; variant < sizeof(variants) / sizeof(variants[0]); ++variant) {
+        const noise_fixture_probe_fixture_t *fixture = fixtures[variants[variant].fixture_index];
+        unsigned calls_before = port.alloc_calls;
+        unsigned releases_before = port.release_calls;
+        dmp_provider_status status;
+
+        fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+        switch (variants[variant].condition) {
+        case NULL_EPHEMERAL:
+            keys.local_ephemeral = NULL;
+            keys.local_ephemeral_len = 32U;
+            break;
+        case OMIT_PSK:
+            keys.psk = NULL;
+            keys.psk_len = 0U;
+            break;
+        case BAD_STATIC_LENGTH:
+            keys.local_static_len = 31U;
+            break;
+        case OMIT_STATIC:
+            keys.local_static = NULL;
+            keys.local_static_len = 0U;
+            break;
+        case EXTRA_STATIC:
+            keys.local_static = fixtures[1]->init_static.data;
+            keys.local_static_len = 32U;
+            break;
+        case EXTRA_PSK:
+            keys.psk = fixtures[0]->psk.data;
+            keys.psk_len = 32U;
+            break;
+        default:
+            goto done;
+        }
+        memset(&handshake, 0xA5, sizeof(handshake));
+        /* These pointer, length and suite-presence guards all follow Noise
+         * allocation; later guards also own the installed ephemeral key. */
+        status = dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                             DMP_PROVIDER_ROLE_INITIATOR, &keys);
+        if (status != DMP_PROVIDER_INVALID || !all_zero(&handshake, sizeof(handshake)) ||
+            port.alloc_calls <= calls_before ||
+            port.alloc_calls - calls_before != port.release_calls - releases_before ||
+            dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+            !release_clean(&port, variants[variant].name)) {
+            fprintf(stderr, "constructor presence case %s did not erase and release owned state\n",
+                    variants[variant].name);
+            goto done;
+        }
+
+        fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+        if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                        DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK ||
+            dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                         fixture->flights[0].plaintext.size, message, sizeof(message),
+                                         &message_len) != DMP_PROVIDER_OK ||
+            !bytes_match(variants[variant].name, message, message_len,
+                         fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+            fprintf(stderr, "provider did not recover after constructor presence case %s\n",
+                    variants[variant].name);
+            goto done;
+        }
+        if (dmp_provider_handshake_close(provider, &handshake) != DMP_PROVIDER_OK ||
+            !all_zero(&handshake, sizeof(handshake)) ||
+            dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+            port.alloc_calls - calls_before != port.release_calls - releases_before ||
+            !release_clean(&port, variants[variant].name)) {
+            fprintf(stderr, "constructor presence case %s recovery owner did not close cleanly\n",
+                    variants[variant].name);
+            goto done;
+        }
+    }
+    passed = 1;
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "constructor presence provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_dh_shared_allocation_failure(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -2613,6 +2742,7 @@ int main(void)
     expect_case("late-static-constructor-validation-cleanup", test_late_static_constructor_validation_cleanup());
     expect_case("late-key-validation-cleanup", test_late_key_validation_cleanup());
     expect_case("xx-null-static-validation-cleanup", test_xx_null_static_validation_cleanup());
+    expect_case("constructor-key-presence-matrix", test_constructor_key_presence_matrix());
     expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
     expect_case("premature-split-output", test_premature_split_output());

@@ -432,3 +432,16 @@ the same provider and clean close. Build was current, focused CTest passed
 1/1, and independent review found no actionable issue. This covers the named
 constructor branch only; complete XX exchange, exhaustive cleanup, and target
 qualification remain open.
+
+## Constructor key-presence matrix — 2026-10-13
+
+`security.provider_adapter::constructor-key-presence-matrix` covers six
+previously untested post-allocation NNpsk0/XX initiator branches: NULL
+ephemeral with nonzero length, missing required PSK, short XX static length,
+missing required XX static key, unexpected NNpsk0 static key, and unexpected
+XX PSK. Each asserts INVALID, zeroed wrapper, balanced allocation/release
+accounting, erased released blocks, zero live/retained state, then exact fixture
+Flight 1 recovery and clean close on the same provider. The provider build was
+current and focused CTest passed 1/1; independent review found no actionable
+issue. Responder behavior, full exchange, remaining provider failure branches,
+and target qualification remain open.

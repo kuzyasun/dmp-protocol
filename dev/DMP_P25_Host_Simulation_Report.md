@@ -339,3 +339,14 @@ zero. A subsequent valid owner on the same provider emits exact fixture Flight
 and independent review found no actionable issue. This covers one constructor
 branch and host recovery only; it does not close the full XX exchange,
 provider-wide cleanup inventory, or target qualification.
+
+## P01 constructor key-presence matrix — 2026-10-13
+
+`security.provider_adapter::constructor-key-presence-matrix` adds six
+NNpsk0/XX initiator validation cases for NULL ephemeral, omitted required PSK,
+short XX static key, omitted required XX static key, unexpected NNpsk0 static
+key, and unexpected XX PSK. All six fail after Noise allocation, erase the
+wrapper and released state, balance accounting, and recover with exact fixture
+Flight 1 on the same provider. Provider build was current, focused CTest passed
+1/1, and independent review found no actionable issue. This does not close the
+full handshake, exhaustive provider failure inventory, or target qualification.

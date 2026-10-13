@@ -439,3 +439,10 @@ criteria.
   `s-a4-persistence`. Their exact gates and decisions are listed in
   `DMP_P25_Host_Simulation_Report.md`. Hardware checks remain deferred to the
   final plan phase; host memory estimates do not guarantee hardware operation.
+- 2026-10-13 P01 follow-up: `security.provider_adapter::constructor-key-presence-matrix`
+  adds six untested NNpsk0/XX initiator key-presence or length branches after
+  Noise allocation, with erased cleanup and exact same-provider Flight 1
+  recovery. Provider build was current; focused CTest passed 1/1. Independent
+  review found no actionable issue. This is constructor host evidence only;
+  full-handshake and exhaustive failure inventory plus target qualification
+  remain open.

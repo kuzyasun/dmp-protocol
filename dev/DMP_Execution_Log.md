@@ -2717,3 +2717,14 @@ no live or retained state. A valid XX owner on the same provider then emits
 exact fixture Flight 1 and closes cleanly. Build was current, focused CTest
 passed 1/1, and independent review found no actionable issue. This covers this
 constructor branch and recovery only.
+
+`security.provider_adapter::constructor-key-presence-matrix` exercises six
+remaining NNpsk0/XX initiator guards after Noise state creation: NULL ephemeral
+with length 32, omitted required PSK, XX static length 31, omitted required XX
+static key, unexpected static key on NNpsk0, and unexpected PSK on XX. Each
+returns INVALID, zeros the wrapper, balances allocations/releases, erases
+released blocks, leaves no live/retained state, then recovers with exact fixture
+Flight 1 on the same provider. The provider build was current and focused CTest
+passed 1/1; independent review found no actionable issue. These are constructor
+presence/length cases only, not a complete handshake or exhaustive failure
+inventory.
