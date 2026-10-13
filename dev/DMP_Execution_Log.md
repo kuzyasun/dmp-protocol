@@ -2591,3 +2591,24 @@ the replacement/resynchronization assertion. This closes the host cases for
 correlated result, live late result, and association order under the documented
 single-owner contract; it does not claim concurrent multi-core calls, a
 production SAMPLE-1 association-owner adapter, or durable storage.
+
+## 2026-10-13 — P01 provider hash recovery and endpoint bounds
+
+`security.provider_adapter::output-contract` now queries the Noise hash before
+the NNpsk0 handshake has reached the phase where a hash is available. The
+provider returns `DMP_PROVIDER_INVALID`, zeros the 32-byte output, and leaves
+block/retained accounting unchanged. The same handshake then writes the exact
+fixture flight 1, and close erases the wrapper and releases all blocks. The
+focused `security.provider_adapter` CTest passed 1/1.
+
+`endpoint.protected_single_peer_bounds` checks the active one-peer profile:
+service 1 and service 2 requests are admitted; a protected core at the
+configured 256-byte limit is accepted and 257 bytes is rejected without a
+second dispatch; a local service-2 request of 4096 bytes is admitted and 4097
+bytes is rejected. The targeted provider and endpoint CTests passed 3/3
+together. Independent read-only review found no actionable issue.
+
+These are narrow host regressions. They do not prove delivery of a 4096-byte
+exchange, map manifest `mtu_bytes` to `encoded_mtu`, close `four_parallel`, or
+establish endpoint-target or physical behavior. No API, runtime implementation,
+manifest, or wire contract changed.

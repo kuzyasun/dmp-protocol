@@ -62,6 +62,13 @@ entire current CTest inventory was rerun.
   surviving-owner traffic; its focused `security.provider_adapter` CTest
   passed 1/1 and independent review found no issue. Other P01/P01C requirements
   remain open.
+- The 2026-10-13 follow-up adds a premature Noise hash-output failure/recovery
+  assertion to `security.provider_adapter` and a one-peer endpoint-boundary
+  test for both configured services, 256/257-byte encoded-core admission, and
+  4096/4097-byte request admission. The focused provider and endpoint CTests
+  passed 3/3 together; independent review found no actionable issue. These
+  checks do not close the per-endpoint four-peer `four_parallel` row, prove a
+  delivered 4096-byte exchange, or establish target or physical behavior.
 - A recent full host CTest attempt did not complete: after the subprocess
   harness passed with workspace-local TEMP/TMP, the process-isolated minimal
   endpoint lifecycle test could not establish its host loopback peer and timed
@@ -180,7 +187,11 @@ independence claim is made.
   Noise worker test cannot close the four-peer resource row. Closing it requires
   an owner decision on multi-peer endpoint scope; the manifest's `mtu_bytes`
   also needs an explicit mapping to endpoint `encoded_mtu` before that bound is
-  treated as the same quantity.
+  treated as the same quantity. New host-only regressions check premature
+  provider hash failure cleanup/recovery and one-peer service 1/2, configured
+  core-size 256/257, and local request-size 4096/4097 boundaries. They do not
+  close four-peer topology, prove a complete 4096-byte exchange, or qualify a
+  target.
 - P01C remains open for integrated target RAM/stack measurements, hardware
   entropy and energy evidence, the C3 reset diagnostic gate, and a selected
   non-Espressif board/runtime. The final hardware phase must use explicitly

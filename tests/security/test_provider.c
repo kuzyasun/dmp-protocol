@@ -752,6 +752,9 @@ static int test_output_contract(void)
     dmp_provider_handshake_keys keys;
     dmp_provider_cipher cipher;
     uint8_t output[64];
+    uint8_t hash[32];
+    size_t blocks_before_hash;
+    size_t retained_before_hash;
     size_t output_len;
     dmp_provider_status status;
     int passed = 0;
@@ -809,7 +812,33 @@ static int test_output_contract(void)
         goto done;
     }
 
-    if (dmp_provider_handshake_close(provider, &handshake) != DMP_PROVIDER_OK) {
+    /* Noise accepts hash queries only after the handshake reaches Split or
+     * Complete. The valid live owner reaches that operational state failure,
+     * which the adapter maps to INVALID and erases the hash output. */
+    memset(hash, 0xA5, sizeof(hash));
+    blocks_before_hash = dmp_provider_block_count(provider);
+    retained_before_hash = dmp_provider_retained(provider);
+    status = dmp_provider_handshake_hash(provider, &handshake, hash);
+    if (status != DMP_PROVIDER_INVALID || !all_zero(hash, sizeof(hash)) ||
+        dmp_provider_block_count(provider) != blocks_before_hash ||
+        dmp_provider_retained(provider) != retained_before_hash) {
+        fprintf(stderr, "premature handshake hash changed output or owned state\n");
+        goto done;
+    }
+    status = dmp_provider_handshake_write(
+        provider, &handshake, fixture->flights[0].plaintext.data,
+        fixture->flights[0].plaintext.size, output, sizeof(output), &output_len);
+    if (status != DMP_PROVIDER_OK ||
+        !bytes_match("flight after premature hash", output, output_len,
+                     fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+        fprintf(stderr, "handshake did not recover after premature hash\n");
+        goto done;
+    }
+
+    if (dmp_provider_handshake_close(provider, &handshake) != DMP_PROVIDER_OK ||
+        !all_zero(&handshake, sizeof(handshake)) ||
+        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+        !release_clean(&port, "premature hash recovery")) {
         goto done;
     }
     memset(output, 0xE5, 32U);

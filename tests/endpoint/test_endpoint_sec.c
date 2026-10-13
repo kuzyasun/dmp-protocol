@@ -44,6 +44,7 @@ enum {
     CORRELATIONS = 6,
     ADAPTERS = 5,
     MESSAGE = 1024,
+    MAX_MESSAGE = 4096,
     MTU = 263,
     ASSEMBLIES = 1,
     TOMBSTONES = 16,
@@ -125,12 +126,12 @@ typedef struct {
     int data_unknowns;
     int data_local_unsent;
     uint32_t data_unknown_service;
-    uint8_t req[MESSAGE];
+    uint8_t req[MAX_MESSAGE];
     size_t req_n;
     size_t request_service;
-    uint8_t result[MESSAGE];
+    uint8_t result[MAX_MESSAGE];
     size_t result_n;
-    uint8_t body[MESSAGE];
+    uint8_t body[MAX_MESSAGE];
     size_t body_n;
 } app;
 
@@ -153,25 +154,25 @@ struct node {
     dmp_reliability_handle sample_designated;
     dmp_identity_slot ids[2];
     dmp_reliability_sender_slot senders[SENDERS];
-    uint8_t sender_payload[SENDERS * MESSAGE];
+    uint8_t sender_payload[SENDERS * MAX_MESSAGE];
     dmp_reliability_result_slot results[RESULTS];
-    uint8_t result_payload[RESULTS * MESSAGE];
+    uint8_t result_payload[RESULTS * MAX_MESSAGE];
     dmp_reliability_history_slot history[HISTORY];
     dmp_reliability_correlation_slot correlations[CORRELATIONS];
     uint8_t history_metadata[HISTORY * DMP_RELIABILITY_METADATA_BYTES];
     uint8_t correlation_metadata[CORRELATIONS * DMP_RELIABILITY_METADATA_BYTES];
     dmp_reliability_adapter_slot adapters[ADAPTERS];
     uint8_t frames[ADAPTERS * MTU];
-    uint8_t receive_payload[MESSAGE];
+    uint8_t receive_payload[MAX_MESSAGE];
     dmp_reassembly_slot assemblies[ASSEMBLIES];
     dmp_reassembly_tombstone tombstones[TOMBSTONES];
     dmp_endpoint_freshness_slot freshness[8];
-    uint8_t assembly_payload[ASSEMBLIES * MESSAGE];
+    uint8_t assembly_payload[ASSEMBLIES * MAX_MESSAGE];
     uint8_t assembly_metadata[ASSEMBLIES * DMP_REASSEMBLY_METADATA_BYTES];
-    uint8_t fragment_message[MESSAGE];
+    uint8_t fragment_message[MAX_MESSAGE];
     uint8_t fragment_frame[MTU];
-    uint8_t telemetry_payload[MESSAGE];
-    uint8_t telemetry_next[MESSAGE];
+    uint8_t telemetry_payload[MAX_MESSAGE];
+    uint8_t telemetry_next[MAX_MESSAGE];
     uint8_t telemetry_frame[MTU];
     uint8_t stream_tx[STREAM_CAP];
     uint8_t stream_rx[STREAM_CAP];
@@ -246,6 +247,8 @@ static int g_validate_sample1_requests;
 static int g_validate_sample1_results;
 static uint32_t g_sample1_validator_calls;
 static uint32_t g_sample1_forced_status;
+static uint32_t g_endpoint_test_message_bytes;
+static uint32_t g_endpoint_test_encoded_mtu;
 
 static const uint8_t DIRECT_SHA[DMP_PROFILE_SHA256_BYTES] = {
     0x29, 0xcb, 0x7b, 0x91, 0xee, 0x0c, 0x26, 0x9b, 0xc1, 0x4a, 0xc4, 0x3e, 0x3a, 0x7c, 0x8f, 0xd8,
@@ -701,10 +704,14 @@ static void fill_direct(dmp_config *config, uint32_t chunk,
   config->adapter_slots = ADAPTERS;
   config->application_queue_slots = 2U;
   config->control_slots = 2U;
-  config->message_bytes = MESSAGE;
+  config->message_bytes = g_endpoint_test_message_bytes != 0U
+                              ? g_endpoint_test_message_bytes
+                              : MESSAGE;
   config->fragments = fragments;
   config->chunk_bytes = chunk;
-  config->encoded_mtu = MTU;
+  config->encoded_mtu = g_endpoint_test_encoded_mtu != 0U
+                            ? g_endpoint_test_encoded_mtu
+                            : MTU;
   config->forward_mtu = 256U;
   config->return_mtu = 256U;
   config->queue_ms = 64U;
@@ -2680,6 +2687,102 @@ static int test_protected_service2_immediate(void)
     CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof(wrapped), &wrapped_n));
     CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), at + 1U) == DMP_UNSUPPORTED);
     CHECK(right.app.accepts == 0 && right.wire.n == 0);
+
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_single_peer_service_and_bounds(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t payload[MAX_MESSAGE + 1U];
+    uint8_t sealed[FRAME_CAP];
+    uint8_t wrapped[FRAME_CAP];
+    uint8_t small = 0x5aU;
+    dmp_frame_spec spec;
+    dmp_reliability_handle request;
+    size_t sealed_n = 0U;
+    size_t wrapped_n = 0U;
+    size_t exact_frame_payload;
+    size_t i;
+    dmp_time_ms now = 20000U;
+
+    memset(&env, 0, sizeof(env));
+    memset(payload, 0x6d, sizeof(payload));
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    env.now = now;
+    g_endpoint_test_message_bytes = MAX_MESSAGE;
+    g_endpoint_test_encoded_mtu = 256U;
+    if (boot_node(&left, 1, 128U, 32U, now) != 0 ||
+        boot_node(&right, 0, 128U, 32U, now) != 0) {
+        g_endpoint_test_message_bytes = 0U;
+        g_endpoint_test_encoded_mtu = 0U;
+        close_session(&env);
+        return 1;
+    }
+    g_endpoint_test_message_bytes = 0U;
+    g_endpoint_test_encoded_mtu = 0U;
+    if (bind_pair(&env, index) != 0) {
+        close_session(&env);
+        return 1;
+    }
+
+    CHECK(left.endpoint.profile.peers == 1U && right.endpoint.profile.peers == 1U);
+    CHECK(left.endpoint.profile.encoded_mtu == 256U &&
+          right.endpoint.profile.encoded_mtu == 256U);
+    CHECK(left.endpoint.profile.message_bytes == MAX_MESSAGE &&
+          right.endpoint.profile.message_bytes == MAX_MESSAGE);
+
+    /* Service 1 (default) is admitted here; service 2 (explicit) is exercised
+     * below by the exact-maximum request. */
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&small, 1U), now,
+                                  &request) == DMP_OK);
+    /* Seal a protected default-service telemetry frame whose decoded core is
+     * exactly encoded_mtu. The next byte makes the core one byte too large;
+     * Stream R rejects it before dispatch. */
+    memset(&spec, 0, sizeof(spec));
+    spec.fields.type = (uint8_t)DMP_TYPE_TELEM;
+    spec.fields.options = DMP_OPT_SEQ;
+    spec.fields.seq = 700U;
+    spec.payload = span(payload, 0U);
+    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof(sealed),
+                              &sealed_n) == DMP_HS_OK);
+    CHECK(sealed_n < right.endpoint.profile.encoded_mtu);
+    exact_frame_payload = right.endpoint.profile.encoded_mtu - sealed_n;
+    spec.payload = span(payload, exact_frame_payload);
+    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof(sealed),
+                              &sealed_n) == DMP_HS_OK);
+    CHECK(sealed_n == right.endpoint.profile.encoded_mtu);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof(wrapped), &wrapped_n));
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(right.app.telems == 1);
+
+    spec.fields.seq++;
+    spec.payload = span(payload, exact_frame_payload + 1U);
+    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof(sealed),
+                              &sealed_n) == DMP_HS_OK);
+    CHECK(sealed_n == right.endpoint.profile.encoded_mtu + 1U);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof(wrapped), &wrapped_n));
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + 1U) ==
+          DMP_MALFORMED);
+    CHECK(right.app.telems == 1);
+
+    for (i = 0U; i < MAX_MESSAGE; ++i) {
+        payload[i] = (uint8_t)(i * 17U + 3U);
+    }
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 2U,
+                                  span(payload, MAX_MESSAGE), now + 2U,
+                                  &request) == DMP_OK);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 2U,
+                                  span(payload, MAX_MESSAGE + 1U), now + 2U,
+                                  &request) == DMP_LIMIT_EXHAUSTED);
 
     close_session(&env);
     return 0;
@@ -5706,6 +5809,9 @@ int main(int argc, char **argv) {
   if (strcmp(name, "service2_immediate") == 0 || strcmp(name, "all") == 0) {
     failed |= test_protected_service2_immediate();
   }
+  if (strcmp(name, "single_peer_bounds") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_single_peer_service_and_bounds();
+  }
   if (strcmp(name, "sample_late_assoc") == 0 || strcmp(name, "all") == 0) {
     failed |= test_protected_sample_late_assoc();
   }
@@ -5777,6 +5883,7 @@ int main(int argc, char **argv) {
       strcmp(name, "sample_no_sample") != 0 &&
       strcmp(name, "sample_initialization") != 0 &&
       strcmp(name, "service2_immediate") != 0 &&
+      strcmp(name, "single_peer_bounds") != 0 &&
       strcmp(name, "sample_late_assoc") != 0 &&
       strcmp(name, "sample_superseded") != 0 &&
       strcmp(name, "sample_init_timeout") != 0 &&
