@@ -2493,3 +2493,47 @@ failure exit. `git diff --ignore-submodules=all --check` passed. This is
 host-provider evidence only; target runtime,
 whole-DMP RAM, physical operation, four-peer aggregate resources, and P01C
 remain open. Hardware qualification stays scheduled for the final phase.
+
+## 2026-10-13 — P12 protected cross-association result rejection
+
+Extended `endpoint.protected_sample_late_assoc` with an active READ sent on the
+new association. The test confirms the request's protected CID is the new
+association CID, then sends a valid RSP naming that READ but sealed on the old
+draining association. The endpoint leaves the request live, queues no result
+ACK, and preserves the unsynchronized SAMPLE-1 cache. A subsequent RSP sealed
+on the selected association completes the same READ and leaves the retained
+same-epoch cache unchanged.
+
+Validation: `cmake --build build/host --target dmp_test_endpoint_sec`
+succeeded; the focused CTest filter
+`^endpoint\\.protected_sample_late_assoc$` passed 1/1. Independent GPT-6.1-sol
+High review found no issue in the association binding or request-retention
+assertions. The normative `s-a3-negative` row remains partial because this
+single-peer profile still cannot exercise a wrong authenticated principal.
+This is host endpoint evidence only; no target or hardware evidence was
+produced.
+
+## 2026-10-13 — P01 partial four_parallel direct-Noise resource case
+
+Added `dmp_parallel_four_parallel` as a concurrent, host-only sensitivity test.
+Across two synchronized workers it holds four pending real Noise initiator
+states and sixteen live cipher states (four conceptual peers, active/draining
+slots), then exercises fixture AEAD encryption, bad-tag rejection, and valid
+decryption. Both worker threads reached the first Noise allocator callback
+during handshake construction (`noise_allocator_callback_overlap=2`). Each
+worker left both handshakes pending, completed four separate traffic-check
+sets, and recorded 26 allocation attempts/allocations/frees and a 3,840-byte
+retained/peak arena; the aggregate was 7,680 bytes with zero live bytes after
+cleanup. The four 32-byte application operation buffers (128 bytes total) are
+test-driver storage outside arena accounting. Callback overlap does not prove
+simultaneous cryptographic execution.
+
+Validation used the isolated host harness because ordinary project
+reconfiguration could not read the Noise submodule Git metadata in this
+environment. `ctest --test-dir build/p01-four-parallel-host/build
+--output-on-failure -R "^dmp_parallel_four_parallel$"` passed 1/1, and direct
+JSON output reported success with the above metrics. Independent review is
+pending. This does not model peer IDs, service registry, real endpoint
+association/draining state, return windows, or MTU/message bounds. The
+four_parallel manifest row and P01 remain partial; target runtime, physical
+operation, and P01C stay deferred to the final hardware phase.

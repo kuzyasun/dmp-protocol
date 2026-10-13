@@ -3295,10 +3295,11 @@
         "tests/endpoint/test_endpoint_sec.c::test_protected_sample_invalid_result",
         "tests/endpoint/test_endpoint_sec.c::test_protected_sample_invalid_telem",
         "tests/endpoint/test_endpoint_sec.c::test_protected_sample_fragmented_result",
-        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_invalid_fragmented_result"
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_invalid_fragmented_result",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_sample_late_assoc"
       ],
-      "primary_remaining": "SEC-1 coverage rejects wrong-service and malformed correlated results before completion, including malformed fragmented results after reassembly, and rejects 15/17-byte TELEM payloads at the SAMPLE-1 application boundary. A wrong authenticated sender/association case remains untested in the single-peer primary profile.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-reinitialization-snapshot-result-schema-and-fragmentation",
+      "primary_remaining": "SEC-1 coverage rejects wrong-service and malformed correlated results before completion, including malformed fragmented results after reassembly, and rejects 15/17-byte TELEM payloads at the SAMPLE-1 application boundary. The protected late-association case rejects a response from the old draining association when it names a READ from the new association; a wrong authenticated principal remains untested in the single-peer primary profile.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-protected-cross-association-result-rejection",
       "peer_result": "passed",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a3_positive_and_negative"

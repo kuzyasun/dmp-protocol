@@ -5,14 +5,23 @@
 
 #include <noise/protocol.h>
 #include <string.h>
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+#include <stdatomic.h>
+#endif
 
 #define PAR_HOTPATH_ALLOC (-1000)
 #define PAR_KEY_SIZE 32u
 #define PAR_MESSAGE_SIZE 512u
 #define PAR_PLAINTEXT_SIZE 128u
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+#define PAR_AEAD_SIZE 320u
+#define PAR_PAYLOAD_SIZE 32u
+#define PAR_AAD_SIZE 128u
+#else
 #define PAR_AEAD_SIZE 64u
 #define PAR_PAYLOAD_SIZE 32u
 #define PAR_AAD_SIZE 24u
+#endif
 
 typedef struct {
     NoiseHandshakeState *handshake;
@@ -36,8 +45,26 @@ typedef struct {
 typedef struct {
     size_t attempts, allocs, frees, refusals, wipe_errors, rng_calls;
     unsigned completed, fixed_pairs, random_pairs;
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+    unsigned topology_traffic_checks_completed;
+#endif
     uint64_t max_call_us;
 } parallel_counters;
+
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+typedef struct {
+    parallel_endpoint endpoint;
+    size_t fixture_index;
+    uint8_t first_flight[PAR_MESSAGE_SIZE];
+    size_t first_flight_len;
+} topology_pending;
+
+typedef struct {
+    size_t fixture_index;
+    NoiseCipherState *tx;
+    NoiseCipherState *rx;
+} topology_association;
+#endif
 
 typedef struct {
     parallel_endpoint endpoints[2]; /* initiator, responder */
@@ -45,12 +72,38 @@ typedef struct {
     dmp_noise_test_arena arena;
     parallel_scratch scratch;
     parallel_counters counters;
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+    topology_pending pending[2];
+    topology_association associations[2][2]; /* per peer: active, draining */
+#endif
 } parallel_worker;
 
 /* Each element is mutated only by the permanently bound worker with that id. */
 static parallel_worker workers[DMP_PARALLEL_WORKERS];
 /* Startup is called serially before either worker is released. */
 static int startup_initialized;
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+static _Atomic size_t aggregate_live_bytes;
+static _Atomic size_t aggregate_peak_bytes;
+static uint8_t application_operation_slots[DMP_PARALLEL_FOUR_APP_SLOTS]
+                                          [DMP_PARALLEL_FOUR_APP_SLOT_BYTES];
+
+static void aggregate_add(size_t amount)
+{
+    size_t current = atomic_fetch_add(&aggregate_live_bytes, amount) + amount;
+    size_t peak = atomic_load(&aggregate_peak_bytes);
+
+    while (current > peak &&
+           !atomic_compare_exchange_weak(&aggregate_peak_bytes, &peak, current)) {
+    }
+}
+
+static void aggregate_subtract(size_t amount)
+{
+    if (amount != 0U)
+        (void)atomic_fetch_sub(&aggregate_live_bytes, amount);
+}
+#endif
 
 static parallel_worker *current_worker(void)
 {
@@ -62,30 +115,53 @@ void *noise_allocator_allocate(size_t size)
 {
     parallel_worker *worker = current_worker();
     void *pointer;
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+    size_t charged_before;
+#endif
 
     if (worker == NULL)
         return NULL;
     ++worker->counters.attempts;
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+    /* First allocation is made while constructing this worker's handshake. */
+    if (worker->counters.attempts == 1U)
+        dmp_parallel_noise_allocator_rendezvous();
+    charged_before = worker->arena.charged_bytes;
+#endif
     pointer = worker->arena.storage != NULL
         ? dmp_noise_test_arena_allocate(&worker->arena, size) : NULL;
-    if (pointer != NULL)
+    if (pointer != NULL) {
         ++worker->counters.allocs;
-    else
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+        aggregate_add(worker->arena.charged_bytes - charged_before);
+#endif
+    } else {
         ++worker->counters.refusals;
+    }
     return pointer;
 }
 
 void noise_allocator_release(void *pointer, size_t size)
 {
     parallel_worker *worker = current_worker();
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+    size_t charged_before;
+#endif
 
     if (worker == NULL)
         return;
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+    charged_before = worker->arena.charged_bytes;
+#endif
     if (dmp_noise_test_arena_release(&worker->arena, pointer, size) !=
         DMP_NOISE_TEST_ARENA_OK)
         ++worker->counters.wipe_errors;
-    else
+    else {
         ++worker->counters.frees;
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+        aggregate_subtract(charged_before - worker->arena.charged_bytes);
+#endif
+    }
 }
 
 int dmp_sodium_entropy_ready(void)
@@ -389,6 +465,211 @@ static int traffic_direction(parallel_worker *worker, NoiseCipherState *sender,
     return NOISE_ERROR_NONE;
 }
 
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+static const noise_fixture_probe_packet_t *topology_packet(
+    const noise_fixture_probe_fixture_t *fixture, uint8_t direction, uint64_t pn)
+{
+    size_t index;
+
+    for (index = 0U; index < fixture->transport_packet_count; ++index) {
+        const noise_fixture_probe_packet_t *packet = &fixture->transport_packets[index];
+        if (packet->direction == direction && packet->pn == pn)
+            return packet;
+    }
+    return NULL;
+}
+
+static int topology_write_first(parallel_worker *worker, topology_pending *pending)
+{
+    const noise_fixture_probe_fixture_t *fixture =
+        &noise_fixture_probe_fixtures[pending->fixture_index];
+    const noise_fixture_probe_flight_t *flight = &fixture->flights[0];
+    NoiseBuffer message, payload;
+    uint8_t empty = 0U;
+    int error;
+
+    noise_buffer_set_output(message, pending->first_flight,
+                            sizeof(pending->first_flight));
+    noise_buffer_set_input(payload, flight->plaintext.size == 0U
+                           ? &empty : (uint8_t *)flight->plaintext.data,
+                           flight->plaintext.size);
+    error = tracked_write(worker, pending->endpoint.handshake, &message, &payload);
+    if (error != NOISE_ERROR_NONE)
+        return error;
+    pending->first_flight_len = message.size;
+    if (!bytes_equal(pending->first_flight, pending->first_flight_len,
+                     flight->message) ||
+        noise_handshakestate_get_action(pending->endpoint.handshake) !=
+            NOISE_ACTION_READ_MESSAGE)
+        return NOISE_ERROR_INVALID_STATE;
+    return NOISE_ERROR_NONE;
+}
+
+static int topology_create_cipher(NoiseCipherState **state,
+                                  noise_fixture_probe_bytes_t key)
+{
+    int error = noise_cipherstate_new_by_id(state, NOISE_CIPHER_CHACHAPOLY);
+    if (error == NOISE_ERROR_NONE)
+        error = noise_cipherstate_init_key(*state, key.data, key.size);
+    if (error != NOISE_ERROR_NONE && *state != NULL) {
+        (void)noise_cipherstate_free(*state);
+        *state = NULL;
+    }
+    return error;
+}
+
+static int topology_create_association(topology_association *association,
+                                       const noise_fixture_probe_fixture_t *fixture,
+                                       size_t fixture_index)
+{
+    int error;
+
+    association->fixture_index = fixture_index;
+    error = topology_create_cipher(&association->tx, fixture->i_to_r_key);
+    if (error != NOISE_ERROR_NONE)
+        return error;
+    error = topology_create_cipher(&association->rx, fixture->i_to_r_key);
+    if (error != NOISE_ERROR_NONE) {
+        (void)noise_cipherstate_free(association->tx);
+        association->tx = NULL;
+    }
+    return error;
+}
+
+static int topology_fixture_traffic(parallel_worker *worker,
+                                    topology_association *association)
+{
+    const noise_fixture_probe_fixture_t *fixture =
+        &noise_fixture_probe_fixtures[association->fixture_index];
+    const noise_fixture_probe_packet_t *packet = topology_packet(fixture, 0U, 0U);
+    size_t encrypted_size;
+    NoiseBuffer buffer;
+    int error;
+
+    if (packet == NULL || packet->plaintext.size > sizeof(worker->scratch.aead) ||
+        packet->ciphertext.size + packet->tag.size > sizeof(worker->scratch.aead) ||
+        packet->aad.size > sizeof(worker->scratch.aad))
+        return NOISE_ERROR_INVALID_LENGTH;
+    memcpy(worker->scratch.aad, packet->aad.data, packet->aad.size);
+    if (packet->plaintext.size != 0U)
+        memcpy(worker->scratch.aead, packet->plaintext.data, packet->plaintext.size);
+    error = noise_cipherstate_set_nonce(association->tx, packet->pn);
+    if (error != NOISE_ERROR_NONE)
+        return error;
+    noise_buffer_set_inout(buffer, worker->scratch.aead, packet->plaintext.size,
+                           sizeof(worker->scratch.aead));
+    error = tracked_encrypt(worker, association->tx, worker->scratch.aad,
+                            packet->aad.size, &buffer);
+    if (error != NOISE_ERROR_NONE ||
+        buffer.size != packet->ciphertext.size + packet->tag.size ||
+        !bytes_equal(worker->scratch.aead, packet->ciphertext.size,
+                     packet->ciphertext) ||
+        !bytes_equal(worker->scratch.aead + packet->ciphertext.size,
+                     packet->tag.size, packet->tag))
+        return error != NOISE_ERROR_NONE ? error : NOISE_ERROR_INVALID_STATE;
+    encrypted_size = buffer.size;
+
+    memcpy(worker->scratch.bad_aead, worker->scratch.aead, encrypted_size);
+    worker->scratch.bad_aead[encrypted_size - 1U] ^= 0x01U;
+    noise_buffer_set_inout(buffer, worker->scratch.bad_aead, encrypted_size,
+                           sizeof(worker->scratch.bad_aead));
+    error = tracked_decrypt(worker, association->rx, packet->pn,
+                            worker->scratch.aad, packet->aad.size, &buffer);
+    if (error != NOISE_ERROR_MAC_FAILURE)
+        return error != NOISE_ERROR_NONE ? error : NOISE_ERROR_INVALID_STATE;
+
+    noise_buffer_set_inout(buffer, worker->scratch.aead, encrypted_size,
+                           sizeof(worker->scratch.aead));
+    error = tracked_decrypt(worker, association->rx, packet->pn,
+                            worker->scratch.aad, packet->aad.size, &buffer);
+    if (error != NOISE_ERROR_NONE)
+        return error;
+    return bytes_equal(worker->scratch.aead, buffer.size, packet->plaintext)
+        ? NOISE_ERROR_NONE : NOISE_ERROR_INVALID_STATE;
+}
+
+static int topology_application_traffic(parallel_worker *worker,
+                                        topology_association *association,
+                                        unsigned peer, unsigned worker_id,
+                                        unsigned association_kind)
+{
+    /* These four buffers stand in for operation payloads, not endpoint queues. */
+    uint8_t *application = application_operation_slots[peer];
+    NoiseBuffer buffer;
+    size_t index;
+    int error;
+
+    for (index = 0U; index < DMP_PARALLEL_FOUR_APP_SLOT_BYTES; ++index)
+        application[index] = (uint8_t)(0x31U + index * 7U + peer * 19U +
+                                        worker_id * 13U + association_kind * 41U);
+    for (index = 0U; index < sizeof(worker->scratch.aad); ++index)
+        worker->scratch.aad[index] = (uint8_t)(0xB3U + index * 3U + peer * 11U +
+                                                association_kind * 29U);
+
+    memcpy(worker->scratch.aead, application, DMP_PARALLEL_FOUR_APP_SLOT_BYTES);
+    error = noise_cipherstate_set_nonce(association->tx, 1U);
+    if (error != NOISE_ERROR_NONE)
+        return error;
+    noise_buffer_set_inout(buffer, worker->scratch.aead,
+                           DMP_PARALLEL_FOUR_APP_SLOT_BYTES,
+                           sizeof(worker->scratch.aead));
+    error = tracked_encrypt(worker, association->tx, worker->scratch.aad,
+                            sizeof(worker->scratch.aad), &buffer);
+    if (error != NOISE_ERROR_NONE ||
+        buffer.size != DMP_PARALLEL_FOUR_APP_SLOT_BYTES + 16U)
+        return error != NOISE_ERROR_NONE ? error : NOISE_ERROR_INVALID_STATE;
+
+    memcpy(worker->scratch.bad_aead, worker->scratch.aead, buffer.size);
+    worker->scratch.bad_aead[buffer.size - 1U] ^= 0x01U;
+    noise_buffer_set_inout(buffer, worker->scratch.bad_aead, buffer.size,
+                           sizeof(worker->scratch.bad_aead));
+    error = tracked_decrypt(worker, association->rx, 1U, worker->scratch.aad,
+                            sizeof(worker->scratch.aad), &buffer);
+    if (error != NOISE_ERROR_MAC_FAILURE)
+        return error != NOISE_ERROR_NONE ? error : NOISE_ERROR_INVALID_STATE;
+
+    noise_buffer_set_inout(buffer, worker->scratch.aead,
+                           DMP_PARALLEL_FOUR_APP_SLOT_BYTES + 16U,
+                           sizeof(worker->scratch.aead));
+    error = tracked_decrypt(worker, association->rx, 1U, worker->scratch.aad,
+                            sizeof(worker->scratch.aad), &buffer);
+    if (error != NOISE_ERROR_NONE)
+        return error;
+    return buffer.size == DMP_PARALLEL_FOUR_APP_SLOT_BYTES &&
+           memcmp(worker->scratch.aead, application,
+                  DMP_PARALLEL_FOUR_APP_SLOT_BYTES) == 0
+        ? NOISE_ERROR_NONE : NOISE_ERROR_INVALID_STATE;
+}
+
+static int topology_close_worker(parallel_worker *worker)
+{
+    size_t peer, association;
+    int error = NOISE_ERROR_NONE;
+
+    for (peer = 0U; peer < 2U; ++peer) {
+        int close_error = close_endpoint(&worker->pending[peer].endpoint);
+        if (error == NOISE_ERROR_NONE && close_error != NOISE_ERROR_NONE)
+            error = close_error;
+        for (association = 0U; association < 2U; ++association) {
+            topology_association *item = &worker->associations[peer][association];
+            if (item->tx != NULL) {
+                close_error = noise_cipherstate_free(item->tx);
+                item->tx = NULL;
+                if (error == NOISE_ERROR_NONE && close_error != NOISE_ERROR_NONE)
+                    error = close_error;
+            }
+            if (item->rx != NULL) {
+                close_error = noise_cipherstate_free(item->rx);
+                item->rx = NULL;
+                if (error == NOISE_ERROR_NONE && close_error != NOISE_ERROR_NONE)
+                    error = close_error;
+            }
+        }
+    }
+    return error;
+}
+#endif
+
 static int run_cycle(parallel_worker *worker, unsigned worker_id, unsigned cycle,
                      const noise_fixture_probe_fixture_t *fixture, int fixed,
                      dmp_parallel_result *result)
@@ -498,6 +779,10 @@ static void snapshot_result(const parallel_worker *worker, dmp_parallel_result *
     result->scratch = sizeof(worker->scratch);
     result->metadata = sizeof(*worker) - sizeof(worker->backing) - sizeof(worker->scratch);
     result->max_call_us = worker->counters.max_call_us;
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+    result->topology_traffic_checks_completed =
+        worker->counters.topology_traffic_checks_completed;
+#endif
 }
 
 int dmp_parallel_init(void)
@@ -582,3 +867,151 @@ int dmp_parallel_run(unsigned worker_id, unsigned cycles, dmp_parallel_result *r
     }
     return 0;
 }
+
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+static int topology_prepare_worker(parallel_worker *worker, unsigned worker_id,
+                                   dmp_parallel_result *result)
+{
+    size_t peer, association;
+
+    memset(&worker->counters, 0, sizeof(worker->counters));
+    memset(worker->pending, 0, sizeof(worker->pending));
+    memset(worker->associations, 0, sizeof(worker->associations));
+    memset(&worker->scratch, 0, sizeof(worker->scratch));
+    if (worker->arena.storage == NULL) {
+        if (dmp_noise_test_arena_init(&worker->arena, worker->backing.bytes,
+                                      sizeof(worker->backing.bytes),
+                                      sizeof(worker->backing.bytes),
+                                      DMP_NOISE_TEST_ARENA_MAX_BLOCKS) !=
+            DMP_NOISE_TEST_ARENA_OK)
+            goto fail;
+    } else if (dmp_noise_test_arena_clear(&worker->arena) !=
+               DMP_NOISE_TEST_ARENA_OK) {
+        goto fail;
+    }
+    if (NOISE_FIXTURE_PROBE_FIXTURE_COUNT < 2U)
+        goto fail;
+
+    for (peer = 0U; peer < 2U; ++peer) {
+        topology_pending *pending = &worker->pending[peer];
+        const noise_fixture_probe_fixture_t *fixture;
+        size_t fixture_index = (worker_id * 2U + peer) % 2U;
+        pending->fixture_index = fixture_index;
+        fixture = &noise_fixture_probe_fixtures[fixture_index];
+        if (create_endpoint(worker, &pending->endpoint, fixture,
+                            NOISE_ROLE_INITIATOR, 1) != NOISE_ERROR_NONE ||
+            topology_write_first(worker, pending) != NOISE_ERROR_NONE)
+            goto fail;
+        for (association = 0U; association < 2U; ++association) {
+            if (topology_create_association(&worker->associations[peer][association],
+                                            fixture, fixture_index) !=
+                NOISE_ERROR_NONE)
+                goto fail;
+        }
+    }
+    return 0;
+
+fail:
+    result->error_line = __LINE__;
+    (void)topology_close_worker(worker);
+    snapshot_result(worker, result);
+    return -1;
+}
+
+int dmp_parallel_four_parallel_run(unsigned worker_id,
+                                   dmp_parallel_result *result)
+{
+    parallel_worker *worker;
+    size_t peer, association;
+    int status = 0;
+
+    if (result == NULL)
+        return -1;
+    memset(result, 0, sizeof(*result));
+    if (worker_id >= DMP_PARALLEL_WORKERS ||
+        dmp_parallel_worker_id() != worker_id || !startup_initialized) {
+        result->error_line = __LINE__;
+        return -1;
+    }
+    worker = &workers[worker_id];
+    if (topology_prepare_worker(worker, worker_id, result) != 0) {
+        status = -1;
+        goto done;
+    }
+
+    /* Keep all pending handshakes and all sixteen cipher states live together. */
+    if (dmp_parallel_yield() != 0) {
+        result->error_line = __LINE__;
+        status = -1;
+        goto done;
+    }
+    result->topology_barrier_reached = 1U;
+    result->pending_live = 2U;
+    result->associations_live = 4U;
+    result->cipher_states_live = 8U;
+    result->topology_retained = worker->arena.charged_bytes;
+    result->topology_blocks = worker->arena.live_blocks;
+    result->topology_peak = worker->arena.peak_charged_bytes;
+    for (peer = 0U; peer < 2U; ++peer) {
+        for (association = 0U; association < 2U; ++association) {
+            topology_association *item = &worker->associations[peer][association];
+            int traffic_error = topology_fixture_traffic(worker, item);
+            if (traffic_error != NOISE_ERROR_NONE) {
+                result->error_line = __LINE__;
+                status = -1;
+                goto done;
+            }
+            if (topology_application_traffic(worker, item,
+                                             (unsigned)(worker_id * 2U + peer),
+                                             worker_id, (unsigned)association) !=
+                NOISE_ERROR_NONE) {
+                result->error_line = __LINE__;
+                status = -1;
+                goto done;
+            }
+            ++worker->counters.topology_traffic_checks_completed;
+        }
+    }
+    for (peer = 0U; peer < 2U; ++peer) {
+        if (noise_handshakestate_get_action(worker->pending[peer].endpoint.handshake) !=
+            NOISE_ACTION_READ_MESSAGE) {
+            result->error_line = __LINE__;
+            status = -1;
+            goto done;
+        }
+    }
+done:
+    if (topology_close_worker(worker) != NOISE_ERROR_NONE) {
+        if (result->error_line == 0U)
+            result->error_line = __LINE__;
+        status = -1;
+    }
+    snapshot_result(worker, result);
+    if (worker->arena.live_blocks != 0U || worker->arena.charged_bytes != 0U ||
+        worker->counters.allocs != worker->counters.frees ||
+        worker->counters.wipe_errors != 0U || worker->counters.refusals != 0U) {
+        if (result->error_line == 0U)
+            result->error_line = __LINE__;
+        status = -1;
+    }
+    return status;
+}
+
+int dmp_parallel_resource_metrics_reset(void)
+{
+    if (atomic_load(&aggregate_live_bytes) != 0U)
+        return -1;
+    atomic_store(&aggregate_peak_bytes, 0U);
+    return 0;
+}
+
+size_t dmp_parallel_aggregate_live(void)
+{
+    return atomic_load(&aggregate_live_bytes);
+}
+
+size_t dmp_parallel_aggregate_peak(void)
+{
+    return atomic_load(&aggregate_peak_bytes);
+}
+#endif

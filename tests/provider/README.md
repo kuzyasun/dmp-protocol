@@ -188,7 +188,19 @@ MEM-03 adds `dmp_noise_owners_probe`, a host-only test with one stable arena
 and serialized calls. Actual local NNpsk0/XX states replay prerecorded remote
 flights, transfer Split contexts and retain neighboring traffic while another
 owner is created, fails, is destroyed or reuses freed storage. Manifest-derived
-single/four_serial rows exercise logical provider quotas; four_parallel is
-explicitly deferred. Fixed driver backing, metadata and excluded costs are
-reported separately. Deterministic repeated receive is not replay protection.
+single/four_serial rows exercise logical provider quotas; the historical
+MEM-03 four_parallel row remains deferred. A separate
+`dmp_parallel_four_parallel` follow-up now holds four real pending Noise
+initiators and sixteen live cipher states across two workers, checks a
+two-worker overlap at the first Noise allocator callback, exercises fixture
+AEAD success/bad-tag refusal/recovery, and accounts the test arenas. Each
+worker leaves both handshakes pending and records four completed traffic-check
+sets separately. Callback overlap does not establish simultaneous cryptographic
+execution. Its four 32-byte application buffers are test-driver storage
+outside the arenas. This is a partial direct-
+Noise sensitivity case, not a DMP endpoint/profile implementation: peer IDs,
+service registry, actual association/draining lifecycle, return windows, and
+MTU/message bounds remain unmodeled. The manifest row stays partial. Fixed
+driver backing, metadata and excluded costs are reported separately.
+Deterministic repeated receive is not replay protection.
 See [results and reproduction](../../dev/evidence/noise-owners-20260927/README.md).

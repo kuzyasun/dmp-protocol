@@ -2617,12 +2617,16 @@ static int test_protected_sample_late_assoc(void)
     uint32_t old_cid = 0U;
     uint32_t new_cid = 0U;
     uint32_t ack_cid = 0U;
+    uint32_t request_cid = 0U;
     uint8_t req[SAMPLE1_READ_BYTES];
     uint8_t response[SAMPLE1_READ_BYTES];
+    uint8_t wrapped[FRAME_CAP];
     dmp_reliability_handle handle;
     dmp_reliability_handle current_handle;
     dmp_reliability_handle old_pending;
+    dmp_message_key current_request_key;
     dmp_time_ms now = 20000U;
+    size_t wrapped_n = 0U;
     size_t result_slot = RESULTS;
     size_t i;
 
@@ -2712,15 +2716,34 @@ static int test_protected_sample_late_assoc(void)
     right.wire.now = now + 3U;
     CHECK(dmp_endpoint_poll(&right.endpoint, now + 3U) == DMP_OK);
     CHECK(right.wire.n == 1);
+    CHECK(stream_protection(right.wire.q[0].frame, right.wire.q[0].len, now + 3U,
+                            &request_cid, NULL, NULL) == 1);
+    CHECK(request_cid == new_cid && request_cid != old_cid);
     CHECK(deliver_all(&right, &left, now + 3U) == 0);
     CHECK(left.app.accepts == 2 && left.app.have_pending);
+
+    /* A reply that names the new READ but is protected by the old draining
+     * association resolves to the old local epoch and must not complete it. */
+    current_request_key = right.senders[current_handle.slot].own;
+    CHECK(sample1_read_rsp(response, 41U, 5U, 500U) == sizeof(response));
+    CHECK(seal_sample_result(&env, index, left.results[result_slot].result.seq + 1U,
+                             current_request_key.seq, 1U, span(response, sizeof(response)),
+                             wrapped, &wrapped_n));
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + 4U) == DMP_OK);
+    CHECK(right.app.results == 1 && right.senders[current_handle.slot].live != 0U &&
+          right.wire.n == 0);
+    CHECK(state.synchronized == 0 && state.epoch == 41U && state.index == 7U &&
+          state.value == 700U && state.violations == 0 && state.rollbacks == 0);
+
+    /* The actual response protected by the selected association can complete
+     * the same request and restore synchronization without rolling back cache. */
     CHECK(sample1_read_rsp(response, 41U, 6U, 600U) == sizeof(response));
     CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
-                                span(response, sizeof(response)), now + 4U) == DMP_OK);
+                                span(response, sizeof(response)), now + 5U) == DMP_OK);
     left.app.have_pending = 0;
-    left.wire.now = now + 4U;
-    CHECK(dmp_endpoint_poll(&left.endpoint, now + 4U) == DMP_OK);
-    CHECK(deliver_all(&left, &right, now + 4U) == 0);
+    left.wire.now = now + 5U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 5U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 5U) == 0);
     CHECK(right.app.results == 2 && same_handle(right.app.result_request, current_handle));
     CHECK(sample_accept_read_result(&state, &right.app, current_handle) == 0);
     CHECK(state.synchronized == 1 && state.epoch == 41U && state.index == 7U &&

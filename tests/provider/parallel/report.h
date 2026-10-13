@@ -18,10 +18,15 @@ static void dmp_parallel_print_result(const dmp_parallel_result *r)
            "\"attempts\":%zu,\"allocs\":%zu,\"frees\":%zu,\"refusals\":%zu,"
            "\"wipe_errors\":%zu,\"live\":%zu,\"blocks\":%zu,\"peak\":%zu,"
            "\"rng_calls\":%zu,\"backing\":%zu,\"metadata\":%zu,\"scratch\":%zu,"
-           "\"max_call_us\":%" PRIu64 "}",
+           "\"max_call_us\":%" PRIu64,
            r->completed, r->error_line, r->fixed_pairs, r->random_pairs,
            r->attempts, r->allocs, r->frees, r->refusals, r->wipe_errors,
            r->live, r->blocks, r->peak, r->rng_calls, r->backing, r->metadata,
            r->scratch, r->max_call_us);
+#ifdef DMP_PARALLEL_FOUR_TOPOLOGY
+    printf(",\"topology_traffic_checks_completed\":%u",
+           r->topology_traffic_checks_completed);
+#endif
+    putchar('}');
 }
 #endif

@@ -238,3 +238,26 @@ added. Focused `git diff --ignore-submodules=all --check` passed. This adds host
 regression evidence only. Aggregate four-peer resources, production
 cached-flight transport integration, target runtime, physical operation, and
 P01C remain open; hardware qualification stays deferred to the final phase.
+
+## four_parallel direct-Noise host follow-up — 2026-10-13
+
+The new `dmp_parallel_four_parallel` host case keeps four pending Noise
+initiators and sixteen live cipher states together across two worker arenas.
+Both worker threads reached the first real Noise allocator callback during
+handshake construction (`noise_allocator_callback_overlap=2`); this is callback
+occupancy evidence, not proof of simultaneous cryptographic execution. Both
+handshakes per worker remain pending, while four separate traffic-check sets
+complete. Each worker recorded 26/26
+allocation-attempt/allocation/free counts, 3,840-byte retained and peak arena
+use, and zero post-cleanup live allocations; aggregate retained/peak was
+7,680 bytes. Four 32-byte application operation buffers (128 bytes) are
+test-driver buffers excluded from arena usage. Fixture AEAD success, invalid
+tag rejection, and subsequent valid decrypt passed.
+
+This demonstrates the declared direct-Noise resource pressure with exactly two
+workers, but does not model endpoint peer IDs/services, real association and
+draining lifecycle, return windows, or MTU/message bounds. Its manifest row
+remains partial. The isolated host CTest passed 1/1 because ordinary project
+reconfiguration could not read submodule Git metadata in this environment;
+independent review is pending. No target/runtime or physical evidence was
+produced, and P01C remains deferred to the final hardware phase.
