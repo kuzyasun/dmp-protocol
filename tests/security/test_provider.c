@@ -1401,6 +1401,110 @@ done:
     return passed;
 }
 
+static int test_handshake_write_short_capacity_fatal_cleanup(void)
+{
+    enum { RETRY_CAPACITY = 64U };
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    uint8_t output[128];
+    size_t output_len;
+    size_t blocks_before;
+    size_t retained_before;
+    unsigned calls_before;
+    unsigned releases_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count == 0U ||
+        fixture->flights[0].message.size > RETRY_CAPACITY) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    calls_before = port.alloc_calls;
+    releases_before = port.release_calls;
+    memset(output, 0xA5, sizeof(output));
+    output_len = 0x1234U;
+    /* This capacity error occurs inside the Noise write operation and marks
+     * its action FAILED. The owner remains allocated until explicitly closed. */
+    status = dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                          fixture->flights[0].plaintext.size, output, 1U,
+                                          &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0U || !all_zero(output, 1U) ||
+        !all_value(output + 1U, sizeof(output) - 1U, 0xA5U) || blocks_before == 0U ||
+        retained_before == 0U || dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != calls_before || port.release_calls != releases_before) {
+        fprintf(stderr, "short handshake write changed output bounds or live-state accounting\n");
+        goto done;
+    }
+    memset(output, 0xB6, sizeof(output));
+    output_len = 0x2345U;
+    status = dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                          fixture->flights[0].plaintext.size, output,
+                                          RETRY_CAPACITY, &output_len);
+    if (status != DMP_PROVIDER_INVALID || output_len != 0U ||
+        !all_zero(output, RETRY_CAPACITY) ||
+        !all_value(output + RETRY_CAPACITY, sizeof(output) - RETRY_CAPACITY, 0xB6U) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != calls_before || port.release_calls != releases_before) {
+        fprintf(stderr, "failed handshake resumed after short-capacity write\n");
+        goto done;
+    }
+    if (dmp_provider_handshake_close(provider, &handshake) != DMP_PROVIDER_OK ||
+        !all_zero(&handshake, sizeof(handshake)) ||
+        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+        port.release_calls <= releases_before || port.alloc_calls != port.release_calls ||
+        !release_clean(&port, "fatal short-write close")) {
+        fprintf(stderr, "fatal short-write owner was not fully erased and released\n");
+        goto done;
+    }
+
+    /* Recovery requires a new Noise owner, explicitly opened on the provider. */
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK ||
+        dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                     fixture->flights[0].plaintext.size, output,
+                                     RETRY_CAPACITY, &output_len) != DMP_PROVIDER_OK ||
+        !bytes_match("fresh flight after fatal short write", output, output_len,
+                     fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+        fprintf(stderr, "fresh owner did not recover after fatal short write\n");
+        goto done;
+    }
+    passed = dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+             all_zero(&handshake, sizeof(handshake)) &&
+             dmp_provider_block_count(provider) == 0U && dmp_provider_retained(provider) == 0U &&
+             port.alloc_calls == port.release_calls &&
+             release_clean(&port, "fresh short-write recovery cleanup");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "short-write provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_short_handshake_read_output(void)
 {
     enum { PAYLOAD_CAPACITY = 3U };
@@ -2341,6 +2445,7 @@ int main(void)
     expect_case("premature-split-output", test_premature_split_output());
     expect_case("closed-wrapper-output", test_closed_wrapper_output());
     expect_case("wrong-phase-handshake-output", test_wrong_phase_handshake_output());
+    expect_case("handshake-write-short-capacity-fatal-cleanup", test_handshake_write_short_capacity_fatal_cleanup());
     expect_case("short-handshake-read-output", test_short_handshake_read_output());
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("low-order", test_low_order());

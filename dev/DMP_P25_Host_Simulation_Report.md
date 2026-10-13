@@ -301,3 +301,16 @@ passed 1/1; independent review found no actionable issue. This is closed-handle
 host boundary evidence only; operational Noise failure paths, endpoint
 lifecycle/concurrency, complete secret-copy inventory, target runtime, physical
 operation, and P01C remain open.
+
+## P01 fatal handshake write-capacity follow-up — 2026-10-13
+
+`security.provider_adapter::handshake-write-short-capacity-fatal-cleanup`
+passes a one-byte capacity to a fresh NNpsk0 initiator's valid Flight 1 write.
+The pinned Noise backend reports `INVALID_LENGTH` and moves that owner to
+FAILED; the adapter returns `DMP_PROVIDER_INVALID`, zeros the length, and wipes
+only the declared byte. A repeated write is rejected, and closing the failed
+owner erases/releases its state. A newly opened handshake on the same provider
+then emits exact Flight 1. Provider build and focused CTest passed 1/1;
+independent review found no actionable issue. This is one host fatal-write
+branch only; it does not establish all Noise failure semantics or target
+qualification.

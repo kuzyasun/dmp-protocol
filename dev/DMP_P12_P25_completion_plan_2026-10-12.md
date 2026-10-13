@@ -401,3 +401,9 @@ criteria.
   provider CTest passed 1/1; independent review found no actionable issue.
   This closes only a host invalid-handle boundary; operational failures and
   target/physical qualification remain open.
+- 2026-10-13 follow-up: short-capacity handshake write is confirmed fatal in
+  the pinned Noise backend. The provider adapter wipes its declared output,
+  closes/releases the failed owner, and a fresh owner on the same provider
+  emits exact Flight 1. Focused provider CTest passed 1/1; independent review
+  found no actionable issue. This covers one fatal branch, not the complete
+  backend failure or hardware matrix.

@@ -2686,3 +2686,13 @@ zeros its 32-byte key output. Calls leave wrappers erased and provider resource
 accounting unchanged. Provider build and focused CTest passed; independent
 review found no actionable issue. This is closed-wrapper boundary evidence,
 not operational Noise failure, endpoint lifecycle, or target behavior.
+
+`security.provider_adapter::handshake-write-short-capacity-fatal-cleanup`
+supplies valid NNpsk0 Flight 1 plaintext with a one-byte output capacity. The
+Noise backend returns `INVALID_LENGTH`, marks the handshake FAILED, and the
+adapter returns `DMP_PROVIDER_INVALID`, zeros length, and wipes only the
+declared byte. A second write is rejected on that failed owner; closing it
+erases/releases all state. A fresh handshake on the same provider then emits
+exact fixture Flight 1. Provider build and focused CTest passed 1/1;
+independent review found no actionable issue. This covers one fatal write
+capacity branch and fresh-owner recovery only.

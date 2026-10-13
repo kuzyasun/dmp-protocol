@@ -395,3 +395,16 @@ accounting. Provider build and focused CTest passed 1/1; independent review
 found no actionable issue. This is invalid-handle host evidence, not
 operational Noise failures, endpoint lifecycle/concurrency, exhaustive
 secret-copy cleanup, MCU runtime, physical operation, or P01C.
+
+## Fatal handshake write-capacity failure — 2026-10-13
+
+`security.provider_adapter::handshake-write-short-capacity-fatal-cleanup`
+gives a fresh NNpsk0 initiator a one-byte output capacity for valid Flight 1
+plaintext. Noise returns `INVALID_LENGTH` and transitions that owner to
+FAILED; the adapter returns `DMP_PROVIDER_INVALID`, zeroes length, and wipes
+only the declared byte while preserving the tail and live accounting. A second
+write is rejected on the failed owner. Close zeros/releases its state, and a
+fresh owner on the same provider emits the exact Flight 1 fixture. Provider
+build and focused CTest passed 1/1; independent review found no actionable
+issue. This is a host test of this fatal capacity branch and fresh-owner
+recovery, not an exhaustive failure matrix or target/physical qualification.
