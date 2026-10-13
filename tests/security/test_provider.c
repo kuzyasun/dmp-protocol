@@ -708,6 +708,103 @@ done:
     return passed;
 }
 
+static int test_late_key_validation_cleanup(void)
+{
+    static const struct {
+        const char *name;
+        size_t ephemeral_len;
+        size_t psk_len;
+        int null_psk;
+    } variants[] = {
+        {"ephemeral-length-31", 31U, 32U, 0},
+        {"psk-length-31", 32U, 31U, 0},
+        {"psk-null-with-length-32", 32U, 32U, 1}
+    };
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    uint8_t message[CASE_BUFFER];
+    size_t message_len = 0U;
+    size_t variant;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count == 0U ||
+        fixture->init_ephemeral.data == NULL || fixture->init_ephemeral.size != 32U ||
+        fixture->psk.data == NULL || fixture->psk.size != 32U) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    for (variant = 0U; variant < sizeof(variants) / sizeof(variants[0]); ++variant) {
+        unsigned calls_before = port.alloc_calls;
+        unsigned releases_before = port.release_calls;
+        dmp_provider_status status;
+
+        fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+        keys.local_ephemeral_len = variants[variant].ephemeral_len;
+        keys.psk_len = variants[variant].psk_len;
+        if (variants[variant].null_psk) {
+            keys.psk = NULL;
+        }
+        memset(&handshake, 0xA5, sizeof(handshake));
+        /* Both key guards run after Noise state creation. The PSK guard also
+         * follows installation of the valid local ephemeral private key. */
+        status = dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                             DMP_PROVIDER_ROLE_INITIATOR, &keys);
+        if (status != DMP_PROVIDER_INVALID || !all_zero(&handshake, sizeof(handshake)) ||
+            port.alloc_calls <= calls_before ||
+            port.alloc_calls - calls_before != port.release_calls - releases_before ||
+            dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+            !release_clean(&port, variants[variant].name)) {
+            fprintf(stderr, "late key validation %s did not erase and release owned state\n",
+                    variants[variant].name);
+            goto done;
+        }
+
+        fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+        if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                        DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK ||
+            dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                         fixture->flights[0].plaintext.size, message, sizeof(message),
+                                         &message_len) != DMP_PROVIDER_OK ||
+            !bytes_match(variants[variant].name, message, message_len,
+                         fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+            fprintf(stderr, "provider did not recover after late key validation %s\n",
+                    variants[variant].name);
+            goto done;
+        }
+        if (dmp_provider_handshake_close(provider, &handshake) != DMP_PROVIDER_OK ||
+            !all_zero(&handshake, sizeof(handshake)) ||
+            dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U ||
+            port.alloc_calls - calls_before != port.release_calls - releases_before ||
+            !release_clean(&port, variants[variant].name)) {
+            fprintf(stderr, "late key validation %s recovery owner did not close cleanly\n",
+                    variants[variant].name);
+            goto done;
+        }
+    }
+    passed = 1;
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "late key validation provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_dh_shared_allocation_failure(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -2440,6 +2537,7 @@ int main(void)
     expect_case("handshake-open-allocation-sweep", test_handshake_open_allocation_sweep());
     expect_case("late-constructor-validation-cleanup", test_late_constructor_validation_cleanup());
     expect_case("late-static-constructor-validation-cleanup", test_late_static_constructor_validation_cleanup());
+    expect_case("late-key-validation-cleanup", test_late_key_validation_cleanup());
     expect_case("dh-shared-allocation-failure", test_dh_shared_allocation_failure());
     expect_case("output-contract", test_output_contract());
     expect_case("premature-split-output", test_premature_split_output());

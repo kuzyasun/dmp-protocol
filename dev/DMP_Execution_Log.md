@@ -2696,3 +2696,14 @@ erases/releases all state. A fresh handshake on the same provider then emits
 exact fixture Flight 1. Provider build and focused CTest passed 1/1;
 independent review found no actionable issue. This covers one fatal write
 capacity branch and fresh-owner recovery only.
+
+`security.provider_adapter::late-key-validation-cleanup` exercises three
+NNpsk0 constructor failures after Noise state allocation: a 31-byte local
+ephemeral key, a 31-byte PSK after valid ephemeral installation, and a NULL PSK
+with length 32. Each returns INVALID, erases the wrapper and released blocks,
+balances allocation/release accounting, and leaves no live or retained blocks.
+A valid owner on the same provider then emits exact fixture Flight 1 and closes
+cleanly. Provider build and focused CTest passed 1/1; independent review found
+no actionable issue. This covers these constructor branches and recovery only,
+not the full handshake, complete provider secret-copy inventory, or target
+qualification.

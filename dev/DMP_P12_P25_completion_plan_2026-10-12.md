@@ -407,3 +407,11 @@ criteria.
   emits exact Flight 1. Focused provider CTest passed 1/1; independent review
   found no actionable issue. This covers one fatal branch, not the complete
   backend failure or hardware matrix.
+- 2026-10-13 follow-up: `security.provider_adapter::late-key-validation-cleanup`
+  covers three NNpsk0 constructor failures after Noise state allocation
+  (invalid ephemeral length, invalid PSK length after ephemeral install, and
+  NULL PSK with nonzero length), followed by exact same-provider Flight 1
+  recovery. Build and focused provider CTest passed 1/1; independent review
+  found no actionable issue. This closes only those constructor branches;
+  complete handshake, secret-copy inventory, and target qualification remain
+  open. Hardware qualification stays deferred to the final plan phase.

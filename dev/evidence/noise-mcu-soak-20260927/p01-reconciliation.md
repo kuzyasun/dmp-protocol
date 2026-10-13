@@ -408,3 +408,15 @@ fresh owner on the same provider emits the exact Flight 1 fixture. Provider
 build and focused CTest passed 1/1; independent review found no actionable
 issue. This is a host test of this fatal capacity branch and fresh-owner
 recovery, not an exhaustive failure matrix or target/physical qualification.
+
+## Late key-validation constructor failures — 2026-10-13
+
+`security.provider_adapter::late-key-validation-cleanup` exercises three
+NNpsk0 failures after Noise state allocation: short local ephemeral key, short
+PSK after valid ephemeral installation, and NULL PSK with declared length 32.
+The assertions cover INVALID status, wrapper and released-block erasure,
+balanced allocations/releases, zero live/retained blocks, then exact Flight 1
+recovery and clean close on the same provider. Provider build and focused CTest
+passed 1/1; independent review found no actionable issue. This is evidence for
+these constructor branches only, not the full handshake, exhaustive secret
+copy cleanup, or target/physical qualification.

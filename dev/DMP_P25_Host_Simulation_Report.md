@@ -314,3 +314,16 @@ then emits exact Flight 1. Provider build and focused CTest passed 1/1;
 independent review found no actionable issue. This is one host fatal-write
 branch only; it does not establish all Noise failure semantics or target
 qualification.
+
+## P01 late key-validation cleanup — 2026-10-13
+
+`security.provider_adapter::late-key-validation-cleanup` covers three
+post-allocation NNpsk0 constructor guards: invalid local ephemeral length,
+invalid PSK length after valid ephemeral installation, and NULL PSK with a
+32-byte length. Each failure erases its wrapper and released allocations,
+balances allocation/release accounting, leaves no live or retained blocks,
+and is followed by exact Flight 1 recovery on the same provider. Provider build
+and focused `security.provider_adapter` CTest passed 1/1; independent review
+found no actionable issue. This is limited to these constructor paths and does
+not establish a complete handshake, exhaustive secret-copy cleanup, or target
+qualification.
