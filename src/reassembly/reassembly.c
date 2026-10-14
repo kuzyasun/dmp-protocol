@@ -10,9 +10,10 @@
  *
  * The first accepted slice reserves one assembly slot, its full payload and
  * metadata rows, one identity retain, and one RESERVED tombstone. That
- * tombstone becomes an EXPIRED no-reopen fence only from poll. Successful
- * release returns the still-RESERVED tombstone; expiry fences are cleared only
- * by context_retired after the identity context itself has been retired.
+ * tombstone becomes an EXPIRED no-reopen fence from poll or a REJECTED fence
+ * after terminal application rejection. Successful release returns the still-
+ * RESERVED tombstone; expiry/rejection fences are cleared only by
+ * context_retired after the identity context itself has been retired.
  * Tombstones are never evicted to make room. */
 
 _Static_assert(sizeof(dmp_reassembly_tombstone) == 48,
@@ -30,15 +31,23 @@ static int bytes_ok(dmp_bytes bytes)
     return bytes.size == 0U || bytes.data != NULL;
 }
 
+static uint32_t max_core_mtu(const dmp_admitted_profile *profile)
+{
+    return profile->forward_mtu > profile->return_mtu ? profile->forward_mtu
+                                                       : profile->return_mtu;
+}
+
 static int key_eq(dmp_message_key a, dmp_message_key b)
 {
     return a.seq == b.seq && a.origin.namespace_id == b.origin.namespace_id &&
            a.origin.origin_id == b.origin.origin_id && a.origin.epoch == b.origin.epoch;
 }
 
-static int origin_eq(dmp_message_origin a, dmp_message_origin b)
+/* Per-peer resource budgets span active and draining epochs. Message identity
+ * still includes the epoch in key_eq(). */
+static int stable_peer_eq(dmp_message_origin a, dmp_message_origin b)
 {
-    return a.namespace_id == b.namespace_id && a.origin_id == b.origin_id && a.epoch == b.epoch;
+    return a.namespace_id == b.namespace_id && a.origin_id == b.origin_id;
 }
 
 static int context_eq(dmp_identity_handle a, dmp_identity_handle b)
@@ -319,7 +328,7 @@ static dmp_status slice_geometry(const dmp_admitted_profile *profile, uint32_t i
         return DMP_MALFORMED;
     }
     if (chunk > profile->chunk_bytes || total > profile->message_bytes ||
-        chunk > profile->encoded_mtu || plaintext_len > profile->encoded_mtu) {
+        chunk > max_core_mtu(profile) || plaintext_len > max_core_mtu(profile)) {
         return DMP_LIMIT_EXHAUSTED;
     }
     count = 1U + (total - 1U) / chunk;
@@ -400,7 +409,7 @@ static size_t count_origin_assemblies(const dmp_reassembly *engine, dmp_message_
 
     for (i = 0U; i < engine->storage.assembly_capacity; i++) {
         const dmp_reassembly_slot *slot = &engine->storage.assemblies[i];
-        if (slot->live != 0U && origin_eq(slot->source.origin, origin)) {
+        if (slot->live != 0U && stable_peer_eq(slot->source.origin, origin)) {
             n++;
         }
     }
@@ -415,7 +424,7 @@ static size_t count_origin_tombstones(const dmp_reassembly *engine, dmp_message_
     for (i = 0U; i < engine->storage.tombstone_capacity; i++) {
         const dmp_reassembly_tombstone *tomb = &engine->storage.tombstones[i];
         if (tomb->state != DMP_REASSEMBLY_TOMBSTONE_UNUSED &&
-            origin_eq(tomb->source.origin, origin)) {
+            stable_peer_eq(tomb->source.origin, origin)) {
             n++;
         }
     }
@@ -535,11 +544,11 @@ static dmp_status accept_new(dmp_reassembly *engine, dmp_message_key key,
     dmp_time_ms deadline = 0U;
     dmp_status status;
 
-    if (find_expired(engine, key, input->context)) {
-        return DMP_DEADLINE_EXPIRED;
-    }
     if (find_rejected(engine, key, input->context)) {
         return DMP_DUPLICATE;
+    }
+    if (find_expired(engine, key, input->context)) {
+        return DMP_DEADLINE_EXPIRED;
     }
     status = slice_geometry(&engine->profile, fields->fragment.index, fields->fragment.chunk_size,
                             fields->fragment.total_size, input->plaintext.size, &count, &offset);
@@ -628,7 +637,7 @@ dmp_status dmp_reassembly_init(dmp_reassembly *engine, const dmp_reassembly_stor
         return DMP_INVALID_ARGUMENT;
     }
     if (profile->fragments < 2U || profile->fragments > 32U || profile->message_bytes == 0U ||
-        profile->chunk_bytes == 0U || profile->encoded_mtu == 0U) {
+        profile->chunk_bytes == 0U || profile->encoded_mtu == 0U || max_core_mtu(profile) == 0U) {
         return DMP_INVALID_ARGUMENT;
     }
     if (storage->assembly_capacity < profile->assembly_slots ||
@@ -703,8 +712,8 @@ dmp_status dmp_reassembly_on_fragment(dmp_reassembly *engine, const dmp_reassemb
     if (input->frame->frame.size != 0U && input->frame->frame.data == NULL) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (input->plaintext.size > engine->profile.encoded_mtu ||
-        input->frame->frame.size > engine->profile.encoded_mtu) {
+    if (input->plaintext.size > max_core_mtu(&engine->profile) ||
+        input->frame->frame.size > max_core_mtu(&engine->profile)) {
         return DMP_LIMIT_EXHAUSTED;
     }
     status = dmp_identity_source_key(input->frame, engine->storage.identity, input->context, now,

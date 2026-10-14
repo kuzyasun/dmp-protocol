@@ -10,9 +10,8 @@
 #define DMP_PROVIDER_HANDSHAKE_MAGIC 0xD301B011u
 #define DMP_PROVIDER_CIPHER_MAGIC 0xD301B021u
 #define DMP_PROVIDER_BLOCK_SLOTS 64u
-/* One host provider serves both peers. Overlap needs an active and a draining
- * cipher pair per peer, plus the handshake still registered during split. */
-#define DMP_PROVIDER_CHILD_SLOTS 12u
+/* Hard maximum (24) from accepted one-endpoint sensitivity rows. */
+#define DMP_PROVIDER_CHILD_SLOTS DMP_PROVIDER_CHILD_MAX
 #define DMP_PROVIDER_KEY_LEN 32u
 #define DMP_PROVIDER_HASH_LEN 32u
 #define DMP_PROVIDER_MAC_LEN 16u

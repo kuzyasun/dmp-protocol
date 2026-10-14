@@ -33,6 +33,13 @@ typedef struct { uint8_t *data; size_t capacity; } dmp_buffer;
 typedef struct { dmp_status status; size_t offset; } dmp_parse_result;
 typedef uint64_t dmp_time_ms;
 
+/* Stable peer-slot identity. Generation zero is invalid; endpoint owners must
+ * increment before slot reuse and keep accepted callbacks fenced. */
+typedef struct {
+    uint32_t slot;
+    uint64_t generation;
+} dmp_peer_handle;
+
 /* A nonempty span requires real readable backing; a zero-size NULL span is valid.
  * Failure leaves *out unchanged. No pointer arithmetic on NULL, even at size 0. */
 dmp_status dmp_bytes_slice(dmp_bytes input, size_t offset, size_t size,

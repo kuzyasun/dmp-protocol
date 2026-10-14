@@ -25,6 +25,7 @@ extern "C" {
  * are serialized. */
 
 struct dmp_hs;
+struct dmp_hs_admission;
 
 typedef enum {
     DMP_ENDPOINT_REQUEST = 1,
@@ -46,6 +47,8 @@ typedef enum {
 
 typedef struct {
     dmp_endpoint_event event;
+    dmp_peer_handle peer;
+    dmp_identity_handle association;
     dmp_reliability_handle request;
     uint32_t service_id;
     uint32_t wire_status;
@@ -81,12 +84,29 @@ typedef uint32_t (*dmp_endpoint_request_validate_fn)(void *user,
 typedef int (*dmp_endpoint_result_validate_fn)(void *user, const dmp_frame_view *frame,
                                                uint32_t service_id, dmp_bytes plaintext);
 
-/* Every buffer is caller-owned for the whole endpoint lifetime. Slot counts
- * must be at least the admitted profile. Extra bytes do not raise quotas.
- * stream_tx must hold one Stream R encoding of encoded_mtu plus the one-byte
- * opening delimiter. stream_rx must hold one Stream R decoder candidate. */
+typedef enum {
+    /* Zero preserves existing callers and the Stream R byte-stream binding. */
+    DMP_ENDPOINT_FRAMING_STREAM_R = 0,
+    /* The transport carries exactly one complete decoded DMP Core frame. */
+    DMP_ENDPOINT_FRAMING_PACKET = 1
+} dmp_endpoint_framing_mode;
+
+/* Every buffer and peer-state slot is caller-owned for the whole endpoint
+ * lifetime. peer_state_capacity must cover admitted profile.peers; the
+ * endpoint initializes only those admitted slots. Other slot counts must be
+ * at least the admitted profile. Extra bytes do not raise quotas.
+ * fragment_message, telemetry_payload, and telemetry_next each hold one
+ * message_bytes region per admitted peer. fragment_frame/telemetry_frame hold
+ * decoded Core frames (the larger directional MTU). In Stream R mode, stream_tx
+ * holds one encoded frame (encoded_mtu), stream_rx holds one encoded candidate
+ * per peer, and the one-byte open delimiter is submitted once per peer before
+ * its first DMP frame. Packet mode sends decoded Core frames directly and does
+ * not require either stream buffer. */
 typedef struct {
     const dmp_admitted_profile *profile;
+    dmp_endpoint_framing_mode framing_mode;
+    struct dmp_endpoint_peer_state *peer_states;
+    size_t peer_state_capacity;
     dmp_identity_slot *identity_slots;
     size_t identity_capacity;
     dmp_identity_context_config context;
@@ -96,6 +116,15 @@ typedef struct {
     dmp_endpoint_request_validate_fn validate_request;
     void *validate_request_user;
     dmp_endpoint_result_validate_fn validate_result;
+    /* Required for secured multi-peer endpoints. The endpoint initializes
+     * this caller-owned admission arena and every peer handshake must use the
+     * returned shared owner. Limits are shared across all peer handshakes. */
+    struct dmp_hs_admission *handshake_admission;
+    size_t handshake_admission_capacity;
+    uint32_t handshake_max_pending;
+    uint32_t handshake_max_scratch;
+    uint32_t handshake_global_work;
+    uint32_t handshake_ingress_work;
     dmp_reliability_sender_slot *senders;
     size_t sender_capacity;
     uint8_t *sender_payload;
@@ -164,6 +193,7 @@ typedef struct {
 } dmp_endpoint_grant;
 
 typedef struct dmp_endpoint_freshness_slot {
+    dmp_peer_handle peer;
     uint8_t token[16];
     dmp_time_ms expires_at;
     dmp_time_ms record_until;
@@ -189,9 +219,76 @@ enum {
     DMP_ENDPOINT_FRESHNESS_CONSUMED = 4
 };
 
+/* Peer-owned state within one shared endpoint. Reliability, reassembly,
+ * identity, adapter and outer transport arenas remain endpoint-wide. */
+typedef struct dmp_endpoint_peer_state {
+    dmp_peer_handle handle;
+    dmp_identity_handle context;
+    struct dmp_hs *association;
+    dmp_stream_decoder decoder;
+    dmp_reliability_handle pending_grant_request;
+    dmp_message_key prepared_grant_key;
+    dmp_identity_handle drain_context;
+    dmp_identity_handle frag_context;
+    dmp_identity_handle telem_context;
+    dmp_identity_handle telem_next_context;
+    uint64_t drain_not_after;
+    uint64_t drain_local_epoch;
+    uint64_t drain_peer_epoch;
+    uint32_t association_attempt;
+    uint32_t drain_attempt;
+    uint32_t drain_ms;
+    uint32_t frag_attempt;
+    uint32_t frag_index;
+    uint32_t frag_count;
+    uint32_t frag_total;
+    uint32_t frag_seq;
+    uint32_t frag_service;
+    uint32_t telem_attempt;
+    uint32_t telem_next_attempt;
+    uint32_t telem_len;
+    uint32_t telem_next_len;
+    uint32_t telem_service;
+    uint32_t telem_seq;
+    uint32_t pending_grant_slot;
+    uint32_t association_reservation_slots[3];
+    uint64_t association_reservation_generations[3];
+    uint32_t drain_reservation_slots[3];
+    uint64_t drain_reservation_generations[3];
+    uint8_t encode_freshness_token[16];
+    dmp_endpoint_grant grants[DMP_ENDPOINT_GRANT_MAX];
+    uint8_t encode_freshness_live;
+    uint8_t association_bound;
+    uint8_t grants_set;
+    uint8_t grant_count;
+    uint8_t revoked;
+    uint8_t drain_live;
+    uint8_t frag_live;
+    uint8_t frag_tx;
+    uint8_t telem_pending;
+    uint8_t telem_hold;
+    uint8_t telem_tx;
+    uint8_t telem_seq_set;
+    uint8_t frag_context_retained;
+    uint8_t telem_context_retained;
+    uint8_t telem_next_context_retained;
+    uint8_t prepared_grant_live;
+    uint8_t pending_grant_live;
+    uint8_t sync_pending;
+    uint8_t sync_tx;
+    uint8_t context_owned;
+    uint8_t association_reservation_live;
+    uint8_t drain_reservation_live;
+    uint8_t live;
+    uint8_t retirement_requested;
+} dmp_endpoint_peer_state;
+
 typedef struct {
     uint8_t live;
     uint8_t kind;
+    uint8_t context_retained;
+    dmp_peer_handle peer;
+    dmp_identity_handle context;
     dmp_tx_token outer_token;
     dmp_tx_token inner_token;
     dmp_tx_complete_fn complete;
@@ -202,65 +299,32 @@ typedef struct {
     dmp_reliability reliability;
     dmp_reassembly reassembly;
     dmp_identity_table identity;
-    dmp_identity_handle context;
+    struct dmp_hs_admission *handshake_admission;
     dmp_admitted_profile profile;
     dmp_transport outer;
     dmp_transport inner;
-    dmp_stream_decoder decoder;
     dmp_endpoint_notice_fn notice;
     void *notice_user;
     dmp_endpoint_request_validate_fn validate_request;
     void *validate_request_user;
     dmp_endpoint_result_validate_fn validate_result;
     dmp_endpoint_storage mem;
+    dmp_endpoint_peer_state *peers;
+    uint32_t active_peer_slot;
+    uint32_t peer_count;
     dmp_endpoint_tx tx[DMP_ENDPOINT_TX_SLOTS];
     uint64_t tx_generation;
+    uint64_t accepted_tx_generation;
+    size_t stream_rx_stride;
+    uint32_t poll_peer_cursor;
     uint8_t wire_busy;
     uint8_t initialized;
-    uint8_t frag_live;
-    uint8_t frag_tx;
-    uint32_t frag_index;
-    uint32_t frag_count;
-    uint32_t frag_total;
-    uint32_t frag_seq;
-    uint32_t frag_service;
-    uint8_t telem_pending;
-    uint8_t telem_hold;
-    uint8_t telem_tx;
-    uint8_t telem_seq_set;
-    uint32_t telem_len;
-    uint32_t telem_next_len;
-    uint32_t telem_service;
-    uint32_t telem_seq;
     uint8_t ext_scratch[DMP_MAX_HEADER_BYTES];
-    uint8_t encode_freshness_live;
-    uint8_t encode_freshness_token[16];
-    dmp_reliability_handle pending_grant_request;
-    dmp_message_key prepared_grant_key;
-    uint32_t pending_grant_slot;
-    uint8_t prepared_grant_live;
-    uint8_t pending_grant_live;
-    struct dmp_hs *association;
-    uint32_t association_attempt;
-    uint8_t association_bound;
-    uint8_t grants_set;
-    uint8_t grant_count;
-    uint8_t revoked;
-    uint8_t drain_live;
-    uint32_t drain_ms;
-    uint32_t drain_attempt;
-    uint32_t frag_attempt;
-    uint32_t telem_attempt;
-    dmp_identity_handle drain_context;
-    uint64_t drain_not_after;
-    uint64_t drain_local_epoch;
-    uint64_t drain_peer_epoch;
-    dmp_endpoint_grant grants[DMP_ENDPOINT_GRANT_MAX];
 } dmp_endpoint;
 
-/* now is the first monotonic time the Stream R decoder may observe. Failure
- * leaves *endpoint uninitialized only when the caller zeros it before retry;
- * a context may already be open in the caller table. */
+/* In Stream R mode, now is the first monotonic time the decoder may observe.
+ * Failure leaves *endpoint uninitialized only when the caller zeros it before
+ * retry; a context may already be open in the caller table. */
 dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage *storage,
                              dmp_time_ms now);
 
@@ -269,6 +333,14 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
  * separate: application send and receive fail until that attempt is active. */
 dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake,
                              uint32_t attempt_index);
+/* Add an explicitly addressed authenticated principal. The context must use
+ * the profile namespace and one of its local endpoint node IDs. */
+dmp_status dmp_endpoint_add_peer(dmp_endpoint *endpoint,
+                                 const dmp_identity_context_config *context,
+                                 dmp_time_ms now, dmp_peer_handle *out);
+struct dmp_hs_admission *dmp_endpoint_handshake_admission(dmp_endpoint *endpoint);
+dmp_status dmp_endpoint_bind_peer(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                  struct dmp_hs *handshake, uint32_t attempt_index);
 
 /* Replace any previous table. count 0 installs an empty policy. A secured
  * endpoint with no table admits no application action. Plaintext ignores it.
@@ -276,11 +348,15 @@ dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake,
  * is left unchanged. */
 dmp_status dmp_endpoint_set_grants(dmp_endpoint *endpoint, const dmp_endpoint_grant *grants,
                                    size_t count);
+dmp_status dmp_endpoint_set_peer_grants(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                         const dmp_endpoint_grant *grants, size_t count);
 
 /* Explicit drain bound from the deployment. Zero expires the old association
  * at the rotation instant. The original send and result deadlines are not
  * moved. An operation whose deadline passes this bound is canceled locally. */
 dmp_status dmp_endpoint_set_drain_ms(dmp_endpoint *endpoint, uint32_t drain_ms);
+dmp_status dmp_endpoint_set_peer_drain_ms(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                          uint32_t drain_ms);
 
 /* Move new messages to attempt_index only after that attempt is active.
  * The previous association drains until min(now + drain_ms, its own seal
@@ -288,11 +364,27 @@ dmp_status dmp_endpoint_set_drain_ms(dmp_endpoint *endpoint, uint32_t drain_ms);
  * switch and leaves the current association in place. An inactive attempt
  * does not become the send association. */
 dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, dmp_time_ms now);
+dmp_status dmp_endpoint_rotate_peer(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                    uint32_t attempt_index, dmp_time_ms now);
 
 /* Local revocation. Destroys the bound and draining associations and reports
  * unresolved outbound requests/data with their unknown or locally-unsent
  * outcomes. No received frame calls this. */
 dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now);
+dmp_status dmp_endpoint_revoke_peer(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                    dmp_time_ms now);
+dmp_status dmp_endpoint_peer_association(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                         dmp_identity_handle *association);
+/* After revocation, returns DMP_BUSY while an accepted outer transport send for this
+ * generation still awaits its terminal callback. DMP_OK means no such send can emit later;
+ * completed replay/cache references may still retain the peer slot. DMP_STALE_HANDLE means
+ * the generation has already been retired. */
+dmp_status dmp_endpoint_peer_fence_status(dmp_endpoint *endpoint, dmp_peer_handle peer);
+/* Accepts a live current or draining association for a local identity. Any
+ * application-level epochs and policy are owned by the application adapter. */
+dmp_status dmp_endpoint_validate_association(const dmp_endpoint *endpoint,
+                                             dmp_identity_handle association,
+                                             uint32_t namespace_id, uint32_t origin_id);
 
 /* Unfragmented reliable REQ. Payload must fit in one core frame. Copies on
  * success. A second live operation that exceeds the admitted queue returns the
@@ -300,21 +392,36 @@ dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now);
 dmp_status dmp_endpoint_submit_req(dmp_endpoint *endpoint, uint32_t service_id,
                                    dmp_bytes payload, dmp_time_ms now,
                                    dmp_reliability_handle *out);
+dmp_status dmp_endpoint_submit_req_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                      uint32_t service_id, dmp_bytes payload,
+                                      dmp_time_ms now, dmp_reliability_handle *out);
 /* Freshness-bearing reliable REQ. token must be exactly 16 bytes. */
 dmp_status dmp_endpoint_submit_req_fresh(dmp_endpoint *endpoint, uint32_t service_id,
                                          dmp_bytes payload, dmp_bytes token,
                                          dmp_time_ms now,
                                          dmp_reliability_handle *out);
+dmp_status dmp_endpoint_submit_req_fresh_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                            uint32_t service_id, dmp_bytes payload,
+                                            dmp_bytes token, dmp_time_ms now,
+                                            dmp_reliability_handle *out);
 /* Reliable DATA delivery. token is empty for an unprotected-freshness service
  * or exactly 16 bytes for a service requiring S7 freshness. */
 dmp_status dmp_endpoint_submit_data(dmp_endpoint *endpoint, uint32_t service_id,
                                     dmp_bytes payload, dmp_bytes token,
                                     dmp_time_ms now,
                                     dmp_reliability_handle *out);
+dmp_status dmp_endpoint_submit_data_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                       uint32_t service_id, dmp_bytes payload,
+                                       dmp_bytes token, dmp_time_ms now,
+                                       dmp_reliability_handle *out);
 dmp_status dmp_endpoint_submit_event(dmp_endpoint *endpoint, uint32_t service_id,
                                      dmp_bytes payload, dmp_bytes token,
                                      dmp_time_ms now,
                                      dmp_reliability_handle *out);
+dmp_status dmp_endpoint_submit_event_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                        uint32_t service_id, dmp_bytes payload,
+                                        dmp_bytes token, dmp_time_ms now,
+                                        dmp_reliability_handle *out);
 
 /* RSP, or terminal application ERR when application_err is true and
  * wire_status >= 64. Payload is copied on success. */
@@ -331,6 +438,9 @@ dmp_status dmp_endpoint_abandon_request(dmp_endpoint *endpoint,
  * A sample that does not fit one frame returns DMP_LIMIT_EXHAUSTED. */
 dmp_status dmp_endpoint_submit_telem(dmp_endpoint *endpoint, uint32_t service_id,
                                      dmp_bytes payload, dmp_time_ms now);
+dmp_status dmp_endpoint_submit_telem_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                         uint32_t service_id, dmp_bytes payload,
+                                         dmp_time_ms now);
 
 /* One caller-owned fragmented transfer of an opaque payload that does not fit
  * in one core frame. Fixed stride is the admitted chunk_bytes. The caller
@@ -345,6 +455,9 @@ dmp_status dmp_endpoint_submit_telem(dmp_endpoint *endpoint, uint32_t service_id
  * retries stay in dmp_reliability. */
 dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t service_id,
                                           dmp_bytes payload, dmp_time_ms now);
+dmp_status dmp_endpoint_submit_fragmented_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                             uint32_t service_id, dmp_bytes payload,
+                                             dmp_time_ms now);
 
 dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now);
 
@@ -355,6 +468,14 @@ dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now);
  * endpoint until the reassembly fence ends; the notice payload borrows that
  * storage only until the callback returns. */
 dmp_status dmp_endpoint_rx(dmp_endpoint *endpoint, dmp_bytes input, dmp_time_ms now);
+dmp_status dmp_endpoint_rx_from(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                 dmp_bytes input, dmp_time_ms now);
+/* One complete decoded DMP Core frame from a packet transport. This API and
+ * rx_packet_from are available only when framing_mode is PACKET. */
+dmp_status dmp_endpoint_rx_packet(dmp_endpoint *endpoint, dmp_bytes frame,
+                                  dmp_time_ms now);
+dmp_status dmp_endpoint_rx_packet_from(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                       dmp_bytes frame, dmp_time_ms now);
 
 #ifdef __cplusplus
 }

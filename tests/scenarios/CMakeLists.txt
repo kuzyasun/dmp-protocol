@@ -20,8 +20,8 @@ target_include_directories(dmp_test_recovery_gate PRIVATE
     "${PROJECT_SOURCE_DIR}/tests/endpoint"
     "${PROJECT_SOURCE_DIR}/tests/harness"
     "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(dmp_test_recovery_gate PRIVATE dmp_test_workloads
-    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+target_link_libraries(dmp_test_recovery_gate PRIVATE dmp_test_workloads)
+dmp_link_rescan(dmp_test_recovery_gate libdmp dmp_p01b_noise dmp_p01b_sodium)
 set_target_properties(dmp_test_recovery_gate PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 dmp_strict_target(dmp_test_recovery_gate)

@@ -54,12 +54,12 @@ static void valid_config(dmp_config *config)
     config->operations_per_service = 1U;
     config->assemblies_per_peer = 1U;
     config->assembly_tombstones_per_peer = 1U;
-    config->sender_slots = 1U;
+    config->sender_slots = 2U;
     config->assembly_slots = 1U;
     config->assembly_tombstone_slots = 1U;
-    config->result_slots = 1U;
-    config->history_slots = 1U;
-    config->correlation_slots = 1U;
+    config->result_slots = 2U;
+    config->history_slots = 4U;
+    config->correlation_slots = 2U;
     config->adapter_slots = 2U;
     config->application_queue_slots = 1U;
     config->control_slots = 1U;
@@ -178,14 +178,33 @@ static int test_arguments_and_copy(void)
     REJECT(in_.chunk_bytes = in_.message_bytes, DMP_UNSUPPORTED);
     REJECT(in_.chunk_bytes = in_.message_bytes + 1U, DMP_UNSUPPORTED);
     REJECT(in_.peers = 0U, DMP_UNSUPPORTED);
+    REJECT(in_.peers = DMP_PROFILE_MAX_PEERS + 1U, DMP_UNSUPPORTED);
     REJECT(in_.assembly_tombstones_per_peer = 0U, DMP_UNSUPPORTED);
+    REJECT(in_.assembly_tombstones_per_peer = DMP_PROFILE_MAX_TOMBSTONES_PER_PEER + 1U,
+           DMP_UNSUPPORTED);
     REJECT(in_.peers = 2U; in_.assembly_tombstone_slots = 1U, DMP_UNSUPPORTED);
+    REJECT(in_.peers = 2U; in_.assembly_slots = 1U, DMP_UNSUPPORTED);
+    REJECT(in_.operations_per_service = 0U, DMP_UNSUPPORTED);
+    REJECT(in_.operations_per_service = DMP_PROFILE_MAX_OPERATIONS_PER_SERVICE + 1U,
+           DMP_UNSUPPORTED);
+    REJECT(in_.assemblies_per_peer = 0U, DMP_UNSUPPORTED);
+    REJECT(in_.assemblies_per_peer = DMP_PROFILE_MAX_ASSEMBLIES_PER_PEER + 1U,
+           DMP_UNSUPPORTED);
     REJECT(in_.adapter_slots = 2U; in_.control_slots = 2U, DMP_UNSUPPORTED);
     REJECT(in_.adapter_slots = 1U; in_.control_slots = 2U, DMP_UNSUPPORTED);
     REJECT(in_.adapter_slots = 1U; in_.control_slots = 1U, DMP_UNSUPPORTED);
     REJECT(in_.control_slots = 0U, DMP_UNSUPPORTED);
     REJECT(in_.default_service = 2U, DMP_OK);
-    REJECT(in_.peers = 2U; in_.assembly_tombstone_slots = 2U, DMP_OK);
+    REJECT(in_.peers = 2U; in_.assembly_slots = 2U; in_.assembly_tombstone_slots = 2U,
+           DMP_OK);
+    REJECT(in_.peers = 2U; in_.operations_per_service = 8U; in_.sender_slots = 2U;
+           in_.result_slots = 2U; in_.history_slots = 4U; in_.correlation_slots = 2U;
+           in_.assembly_slots = 2U; in_.assembly_tombstone_slots = 2U, DMP_OK);
+    REJECT(in_.peers = DMP_PROFILE_MAX_PEERS; in_.operations_per_service = 2U;
+           in_.assemblies_per_peer = 2U; in_.assembly_tombstones_per_peer = 2U;
+           in_.sender_slots = 16U; in_.result_slots = 16U; in_.history_slots = 32U;
+           in_.correlation_slots = 16U; in_.assembly_slots = 8U;
+           in_.assembly_tombstone_slots = 8U, DMP_OK);
     return 0;
 }
 
@@ -262,7 +281,7 @@ static void direct_limits(dmp_config *config, uint32_t adapter_slots)
     config->return_mtu = 256U;
 }
 
-static uint64_t eight_sum(const dmp_config *config, int include_assembly)
+static uint64_t eight_sum(const dmp_config *config)
 {
     uint64_t sum = (uint64_t)config->sender_slots * config->message_bytes +
                    (uint64_t)config->result_slots * config->message_bytes +
@@ -270,10 +289,10 @@ static uint64_t eight_sum(const dmp_config *config, int include_assembly)
                    (uint64_t)config->history_slots * (uint64_t)DMP_MAX_HEADER_BYTES +
                    (uint64_t)config->correlation_slots * (uint64_t)DMP_MAX_HEADER_BYTES +
                    (uint64_t)config->adapter_slots * config->encoded_mtu;
-    if (include_assembly) {
-        sum += (uint64_t)config->assembly_slots * config->message_bytes +
-               (uint64_t)config->assembly_slots * (uint64_t)DMP_REASSEMBLY_METADATA_BYTES;
-    }
+    /* Admission reserves at least one assembly per peer even when this row
+     * only sends unfragmented messages. Account for that caller-owned storage. */
+    sum += (uint64_t)config->assembly_slots * config->message_bytes +
+           (uint64_t)config->assembly_slots * (uint64_t)DMP_REASSEMBLY_METADATA_BYTES;
     return sum;
 }
 
@@ -848,21 +867,21 @@ static void fill_budget(dmp_config *config, const budget_spec *spec)
 static int test_budget(void)
 {
     static const budget_spec rows[6] = {
-        {1024U, 0, 64U, 1U, 32U, 112U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 0U, 0U, 0U, 0U, 64U, 0U, 926ULL,
-         "unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones; "
+        {1280U, 0, 64U, 1U, 32U, 112U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 1U, 1U, 1U, 1U, 64U, 0U, 1245ULL,
+         "unfragmented reliability; retains the admitted per-peer assembly payload and metadata; "
          "message 64, one sender/result/history/correlation, control 1, adapter 2"},
-        {2048U, 0, 256U, 1U, 128U, 304U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 0U, 0U, 0U, 0U, 256U, 0U, 1886ULL,
-         "unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones; "
+        {2560U, 0, 256U, 1U, 128U, 304U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 1U, 1U, 1U, 1U, 256U, 0U, 2397ULL,
+         "unfragmented reliability; retains the admitted per-peer assembly payload and metadata; "
          "message 256, one sender/result/history/correlation, control 1, adapter 2"},
-        {3072U, 0, 384U, 1U, 128U, 432U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 0U, 0U, 0U, 0U, 384U, 0U, 2526ULL,
-         "unfragmented reliability; omits assembly payload and metadata; no reassembly tombstones; "
+        {3328U, 0, 384U, 1U, 128U, 432U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 1U, 1U, 1U, 1U, 384U, 0U, 3165ULL,
+         "unfragmented reliability; retains the admitted per-peer assembly payload and metadata; "
          "message 384, one sender/result/history/correlation, control 1, adapter 2"},
         {4096U, 1, 256U, 2U, 128U, 304U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 1U, 1U, 1U, 1U, 256U, 256U, 2397ULL,
          "reliability exchange of the full 256-byte message plus reassembly of the same 256 bytes "
          "as two 128-byte slices; one tombstone, not the direct 16; control 1, adapter 2"},
-        {8192U, 0, 1024U, 1U, 512U, 1072U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 0U, 0U, 0U, 0U, 1024U, 0U,
-         5726ULL,
-         "unfragmented reliability of a 1024-byte message; omits assembly payload and metadata; "
+        {8192U, 0, 1024U, 1U, 512U, 1072U, 1U, 1U, 1U, 1U, 2U, 1U, 1U, 1U, 1U, 1U, 1U, 1024U, 0U,
+         7005ULL,
+         "unfragmented reliability of a 1024-byte message; retains admitted per-peer assembly storage; "
          "not direct-nnpsk0 (encoded_mtu 1072, fragments 1, one slot of each kind)"},
         {16384U, 1, DIRECT_MESSAGE, DIRECT_FRAGMENTS, DIRECT_CHUNK, DIRECT_MTU, DIRECT_SENDER,
          DIRECT_RESULT, DIRECT_HISTORY, DIRECT_CORRELATION, DIRECT_ADAPTER, DIRECT_CONTROL, 2U,
@@ -884,7 +903,7 @@ static int test_budget(void)
     CHECK(manifest.adapter_slots == 3U);
     CHECK(manifest.control_slots == 2U);
     CHECK(manifest.adapter_slots > manifest.control_slots);
-    CHECK(eight_sum(&manifest, 1) == 14344ULL);
+    CHECK(eight_sum(&manifest) == 14344ULL);
     illegal = manifest;
     illegal.adapter_slots = 2U;
     illegal.control_slots = 2U;
@@ -909,7 +928,7 @@ static int test_budget(void)
         size_t tombs;
         size_t state;
         fill_budget(&config, spec);
-        sum = eight_sum(&config, spec->reassembly);
+        sum = eight_sum(&config);
         CHECK(sum == spec->expect_sum);
         CHECK(sum <= spec->budget);
         CHECK(config.adapter_slots > config.control_slots);
@@ -929,17 +948,17 @@ static int test_budget(void)
             CHECK(spec->assembly_total == 0U);
         }
         CHECK(dmp_config_admit(&config, &admitted) == DMP_OK);
+        CHECK(config.assembly_slots == spec->assembly_slots);
+        CHECK(config.assembly_tombstone_slots == spec->tombstone_slots);
         CHECK(budget_reliability_exchange(&admitted, spec->exchange_bytes) == 0);
         if (spec->reassembly) {
-            CHECK(config.assembly_slots == 1U);
             CHECK(budget_reassembly_exchange(&admitted, spec->assembly_total) == 0);
             tombs = (size_t)config.assembly_tombstone_slots * sizeof(dmp_reassembly_tombstone);
         } else {
-            CHECK(config.assembly_slots == 0U);
             CHECK(config.fragments == 1U);
-            tombs = 0U;
+            tombs = (size_t)config.assembly_tombstone_slots * sizeof(dmp_reassembly_tombstone);
         }
-        state = state_bytes(spec->reassembly, config.assembly_slots);
+        state = state_bytes(1, config.assembly_slots);
         {
             const char *delivered_by = "reliability";
             if (spec->reassembly && spec->exchange_bytes == spec->message_bytes) {

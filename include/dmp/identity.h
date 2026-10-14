@@ -98,7 +98,11 @@ dmp_status dmp_identity_reply_to(const dmp_frame_view *frame,
 enum {
     DMP_PROFILE_SHA256_BYTES = 32,
     DMP_PROFILE_NODE_COUNT = 2,
-    DMP_PROFILE_SERVICE_COUNT = 2
+    DMP_PROFILE_SERVICE_COUNT = 2,
+    DMP_PROFILE_MAX_PEERS = 4,
+    DMP_PROFILE_MAX_OPERATIONS_PER_SERVICE = 64,
+    DMP_PROFILE_MAX_ASSEMBLIES_PER_PEER = 64,
+    DMP_PROFILE_MAX_TOMBSTONES_PER_PEER = 64
 };
 
 typedef enum {
@@ -192,7 +196,10 @@ typedef dmp_config dmp_admitted_profile;
  * DMP_INVALID_ARGUMENT: null, in == out, a zero message/chunk/encoded_mtu/
  * fragments, fragments > 32, or overflow of a derived product.
  * DMP_UNSUPPORTED: default_service is 0 or outside service_id[], the two
- * service ids are equal, chunk_bytes >= message_bytes, peers == 0,
+ * service ids are equal, chunk_bytes >= message_bytes, peers == 0 or peers
+ * exceeds DMP_PROFILE_MAX_PEERS, operations_per_service or assemblies_per_peer
+ * exceed their profile bounds, or aggregate assembly/tombstone backing is
+ * smaller than the configured per-peer limits,
  * assembly_tombstones_per_peer < assemblies_per_peer,
  * assembly_tombstone_slots < peers * assembly_tombstones_per_peer, or
  * adapter_slots is not strictly greater than the reliability control reserve

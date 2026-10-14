@@ -11,6 +11,7 @@ extern "C" {
 typedef struct {
     uint32_t slot;
     uint64_t generation;
+    dmp_peer_handle peer;
 } dmp_reliability_handle;
 
 typedef enum {
@@ -50,6 +51,8 @@ typedef enum {
 typedef struct {
     dmp_reliability_event event;
     dmp_reliability_handle handle;
+    dmp_peer_handle peer;
+    dmp_identity_handle context;
     dmp_message_key key;
     uint32_t service_id;
     uint32_t wire_status;
@@ -67,6 +70,8 @@ typedef void (*dmp_reliability_notice_fn)(
 
 typedef struct {
     dmp_type type;
+    dmp_peer_handle peer;
+    dmp_identity_handle context;
     uint32_t service_id;
     dmp_message_origin destination;
     dmp_message_key own;
@@ -121,6 +126,8 @@ typedef struct {
     uint8_t kind; /* dmp_reliability_sender_kind */
     uint8_t possibly_sent;
     uint32_t service_id;
+    dmp_peer_handle peer;
+    dmp_identity_handle context;
     dmp_message_key own;
     dmp_message_key reply_to;
     dmp_time_ms queue_deadline;
@@ -159,6 +166,7 @@ typedef struct {
     uint8_t probe_burst;
     uint8_t freshness_live;
     uint8_t message_type;
+    uint8_t context_retained;
     uint8_t freshness_token[16];
 } dmp_reliability_sender_slot;
 
@@ -168,6 +176,9 @@ typedef struct {
     uint8_t application_err;
     uint8_t acknowledged;
     uint8_t reserved;
+    uint8_t context_retained;
+    dmp_peer_handle peer;
+    dmp_identity_handle context;
     dmp_message_key request;
     dmp_message_key result;
     dmp_message_origin destination;
@@ -189,7 +200,10 @@ typedef struct {
     uint8_t type;
     uint8_t ack_req;
     uint8_t descriptor_flags;
+    uint8_t context_retained;
     uint8_t reserved[3];
+    dmp_peer_handle peer;
+    dmp_identity_handle context;
     uint32_t service_id;
     uint32_t descriptor_codec;
     uint32_t descriptor_schema;
@@ -211,6 +225,9 @@ typedef struct {
     uint8_t result_delivered;
     uint8_t terminal_unknown;
     uint8_t reserved;
+    uint8_t context_retained;
+    dmp_peer_handle peer;
+    dmp_identity_handle context;
     dmp_reliability_handle request;
     dmp_message_key request_key;
     dmp_message_key result_key;
@@ -227,6 +244,9 @@ typedef struct {
     uint8_t control;
     uint8_t completion_ready;
     uint8_t reserved;
+    uint8_t context_retained;
+    dmp_peer_handle peer;
+    dmp_identity_handle context;
     dmp_tx_token token;
     dmp_tx_outcome outcome;
     dmp_time_ms completed_at;
@@ -280,11 +300,16 @@ typedef struct {
     uint8_t initialized;
     uint8_t closing;
     uint8_t context_retained;
-    uint8_t reserved;
+    uint8_t route_selected;
+    uint32_t poll_peer_cursor;
+    dmp_peer_handle selected_peer;
+    dmp_identity_handle selected_context;
 } dmp_reliability;
 
-/* P10 v1 binds one engine to one identity context and supports admitted direct
- * profiles with peers == 1. init validates every profile-derived array count
+/* One serialized engine owns endpoint-wide shared arrays and supports admitted
+ * direct profiles with one or more peers. The initial context is a single-peer
+ * fixture route only when peers == 1; multi-peer engines require select_route
+ * before every operation. init validates every profile-derived array count
  * (each capacity must be at least its corresponding sender/result/history/
  * correlation/adapter slot count) and checked byte minima before publishing
  * state:
@@ -299,12 +324,22 @@ typedef struct {
  * application_queue_slots and control_slots; resource charges never raise
  * those limits. ACKs bypass the application queue and stop-and-wait gate and
  * use only admitted control/adapter reserves. init also checks direct transport
- * MTU/caps and the identity context. It retains context until close. close
+ * MTU/caps and the initial identity context. Single-peer fixture init retains
+ * that context until close. close
  * succeeds only after logical records and TX callbacks settle. Calls are
  * serialized by one owner. */
 dmp_status dmp_reliability_init(dmp_reliability *engine,
                                 const dmp_reliability_storage *storage);
 dmp_status dmp_reliability_close(dmp_reliability *engine, dmp_time_ms now);
+
+/* Select the route for subsequent submit/RX/reject/complete API calls. Calls
+ * are serialized; every accepted record snapshots both handles and later
+ * retries, polling, and callbacks use that original route. Multi-peer engines
+ * have no implicit route. The init context is a default fixture only when
+ * profile.peers == 1. */
+dmp_status dmp_reliability_select_route(dmp_reliability *engine,
+                                        dmp_peer_handle peer,
+                                        dmp_identity_handle context);
 
 /* Submit one reliable REQ. Payload is copied on success. jitter_ms is the
  * caller-selected bounded jitter for each admitted schedule; no RNG is used.
@@ -426,6 +461,12 @@ dmp_status dmp_reliability_complete_for_lifetime(
  * Transport callbacks only publish terminal outcomes; notices and later sends
  * are driven here or by the serialized receive/API calls. */
 dmp_status dmp_reliability_poll(dmp_reliability *engine, dmp_time_ms now);
+/* Process transport completions and deadlines without selecting a new frame.
+ * Endpoints use this before arbitrating their shared peer/class schedule. */
+dmp_status dmp_reliability_maintain(dmp_reliability *engine, dmp_time_ms now);
+/* After maintain(), offer at most one reliable frame for an explicitly selected peer. */
+dmp_status dmp_reliability_poll_peer(dmp_reliability *engine, dmp_time_ms now,
+                                     dmp_peer_handle peer, bool *accepted);
 
 #ifdef __cplusplus
 }

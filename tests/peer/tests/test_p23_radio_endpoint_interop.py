@@ -64,6 +64,14 @@ def _assert_ttl_only(test: unittest.TestCase, original: bytes, forwarded: bytes)
 
 
 def _decode_c_stream_frame(encoded: bytes) -> bytes:
+    # The C endpoint emits Core frames directly for RADIO-1's packet binding;
+    # DIRECT-1's Stream R endpoint still emits an encoded frame.
+    try:
+        parse_frame(encoded, max_frame=_MAX_CORE)
+    except FrameError:
+        pass
+    else:
+        return encoded
     decoder = StreamRDecoder(
         max_encoded=_MAX_ENCODED,
         max_core=_MAX_CORE,

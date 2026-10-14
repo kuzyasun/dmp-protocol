@@ -4,14 +4,20 @@
 
 #include <string.h>
 
+#define PEER(endpoint, field) ((endpoint)->peers[(endpoint)->active_peer_slot].field)
+
 static void freshness_consume_key(dmp_endpoint *endpoint, dmp_message_key key,
                                   uint32_t service);
 static void freshness_consume_frame(dmp_endpoint *endpoint, const dmp_frame_view *frame,
                                     uint32_t service, dmp_identity_handle context,
                                     dmp_time_ms now);
+static void use_context(dmp_endpoint *endpoint, dmp_identity_handle handle);
+static void release_peer_buffer_contexts(dmp_endpoint *endpoint,
+                                         dmp_endpoint_peer_state *peer);
 static int freshness_command(uint8_t type);
 static void freshness_maintenance(dmp_endpoint *endpoint, dmp_time_ms now);
-static void freshness_clear_attempt(dmp_endpoint *endpoint, uint32_t attempt);
+static void freshness_clear_attempt(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                    uint32_t attempt);
 
 /* Endpoint codec. Reliability owns unfragmented retry, duplicate
  * suppression, receipts and results. Reassembly owns fixed-stride fragments.
@@ -19,11 +25,127 @@ static void freshness_clear_attempt(dmp_endpoint *endpoint, uint32_t attempt);
  * TO_NODE and the sender's own CONTEXT; DIRECT-1 leaves both off.
  * This file does not allocate, parse JSON, or hash epochs on receive. */
 
-enum { KIND_REL = 0, KIND_FRAG = 1, KIND_TELEM = 2, KIND_STATUS = 3 };
+enum { KIND_REL = 0, KIND_FRAG = 1, KIND_TELEM = 2, KIND_STATUS = 3, KIND_SYNC = 4 };
 
 static int ready(const dmp_endpoint *endpoint)
 {
     return endpoint != NULL && endpoint->initialized != 0U;
+}
+
+static dmp_status select_peer(dmp_endpoint *endpoint, dmp_peer_handle handle)
+{
+    dmp_endpoint_peer_state *peer;
+    if (endpoint == NULL || handle.generation == 0U || handle.slot >= endpoint->profile.peers ||
+        handle.slot >= DMP_PROFILE_MAX_PEERS) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    peer = &endpoint->peers[handle.slot];
+    if (peer->live == 0U || peer->handle.slot != handle.slot ||
+        peer->handle.generation != handle.generation) {
+        return DMP_STALE_HANDLE;
+    }
+    endpoint->active_peer_slot = handle.slot;
+    return DMP_OK;
+}
+
+static int peer_equal(dmp_peer_handle a, dmp_peer_handle b)
+{
+    return a.slot == b.slot && a.generation == b.generation;
+}
+
+static dmp_status select_active_route(dmp_endpoint *endpoint)
+{
+    if (PEER(endpoint, live) == 0U) {
+        return DMP_STALE_HANDLE;
+    }
+    return dmp_reliability_select_route(&endpoint->reliability, PEER(endpoint, handle),
+                                        PEER(endpoint, context));
+}
+
+static int peer_owns_context(const dmp_endpoint_peer_state *peer, dmp_identity_handle context)
+{
+    return (peer->context.slot == context.slot && peer->context.generation == context.generation) ||
+           (peer->drain_live != 0U && peer->drain_context.slot == context.slot &&
+            peer->drain_context.generation == context.generation);
+}
+
+static dmp_peer_handle peer_for_context(const dmp_endpoint *endpoint,
+                                        dmp_identity_handle context, int *found)
+{
+    uint32_t i;
+    dmp_peer_handle none = {0U, 0U};
+    *found = 0;
+    for (i = 0U; i < endpoint->profile.peers; i++) {
+        if (endpoint->peers[i].live != 0U && peer_owns_context(&endpoint->peers[i], context)) {
+            *found = 1;
+            return endpoint->peers[i].handle;
+        }
+    }
+    return none;
+}
+
+static uint32_t local_core_mtu(const dmp_endpoint *endpoint)
+{
+    const dmp_endpoint_peer_state *peer = &endpoint->peers[endpoint->active_peer_slot];
+    const dmp_identity_slot *slot;
+    if (peer->context.slot >= endpoint->identity.capacity) {
+        return 0U;
+    }
+    slot = &endpoint->identity.slots[peer->context.slot];
+    if (slot->generation != peer->context.generation) {
+        return 0U;
+    }
+    if (slot->local.origin_id == endpoint->profile.node_id[0]) {
+        return endpoint->profile.forward_mtu;
+    }
+    if (slot->local.origin_id == endpoint->profile.node_id[1]) {
+        return endpoint->profile.return_mtu;
+    }
+    return 0U;
+}
+
+static uint32_t receive_core_mtu(const dmp_endpoint *endpoint)
+{
+    const dmp_endpoint_peer_state *peer = &endpoint->peers[endpoint->active_peer_slot];
+    const dmp_identity_slot *slot;
+    if (peer->context.slot >= endpoint->identity.capacity) {
+        return 0U;
+    }
+    slot = &endpoint->identity.slots[peer->context.slot];
+    if (slot->generation != peer->context.generation) {
+        return 0U;
+    }
+    if (slot->local.origin_id == endpoint->profile.node_id[0]) {
+        return endpoint->profile.return_mtu;
+    }
+    if (slot->local.origin_id == endpoint->profile.node_id[1]) {
+        return endpoint->profile.forward_mtu;
+    }
+    return 0U;
+}
+
+static uint32_t max_core_mtu(const dmp_admitted_profile *profile)
+{
+    return profile->forward_mtu > profile->return_mtu ? profile->forward_mtu
+                                                      : profile->return_mtu;
+}
+
+static uint8_t *peer_fragment_buffer(dmp_endpoint *endpoint)
+{
+    return endpoint->mem.fragment_message +
+           (size_t)endpoint->active_peer_slot * endpoint->profile.message_bytes;
+}
+
+static uint8_t *peer_telemetry_buffer(dmp_endpoint *endpoint)
+{
+    return endpoint->mem.telemetry_payload +
+           (size_t)endpoint->active_peer_slot * endpoint->profile.message_bytes;
+}
+
+static uint8_t *peer_telemetry_next_buffer(dmp_endpoint *endpoint)
+{
+    return endpoint->mem.telemetry_next +
+           (size_t)endpoint->active_peer_slot * endpoint->profile.message_bytes;
 }
 
 static int bytes_ok(dmp_bytes bytes)
@@ -74,7 +196,7 @@ static int freshness_enabled(const dmp_endpoint *endpoint)
 static dmp_core_limits limits_of(const dmp_endpoint *endpoint)
 {
     dmp_core_limits limits;
-    limits.max_frame_bytes = endpoint->profile.encoded_mtu;
+    limits.max_frame_bytes = local_core_mtu(endpoint);
     limits.max_message_bytes = endpoint->profile.message_bytes;
     limits.max_fragments = endpoint->profile.fragments;
     return limits;
@@ -86,8 +208,10 @@ static dmp_core_limits limits_of(const dmp_endpoint *endpoint)
 static dmp_core_limits receive_limits_of(const dmp_endpoint *endpoint)
 {
     dmp_core_limits limits = limits_of(endpoint);
-    if (limits.max_message_bytes < endpoint->profile.encoded_mtu) {
-        limits.max_message_bytes = endpoint->profile.encoded_mtu;
+    uint32_t core_mtu = receive_core_mtu(endpoint);
+    limits.max_frame_bytes = core_mtu;
+    if (limits.max_message_bytes < core_mtu) {
+        limits.max_message_bytes = core_mtu;
     }
     return limits;
 }
@@ -170,8 +294,10 @@ static int read_uleb32(dmp_bytes in, size_t *at, uint32_t *value)
     return 0;
 }
 
-static void emit(dmp_endpoint *endpoint, dmp_endpoint_event event, dmp_reliability_handle request,
-                 uint32_t service, uint32_t wire_status, dmp_bytes payload, dmp_message_key source)
+static void emit_with_context(dmp_endpoint *endpoint, dmp_endpoint_event event,
+                              dmp_reliability_handle request, uint32_t service,
+                              uint32_t wire_status, dmp_bytes payload,
+                              dmp_message_key source, dmp_identity_handle context)
 {
     dmp_endpoint_notice notice;
     if (endpoint->notice == NULL) {
@@ -179,6 +305,8 @@ static void emit(dmp_endpoint *endpoint, dmp_endpoint_event event, dmp_reliabili
     }
     memset(&notice, 0, sizeof notice);
     notice.event = event;
+    notice.peer = PEER(endpoint, handle);
+    notice.association = context;
     notice.request = request;
     notice.service_id = service;
     notice.wire_status = wire_status;
@@ -212,6 +340,101 @@ static dmp_status from_hs(dmp_hs_status status)
     return DMP_AUTHENTICATION_FAILURE;
 }
 
+static void store_association_reservation(dmp_endpoint_peer_state *peer,
+                                          const dmp_hs_tx_reservation *reservation,
+                                          int draining)
+{
+    uint32_t *slots = draining ? peer->drain_reservation_slots
+                               : peer->association_reservation_slots;
+    uint64_t *generations = draining ? peer->drain_reservation_generations
+                                     : peer->association_reservation_generations;
+    uint8_t *live = draining ? &peer->drain_reservation_live
+                             : &peer->association_reservation_live;
+    uint32_t index;
+
+    memset(slots, 0, 3U * sizeof(*slots));
+    memset(generations, 0, 3U * sizeof(*generations));
+    *live = 0U;
+    if (reservation == NULL || reservation->count != 3U) {
+        return;
+    }
+    for (index = 0U; index < reservation->count; index++) {
+        slots[index] = reservation->tokens[index].slot;
+        generations[index] = reservation->tokens[index].generation;
+    }
+    *live = 1U;
+}
+
+static int load_association_reservation(const dmp_endpoint_peer_state *peer,
+                                        dmp_hs_tx_reservation *reservation,
+                                        int draining)
+{
+    const uint32_t *slots = draining ? peer->drain_reservation_slots
+                                     : peer->association_reservation_slots;
+    const uint64_t *generations = draining ? peer->drain_reservation_generations
+                                           : peer->association_reservation_generations;
+    uint32_t index;
+
+    if (peer == NULL || reservation == NULL ||
+        (draining ? peer->drain_reservation_live : peer->association_reservation_live) == 0U) {
+        return 0;
+    }
+    memset(reservation, 0, sizeof(*reservation));
+    reservation->count = 3U;
+    for (index = 0U; index < reservation->count; index++) {
+        reservation->tokens[index].slot = slots[index];
+        reservation->tokens[index].generation = generations[index];
+    }
+    return 1;
+}
+
+static void clear_association_reservation(dmp_endpoint_peer_state *peer, int draining)
+{
+    uint32_t *slots = draining ? peer->drain_reservation_slots
+                               : peer->association_reservation_slots;
+    uint64_t *generations = draining ? peer->drain_reservation_generations
+                                     : peer->association_reservation_generations;
+    uint8_t *live = draining ? &peer->drain_reservation_live
+                             : &peer->association_reservation_live;
+    memset(slots, 0, 3U * sizeof(*slots));
+    memset(generations, 0, 3U * sizeof(*generations));
+    *live = 0U;
+}
+
+static void move_active_reservation_to_drain(dmp_endpoint_peer_state *peer)
+{
+    memcpy(peer->drain_reservation_slots, peer->association_reservation_slots,
+           sizeof peer->drain_reservation_slots);
+    memcpy(peer->drain_reservation_generations,
+           peer->association_reservation_generations,
+           sizeof peer->drain_reservation_generations);
+    peer->drain_reservation_live = peer->association_reservation_live;
+    clear_association_reservation(peer, 0);
+}
+
+static dmp_status release_association_reservation(dmp_endpoint *endpoint,
+                                                  dmp_endpoint_peer_state *peer,
+                                                  int draining)
+{
+    dmp_hs_tx_reservation reservation;
+    dmp_hs_status status;
+
+    if (peer == NULL ||
+        (draining ? peer->drain_reservation_live : peer->association_reservation_live) == 0U) {
+        return DMP_OK;
+    }
+    if (peer->association == NULL || !load_association_reservation(peer, &reservation, draining)) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    status = dmp_hs_release_tx_reservation(peer->association, &reservation);
+    if (status != DMP_HS_OK) {
+        return from_hs(status);
+    }
+    clear_association_reservation(peer, draining);
+    (void)endpoint;
+    return DMP_OK;
+}
+
 static dmp_status install_epochs(dmp_endpoint *endpoint)
 {
     dmp_identity_slot *slot;
@@ -224,18 +447,18 @@ static dmp_status install_epochs(dmp_endpoint *endpoint)
     if (!secured(endpoint)) {
         return DMP_OK;
     }
-    if (endpoint->association_bound == 0U || endpoint->association == NULL) {
+    if (PEER(endpoint, association_bound) == 0U || PEER(endpoint, association) == NULL) {
         return DMP_AUTHENTICATION_FAILURE;
     }
-    if (!dmp_hs_traffic_identity(endpoint->association, endpoint->association_attempt, &namespace_id,
+    if (!dmp_hs_traffic_identity(PEER(endpoint, association), PEER(endpoint, association_attempt), &namespace_id,
                                  &local_id, &peer_id, &local_epoch, &peer_epoch)) {
         return DMP_AUTHENTICATION_FAILURE;
     }
-    if (endpoint->context.slot >= endpoint->identity.capacity) {
+    if (PEER(endpoint, context).slot >= endpoint->identity.capacity) {
         return DMP_STALE_HANDLE;
     }
-    slot = &endpoint->identity.slots[endpoint->context.slot];
-    if (slot->generation != endpoint->context.generation || slot->security != 1U ||
+    slot = &endpoint->identity.slots[PEER(endpoint, context).slot];
+    if (slot->generation != PEER(endpoint, context).generation || slot->security != 1U ||
         slot->local.namespace_id != namespace_id || slot->local.origin_id != local_id ||
         slot->peer.origin_id != peer_id) {
         return DMP_AUTHENTICATION_FAILURE;
@@ -244,41 +467,73 @@ static dmp_status install_epochs(dmp_endpoint *endpoint)
     if (slot->local.epoch != local_epoch || slot->peer.epoch != peer_epoch) {
         /* FINISH/READY reserve SEQ=0 in each direction. A new association
          * therefore starts application sequence allocation at one. */
-        endpoint->identity.slots[endpoint->context.slot].next_seq = 1U;
-        endpoint->identity.slots[endpoint->context.slot].seq_exhausted = false;
+        endpoint->identity.slots[PEER(endpoint, context).slot].next_seq = 1U;
+        endpoint->identity.slots[PEER(endpoint, context).slot].seq_exhausted = false;
     }
     slot->local.epoch = local_epoch;
     slot->peer.epoch = peer_epoch;
     return DMP_OK;
 }
 
-static dmp_status require_attempt(const dmp_endpoint *endpoint, uint32_t attempt)
+static dmp_status retain_active_association(dmp_endpoint *endpoint)
+{
+    dmp_hs_tx_reservation reservation;
+    dmp_hs_status hs_status;
+
+    if (!secured(endpoint) || PEER(endpoint, association) == NULL ||
+        PEER(endpoint, association_bound) == 0U) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (PEER(endpoint, association_reservation_live) != 0U) {
+        return DMP_OK;
+    }
+    hs_status = dmp_hs_send_application(PEER(endpoint, association),
+                                        PEER(endpoint, association_attempt));
+    if (hs_status == DMP_HS_NOT_ACTIVE &&
+        !dmp_hs_terminal(PEER(endpoint, association), PEER(endpoint, association_attempt))) {
+        return DMP_BUSY;
+    }
+    if (hs_status != DMP_HS_OK) {
+        return from_hs(hs_status);
+    }
+    memset(&reservation, 0, sizeof reservation);
+    hs_status = dmp_hs_retain_association_reservation(
+        PEER(endpoint, association), PEER(endpoint, association_attempt), &reservation);
+    if (hs_status != DMP_HS_OK) {
+        return from_hs(hs_status);
+    }
+    store_association_reservation(&endpoint->peers[endpoint->active_peer_slot],
+                                  &reservation, 0);
+    return DMP_OK;
+}
+
+static dmp_status require_attempt(dmp_endpoint *endpoint, uint32_t attempt)
 {
     if (!secured(endpoint)) {
         return DMP_OK;
     }
-    if (endpoint->revoked != 0U || endpoint->association_bound == 0U || endpoint->association == NULL) {
+    if (PEER(endpoint, revoked) != 0U || PEER(endpoint, association_bound) == 0U || PEER(endpoint, association) == NULL) {
         return DMP_AUTHENTICATION_FAILURE;
     }
-    if (endpoint->drain_live != 0U && attempt == endpoint->drain_attempt) {
-        if (dmp_hs_send_application(endpoint->association, attempt) != DMP_HS_OK) {
+    if (PEER(endpoint, drain_live) != 0U && attempt == PEER(endpoint, drain_attempt)) {
+        if (dmp_hs_send_application(PEER(endpoint, association), attempt) != DMP_HS_OK) {
             return DMP_DEADLINE_EXPIRED;
         }
         return DMP_OK;
     }
-    if (attempt != endpoint->association_attempt) {
+    if (attempt != PEER(endpoint, association_attempt)) {
         return DMP_AUTHENTICATION_FAILURE;
     }
     {
-        dmp_hs_status hs = dmp_hs_send_application(endpoint->association, attempt);
+        dmp_hs_status hs = dmp_hs_send_application(PEER(endpoint, association), attempt);
         if (hs == DMP_HS_OK) {
-            return DMP_OK;
+            return retain_active_association(endpoint);
         }
         /* Not confirmed yet, and the attempt is still alive. Reliability
          * treats DMP_BUSY as non-destructive, so the admitted REQ stays queued
          * until activation. A cancelled or otherwise terminal attempt is not
          * this case. */
-        if (hs == DMP_HS_NOT_ACTIVE && !dmp_hs_terminal(endpoint->association, attempt)) {
+        if (hs == DMP_HS_NOT_ACTIVE && !dmp_hs_terminal(PEER(endpoint, association), attempt)) {
             return DMP_BUSY;
         }
     }
@@ -297,6 +552,7 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
     size_t value_n;
     size_t ext_n = 0U;
     dmp_hs_status sealed;
+    dmp_identity_handle route_context = endpoint->reliability.selected_context;
 
     memset(&spec, 0, sizeof spec);
     spec.fields.type = type;
@@ -331,13 +587,16 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
     if (endpoint->profile.origin_route == 1U) {
         const dmp_identity_slot *slot;
         uint64_t epoch;
-        if (endpoint->context.slot >= endpoint->identity.capacity) {
+        if (route_context.slot >= endpoint->identity.capacity) {
             return DMP_STALE_HANDLE;
         }
-        slot = &endpoint->identity.slots[endpoint->context.slot];
+        slot = &endpoint->identity.slots[route_context.slot];
+        if (slot->generation != route_context.generation) {
+            return DMP_STALE_HANDLE;
+        }
         epoch = slot->local.epoch;
-        if (endpoint->drain_live != 0U && seal_attempt == endpoint->drain_attempt) {
-            epoch = endpoint->drain_local_epoch;
+        if (PEER(endpoint, drain_live) != 0U && seal_attempt == PEER(endpoint, drain_attempt)) {
+            epoch = PEER(endpoint, drain_local_epoch);
         }
         spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_ROUTE);
         spec.fields.route.mode = 1U;
@@ -368,9 +627,9 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
             return DMP_LIMIT_EXHAUSTED;
         }
     }
-    if (endpoint->encode_freshness_live != 0U &&
+    if (PEER(endpoint, encode_freshness_live) != 0U &&
         !put_tlv(endpoint->ext_scratch, &ext_n, sizeof endpoint->ext_scratch, 25U,
-                 endpoint->encode_freshness_token, sizeof endpoint->encode_freshness_token)) {
+                 PEER(endpoint, encode_freshness_token), sizeof PEER(endpoint, encode_freshness_token))) {
         return DMP_LIMIT_EXHAUSTED;
     }
     if (ext_n != 0U) {
@@ -379,8 +638,9 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
         spec.extensions.size = ext_n;
     }
     spec.payload = payload;
-    /* Dry run: header plus payload plus the 16-byte tag, compared with
-     * encoded_mtu. Does not seal and does not require an active attempt.
+    /* Dry run: header plus payload plus the 16-byte tag, compared with the
+     * directional decoded-core MTU. The outer Stream R envelope is checked
+     * against encoded_mtu after encoding. Does not seal or require activation.
      * DMP_HS_APP_PLAIN_MAX remains the protected plaintext buffer ceiling. */
     if (out.data == NULL) {
         dmp_core_limits dry_run_limits;
@@ -404,8 +664,8 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
              * retries can cross a ULEB boundary while the logical frame and
              * path remain unchanged. */
             spec.fields.security.pn = (UINT64_C(1) << 24) - 1U;
-            if (endpoint->association_bound != 0U && endpoint->association != NULL) {
-                uint32_t cid = dmp_hs_remote_rx_cid(endpoint->association, seal_attempt);
+            if (PEER(endpoint, association_bound) != 0U && PEER(endpoint, association) != NULL) {
+                uint32_t cid = dmp_hs_remote_rx_cid(PEER(endpoint, association), seal_attempt);
                 spec.fields.security.receive_cid = cid;
             }
         }
@@ -427,7 +687,7 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
             return DMP_INVALID_ARGUMENT;
         }
         /* One attempt, one PN counter. A refusal is not retried on another association. */
-        sealed = dmp_hs_seal_logical(endpoint->association, seal_attempt, &spec, out.data,
+        sealed = dmp_hs_seal_logical(PEER(endpoint, association), seal_attempt, &spec, out.data,
                                      out.capacity, written);
         return from_hs(sealed);
     }
@@ -437,14 +697,14 @@ static dmp_status encode_core(dmp_endpoint *endpoint, uint8_t type, uint32_t ser
 
 static uint32_t seal_attempt_for(const dmp_endpoint *endpoint, const dmp_reliability_logical *logical)
 {
-    if (endpoint->drain_live != 0U && logical->has_reply_to &&
-        logical->reply_to.origin.epoch == endpoint->drain_peer_epoch) {
-        return endpoint->drain_attempt;
+    if (PEER(endpoint, drain_live) != 0U && logical->has_reply_to &&
+        logical->reply_to.origin.epoch == PEER(endpoint, drain_peer_epoch)) {
+        return PEER(endpoint, drain_attempt);
     }
-    if (endpoint->drain_live != 0U && logical->own.origin.epoch == endpoint->drain_local_epoch) {
-        return endpoint->drain_attempt;
+    if (PEER(endpoint, drain_live) != 0U && logical->own.origin.epoch == PEER(endpoint, drain_local_epoch)) {
+        return PEER(endpoint, drain_attempt);
     }
-    return endpoint->association_attempt;
+    return PEER(endpoint, association_attempt);
 }
 
 static dmp_status encode_logical(void *context, const dmp_reliability_logical *logical, dmp_buffer out,
@@ -457,14 +717,19 @@ static dmp_status encode_logical(void *context, const dmp_reliability_logical *l
     if (endpoint == NULL || logical == NULL || written == NULL) {
         return DMP_INVALID_ARGUMENT;
     }
+    status = select_peer(endpoint, logical->peer);
+    if (status != DMP_OK || select_active_route(endpoint) != DMP_OK) {
+        return DMP_STALE_HANDLE;
+    }
     token = logical->freshness_token;
     if (!bytes_ok(token) || (token.size != 0U && token.size != 16U)) {
         return DMP_INVALID_ARGUMENT;
     }
-    endpoint->encode_freshness_live = token.size == 16U ? 1U : 0U;
-    if (endpoint->encode_freshness_live != 0U) {
-        memcpy(endpoint->encode_freshness_token, token.data, sizeof endpoint->encode_freshness_token);
+    PEER(endpoint, encode_freshness_live) = token.size == 16U ? 1U : 0U;
+    if (PEER(endpoint, encode_freshness_live) != 0U) {
+        memcpy(PEER(endpoint, encode_freshness_token), token.data, sizeof PEER(endpoint, encode_freshness_token));
     }
+    use_context(endpoint, logical->context);
     status_present = logical->type == DMP_TYPE_ERR ||
                      (logical->type == DMP_TYPE_RSP && logical->wire_status != 0U);
     status = encode_core(endpoint, (uint8_t)logical->type, logical->service_id, logical->own.seq,
@@ -473,8 +738,9 @@ static dmp_status encode_logical(void *context, const dmp_reliability_logical *l
                          logical->payload, logical->has_reply_to ? 1 : 0, logical->reply_to,
                          status_present, logical->wire_status, secured(endpoint),
                          secured(endpoint), seal_attempt_for(endpoint, logical), out, written);
-    endpoint->encode_freshness_live = 0U;
-    memset(endpoint->encode_freshness_token, 0, sizeof endpoint->encode_freshness_token);
+    PEER(endpoint, encode_freshness_live) = 0U;
+    memset(PEER(endpoint, encode_freshness_token), 0, sizeof PEER(endpoint, encode_freshness_token));
+    use_context(endpoint, PEER(endpoint, context));
     return status;
 }
 
@@ -482,17 +748,32 @@ static void on_reliability_notice(void *user, const dmp_reliability_notice *noti
 {
     dmp_endpoint *endpoint = user;
     dmp_endpoint_event event;
+    uint32_t previous_slot;
+    dmp_peer_handle previous_peer;
+    dmp_identity_handle previous_context;
+    int previous_live = 0;
     if (endpoint == NULL || notice == NULL) {
         return;
     }
+    previous_slot = endpoint->active_peer_slot;
+    previous_context = endpoint->reliability.selected_context;
+    memset(&previous_peer, 0, sizeof previous_peer);
+    if (previous_slot < endpoint->profile.peers &&
+        endpoint->peers[previous_slot].live != 0U) {
+        previous_peer = endpoint->peers[previous_slot].handle;
+        previous_live = 1;
+    }
+    if (select_peer(endpoint, notice->peer) != DMP_OK) {
+        goto restore_route;
+    }
     if (notice->event == DMP_REL_EVENT_REQUEST_ACCEPTED) {
         if (notice->service_id == 0U) {
-            if (endpoint->prepared_grant_live != 0U &&
-                message_key_eq(endpoint->prepared_grant_key, notice->key)) {
-                endpoint->pending_grant_request = notice->handle;
-                endpoint->pending_grant_live = 1U;
+            if (PEER(endpoint, prepared_grant_live) != 0U &&
+                message_key_eq(PEER(endpoint, prepared_grant_key), notice->key)) {
+                PEER(endpoint, pending_grant_request) = notice->handle;
+                PEER(endpoint, pending_grant_live) = 1U;
             }
-            return;
+            goto restore_route;
         }
         freshness_consume_key(endpoint, notice->key, notice->service_id);
         event = DMP_ENDPOINT_REQUEST;
@@ -512,10 +793,30 @@ static void on_reliability_notice(void *user, const dmp_reliability_notice *noti
     } else if (notice->event == DMP_REL_EVENT_DATA_LOCAL_UNSENT) {
         event = DMP_ENDPOINT_DATA_LOCAL_UNSENT;
     } else {
-        return;
+        goto restore_route;
     }
-    emit(endpoint, event, notice->handle, notice->service_id, notice->wire_status, notice->payload,
-         notice->key);
+    emit_with_context(endpoint, event, notice->handle, notice->service_id,
+                      notice->wire_status, notice->payload, notice->key,
+                      notice->context);
+
+restore_route:
+    /* Reliability expiry/dispatch can notify a different peer in the middle
+     * of another peer's RX. Restore both selectors before that RX consumes its
+     * next frame or uses its already selected identity context. */
+    if (previous_live != 0 && previous_slot < endpoint->profile.peers &&
+        endpoint->peers[previous_slot].live != 0U &&
+        peer_equal(endpoint->peers[previous_slot].handle, previous_peer)) {
+        dmp_endpoint_peer_state *previous = &endpoint->peers[previous_slot];
+        endpoint->active_peer_slot = previous_slot;
+        if (peer_owns_context(previous, previous_context)) {
+            (void)dmp_reliability_select_route(&endpoint->reliability, previous_peer,
+                                               previous_context);
+        } else {
+            use_context(endpoint, previous->context);
+        }
+    } else {
+        endpoint->active_peer_slot = previous_slot;
+    }
 }
 
 static int find_tx(const dmp_endpoint *endpoint)
@@ -541,6 +842,8 @@ static void on_wire_complete(void *owner, dmp_tx_token token, dmp_tx_outcome out
         dmp_tx_complete_fn complete;
         void *complete_owner;
         dmp_tx_token inner;
+        dmp_identity_handle context;
+        uint8_t context_retained;
         uint8_t kind;
         if (tx->live == 0U || tx->outer_token.slot != token.slot ||
             tx->outer_token.generation != token.generation) {
@@ -550,41 +853,75 @@ static void on_wire_complete(void *owner, dmp_tx_token token, dmp_tx_outcome out
         complete = tx->complete;
         complete_owner = tx->owner;
         inner = tx->inner_token;
+        context = tx->context;
+        context_retained = tx->context_retained;
+        {
+            dmp_peer_handle peer = tx->peer;
+            int peer_live = select_peer(endpoint, peer) == DMP_OK;
         memset(tx, 0, sizeof *tx);
         endpoint->wire_busy = 0U;
         if (kind == KIND_REL && complete != NULL) {
             complete(complete_owner, inner, outcome, when);
         } else if (kind == KIND_FRAG) {
-            endpoint->frag_tx = 0U;
-            if (outcome != DMP_TX_FAILED_UNSENT && outcome != DMP_TX_CANCELLED_UNSENT) {
-                if (endpoint->frag_index + 1U >= endpoint->frag_count) {
-                    endpoint->frag_live = 0U;
-                } else {
-                    endpoint->frag_index++;
+            if (peer_live) PEER(endpoint, frag_tx) = 0U;
+            if (peer_live && PEER(endpoint, revoked) != 0U) {
+                release_peer_buffer_contexts(endpoint, &endpoint->peers[endpoint->active_peer_slot]);
+            } else if (outcome != DMP_TX_FAILED_UNSENT && outcome != DMP_TX_CANCELLED_UNSENT) {
+                if (peer_live && PEER(endpoint, frag_index) + 1U >= PEER(endpoint, frag_count)) {
+                    if (PEER(endpoint, frag_context_retained) != 0U) {
+                        (void)dmp_identity_context_release(&endpoint->identity,
+                                                           PEER(endpoint, frag_context));
+                        PEER(endpoint, frag_context_retained) = 0U;
+                    }
+                    PEER(endpoint, frag_live) = 0U;
+                } else if (peer_live) {
+                    PEER(endpoint, frag_index)++;
                 }
             }
         } else if (kind == KIND_TELEM) {
-            endpoint->telem_tx = 0U;
-            if (outcome == DMP_TX_FAILED_UNSENT || outcome == DMP_TX_CANCELLED_UNSENT) {
-                endpoint->telem_pending = 1U;
+            if (peer_live) PEER(endpoint, telem_tx) = 0U;
+            if (peer_live && PEER(endpoint, revoked) != 0U) {
+                release_peer_buffer_contexts(endpoint, &endpoint->peers[endpoint->active_peer_slot]);
+            } else if (outcome == DMP_TX_FAILED_UNSENT || outcome == DMP_TX_CANCELLED_UNSENT) {
+                if (peer_live) PEER(endpoint, telem_pending) = 1U;
             } else {
-                endpoint->telem_pending = 0U;
-                endpoint->telem_seq_set = 0U;
-                if (endpoint->telem_hold != 0U) {
-                    memcpy(endpoint->mem.telemetry_payload, endpoint->mem.telemetry_next,
-                           endpoint->telem_next_len);
-                    endpoint->telem_len = endpoint->telem_next_len;
-                    endpoint->telem_hold = 0U;
-                    endpoint->telem_pending = 1U;
-                    endpoint->telem_seq_set = 0U;
+                if (peer_live) PEER(endpoint, telem_pending) = 0U;
+                if (peer_live) PEER(endpoint, telem_seq_set) = 0U;
+                if (peer_live && PEER(endpoint, telem_context_retained) != 0U) {
+                    (void)dmp_identity_context_release(&endpoint->identity,
+                                                       PEER(endpoint, telem_context));
+                    PEER(endpoint, telem_context_retained) = 0U;
+                }
+                if (peer_live && PEER(endpoint, telem_hold) != 0U) {
+                    memcpy(peer_telemetry_buffer(endpoint), peer_telemetry_next_buffer(endpoint),
+                           PEER(endpoint, telem_next_len));
+                    PEER(endpoint, telem_len) = PEER(endpoint, telem_next_len);
+                    PEER(endpoint, telem_context) = PEER(endpoint, telem_next_context);
+                    PEER(endpoint, telem_attempt) = PEER(endpoint, telem_next_attempt);
+                    PEER(endpoint, telem_context_retained) =
+                        PEER(endpoint, telem_next_context_retained);
+                    PEER(endpoint, telem_next_context_retained) = 0U;
+                    PEER(endpoint, telem_hold) = 0U;
+                    PEER(endpoint, telem_pending) = 1U;
+                    PEER(endpoint, telem_seq_set) = 0U;
                 }
             }
+        } else if (kind == KIND_SYNC && peer_live) {
+            PEER(endpoint, sync_tx) = 0U;
+            if (outcome == DMP_TX_TRANSMITTED) {
+                PEER(endpoint, sync_pending) = 0U;
+            }
+        }
+        if (context_retained != 0U) {
+            (void)dmp_identity_context_release(&endpoint->identity, context);
+        }
         }
         return;
     }
 }
 
 static dmp_status submit_wire(dmp_endpoint *endpoint, uint8_t kind, dmp_bytes core,
+                              dmp_identity_handle context,
                               dmp_tx_complete_fn complete, void *complete_owner, dmp_tx_token inner,
                               dmp_time_ms not_after)
 {
@@ -596,30 +933,42 @@ static dmp_status submit_wire(dmp_endpoint *endpoint, uint8_t kind, dmp_bytes co
     if (endpoint->wire_busy != 0U) {
         return DMP_BUSY;
     }
-    if (core.size == 0U || core.size > endpoint->profile.encoded_mtu || core.data == NULL) {
+    if (core.size == 0U || core.size > local_core_mtu(endpoint) || core.data == NULL ||
+        core.size > endpoint->profile.encoded_mtu) {
         return DMP_LIMIT_EXHAUSTED;
+    }
+    if (PEER(endpoint, sync_pending) != 0U || PEER(endpoint, sync_tx) != 0U) {
+        return DMP_BUSY;
     }
     slot = find_tx(endpoint);
     if (slot < 0 || endpoint->tx_generation == UINT64_MAX) {
         return DMP_QUOTA_EXHAUSTED;
     }
-    /* Leading delimiter on every frame. A lost opening frame must not leave
-     * the peer discarding the retransmission. Stream R allows this prefix. */
-    if (endpoint->mem.stream_tx_capacity < 1U) {
-        return DMP_QUOTA_EXHAUSTED;
+    if (endpoint->mem.framing_mode == DMP_ENDPOINT_FRAMING_PACKET) {
+        encoded.data = (uint8_t *)core.data;
+        written = core.size;
+    } else {
+        encoded.data = endpoint->mem.stream_tx;
+        encoded.capacity = endpoint->mem.stream_tx_capacity;
+        status = dmp_stream_encode(DMP_STREAM_R, core, encoded, &written);
+        if (status != DMP_OK) {
+            return status;
+        }
+        if (written > endpoint->profile.encoded_mtu) {
+            return DMP_LIMIT_EXHAUSTED;
+        }
     }
-    encoded.data = endpoint->mem.stream_tx + 1U;
-    encoded.capacity = endpoint->mem.stream_tx_capacity - 1U;
-    status = dmp_stream_encode(DMP_STREAM_R, core, encoded, &written);
+    status = dmp_identity_context_retain(&endpoint->identity, context);
     if (status != DMP_OK) {
         return status;
     }
-    endpoint->mem.stream_tx[0] = 0U;
-    written++;
     endpoint->tx_generation++;
     memset(&endpoint->tx[slot], 0, sizeof endpoint->tx[slot]);
     endpoint->tx[slot].live = 1U;
     endpoint->tx[slot].kind = kind;
+    endpoint->tx[slot].context = context;
+    endpoint->tx[slot].context_retained = 1U;
+    endpoint->tx[slot].peer = PEER(endpoint, handle);
     endpoint->tx[slot].outer_token.slot = (uint32_t)slot;
     endpoint->tx[slot].outer_token.generation = endpoint->tx_generation;
     endpoint->tx[slot].inner_token = inner;
@@ -628,28 +977,90 @@ static dmp_status submit_wire(dmp_endpoint *endpoint, uint8_t kind, dmp_bytes co
     endpoint->wire_busy = 1U;
     memset(&submission, 0, sizeof submission);
     submission.token = endpoint->tx[slot].outer_token;
-    submission.frame.data = endpoint->mem.stream_tx;
+    submission.peer = PEER(endpoint, handle);
+    submission.frame.data = encoded.data;
     submission.frame.size = written;
     submission.not_after = not_after;
     submission.complete = on_wire_complete;
     submission.owner = endpoint;
     status = endpoint->outer.submit(endpoint->outer.context, &submission);
     if (status != DMP_OK) {
+        dmp_status release_status = dmp_identity_context_release(&endpoint->identity, context);
         memset(&endpoint->tx[slot], 0, sizeof endpoint->tx[slot]);
         endpoint->wire_busy = 0U;
+        return release_status == DMP_OK ? status : release_status;
+    }
+    endpoint->accepted_tx_generation++;
+    return DMP_OK;
+}
+
+static dmp_status submit_sync(dmp_endpoint *endpoint, dmp_time_ms now)
+{
+    dmp_tx_submission submission;
+    int slot;
+    dmp_status status;
+    if (endpoint->wire_busy != 0U || PEER(endpoint, sync_pending) == 0U ||
+        PEER(endpoint, sync_tx) != 0U) {
+        return DMP_BUSY;
+    }
+    if (endpoint->mem.stream_tx_capacity == 0U || endpoint->outer.caps.max_frame_bytes < 1U) {
+        return DMP_QUOTA_EXHAUSTED;
+    }
+    slot = find_tx(endpoint);
+    if (slot < 0 || endpoint->tx_generation == UINT64_MAX) {
+        return DMP_QUOTA_EXHAUSTED;
+    }
+    endpoint->tx_generation++;
+    memset(&endpoint->tx[slot], 0, sizeof endpoint->tx[slot]);
+    endpoint->tx[slot].live = 1U;
+    endpoint->tx[slot].kind = KIND_SYNC;
+    endpoint->tx[slot].peer = PEER(endpoint, handle);
+    endpoint->tx[slot].outer_token.slot = (uint32_t)slot;
+    endpoint->tx[slot].outer_token.generation = endpoint->tx_generation;
+    PEER(endpoint, sync_tx) = 1U;
+    endpoint->wire_busy = 1U;
+    endpoint->mem.stream_tx[0] = 0U;
+    memset(&submission, 0, sizeof submission);
+    submission.token = endpoint->tx[slot].outer_token;
+    submission.peer = PEER(endpoint, handle);
+    submission.frame.data = endpoint->mem.stream_tx;
+    submission.frame.size = 1U;
+    (void)now;
+    submission.not_after = UINT64_MAX;
+    submission.complete = on_wire_complete;
+    submission.owner = endpoint;
+    status = endpoint->outer.submit(endpoint->outer.context, &submission);
+    if (status != DMP_OK) {
+        memset(&endpoint->tx[slot], 0, sizeof endpoint->tx[slot]);
+        endpoint->wire_busy = 0U;
+        PEER(endpoint, sync_tx) = 0U;
         return status;
     }
+    endpoint->accepted_tx_generation++;
     return DMP_OK;
 }
 
 static dmp_status inner_submit(void *context, const dmp_tx_submission *submission)
 {
     dmp_endpoint *endpoint = context;
+    const dmp_reliability_adapter_slot *adapter;
     if (endpoint == NULL || submission == NULL) {
         return DMP_INVALID_ARGUMENT;
     }
-    return submit_wire(endpoint, KIND_REL, submission->frame, submission->complete, submission->owner,
-                       submission->token, submission->not_after);
+    if (select_peer(endpoint, submission->peer) != DMP_OK) {
+        return DMP_STALE_HANDLE;
+    }
+    if (submission->token.slot >= endpoint->reliability.storage.adapter_capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    adapter = &endpoint->reliability.storage.adapters[submission->token.slot];
+    if (adapter->live == 0U || adapter->generation != submission->token.generation ||
+        !peer_equal(adapter->peer, submission->peer)) {
+        return DMP_STALE_HANDLE;
+    }
+    return submit_wire(endpoint, KIND_REL, submission->frame, adapter->context,
+                       submission->complete, submission->owner, submission->token,
+                       submission->not_after);
 }
 
 static dmp_status inner_cancel(void *context, dmp_tx_token token)
@@ -687,26 +1098,64 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     dmp_reassembly_storage assembly;
     dmp_stream_config stream;
     dmp_buffer stream_storage;
+    dmp_hs_admission_limits hs_limits;
     size_t stream_bound = 0U;
+    size_t stream_rx_need = 0U;
+    size_t peer_message_need = 0U;
     uint64_t required_freshness = 0U;
     dmp_status status;
     if (endpoint == NULL || storage == NULL || storage->profile == NULL ||
         storage->transport == NULL || storage->notice == NULL || storage->context.security > 1U) {
         return DMP_INVALID_ARGUMENT;
     }
-    status = dmp_stream_encoded_bound(DMP_STREAM_R, storage->profile->encoded_mtu, &stream_bound);
-    if (status != DMP_OK) {
-        return status;
+    if (storage->profile->peers == 0U || storage->profile->peers > DMP_PROFILE_MAX_PEERS ||
+        storage->peer_states == NULL ||
+        storage->peer_state_capacity < storage->profile->peers ||
+        storage->identity_capacity < (size_t)storage->profile->peers * 2U) {
+        return DMP_INVALID_ARGUMENT;
     }
+    if (storage->profile->peers > 1U &&
+        (storage->context.security != 1U || storage->handshake_admission == NULL ||
+         storage->handshake_admission_capacity < dmp_hs_admission_size() ||
+         storage->handshake_max_pending == 0U || storage->handshake_max_scratch == 0U ||
+         storage->handshake_global_work == 0U || storage->handshake_ingress_work == 0U)) {
+        return DMP_UNSUPPORTED;
+    }
+    if (storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        status = dmp_stream_encoded_bound(DMP_STREAM_R, max_core_mtu(storage->profile),
+                                          &stream_bound);
+        if (status != DMP_OK) {
+            return status;
+        }
+    } else if (storage->framing_mode == DMP_ENDPOINT_FRAMING_PACKET) {
+        stream_bound = 0U;
+        if (storage->profile->encoded_mtu < max_core_mtu(storage->profile)) {
+            return DMP_INVALID_ARGUMENT;
+        }
+    } else {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (stream_bound != 0U && storage->profile->peers > SIZE_MAX / stream_bound) {
+        return DMP_LIMIT_EXHAUSTED;
+    }
+    stream_rx_need = (size_t)storage->profile->peers * stream_bound;
+    if (storage->profile->message_bytes == 0U ||
+        storage->profile->peers > SIZE_MAX / storage->profile->message_bytes) {
+        return DMP_LIMIT_EXHAUSTED;
+    }
+    peer_message_need = (size_t)storage->profile->peers * storage->profile->message_bytes;
     if (storage->transport->submit == NULL || storage->transport->cancel == NULL ||
-        storage->transport->caps.max_frame_bytes < stream_bound + 1U ||
+        (storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R &&
+         storage->profile->encoded_mtu < stream_bound) ||
+        storage->transport->caps.max_frame_bytes < storage->profile->encoded_mtu ||
         (storage->profile->tx_borrow ? 1 : 0) !=
             (storage->transport->caps.ownership == DMP_TX_BORROW ? 1 : 0) ||
         storage->profile->synchronous_completion != storage->transport->caps.synchronous_completion) {
         return DMP_INVALID_ARGUMENT;
     }
     if (storage->profile->freshness_required_mask != 0U) {
-        required_freshness = (uint64_t)storage->profile->freshness_tokens_per_association * 2U;
+        required_freshness = (uint64_t)storage->profile->freshness_tokens_per_association * 2U *
+                             storage->profile->peers;
         if (storage->context.security != 1U) {
             return DMP_UNSUPPORTED;
         }
@@ -716,18 +1165,21 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
         }
     }
     if (require_span(1U, storage->identity_slots, storage->identity_capacity) != DMP_OK ||
-        require_span(storage->profile->message_bytes, storage->fragment_message,
+        require_span(peer_message_need, storage->fragment_message,
                      storage->fragment_message_capacity) != DMP_OK ||
-        require_span(storage->profile->encoded_mtu, storage->fragment_frame,
+        require_span(max_core_mtu(storage->profile), storage->fragment_frame,
                      storage->fragment_frame_capacity) != DMP_OK ||
-        require_span(storage->profile->message_bytes, storage->telemetry_payload,
+        require_span(peer_message_need, storage->telemetry_payload,
                      storage->telemetry_payload_capacity) != DMP_OK ||
-        require_span(storage->profile->message_bytes, storage->telemetry_next,
+        require_span(peer_message_need, storage->telemetry_next,
                      storage->telemetry_next_capacity) != DMP_OK ||
-        require_span(storage->profile->encoded_mtu, storage->telemetry_frame,
+        require_span(max_core_mtu(storage->profile), storage->telemetry_frame,
                      storage->telemetry_frame_capacity) != DMP_OK ||
-        require_span(stream_bound + 1U, storage->stream_tx, storage->stream_tx_capacity) != DMP_OK ||
-        require_span(stream_bound, storage->stream_rx, storage->stream_rx_capacity) != DMP_OK ||
+        (storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R &&
+         require_span(storage->profile->encoded_mtu, storage->stream_tx,
+                      storage->stream_tx_capacity) != DMP_OK) ||
+        (storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R &&
+         require_span(stream_rx_need, storage->stream_rx, storage->stream_rx_capacity) != DMP_OK) ||
         storage->assembly_capacity < storage->profile->assembly_slots ||
         storage->tombstone_capacity < storage->profile->assembly_tombstone_slots) {
         return DMP_INVALID_ARGUMENT;
@@ -736,13 +1188,25 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     endpoint->profile = *storage->profile;
     endpoint->mem = *storage;
     endpoint->mem.profile = &endpoint->profile;
+    endpoint->peers = storage->peer_states;
+    memset(endpoint->peers, 0,
+           (size_t)endpoint->profile.peers * sizeof *endpoint->peers);
     endpoint->notice = storage->notice;
     endpoint->notice_user = storage->notice_user;
     endpoint->validate_request = storage->validate_request;
     endpoint->validate_request_user = storage->validate_request_user;
     endpoint->validate_result = storage->validate_result;
     endpoint->outer = *storage->transport;
+    endpoint->handshake_admission = storage->handshake_admission;
     endpoint->tx_generation = 1U;
+    endpoint->stream_rx_stride = stream_bound;
+    endpoint->peers[0].handle.slot = 0U;
+    endpoint->peers[0].handle.generation = 1U;
+    endpoint->peers[0].live = 1U;
+    endpoint->peers[0].sync_pending =
+        storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R ? 1U : 0U;
+    endpoint->peer_count = 1U;
+    endpoint->active_peer_slot = 0U;
     if (required_freshness != 0U) {
         memset(storage->freshness_slots, 0,
                (size_t)required_freshness * sizeof(dmp_endpoint_freshness_slot));
@@ -752,9 +1216,26 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     if (status != DMP_OK) {
         return status;
     }
-    status = dmp_identity_context_open(&endpoint->identity, &storage->context, &endpoint->context);
+    if (endpoint->handshake_admission != NULL) {
+        hs_limits.max_pending = storage->handshake_max_pending;
+        hs_limits.max_scratch = storage->handshake_max_scratch;
+        hs_limits.global_work = storage->handshake_global_work;
+        hs_limits.ingress_work = storage->handshake_ingress_work;
+        status = from_hs(dmp_hs_admission_init(endpoint->handshake_admission, &hs_limits));
+        if (status != DMP_OK) {
+            return status;
+        }
+    }
+    status = dmp_identity_context_open(&endpoint->identity, &storage->context, &PEER(endpoint, context));
     if (status != DMP_OK) {
         return status;
+    }
+    if (endpoint->profile.peers > 1U) {
+        status = dmp_identity_context_retain(&endpoint->identity, PEER(endpoint, context));
+        if (status != DMP_OK) {
+            return status;
+        }
+        PEER(endpoint, context_owned) = 1U;
     }
     memset(&assembly, 0, sizeof assembly);
     assembly.profile = &endpoint->profile;
@@ -767,21 +1248,26 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     assembly.payload_capacity = storage->assembly_payload_capacity;
     assembly.metadata = storage->assembly_metadata;
     assembly.metadata_capacity = storage->assembly_metadata_capacity;
-    status = dmp_reassembly_init(&endpoint->reassembly, &assembly, &endpoint->profile,
-                                 &endpoint->identity);
-    if (status != DMP_OK) {
-        return status;
+    /* A profile with fragments == 1 explicitly disables fragmentation. Keep
+     * the reassembly engine uninitialized in that case; the parser's matching
+     * max_fragments bound rejects every FRAG frame before take_fragment(). */
+    if (endpoint->profile.fragments >= 2U) {
+        status = dmp_reassembly_init(&endpoint->reassembly, &assembly, &endpoint->profile,
+                                     &endpoint->identity);
+        if (status != DMP_OK) {
+            return status;
+        }
     }
     endpoint->inner.context = endpoint;
     endpoint->inner.submit = inner_submit;
     endpoint->inner.cancel = inner_cancel;
-    endpoint->inner.caps.max_frame_bytes = endpoint->profile.encoded_mtu;
+    endpoint->inner.caps.max_frame_bytes = max_core_mtu(&endpoint->profile);
     endpoint->inner.caps.ownership = endpoint->profile.tx_borrow ? DMP_TX_BORROW : DMP_TX_COPY;
     endpoint->inner.caps.synchronous_completion = endpoint->profile.synchronous_completion;
     memset(&rel, 0, sizeof rel);
     rel.profile = &endpoint->profile;
     rel.identity = &endpoint->identity;
-    rel.context = endpoint->context;
+    rel.context = PEER(endpoint, context);
     rel.transport = &endpoint->inner;
     rel.encode = encode_logical;
     rel.encode_context = endpoint;
@@ -813,20 +1299,144 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     if (status != DMP_OK) {
         return status;
     }
-    memset(&stream, 0, sizeof stream);
-    stream.mode = DMP_STREAM_R;
-    stream.max_core_bytes = endpoint->profile.encoded_mtu;
-    stream.partial_timeout_ms =
-        endpoint->profile.collect_ms != 0U ? endpoint->profile.collect_ms : 1U;
-    stream_storage.data = storage->stream_rx;
-    stream_storage.capacity = storage->stream_rx_capacity;
-    status = dmp_stream_init(&endpoint->decoder, stream, stream_storage, now);
+    status = select_active_route(endpoint);
     if (status != DMP_OK) {
         (void)dmp_reliability_close(&endpoint->reliability, now);
         return status;
     }
+    if (endpoint->mem.framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        memset(&stream, 0, sizeof stream);
+        stream.mode = DMP_STREAM_R;
+        stream.max_core_bytes = receive_core_mtu(endpoint);
+        stream.partial_timeout_ms =
+            endpoint->profile.collect_ms != 0U ? endpoint->profile.collect_ms : 1U;
+        stream_storage.data = storage->stream_rx;
+        stream_storage.capacity = endpoint->stream_rx_stride;
+        status = dmp_stream_init(&PEER(endpoint, decoder), stream, stream_storage, now);
+        if (status != DMP_OK) {
+            (void)dmp_reliability_close(&endpoint->reliability, now);
+            return status;
+        }
+    }
     endpoint->initialized = 1U;
     return DMP_OK;
+}
+
+dmp_status dmp_endpoint_add_peer(dmp_endpoint *endpoint,
+                                 const dmp_identity_context_config *context,
+                                 dmp_time_ms now, dmp_peer_handle *out)
+{
+    dmp_endpoint_peer_state *peer = NULL;
+    dmp_stream_config stream;
+    dmp_buffer stream_storage;
+    dmp_identity_handle identity;
+    uint32_t slot;
+    uint64_t generation;
+    dmp_status status;
+    if (!ready(endpoint) || context == NULL || out == NULL ||
+        endpoint->profile.peers <= 1U || endpoint->peer_count >= endpoint->profile.peers ||
+        context->security > 1U || context->security != endpoint->mem.context.security ||
+        context->local.namespace_id != endpoint->profile.namespace_id ||
+        context->peer.namespace_id != endpoint->profile.namespace_id ||
+        context->peer.origin_id == 0U || context->peer.origin_id == context->local.origin_id ||
+        context->local.origin_id != endpoint->mem.context.local.origin_id) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    /* Check every live identity before choosing a reusable slot. Otherwise an
+     * early free slot can hide a duplicate principal in a later slot. */
+    for (slot = 0U; slot < endpoint->profile.peers; slot++) {
+        dmp_endpoint_peer_state *candidate = &endpoint->peers[slot];
+        if (candidate->live != 0U) {
+            const dmp_identity_slot *identity_slot =
+                candidate->context.slot < endpoint->identity.capacity
+                    ? &endpoint->identity.slots[candidate->context.slot]
+                    : NULL;
+            if (identity_slot != NULL && identity_slot->generation == candidate->context.generation &&
+                identity_slot->peer.namespace_id == context->peer.namespace_id &&
+                identity_slot->peer.origin_id == context->peer.origin_id) {
+                return DMP_DUPLICATE;
+            }
+        }
+    }
+    for (slot = 0U; slot < endpoint->profile.peers; slot++) {
+        dmp_endpoint_peer_state *candidate = &endpoint->peers[slot];
+        if (candidate->live != 0U || candidate->retirement_requested != 0U) {
+            continue;
+        }
+        if (candidate->retirement_requested == 0U && candidate->handle.generation == 0U) {
+            peer = candidate;
+            break;
+        }
+        if (candidate->retirement_requested == 0U && candidate->handle.generation != 0U) {
+            peer = candidate;
+            break;
+        }
+    }
+    if (peer == NULL) {
+        return DMP_QUOTA_EXHAUSTED;
+    }
+    slot = (uint32_t)(peer - endpoint->peers);
+    generation = peer->handle.generation == 0U ? 1U : peer->handle.generation;
+    status = dmp_identity_context_open(&endpoint->identity, context, &identity);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = dmp_identity_context_retain(&endpoint->identity, identity);
+    if (status != DMP_OK) {
+        (void)dmp_identity_context_begin_drain(&endpoint->identity, identity, 0U);
+        (void)dmp_identity_context_retire(&endpoint->identity, identity, 0U);
+        return status;
+    }
+    memset(peer, 0, sizeof *peer);
+    peer->handle.slot = slot;
+    peer->handle.generation = generation;
+    peer->context = identity;
+    peer->context_owned = 1U;
+    peer->live = 1U;
+    peer->sync_pending =
+        endpoint->mem.framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R ? 1U : 0U;
+    endpoint->active_peer_slot = slot;
+    if (endpoint->mem.framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        memset(&stream, 0, sizeof stream);
+        stream.mode = DMP_STREAM_R;
+        stream.max_core_bytes = receive_core_mtu(endpoint);
+        stream.partial_timeout_ms =
+            endpoint->profile.collect_ms != 0U ? endpoint->profile.collect_ms : 1U;
+        stream_storage.data = endpoint->mem.stream_rx + (size_t)slot * endpoint->stream_rx_stride;
+        stream_storage.capacity = endpoint->stream_rx_stride;
+        status = dmp_stream_init(&peer->decoder, stream, stream_storage, now);
+        if (status != DMP_OK) {
+            (void)dmp_identity_context_release(&endpoint->identity, identity);
+            (void)dmp_identity_context_begin_drain(&endpoint->identity, identity, 0U);
+            (void)dmp_identity_context_retire(&endpoint->identity, identity, 0U);
+            memset(peer, 0, sizeof *peer);
+            peer->handle.slot = slot;
+            peer->handle.generation = generation;
+            return status;
+        }
+    }
+    endpoint->peer_count++;
+    status = select_active_route(endpoint);
+    if (status != DMP_OK) {
+        endpoint->peer_count--;
+        (void)dmp_identity_context_release(&endpoint->identity, identity);
+        (void)dmp_identity_context_begin_drain(&endpoint->identity, identity, now);
+        (void)dmp_identity_context_retire(&endpoint->identity, identity, now);
+        memset(peer, 0, sizeof *peer);
+        peer->handle.slot = slot;
+        peer->handle.generation = generation;
+        return status;
+    }
+    *out = peer->handle;
+    return DMP_OK;
+}
+
+struct dmp_hs_admission *dmp_endpoint_handshake_admission(dmp_endpoint *endpoint)
+{
+    if (!ready(endpoint) || endpoint->handshake_admission == NULL) {
+        return NULL;
+    }
+    return endpoint->handshake_admission;
 }
 
 static uint32_t permit_mask(const dmp_endpoint *endpoint, uint32_t principal, uint32_t service)
@@ -834,11 +1444,11 @@ static uint32_t permit_mask(const dmp_endpoint *endpoint, uint32_t principal, ui
     uint32_t mask = 0U;
     uint8_t index;
 
-    if (endpoint->grants_set == 0U) {
+    if (PEER(endpoint, grants_set) == 0U) {
         return 0U;
     }
-    for (index = 0U; index < endpoint->grant_count; index++) {
-        const dmp_endpoint_grant *grant = &endpoint->grants[index];
+    for (index = 0U; index < PEER(endpoint, grant_count); index++) {
+        const dmp_endpoint_grant *grant = &PEER(endpoint, grants)[index];
         if (grant->principal == principal && grant->service_id == service) {
             mask |= grant->permit;
         }
@@ -852,7 +1462,7 @@ static int action_allowed(const dmp_endpoint *endpoint, uint32_t principal, uint
     if (!secured(endpoint)) {
         return 1;
     }
-    if (endpoint->revoked != 0U || endpoint->grants_set == 0U || need == 0U) {
+    if (PEER(endpoint, revoked) != 0U || PEER(endpoint, grants_set) == 0U || need == 0U) {
         return 0;
     }
     return (permit_mask(endpoint, principal, service) & need) == need;
@@ -865,11 +1475,11 @@ static int local_action(const dmp_endpoint *endpoint, uint32_t service, uint32_t
     if (!secured(endpoint)) {
         return 1;
     }
-    if (endpoint->context.slot >= endpoint->identity.capacity) {
+    if (PEER(endpoint, context).slot >= endpoint->identity.capacity) {
         return 0;
     }
-    slot = &endpoint->identity.slots[endpoint->context.slot];
-    if (slot->generation != endpoint->context.generation) {
+    slot = &endpoint->identity.slots[PEER(endpoint, context).slot];
+    if (slot->generation != PEER(endpoint, context).generation) {
         return 0;
     }
     if (service == 0U) {
@@ -880,18 +1490,21 @@ static int local_action(const dmp_endpoint *endpoint, uint32_t service, uint32_t
 
 static size_t freshness_slot_count(const dmp_endpoint *endpoint)
 {
-    uint64_t admitted = (uint64_t)endpoint->profile.freshness_tokens_per_association * 2U;
+    uint64_t admitted = (uint64_t)endpoint->profile.freshness_tokens_per_association * 2U *
+                        endpoint->profile.peers;
     return admitted < endpoint->mem.freshness_capacity ? (size_t)admitted
                                                        : endpoint->mem.freshness_capacity;
 }
 
-static void freshness_clear_attempt(dmp_endpoint *endpoint, uint32_t attempt)
+static void freshness_clear_attempt(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                    uint32_t attempt)
 {
     size_t i;
     size_t count = freshness_slot_count(endpoint);
     for (i = 0U; i < count; i++) {
         dmp_endpoint_freshness_slot *slot = &endpoint->mem.freshness_slots[i];
-        if (slot->state != DMP_ENDPOINT_FRESHNESS_EMPTY && slot->attempt == attempt) {
+        if (slot->state != DMP_ENDPOINT_FRESHNESS_EMPTY && peer_equal(slot->peer, peer) &&
+            slot->attempt == attempt) {
             memset(slot, 0, sizeof *slot);
         }
     }
@@ -903,7 +1516,8 @@ static void freshness_consume_key(dmp_endpoint *endpoint, dmp_message_key key, u
     size_t count = freshness_slot_count(endpoint);
     for (i = 0U; i < count; i++) {
         dmp_endpoint_freshness_slot *slot = &endpoint->mem.freshness_slots[i];
-        if (slot->state == DMP_ENDPOINT_FRESHNESS_BOUND && slot->principal == key.origin.origin_id &&
+        if (slot->state == DMP_ENDPOINT_FRESHNESS_BOUND && peer_equal(slot->peer, PEER(endpoint, handle)) &&
+            slot->principal == key.origin.origin_id &&
             slot->peer_epoch == key.origin.epoch && slot->bound_seq == key.seq &&
             slot->service_id == service) {
             slot->state = DMP_ENDPOINT_FRESHNESS_CONSUMED;
@@ -956,14 +1570,16 @@ static int freshness_identity_retained(const dmp_endpoint *endpoint, dmp_message
     size_t i;
     for (i = 0U; i < endpoint->mem.history_capacity; i++) {
         const dmp_reliability_history_slot *history = &endpoint->mem.history[i];
-        if (history->live != 0U && message_key_eq(history->source, key) &&
+        if (history->live != 0U && peer_equal(history->peer, PEER(endpoint, handle)) &&
+            message_key_eq(history->source, key) &&
             history->service_id == service && history->type == type) {
             return 1;
         }
     }
     for (i = 0U; i < endpoint->mem.result_capacity; i++) {
         const dmp_reliability_result_slot *result = &endpoint->mem.results[i];
-        if (result->live != 0U && message_key_eq(result->request, key) &&
+        if (result->live != 0U && peer_equal(result->peer, PEER(endpoint, handle)) &&
+            message_key_eq(result->request, key) &&
             result->service_id == service) {
             return 1;
         }
@@ -973,7 +1589,30 @@ static int freshness_identity_retained(const dmp_endpoint *endpoint, dmp_message
 
 static void use_context(dmp_endpoint *endpoint, dmp_identity_handle handle)
 {
-    endpoint->reliability.storage.context = handle;
+    (void)dmp_reliability_select_route(&endpoint->reliability, PEER(endpoint, handle), handle);
+}
+
+static void release_peer_buffer_contexts(dmp_endpoint *endpoint,
+                                         dmp_endpoint_peer_state *peer)
+{
+    if (peer->frag_context_retained != 0U) {
+        (void)dmp_identity_context_release(&endpoint->identity, peer->frag_context);
+        peer->frag_context_retained = 0U;
+        peer->frag_live = 0U;
+        peer->frag_tx = 0U;
+    }
+    if (peer->telem_context_retained != 0U) {
+        (void)dmp_identity_context_release(&endpoint->identity, peer->telem_context);
+        peer->telem_context_retained = 0U;
+    }
+    if (peer->telem_next_context_retained != 0U) {
+        (void)dmp_identity_context_release(&endpoint->identity, peer->telem_next_context);
+        peer->telem_next_context_retained = 0U;
+    }
+    peer->telem_pending = 0U;
+    peer->telem_hold = 0U;
+    peer->telem_tx = 0U;
+    peer->telem_seq_set = 0U;
 }
 
 static void cancel_epoch_senders(dmp_endpoint *endpoint, dmp_time_ms now, int only_past_drain)
@@ -988,81 +1627,235 @@ static void cancel_epoch_senders(dmp_endpoint *endpoint, dmp_time_ms now, int on
         dmp_reliability_handle handle;
 
         if (sender->live == 0U ||
+            !peer_equal(sender->peer, PEER(endpoint, handle)) ||
             (sender->kind != DMP_REL_SENDER_REQUEST && sender->kind != DMP_REL_SENDER_DATA) ||
             sender->phase == DMP_REL_PHASE_TERMINAL) {
             continue;
         }
-        if (endpoint->drain_live != 0U && sender->own.origin.epoch != endpoint->drain_local_epoch) {
+        if (PEER(endpoint, drain_live) != 0U && sender->own.origin.epoch != PEER(endpoint, drain_local_epoch)) {
             continue;
         }
-        if (only_past_drain && endpoint->drain_live != 0U &&
-            sender->send_deadline <= endpoint->drain_not_after &&
-            sender->result_deadline <= endpoint->drain_not_after) {
+        if (only_past_drain && PEER(endpoint, drain_live) != 0U &&
+            sender->send_deadline <= PEER(endpoint, drain_not_after) &&
+            sender->result_deadline <= PEER(endpoint, drain_not_after)) {
             continue;
         }
         handle.slot = (uint32_t)index;
         handle.generation = sender->generation;
+        handle.peer = sender->peer;
         (void)dmp_reliability_cancel(&endpoint->reliability, handle, now);
     }
+}
+
+static dmp_status retire_identity_context(dmp_endpoint *endpoint, dmp_identity_handle context,
+                                          dmp_time_ms now)
+{
+    dmp_status status = dmp_identity_context_retire(&endpoint->identity, context, now);
+
+    if (endpoint->profile.fragments >= 2U &&
+        (status == DMP_OK || status == DMP_STALE_HANDLE) &&
+        (size_t)context.slot < endpoint->identity.capacity) {
+        const dmp_identity_slot *slot = &endpoint->identity.slots[context.slot];
+
+        /* A stale result can mean an earlier retirement succeeded but its
+         * reassembly cleanup had to be retried. Require the same unused
+         * generation before clearing any context-scoped tombstones. */
+        if (slot->generation == context.generation && slot->state == DMP_IDENTITY_SLOT_UNUSED) {
+            dmp_status cleanup = dmp_reassembly_context_retired(&endpoint->reassembly, context);
+            if (cleanup != DMP_OK) {
+                return cleanup;
+            }
+        }
+    }
+    return status;
 }
 
 static void end_drain(dmp_endpoint *endpoint, dmp_time_ms now)
 {
     dmp_status retired;
 
-    if (endpoint->drain_live == 0U) {
+    if (PEER(endpoint, drain_live) == 0U) {
         return;
     }
     cancel_epoch_senders(endpoint, now, 0);
-    if (endpoint->association != NULL) {
-        (void)dmp_hs_cancel(endpoint->association, endpoint->drain_attempt);
+    if (PEER(endpoint, association) != NULL) {
+        (void)dmp_hs_cancel(PEER(endpoint, association), PEER(endpoint, drain_attempt));
     }
     /* Reassembly may still retain the draining context. Leave the slot and
      * retry on a later poll once that retain drops. */
-    retired = dmp_identity_context_retire(&endpoint->identity, endpoint->drain_context, now);
+    retired = retire_identity_context(endpoint, PEER(endpoint, drain_context), now);
     if (retired != DMP_OK && retired != DMP_STALE_HANDLE) {
         return;
     }
-    freshness_clear_attempt(endpoint, endpoint->drain_attempt);
-    endpoint->drain_live = 0U;
+    if (release_association_reservation(endpoint,
+                                        &endpoint->peers[endpoint->active_peer_slot], 1) != DMP_OK) {
+        return;
+    }
+    freshness_clear_attempt(endpoint, PEER(endpoint, handle), PEER(endpoint, drain_attempt));
+    PEER(endpoint, drain_live) = 0U;
 }
 
 static void expire_drain(dmp_endpoint *endpoint, dmp_time_ms now)
 {
-    if (endpoint->drain_live != 0U && now >= endpoint->drain_not_after) {
+    if (PEER(endpoint, drain_live) != 0U && now >= PEER(endpoint, drain_not_after)) {
         end_drain(endpoint, now);
     }
 }
 
-dmp_status dmp_endpoint_set_grants(dmp_endpoint *endpoint, const dmp_endpoint_grant *grants,
-                                   size_t count)
+static void clear_peer_freshness(dmp_endpoint *endpoint, dmp_peer_handle peer)
+{
+    size_t i;
+    for (i = 0U; i < freshness_slot_count(endpoint); i++) {
+        if (endpoint->mem.freshness_slots[i].state != DMP_ENDPOINT_FRESHNESS_EMPTY &&
+            peer_equal(endpoint->mem.freshness_slots[i].peer, peer)) {
+            memset(&endpoint->mem.freshness_slots[i], 0,
+                   sizeof endpoint->mem.freshness_slots[i]);
+        }
+    }
+}
+
+static int peer_has_outer_tx(const dmp_endpoint *endpoint, dmp_peer_handle peer)
+{
+    size_t i;
+    for (i = 0U; i < DMP_ENDPOINT_TX_SLOTS; i++) {
+        if (endpoint->tx[i].live != 0U && peer_equal(endpoint->tx[i].peer, peer)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void retire_revoked_peers(dmp_endpoint *endpoint, dmp_time_ms now)
+{
+    uint32_t i;
+    for (i = 0U; i < endpoint->profile.peers; i++) {
+        dmp_endpoint_peer_state *peer = &endpoint->peers[i];
+        dmp_identity_slot *slot;
+        dmp_status status;
+        if (peer->live == 0U || peer->retirement_requested == 0U ||
+            peer_has_outer_tx(endpoint, peer->handle)) {
+            continue;
+        }
+        endpoint->active_peer_slot = i;
+        if (peer->drain_live != 0U) {
+            if (peer->drain_context.slot < endpoint->identity.capacity) {
+                slot = &endpoint->identity.slots[peer->drain_context.slot];
+                if (slot->generation == peer->drain_context.generation &&
+                    slot->state == DMP_IDENTITY_SLOT_DRAINING) {
+                    slot->not_after = now;
+                }
+            }
+            end_drain(endpoint, now);
+            if (peer->drain_live != 0U) {
+                continue;
+            }
+        }
+        if (peer->context.slot >= endpoint->identity.capacity) {
+            continue;
+        }
+        slot = &endpoint->identity.slots[peer->context.slot];
+        if (slot->generation != peer->context.generation) {
+            continue;
+        }
+        if (slot->state == DMP_IDENTITY_SLOT_ACTIVE) {
+            (void)dmp_identity_context_begin_drain(&endpoint->identity, peer->context, now);
+        }
+        if (peer->context_owned != 0U) {
+            status = dmp_identity_context_release(&endpoint->identity, peer->context);
+            if (status != DMP_OK) {
+                continue;
+            }
+            peer->context_owned = 0U;
+        }
+        status = retire_identity_context(endpoint, peer->context, now);
+        if (status != DMP_OK && status != DMP_STALE_HANDLE) {
+            continue;
+        }
+        if (release_association_reservation(endpoint, peer, 0) != DMP_OK) {
+            continue;
+        }
+        {
+            uint64_t generation = peer->handle.generation;
+            if (endpoint->peer_count != 0U) {
+                endpoint->peer_count--;
+            }
+            memset(peer, 0, sizeof *peer);
+            peer->handle.slot = i;
+            if (generation == UINT64_MAX) {
+                peer->handle.generation = UINT64_MAX;
+                peer->retirement_requested = 1U;
+            } else {
+                peer->handle.generation = generation + 1U;
+            }
+        }
+    }
+    for (i = 0U; i < endpoint->profile.peers; i++) {
+        if (endpoint->peers[i].live != 0U) {
+            endpoint->active_peer_slot = i;
+            (void)select_active_route(endpoint);
+            break;
+        }
+    }
+}
+
+dmp_status dmp_endpoint_set_peer_grants(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                        const dmp_endpoint_grant *grants, size_t count)
 {
     size_t index;
 
     if (!ready(endpoint) || count > DMP_ENDPOINT_GRANT_MAX || (count != 0U && grants == NULL)) {
         return DMP_INVALID_ARGUMENT;
     }
-    for (index = 0U; index < count; index++) {
-        endpoint->grants[index] = grants[index];
+    if (select_peer(endpoint, peer) != DMP_OK) {
+        return DMP_STALE_HANDLE;
     }
-    endpoint->grant_count = (uint8_t)count;
-    endpoint->grants_set = 1U;
+    for (index = 0U; index < count; index++) {
+        PEER(endpoint, grants)[index] = grants[index];
+    }
+    PEER(endpoint, grant_count) = (uint8_t)count;
+    PEER(endpoint, grants_set) = 1U;
+    return DMP_OK;
+}
+
+dmp_status dmp_endpoint_set_grants(dmp_endpoint *endpoint, const dmp_endpoint_grant *grants,
+                                   size_t count)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    return dmp_endpoint_set_peer_grants(endpoint, peer, grants, count);
+}
+
+dmp_status dmp_endpoint_set_peer_drain_ms(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                          uint32_t drain_ms)
+{
+    if (!ready(endpoint)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (select_peer(endpoint, peer) != DMP_OK) {
+        return DMP_STALE_HANDLE;
+    }
+    PEER(endpoint, drain_ms) = drain_ms;
     return DMP_OK;
 }
 
 dmp_status dmp_endpoint_set_drain_ms(dmp_endpoint *endpoint, uint32_t drain_ms)
 {
-    if (!ready(endpoint)) {
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) {
         return DMP_INVALID_ARGUMENT;
     }
-    endpoint->drain_ms = drain_ms;
-    return DMP_OK;
+    return dmp_endpoint_set_peer_drain_ms(endpoint, peer, drain_ms);
 }
 
-dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, dmp_time_ms now)
+dmp_status dmp_endpoint_rotate_peer(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                    uint32_t attempt_index, dmp_time_ms now)
 {
     dmp_identity_context_config config;
     dmp_identity_handle fresh;
+    dmp_identity_handle old_context;
+    dmp_hs_tx_reservation reservation;
     dmp_identity_slot *slot;
     uint32_t namespace_id = 0U;
     uint32_t local_id = 0U;
@@ -1072,27 +1865,36 @@ dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, d
     uint64_t bound;
     dmp_status status;
 
+    memset(&reservation, 0, sizeof reservation);
+
     if (!ready(endpoint)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (endpoint->revoked != 0U || endpoint->association_bound == 0U || endpoint->association == NULL) {
+    status = select_peer(endpoint, peer);
+    if (status != DMP_OK) return status;
+    status = select_active_route(endpoint);
+    if (status != DMP_OK) return status;
+    if (PEER(endpoint, revoked) != 0U || PEER(endpoint, association_bound) == 0U || PEER(endpoint, association) == NULL) {
         return DMP_AUTHENTICATION_FAILURE;
     }
-    if (endpoint->drain_live != 0U || attempt_index == endpoint->association_attempt) {
+    if (PEER(endpoint, drain_live) != 0U || attempt_index == PEER(endpoint, association_attempt)) {
         return DMP_BUSY;
     }
-    if (dmp_hs_send_application(endpoint->association, attempt_index) != DMP_HS_OK) {
+    if (dmp_hs_send_application(PEER(endpoint, association), attempt_index) != DMP_HS_OK) {
         return DMP_AUTHENTICATION_FAILURE;
     }
-    if (!dmp_hs_traffic_identity(endpoint->association, attempt_index, &namespace_id, &local_id,
+    if (!dmp_hs_traffic_identity(PEER(endpoint, association), attempt_index, &namespace_id, &local_id,
                                  &peer_id, &local_epoch, &peer_epoch)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (endpoint->context.slot >= endpoint->identity.capacity) {
+    if (local_id != endpoint->mem.context.local.origin_id) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (PEER(endpoint, context).slot >= endpoint->identity.capacity) {
         return DMP_STALE_HANDLE;
     }
-    slot = &endpoint->identity.slots[endpoint->context.slot];
-    if (slot->generation != endpoint->context.generation || slot->local.namespace_id != namespace_id ||
+    slot = &endpoint->identity.slots[PEER(endpoint, context).slot];
+    if (slot->generation != PEER(endpoint, context).generation || slot->local.namespace_id != namespace_id ||
         slot->local.origin_id != local_id || slot->peer.origin_id != peer_id) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -1106,29 +1908,64 @@ dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, d
     if (status != DMP_OK) {
         return status;
     }
-    bound = (uint64_t)endpoint->drain_ms > UINT64_MAX - now ? UINT64_MAX
-                                                           : now + (uint64_t)endpoint->drain_ms;
-    status = dmp_identity_context_begin_drain(&endpoint->identity, endpoint->context, bound);
+    if (endpoint->profile.peers > 1U) {
+        status = dmp_identity_context_retain(&endpoint->identity, fresh);
+        if (status != DMP_OK) {
+            (void)dmp_identity_context_begin_drain(&endpoint->identity, fresh, now);
+            (void)dmp_identity_context_retire(&endpoint->identity, fresh, now);
+            return status;
+        }
+    }
+    old_context = PEER(endpoint, context);
+    bound = (uint64_t)PEER(endpoint, drain_ms) > UINT64_MAX - now ? UINT64_MAX
+                                                           : now + (uint64_t)PEER(endpoint, drain_ms);
+    if (secured(endpoint)) {
+        dmp_hs_status retain_status = dmp_hs_retain_association_reservation(
+            PEER(endpoint, association), attempt_index, &reservation);
+        if (retain_status != DMP_HS_OK) {
+            if (endpoint->profile.peers > 1U) {
+                (void)dmp_identity_context_release(&endpoint->identity, fresh);
+            }
+            (void)dmp_identity_context_begin_drain(&endpoint->identity, fresh, now);
+            (void)dmp_identity_context_retire(&endpoint->identity, fresh, now);
+            return from_hs(retain_status);
+        }
+    }
+    status = dmp_identity_context_begin_drain(&endpoint->identity, old_context, bound);
     if (status != DMP_OK) {
+        if (endpoint->profile.peers > 1U) {
+            (void)dmp_identity_context_release(&endpoint->identity, fresh);
+        }
+        (void)dmp_identity_context_begin_drain(&endpoint->identity, fresh, now);
+        (void)dmp_identity_context_retire(&endpoint->identity, fresh, now);
+        if (reservation.count != 0U) {
+            (void)dmp_hs_release_tx_reservation(PEER(endpoint, association), &reservation);
+        }
         return status;
     }
-    status = dmp_identity_context_retain(&endpoint->identity, fresh);
+    move_active_reservation_to_drain(&endpoint->peers[endpoint->active_peer_slot]);
+    if (reservation.count != 0U) {
+        store_association_reservation(&endpoint->peers[endpoint->active_peer_slot],
+                                      &reservation, 0);
+    }
+    PEER(endpoint, drain_context) = old_context;
+    PEER(endpoint, drain_attempt) = PEER(endpoint, association_attempt);
+    PEER(endpoint, drain_local_epoch) = slot->local.epoch;
+    PEER(endpoint, drain_peer_epoch) = slot->peer.epoch;
+    PEER(endpoint, drain_not_after) = bound;
+    PEER(endpoint, drain_live) = 1U;
+    PEER(endpoint, context) = fresh;
+    PEER(endpoint, association_attempt) = attempt_index;
+    status = dmp_reliability_select_route(&endpoint->reliability, PEER(endpoint, handle), fresh);
+    if (status == DMP_OK && endpoint->profile.peers > 1U) {
+        status = dmp_identity_context_release(&endpoint->identity, old_context);
+    }
     if (status != DMP_OK) {
+        /* The route has already moved and the old context is recorded as a
+         * drain. A failed release is an ownership fault; revoke both sides. */
+        (void)dmp_endpoint_revoke_peer(endpoint, PEER(endpoint, handle), now);
         return status;
     }
-    status = dmp_identity_context_release(&endpoint->identity, endpoint->context);
-    if (status != DMP_OK) {
-        return status;
-    }
-    endpoint->drain_context = endpoint->context;
-    endpoint->drain_attempt = endpoint->association_attempt;
-    endpoint->drain_local_epoch = slot->local.epoch;
-    endpoint->drain_peer_epoch = slot->peer.epoch;
-    endpoint->drain_not_after = bound;
-    endpoint->drain_live = 1U;
-    endpoint->context = fresh;
-    endpoint->association_attempt = attempt_index;
-    use_context(endpoint, fresh);
     /* Original deadlines stay. Work that runs past the drain bound is not moved. */
     cancel_epoch_senders(endpoint, now, 1);
     if (now >= bound) {
@@ -1137,42 +1974,167 @@ dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, d
     return DMP_OK;
 }
 
-dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now)
+dmp_status dmp_endpoint_rotate(dmp_endpoint *endpoint, uint32_t attempt_index, dmp_time_ms now)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    return dmp_endpoint_rotate_peer(endpoint, peer, attempt_index, now);
+}
+
+dmp_status dmp_endpoint_revoke_peer(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                    dmp_time_ms now)
 {
     size_t index;
+    uint32_t attempt;
+    dmp_status status;
 
     if (!ready(endpoint)) {
         return DMP_INVALID_ARGUMENT;
     }
-    endpoint->revoked = 1U;
-    if (endpoint->mem.freshness_slots != NULL) {
-        memset(endpoint->mem.freshness_slots, 0,
-               freshness_slot_count(endpoint) * sizeof *endpoint->mem.freshness_slots);
+    status = select_peer(endpoint, peer);
+    if (status != DMP_OK) {
+        return status;
     }
+    (void)select_active_route(endpoint);
+    PEER(endpoint, revoked) = 1U;
+    PEER(endpoint, retirement_requested) = 1U;
+    clear_peer_freshness(endpoint, peer);
+    release_peer_buffer_contexts(endpoint, &endpoint->peers[endpoint->active_peer_slot]);
     if (endpoint->mem.senders != NULL) {
         for (index = 0U; index < endpoint->mem.sender_capacity; index++) {
             dmp_reliability_sender_slot *sender = &endpoint->mem.senders[index];
             dmp_reliability_handle handle;
 
             if (sender->live == 0U ||
+                !peer_equal(sender->peer, peer) ||
                 (sender->kind != DMP_REL_SENDER_REQUEST && sender->kind != DMP_REL_SENDER_DATA) ||
                 sender->phase == DMP_REL_PHASE_TERMINAL) {
                 continue;
             }
             handle.slot = (uint32_t)index;
             handle.generation = sender->generation;
+            handle.peer = sender->peer;
             (void)dmp_reliability_cancel(&endpoint->reliability, handle, now);
         }
     }
-    if (endpoint->association != NULL && endpoint->association_bound != 0U) {
-        (void)dmp_hs_cancel(endpoint->association, endpoint->association_attempt);
+    if (PEER(endpoint, association) != NULL) {
+        for (attempt = 0U; attempt < DMP_HS_ATTEMPT_MAX; attempt++) {
+            if (!dmp_hs_terminal(PEER(endpoint, association), attempt)) {
+                (void)dmp_hs_cancel(PEER(endpoint, association), attempt);
+            }
+        }
     }
     end_drain(endpoint, now);
+    retire_revoked_peers(endpoint, now);
     return DMP_OK;
 }
 
-dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake, uint32_t attempt_index)
+dmp_status dmp_endpoint_peer_association(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                         dmp_identity_handle *association)
 {
+    dmp_status status;
+    if (!ready(endpoint) || association == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    status = select_peer(endpoint, peer);
+    if (status != DMP_OK) {
+        return status;
+    }
+    if (PEER(endpoint, revoked) != 0U || PEER(endpoint, association_bound) == 0U ||
+        PEER(endpoint, association) == NULL ||
+        dmp_hs_send_application(PEER(endpoint, association), PEER(endpoint, association_attempt)) !=
+            DMP_HS_OK) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    *association = PEER(endpoint, context);
+    return DMP_OK;
+}
+
+dmp_status dmp_endpoint_peer_fence_status(dmp_endpoint *endpoint, dmp_peer_handle peer)
+{
+    dmp_status status;
+    if (!ready(endpoint) || peer.generation == 0U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    status = select_peer(endpoint, peer);
+    if (status != DMP_OK) {
+        return status;
+    }
+    if (PEER(endpoint, revoked) == 0U || PEER(endpoint, retirement_requested) == 0U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    return peer_has_outer_tx(endpoint, peer) ? DMP_BUSY : DMP_OK;
+}
+
+dmp_status dmp_endpoint_validate_association(const dmp_endpoint *endpoint,
+                                             dmp_identity_handle association,
+                                             uint32_t namespace_id, uint32_t origin_id)
+{
+    uint32_t index;
+    if (!ready(endpoint) || association.generation == 0U ||
+        namespace_id != endpoint->profile.namespace_id ||
+        origin_id != endpoint->mem.context.local.origin_id) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    for (index = 0U; index < endpoint->profile.peers; index++) {
+        const dmp_endpoint_peer_state *peer = &endpoint->peers[index];
+        dmp_identity_handle route_context;
+        uint32_t attempt;
+        const dmp_identity_slot *slot;
+        int current;
+        if (peer->live == 0U || peer->revoked != 0U || peer->association_bound == 0U ||
+            peer->association == NULL) {
+            continue;
+        }
+        current = peer->context.slot == association.slot &&
+                  peer->context.generation == association.generation;
+        if (current) {
+            route_context = peer->context;
+            attempt = peer->association_attempt;
+        } else if (peer->drain_live != 0U &&
+                   peer->drain_context.slot == association.slot &&
+                   peer->drain_context.generation == association.generation) {
+            route_context = peer->drain_context;
+            attempt = peer->drain_attempt;
+        } else {
+            continue;
+        }
+        if (route_context.slot >= endpoint->identity.capacity) {
+            continue;
+        }
+        slot = &endpoint->identity.slots[route_context.slot];
+        if (slot->generation == association.generation && slot->state == DMP_IDENTITY_SLOT_ACTIVE &&
+            current &&
+            slot->local.namespace_id == namespace_id && slot->local.origin_id == origin_id &&
+            dmp_hs_send_application(peer->association, attempt) == DMP_HS_OK) {
+            return DMP_OK;
+        }
+        if (!current && slot->generation == association.generation &&
+            slot->state == DMP_IDENTITY_SLOT_DRAINING &&
+            slot->local.namespace_id == namespace_id && slot->local.origin_id == origin_id &&
+            dmp_hs_send_application(peer->association, attempt) == DMP_HS_OK) {
+            return DMP_OK;
+        }
+    }
+    return DMP_AUTHENTICATION_FAILURE;
+}
+
+dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    return dmp_endpoint_revoke_peer(endpoint, peer, now);
+}
+
+dmp_status dmp_endpoint_bind_peer(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                  struct dmp_hs *handshake, uint32_t attempt_index)
+{
+    dmp_hs_tx_reservation reservation;
+    dmp_hs_status retain_status;
     dmp_identity_slot *slot;
     uint32_t namespace_id = 0U;
     uint32_t local_id = 0U;
@@ -1183,15 +2145,31 @@ dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake, u
     if (!ready(endpoint) || handshake == NULL) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (endpoint->association_bound != 0U &&
-        (handshake != endpoint->association || attempt_index != endpoint->association_attempt)) {
-        return DMP_BUSY;
+    if (endpoint->profile.peers > 1U &&
+        !dmp_hs_uses_admission(handshake, endpoint->handshake_admission)) {
+        return DMP_AUTHENTICATION_FAILURE;
     }
-    if (endpoint->context.slot >= endpoint->identity.capacity) {
+    {
+        dmp_status status = select_peer(endpoint, peer);
+        if (status != DMP_OK) return status;
+        status = select_active_route(endpoint);
+        if (status != DMP_OK) return status;
+    }
+    if (PEER(endpoint, association_bound) != 0U) {
+        if (handshake != PEER(endpoint, association) ||
+            attempt_index != PEER(endpoint, association_attempt)) {
+            return DMP_BUSY;
+        }
+        return install_epochs(endpoint);
+    }
+    if (PEER(endpoint, revoked) != 0U) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (PEER(endpoint, context).slot >= endpoint->identity.capacity) {
         return DMP_STALE_HANDLE;
     }
-    slot = &endpoint->identity.slots[endpoint->context.slot];
-    if (slot->generation != endpoint->context.generation || slot->security != 1U) {
+    slot = &endpoint->identity.slots[PEER(endpoint, context).slot];
+    if (slot->generation != PEER(endpoint, context).generation || slot->security != 1U) {
         return DMP_INVALID_ARGUMENT;
     }
     if (!dmp_hs_traffic_identity(handshake, attempt_index, &namespace_id, &local_id, &peer_id,
@@ -1202,12 +2180,52 @@ dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake, u
         slot->peer.namespace_id != namespace_id || slot->peer.origin_id != peer_id) {
         return DMP_INVALID_ARGUMENT;
     }
-    (void)local_epoch;
+    if (local_id != endpoint->mem.context.local.origin_id) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
     (void)peer_epoch;
-    endpoint->association = handshake;
-    endpoint->association_attempt = attempt_index;
-    endpoint->association_bound = 1U;
-    return install_epochs(endpoint);
+    memset(&reservation, 0, sizeof reservation);
+    if (secured(endpoint)) {
+        retain_status = dmp_hs_send_application(handshake, attempt_index);
+        if (retain_status == DMP_HS_OK) {
+            retain_status = dmp_hs_retain_association_reservation(handshake, attempt_index,
+                                                                  &reservation);
+            if (retain_status != DMP_HS_OK) {
+                return from_hs(retain_status);
+            }
+        } else if (retain_status != DMP_HS_NOT_ACTIVE ||
+                   dmp_hs_terminal(handshake, attempt_index)) {
+            return from_hs(retain_status);
+        }
+    }
+    PEER(endpoint, association) = handshake;
+    PEER(endpoint, association_attempt) = attempt_index;
+    PEER(endpoint, association_bound) = 1U;
+    {
+        dmp_status status = install_epochs(endpoint);
+        if (status != DMP_OK) {
+            PEER(endpoint, association) = NULL;
+            PEER(endpoint, association_bound) = 0U;
+            if (reservation.count != 0U) {
+                (void)dmp_hs_release_tx_reservation(handshake, &reservation);
+            }
+            return status;
+        }
+    }
+    if (reservation.count != 0U) {
+        store_association_reservation(&endpoint->peers[endpoint->active_peer_slot],
+                                      &reservation, 0);
+    }
+    return DMP_OK;
+}
+
+dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake, uint32_t attempt_index)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    return dmp_endpoint_bind_peer(endpoint, peer, handshake, attempt_index);
 }
 
 static dmp_status submit_req_with_token(dmp_endpoint *endpoint, uint32_t service_id,
@@ -1221,7 +2239,7 @@ static dmp_status submit_req_with_token(dmp_endpoint *endpoint, uint32_t service
         (token.size != 0U && token.size != 16U)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (endpoint->revoked != 0U) {
+    if (PEER(endpoint, revoked) != 0U) {
         return DMP_AUTHENTICATION_FAILURE;
     }
     if (service_id == 0U) {
@@ -1236,17 +2254,18 @@ static dmp_status submit_req_with_token(dmp_endpoint *endpoint, uint32_t service
         return DMP_UNSUPPORTED;
     }
     probe.data = NULL;
-    probe.capacity = endpoint->profile.encoded_mtu;
-    endpoint->encode_freshness_live = token.size == 16U ? 1U : 0U;
-    if (endpoint->encode_freshness_live != 0U) {
-        memcpy(endpoint->encode_freshness_token, token.data, sizeof endpoint->encode_freshness_token);
+    probe.capacity = local_core_mtu(endpoint);
+    PEER(endpoint, encode_freshness_live) = token.size == 16U ? 1U : 0U;
+    if (PEER(endpoint, encode_freshness_live) != 0U) {
+        memcpy(PEER(endpoint, encode_freshness_token), token.data, sizeof PEER(endpoint, encode_freshness_token));
     }
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_REQ, service_id, 0U, 1, 0, 0U, 0U, 0U, payload,
                          0, (dmp_message_key){0}, 0, 0U, secured(endpoint), secured(endpoint),
-                         endpoint->association_attempt, probe, &written);
-    endpoint->encode_freshness_live = 0U;
-    memset(endpoint->encode_freshness_token, 0, sizeof endpoint->encode_freshness_token);
-    /* Fragment only when this exact non-FRAG frame does not fit encoded_mtu.
+                         PEER(endpoint, association_attempt), probe, &written);
+    PEER(endpoint, encode_freshness_live) = 0U;
+    memset(PEER(endpoint, encode_freshness_token), 0, sizeof PEER(endpoint, encode_freshness_token));
+    /* Fragment only when this exact non-FRAG frame does not fit the
+     * directional decoded-core MTU.
      * DMP_LIMIT_EXHAUSTED from the size check is that miss. A protected body
      * above DMP_HS_APP_PLAIN_MAX is the same miss: the seal buffer cannot
      * hold it as one record. */
@@ -1272,21 +2291,53 @@ static dmp_status submit_req_with_token(dmp_endpoint *endpoint, uint32_t service
                                             out);
 }
 
+dmp_status dmp_endpoint_submit_req_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                     uint32_t service_id, dmp_bytes payload,
+                                     dmp_time_ms now, dmp_reliability_handle *out)
+{
+    dmp_bytes empty = {NULL, 0U};
+    dmp_status status;
+    if (!ready(endpoint)) return DMP_INVALID_ARGUMENT;
+    status = select_peer(endpoint, peer);
+    if (status != DMP_OK) return status;
+    status = select_active_route(endpoint);
+    if (status != DMP_OK) return status;
+    return submit_req_with_token(endpoint, service_id, payload, empty, now, out);
+}
+
 dmp_status dmp_endpoint_submit_req(dmp_endpoint *endpoint, uint32_t service_id, dmp_bytes payload,
                                    dmp_time_ms now, dmp_reliability_handle *out)
 {
-    dmp_bytes empty = {NULL, 0U};
-    return submit_req_with_token(endpoint, service_id, payload, empty, now, out);
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) return DMP_INVALID_ARGUMENT;
+    return dmp_endpoint_submit_req_to(endpoint, peer, service_id, payload, now, out);
+}
+
+dmp_status dmp_endpoint_submit_req_fresh_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                            uint32_t service_id, dmp_bytes payload,
+                                            dmp_bytes token, dmp_time_ms now,
+                                            dmp_reliability_handle *out)
+{
+    if (token.size != 16U || token.data == NULL) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (!ready(endpoint)) return DMP_INVALID_ARGUMENT;
+    {
+        dmp_status status = select_peer(endpoint, peer);
+        if (status != DMP_OK) return status;
+        status = select_active_route(endpoint);
+        if (status != DMP_OK) return status;
+    }
+    return submit_req_with_token(endpoint, service_id, payload, token, now, out);
 }
 
 dmp_status dmp_endpoint_submit_req_fresh(dmp_endpoint *endpoint, uint32_t service_id,
                                          dmp_bytes payload, dmp_bytes token,
                                          dmp_time_ms now, dmp_reliability_handle *out)
 {
-    if (token.size != 16U || token.data == NULL) {
-        return DMP_INVALID_ARGUMENT;
-    }
-    return submit_req_with_token(endpoint, service_id, payload, token, now, out);
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) return DMP_INVALID_ARGUMENT;
+    return dmp_endpoint_submit_req_fresh_to(endpoint, peer, service_id, payload, token, now, out);
 }
 
 static dmp_status probe_reliable_unfragmented(dmp_endpoint *endpoint, uint8_t type,
@@ -1294,19 +2345,19 @@ static dmp_status probe_reliable_unfragmented(dmp_endpoint *endpoint, uint8_t ty
                                               dmp_bytes token)
 {
     dmp_buffer probe = {secured(endpoint) != 0 ? NULL : endpoint->mem.fragment_frame,
-                        endpoint->profile.encoded_mtu};
+                        local_core_mtu(endpoint)};
     size_t written = 0U;
     dmp_status status;
-    endpoint->encode_freshness_live = token.size == 16U ? 1U : 0U;
-    if (endpoint->encode_freshness_live != 0U) {
-        memcpy(endpoint->encode_freshness_token, token.data,
-               sizeof endpoint->encode_freshness_token);
+    PEER(endpoint, encode_freshness_live) = token.size == 16U ? 1U : 0U;
+    if (PEER(endpoint, encode_freshness_live) != 0U) {
+        memcpy(PEER(endpoint, encode_freshness_token), token.data,
+               sizeof PEER(endpoint, encode_freshness_token));
     }
     status = encode_core(endpoint, type, service_id, 0U, 1, 0, 0U, 0U, 0U, payload, 0,
                          (dmp_message_key){0}, 0, 0U, secured(endpoint), secured(endpoint),
-                         endpoint->association_attempt, probe, &written);
-    endpoint->encode_freshness_live = 0U;
-    memset(endpoint->encode_freshness_token, 0, sizeof endpoint->encode_freshness_token);
+                         PEER(endpoint, association_attempt), probe, &written);
+    PEER(endpoint, encode_freshness_live) = 0U;
+    memset(PEER(endpoint, encode_freshness_token), 0, sizeof PEER(endpoint, encode_freshness_token));
     return status;
 }
 
@@ -1357,15 +2408,22 @@ static dmp_status submit_reliable_data_type(dmp_endpoint *endpoint, uint8_t type
                                               out);
 }
 
-dmp_status dmp_endpoint_submit_data(dmp_endpoint *endpoint, uint32_t service_id,
-                                    dmp_bytes payload, dmp_bytes token, dmp_time_ms now,
-                                    dmp_reliability_handle *out)
+dmp_status dmp_endpoint_submit_data_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                       uint32_t service_id, dmp_bytes payload,
+                                       dmp_bytes token, dmp_time_ms now,
+                                       dmp_reliability_handle *out)
 {
     if (!ready(endpoint) || out == NULL || !bytes_ok(payload) || !bytes_ok(token) ||
         (token.size != 0U && token.size != 16U)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (endpoint->revoked != 0U) {
+    {
+        dmp_status status = select_peer(endpoint, peer);
+        if (status != DMP_OK) return status;
+        status = select_active_route(endpoint);
+        if (status != DMP_OK) return status;
+    }
+    if (PEER(endpoint, revoked) != 0U) {
         return DMP_AUTHENTICATION_FAILURE;
     }
     if (!service_allowed(&endpoint->profile, service_id) || service_id == 0U ||
@@ -1379,15 +2437,31 @@ dmp_status dmp_endpoint_submit_data(dmp_endpoint *endpoint, uint32_t service_id,
                                      token, now, out);
 }
 
-dmp_status dmp_endpoint_submit_event(dmp_endpoint *endpoint, uint32_t service_id,
-                                     dmp_bytes payload, dmp_bytes token, dmp_time_ms now,
-                                     dmp_reliability_handle *out)
+dmp_status dmp_endpoint_submit_data(dmp_endpoint *endpoint, uint32_t service_id,
+                                    dmp_bytes payload, dmp_bytes token, dmp_time_ms now,
+                                    dmp_reliability_handle *out)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) return DMP_INVALID_ARGUMENT;
+    return dmp_endpoint_submit_data_to(endpoint, peer, service_id, payload, token, now, out);
+}
+
+dmp_status dmp_endpoint_submit_event_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                        uint32_t service_id, dmp_bytes payload,
+                                        dmp_bytes token, dmp_time_ms now,
+                                        dmp_reliability_handle *out)
 {
     if (!ready(endpoint) || out == NULL || !bytes_ok(payload) || !bytes_ok(token) ||
         (token.size != 0U && token.size != 16U)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (endpoint->revoked != 0U) {
+    {
+        dmp_status status = select_peer(endpoint, peer);
+        if (status != DMP_OK) return status;
+        status = select_active_route(endpoint);
+        if (status != DMP_OK) return status;
+    }
+    if (PEER(endpoint, revoked) != 0U) {
         return DMP_AUTHENTICATION_FAILURE;
     }
     if (!service_allowed(&endpoint->profile, service_id) || service_id == 0U ||
@@ -1399,6 +2473,15 @@ dmp_status dmp_endpoint_submit_event(dmp_endpoint *endpoint, uint32_t service_id
     }
     return submit_reliable_data_type(endpoint, (uint8_t)DMP_TYPE_EVENT, service_id, payload,
                                      token, now, out);
+}
+
+dmp_status dmp_endpoint_submit_event(dmp_endpoint *endpoint, uint32_t service_id,
+                                     dmp_bytes payload, dmp_bytes token, dmp_time_ms now,
+                                     dmp_reliability_handle *out)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) return DMP_INVALID_ARGUMENT;
+    return dmp_endpoint_submit_event_to(endpoint, peer, service_id, payload, token, now, out);
 }
 
 static dmp_status endpoint_complete_for_lifetime(dmp_endpoint *endpoint,
@@ -1413,27 +2496,32 @@ static dmp_status endpoint_complete_for_lifetime(dmp_endpoint *endpoint,
     if (!ready(endpoint)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (endpoint->revoked != 0U) {
+    status = select_peer(endpoint, request.peer);
+    if (status != DMP_OK || select_active_route(endpoint) != DMP_OK) {
+        return DMP_STALE_HANDLE;
+    }
+    if (PEER(endpoint, revoked) != 0U) {
         return DMP_AUTHENTICATION_FAILURE;
     }
     if (request.slot < endpoint->mem.history_capacity && endpoint->mem.history != NULL) {
         dmp_reliability_history_slot *history = &endpoint->mem.history[request.slot];
-        if (history->live != 0U && history->generation == request.generation) {
+        if (history->live != 0U && history->generation == request.generation &&
+            peer_equal(history->peer, request.peer)) {
             dmp_identity_slot *active = NULL;
             dmp_identity_slot *draining = NULL;
             int source_is_active = 0;
             int source_is_draining = 0;
 
-            if (endpoint->context.slot < endpoint->identity.capacity) {
-                active = &endpoint->identity.slots[endpoint->context.slot];
-                source_is_active = active->generation == endpoint->context.generation &&
+            if (PEER(endpoint, context).slot < endpoint->identity.capacity) {
+                active = &endpoint->identity.slots[PEER(endpoint, context).slot];
+                source_is_active = active->generation == PEER(endpoint, context).generation &&
                                    active->state == DMP_IDENTITY_SLOT_ACTIVE &&
                                    message_origin_eq(history->source.origin, active->peer);
             }
-            if (endpoint->drain_live != 0U &&
-                endpoint->drain_context.slot < endpoint->identity.capacity) {
-                draining = &endpoint->identity.slots[endpoint->drain_context.slot];
-                source_is_draining = draining->generation == endpoint->drain_context.generation &&
+            if (PEER(endpoint, drain_live) != 0U &&
+                PEER(endpoint, drain_context).slot < endpoint->identity.capacity) {
+                draining = &endpoint->identity.slots[PEER(endpoint, drain_context).slot];
+                source_is_draining = draining->generation == PEER(endpoint, drain_context).generation &&
                                     draining->state == DMP_IDENTITY_SLOT_DRAINING &&
                                     message_origin_eq(history->source.origin, draining->peer);
             }
@@ -1448,7 +2536,7 @@ static dmp_status endpoint_complete_for_lifetime(dmp_endpoint *endpoint,
                 return DMP_UNSUPPORTED;
             }
             if (source_is_draining) {
-                use_context(endpoint, endpoint->drain_context);
+                use_context(endpoint, PEER(endpoint, drain_context));
                 swapped = 1;
             }
         }
@@ -1457,7 +2545,7 @@ static dmp_status endpoint_complete_for_lifetime(dmp_endpoint *endpoint,
                                                    application_err, wire_status, payload,
                                                    result_lifetime_ms, now);
     if (swapped) {
-        use_context(endpoint, endpoint->context);
+        use_context(endpoint, PEER(endpoint, context));
     }
     return status;
 }
@@ -1483,32 +2571,37 @@ dmp_status dmp_endpoint_abandon_request(dmp_endpoint *endpoint,
     if (!ready(endpoint)) {
         return DMP_INVALID_ARGUMENT;
     }
+    status = select_peer(endpoint, request.peer);
+    if (status != DMP_OK || select_active_route(endpoint) != DMP_OK) {
+        return DMP_STALE_HANDLE;
+    }
     if (request.slot >= endpoint->mem.history_capacity || endpoint->mem.history == NULL) {
         return DMP_STALE_HANDLE;
     }
     history = &endpoint->mem.history[request.slot];
     if (history->live == 0U || history->generation != request.generation ||
-        history->decision != 0U) {
+        !peer_equal(history->peer, request.peer) || history->decision != 0U) {
         return DMP_STALE_HANDLE;
     }
-    if (endpoint->pending_grant_live != 0U &&
-        endpoint->pending_grant_request.slot == request.slot &&
-        endpoint->pending_grant_request.generation == request.generation) {
+    if (PEER(endpoint, pending_grant_live) != 0U &&
+        PEER(endpoint, pending_grant_request).slot == request.slot &&
+        PEER(endpoint, pending_grant_request).generation == request.generation &&
+        peer_equal(PEER(endpoint, pending_grant_request).peer, request.peer)) {
         return DMP_BUSY;
     }
-    if (endpoint->revoked == 0U && endpoint->context.slot < endpoint->identity.capacity) {
-        const dmp_identity_slot *active = &endpoint->identity.slots[endpoint->context.slot];
-        if (active->generation == endpoint->context.generation &&
+    if (PEER(endpoint, revoked) == 0U && PEER(endpoint, context).slot < endpoint->identity.capacity) {
+        const dmp_identity_slot *active = &endpoint->identity.slots[PEER(endpoint, context).slot];
+        if (active->generation == PEER(endpoint, context).generation &&
             active->state == DMP_IDENTITY_SLOT_ACTIVE &&
             message_origin_eq(history->source.origin, active->peer)) {
             return DMP_BUSY;
         }
     }
-    if (endpoint->drain_live != 0U &&
-        endpoint->drain_context.slot < endpoint->identity.capacity) {
+    if (PEER(endpoint, drain_live) != 0U &&
+        PEER(endpoint, drain_context).slot < endpoint->identity.capacity) {
         const dmp_identity_slot *draining =
-            &endpoint->identity.slots[endpoint->drain_context.slot];
-        if (draining->generation == endpoint->drain_context.generation &&
+            &endpoint->identity.slots[PEER(endpoint, drain_context).slot];
+        if (draining->generation == PEER(endpoint, drain_context).generation &&
             draining->state == DMP_IDENTITY_SLOT_DRAINING &&
             message_origin_eq(history->source.origin, draining->peer) &&
             !dmp_deadline_reached(now, draining->not_after)) {
@@ -1535,49 +2628,86 @@ static dmp_status stage_telem(dmp_endpoint *endpoint, uint32_t service_id, dmp_b
         return payload.size > endpoint->profile.message_bytes ? DMP_LIMIT_EXHAUSTED
                                                              : DMP_UNSUPPORTED;
     }
-    if (endpoint->revoked != 0U) {
+    if (PEER(endpoint, revoked) != 0U) {
         return DMP_AUTHENTICATION_FAILURE;
     }
     if (!local_action(endpoint, service_id, DMP_ENDPOINT_PERMIT_TELEM)) {
         return DMP_UNSUPPORTED;
     }
-    probe.data = endpoint->mem.telemetry_frame;
-    probe.capacity = endpoint->profile.encoded_mtu;
+    /* Validate geometry without writing into a frame that an accepted BORROW
+     * transport may still own through its terminal callback. */
+    probe.data = NULL;
+    probe.capacity = 0U;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_TELEM, service_id, 0U, 0, 0, 0U, 0U, 0U,
                          payload, 0, (dmp_message_key){0}, 0, 0U, 0, 0, 0U, probe, &written);
     if (status != DMP_OK) {
         return status;
     }
     if (replace) {
-        memcpy(endpoint->mem.telemetry_next, payload.data, payload.size);
-        endpoint->telem_next_len = (uint32_t)payload.size;
-        endpoint->telem_hold = 1U;
+        if (PEER(endpoint, telem_next_context_retained) != 0U) {
+            (void)dmp_identity_context_release(&endpoint->identity,
+                                               PEER(endpoint, telem_next_context));
+            PEER(endpoint, telem_next_context_retained) = 0U;
+        }
+        status = dmp_identity_context_retain(&endpoint->identity, PEER(endpoint, context));
+        if (status != DMP_OK) return status;
+        if (payload.size != 0U) {
+            memcpy(peer_telemetry_next_buffer(endpoint), payload.data, payload.size);
+        }
+        PEER(endpoint, telem_next_len) = (uint32_t)payload.size;
+        PEER(endpoint, telem_next_context) = PEER(endpoint, context);
+        PEER(endpoint, telem_next_attempt) = PEER(endpoint, association_attempt);
+        PEER(endpoint, telem_next_context_retained) = 1U;
+        PEER(endpoint, telem_hold) = 1U;
         return DMP_OK;
     }
-    if (payload.size != 0U) {
-        memcpy(endpoint->mem.telemetry_payload, payload.data, payload.size);
+    if (PEER(endpoint, telem_context_retained) != 0U) {
+        (void)dmp_identity_context_release(&endpoint->identity, PEER(endpoint, telem_context));
+        PEER(endpoint, telem_context_retained) = 0U;
     }
-    endpoint->telem_len = (uint32_t)payload.size;
-    endpoint->telem_service = service_id;
-    endpoint->telem_pending = 1U;
-    endpoint->telem_seq_set = 0U;
+    status = dmp_identity_context_retain(&endpoint->identity, PEER(endpoint, context));
+    if (status != DMP_OK) return status;
+    if (payload.size != 0U) {
+        memcpy(peer_telemetry_buffer(endpoint), payload.data, payload.size);
+    }
+    PEER(endpoint, telem_context) = PEER(endpoint, context);
+    PEER(endpoint, telem_context_retained) = 1U;
+    PEER(endpoint, telem_attempt) = PEER(endpoint, association_attempt);
+    PEER(endpoint, telem_len) = (uint32_t)payload.size;
+    PEER(endpoint, telem_service) = service_id;
+    PEER(endpoint, telem_pending) = 1U;
+    PEER(endpoint, telem_seq_set) = 0U;
     return DMP_OK;
 }
 
-dmp_status dmp_endpoint_submit_telem(dmp_endpoint *endpoint, uint32_t service_id, dmp_bytes payload,
-                                     dmp_time_ms now)
+dmp_status dmp_endpoint_submit_telem_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                        uint32_t service_id, dmp_bytes payload, dmp_time_ms now)
 {
     (void)now;
     if (!ready(endpoint)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (endpoint->telem_tx != 0U) {
+    {
+        dmp_status status = select_peer(endpoint, peer);
+        if (status != DMP_OK) return status;
+        status = select_active_route(endpoint);
+        if (status != DMP_OK) return status;
+    }
+    if (PEER(endpoint, telem_tx) != 0U) {
         return stage_telem(endpoint, service_id, payload, 1);
     }
-    if (endpoint->telem_pending != 0U) {
-        endpoint->telem_seq_set = 0U;
+    if (PEER(endpoint, telem_pending) != 0U) {
+        PEER(endpoint, telem_seq_set) = 0U;
     }
     return stage_telem(endpoint, service_id, payload, 0);
+}
+
+dmp_status dmp_endpoint_submit_telem(dmp_endpoint *endpoint, uint32_t service_id,
+                                     dmp_bytes payload, dmp_time_ms now)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) return DMP_INVALID_ARGUMENT;
+    return dmp_endpoint_submit_telem_to(endpoint, peer, service_id, payload, now);
 }
 
 static dmp_status send_telem(dmp_endpoint *endpoint, dmp_time_ms now)
@@ -1587,22 +2717,40 @@ static dmp_status send_telem(dmp_endpoint *endpoint, dmp_time_ms now)
     dmp_time_ms not_after;
     size_t written = 0U;
     dmp_status status;
-    if (endpoint->telem_seq_set == 0U) {
-        status = dmp_identity_next_seq(&endpoint->identity, endpoint->context, &endpoint->telem_seq);
+    if (PEER(endpoint, revoked) != 0U || PEER(endpoint, telem_context_retained) == 0U) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (PEER(endpoint, telem_context).slot >= endpoint->identity.capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    {
+        const dmp_identity_slot *saved =
+            &endpoint->identity.slots[PEER(endpoint, telem_context).slot];
+        if (saved->generation != PEER(endpoint, telem_context).generation ||
+            (PEER(endpoint, telem_context).slot != PEER(endpoint, context).slot &&
+             (PEER(endpoint, drain_live) == 0U ||
+              PEER(endpoint, telem_context).slot != PEER(endpoint, drain_context).slot ||
+              dmp_deadline_reached(now, PEER(endpoint, drain_not_after))))) {
+            return DMP_DEADLINE_EXPIRED;
+        }
+    }
+    if (PEER(endpoint, telem_seq_set) == 0U) {
+        status = dmp_identity_next_seq(&endpoint->identity, PEER(endpoint, telem_context), &PEER(endpoint, telem_seq));
         if (status != DMP_OK) {
             return status;
         }
-        endpoint->telem_attempt = endpoint->association_attempt;
-        endpoint->telem_seq_set = 1U;
+        PEER(endpoint, telem_seq_set) = 1U;
     }
-    payload.data = endpoint->telem_len == 0U ? NULL : endpoint->mem.telemetry_payload;
-    payload.size = endpoint->telem_len;
+    payload.data = PEER(endpoint, telem_len) == 0U ? NULL : peer_telemetry_buffer(endpoint);
+    payload.size = PEER(endpoint, telem_len);
     out.data = endpoint->mem.telemetry_frame;
-    out.capacity = endpoint->profile.encoded_mtu;
-    status = encode_core(endpoint, (uint8_t)DMP_TYPE_TELEM, endpoint->telem_service,
-                         endpoint->telem_seq, 0, 0, 0U, 0U, 0U, payload, 0, (dmp_message_key){0}, 0,
-                         0U, secured(endpoint), secured(endpoint), endpoint->telem_attempt, out,
+    out.capacity = local_core_mtu(endpoint);
+    use_context(endpoint, PEER(endpoint, telem_context));
+    status = encode_core(endpoint, (uint8_t)DMP_TYPE_TELEM, PEER(endpoint, telem_service),
+                         PEER(endpoint, telem_seq), 0, 0, 0U, 0U, 0U, payload, 0, (dmp_message_key){0}, 0,
+                         0U, secured(endpoint), secured(endpoint), PEER(endpoint, telem_attempt), out,
                          &written);
+    use_context(endpoint, PEER(endpoint, context));
     if (status != DMP_OK) {
         return status;
     }
@@ -1610,12 +2758,13 @@ static dmp_status send_telem(dmp_endpoint *endpoint, dmp_time_ms now)
     if (status != DMP_OK) {
         return status;
     }
-    endpoint->telem_tx = 1U;
+    PEER(endpoint, telem_tx) = 1U;
     payload.data = endpoint->mem.telemetry_frame;
     payload.size = written;
-    status = submit_wire(endpoint, KIND_TELEM, payload, NULL, NULL, (dmp_tx_token){0}, not_after);
+    status = submit_wire(endpoint, KIND_TELEM, payload, PEER(endpoint, telem_context), NULL, NULL,
+                         (dmp_tx_token){0}, not_after);
     if (status != DMP_OK) {
-        endpoint->telem_tx = 0U;
+        PEER(endpoint, telem_tx) = 0U;
         return status;
     }
     return DMP_OK;
@@ -1631,19 +2780,38 @@ static dmp_status send_fragment(dmp_endpoint *endpoint, dmp_time_ms now)
     uint32_t expect;
     size_t written = 0U;
     dmp_status status;
-    offset = endpoint->frag_index * endpoint->profile.chunk_bytes;
-    expect = endpoint->frag_total - offset;
+    if (PEER(endpoint, revoked) != 0U || PEER(endpoint, frag_context_retained) == 0U) {
+        return DMP_AUTHENTICATION_FAILURE;
+    }
+    if (PEER(endpoint, frag_context).slot >= endpoint->identity.capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    {
+        const dmp_identity_slot *saved =
+            &endpoint->identity.slots[PEER(endpoint, frag_context).slot];
+        if (saved->generation != PEER(endpoint, frag_context).generation ||
+            (PEER(endpoint, frag_context).slot != PEER(endpoint, context).slot &&
+             (PEER(endpoint, drain_live) == 0U ||
+              PEER(endpoint, frag_context).slot != PEER(endpoint, drain_context).slot ||
+              dmp_deadline_reached(now, PEER(endpoint, drain_not_after))))) {
+            return DMP_DEADLINE_EXPIRED;
+        }
+    }
+    offset = PEER(endpoint, frag_index) * endpoint->profile.chunk_bytes;
+    expect = PEER(endpoint, frag_total) - offset;
     if (expect > endpoint->profile.chunk_bytes) {
         expect = endpoint->profile.chunk_bytes;
     }
-    slice.data = endpoint->mem.fragment_message + offset;
+    slice.data = peer_fragment_buffer(endpoint) + offset;
     slice.size = expect;
     out.data = endpoint->mem.fragment_frame;
-    out.capacity = endpoint->profile.encoded_mtu;
-    status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, endpoint->frag_service, endpoint->frag_seq,
-                         0, 1, endpoint->frag_index, endpoint->profile.chunk_bytes,
-                         endpoint->frag_total, slice, 0, (dmp_message_key){0}, 0, 0U,
-                         secured(endpoint), secured(endpoint), endpoint->frag_attempt, out, &written);
+    out.capacity = local_core_mtu(endpoint);
+    use_context(endpoint, PEER(endpoint, frag_context));
+    status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, PEER(endpoint, frag_service), PEER(endpoint, frag_seq),
+                         0, 1, PEER(endpoint, frag_index), endpoint->profile.chunk_bytes,
+                         PEER(endpoint, frag_total), slice, 0, (dmp_message_key){0}, 0, 0U,
+                         secured(endpoint), secured(endpoint), PEER(endpoint, frag_attempt), out, &written);
+    use_context(endpoint, PEER(endpoint, context));
     if (status != DMP_OK) {
         return status;
     }
@@ -1651,19 +2819,21 @@ static dmp_status send_fragment(dmp_endpoint *endpoint, dmp_time_ms now)
     if (status != DMP_OK) {
         return status;
     }
-    endpoint->frag_tx = 1U;
+    PEER(endpoint, frag_tx) = 1U;
     frame.data = endpoint->mem.fragment_frame;
     frame.size = written;
-    status = submit_wire(endpoint, KIND_FRAG, frame, NULL, NULL, (dmp_tx_token){0}, not_after);
+    status = submit_wire(endpoint, KIND_FRAG, frame, PEER(endpoint, frag_context), NULL, NULL,
+                         (dmp_tx_token){0}, not_after);
     if (status != DMP_OK) {
-        endpoint->frag_tx = 0U;
+        PEER(endpoint, frag_tx) = 0U;
         return status;
     }
     return DMP_OK;
 }
 
-dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t service_id,
-                                          dmp_bytes payload, dmp_time_ms now)
+dmp_status dmp_endpoint_submit_fragmented_to(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                             uint32_t service_id, dmp_bytes payload,
+                                             dmp_time_ms now)
 {
     const dmp_identity_slot *slot;
     dmp_buffer probe;
@@ -1677,36 +2847,42 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     if (!ready(endpoint) || !bytes_ok(payload) || payload.size == 0U) {
         return DMP_INVALID_ARGUMENT;
     }
+    {
+        dmp_status route = select_peer(endpoint, peer);
+        if (route != DMP_OK) return route;
+        route = select_active_route(endpoint);
+        if (route != DMP_OK) return route;
+    }
     if (!service_allowed(&endpoint->profile, service_id)) {
         return DMP_UNSUPPORTED;
     }
     if (service_id == 0U || freshness_required(&endpoint->profile, service_id)) {
         return DMP_UNSUPPORTED;
     }
-    if (endpoint->revoked != 0U) {
+    if (PEER(endpoint, revoked) != 0U) {
         return DMP_AUTHENTICATION_FAILURE;
     }
     if (!local_action(endpoint, service_id, DMP_ENDPOINT_PERMIT_REQ)) {
         return DMP_UNSUPPORTED;
     }
-    if (endpoint->frag_live != 0U) {
+    if (PEER(endpoint, frag_live) != 0U) {
         return DMP_QUOTA_EXHAUSTED;
     }
     if (payload.size > endpoint->profile.message_bytes) {
         return DMP_LIMIT_EXHAUSTED;
     }
-    if (endpoint->context.slot >= endpoint->identity.capacity) {
+    if (PEER(endpoint, context).slot >= endpoint->identity.capacity) {
         return DMP_STALE_HANDLE;
     }
-    slot = &endpoint->identity.slots[endpoint->context.slot];
-    if (slot->generation != endpoint->context.generation || slot->seq_exhausted) {
+    slot = &endpoint->identity.slots[PEER(endpoint, context).slot];
+    if (slot->generation != PEER(endpoint, context).generation || slot->seq_exhausted) {
         return DMP_STALE_HANDLE;
     }
     probe.data = secured(endpoint) != 0 ? NULL : endpoint->mem.fragment_frame;
-    probe.capacity = endpoint->profile.encoded_mtu;
+    probe.capacity = local_core_mtu(endpoint);
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, slot->next_seq, 0, 0, 0U, 0U,
                          0U, payload, 0, (dmp_message_key){0}, 0, 0U, secured(endpoint),
-                         secured(endpoint), endpoint->association_attempt, probe, &written);
+                         secured(endpoint), PEER(endpoint, association_attempt), probe, &written);
     if (status == DMP_OK) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -1728,25 +2904,40 @@ dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t servi
     slice.size = chunk;
     status = encode_core(endpoint, (uint8_t)DMP_TYPE_DATA, service_id, slot->next_seq, 0, 1, 0U,
                          chunk, (uint32_t)payload.size, slice, 0, (dmp_message_key){0}, 0, 0U,
-                         secured(endpoint), secured(endpoint), endpoint->association_attempt,
+                         secured(endpoint), secured(endpoint), PEER(endpoint, association_attempt),
                          probe, &written);
     if (status != DMP_OK) {
         return status;
     }
-    status = dmp_identity_next_seq(&endpoint->identity, endpoint->context, &seq);
+    status = dmp_identity_context_retain(&endpoint->identity, PEER(endpoint, context));
     if (status != DMP_OK) {
         return status;
     }
-    endpoint->frag_attempt = endpoint->association_attempt;
-    memcpy(endpoint->mem.fragment_message, payload.data, payload.size);
-    endpoint->frag_service = service_id;
-    endpoint->frag_seq = seq;
-    endpoint->frag_total = (uint32_t)payload.size;
-    endpoint->frag_count = count;
-    endpoint->frag_index = 0U;
-    endpoint->frag_tx = 0U;
-    endpoint->frag_live = 1U;
+    status = dmp_identity_next_seq(&endpoint->identity, PEER(endpoint, context), &seq);
+    if (status != DMP_OK) {
+        (void)dmp_identity_context_release(&endpoint->identity, PEER(endpoint, context));
+        return status;
+    }
+    PEER(endpoint, frag_context) = PEER(endpoint, context);
+    PEER(endpoint, frag_context_retained) = 1U;
+    PEER(endpoint, frag_attempt) = PEER(endpoint, association_attempt);
+    memcpy(peer_fragment_buffer(endpoint), payload.data, payload.size);
+    PEER(endpoint, frag_service) = service_id;
+    PEER(endpoint, frag_seq) = seq;
+    PEER(endpoint, frag_total) = (uint32_t)payload.size;
+    PEER(endpoint, frag_count) = count;
+    PEER(endpoint, frag_index) = 0U;
+    PEER(endpoint, frag_tx) = 0U;
+    PEER(endpoint, frag_live) = 1U;
     return DMP_OK;
+}
+
+dmp_status dmp_endpoint_submit_fragmented(dmp_endpoint *endpoint, uint32_t service_id,
+                                          dmp_bytes payload, dmp_time_ms now)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) return DMP_INVALID_ARGUMENT;
+    return dmp_endpoint_submit_fragmented_to(endpoint, peer, service_id, payload, now);
 }
 
 static int service_selective(const dmp_admitted_profile *profile, uint32_t service)
@@ -1782,11 +2973,13 @@ static dmp_status send_pending_status(dmp_endpoint *endpoint, dmp_time_ms now)
 {
     size_t i;
 
-    if (!secured(endpoint) || endpoint->frag_live != 0U || endpoint->wire_busy != 0U) {
+    if (!secured(endpoint) || endpoint->wire_busy != 0U) {
         return DMP_OK;
     }
     for (i = 0U; i < endpoint->reassembly.storage.assembly_capacity; i++) {
         dmp_reassembly_slot *slot = &endpoint->reassembly.storage.assemblies[i];
+        dmp_peer_handle owner_peer;
+        int found = 0;
         uint8_t mask_bytes[4];
         uint32_t mask;
         uint32_t seq = 0U;
@@ -1801,6 +2994,10 @@ static dmp_status send_pending_status(dmp_endpoint *endpoint, dmp_time_ms now)
         if (slot->live == 0U || slot->complete != 0U || slot->status_expected == 0U) {
             continue;
         }
+        owner_peer = peer_for_context(endpoint, slot->context, &found);
+        if (!found || !peer_equal(owner_peer, PEER(endpoint, handle))) {
+            continue;
+        }
         if (!service_selective(&endpoint->profile, slot->service_id)) {
             slot->status_expected = 0U;
             continue;
@@ -1810,8 +3007,10 @@ static dmp_status send_pending_status(dmp_endpoint *endpoint, dmp_time_ms now)
             slot->status_expected = 0U;
             continue;
         }
-        status = dmp_identity_next_seq(&endpoint->identity, endpoint->context, &seq);
+        use_context(endpoint, slot->context);
+        status = dmp_identity_next_seq(&endpoint->identity, slot->context, &seq);
         if (status != DMP_OK) {
+            use_context(endpoint, PEER(endpoint, context));
             return status;
         }
         mask_bytes[0] = (uint8_t)mask;
@@ -1820,16 +3019,21 @@ static dmp_status send_pending_status(dmp_endpoint *endpoint, dmp_time_ms now)
         mask_bytes[3] = (uint8_t)(mask >> 24U);
         payload.data = mask_bytes;
         payload.size = 4U;
-        attempt = endpoint->association_attempt;
-        if (endpoint->drain_live != 0U && slot->context.slot == endpoint->drain_context.slot &&
-            slot->context.generation == endpoint->drain_context.generation) {
-            attempt = endpoint->drain_attempt;
+        attempt = PEER(endpoint, association_attempt);
+        if (PEER(endpoint, drain_live) != 0U && slot->context.slot == PEER(endpoint, drain_context).slot &&
+            slot->context.generation == PEER(endpoint, drain_context).generation) {
+            attempt = PEER(endpoint, drain_attempt);
+        } else if (slot->context.slot != PEER(endpoint, context).slot ||
+                   slot->context.generation != PEER(endpoint, context).generation) {
+            use_context(endpoint, PEER(endpoint, context));
+            continue;
         }
         out.data = endpoint->mem.fragment_frame;
-        out.capacity = endpoint->profile.encoded_mtu;
+        out.capacity = local_core_mtu(endpoint);
         status = encode_core(endpoint, (uint8_t)DMP_TYPE_FRAG_STATUS, slot->service_id, seq, 0, 0,
                              0U, 0U, 0U, payload, 1, slot->source, 0, 0U, 1, 1, attempt, out,
                              &written);
+        use_context(endpoint, PEER(endpoint, context));
         if (status != DMP_OK) {
             return status;
         }
@@ -1839,7 +3043,8 @@ static dmp_status send_pending_status(dmp_endpoint *endpoint, dmp_time_ms now)
         }
         frame.data = endpoint->mem.fragment_frame;
         frame.size = written;
-        status = submit_wire(endpoint, KIND_STATUS, frame, NULL, NULL, (dmp_tx_token){0}, not_after);
+        status = submit_wire(endpoint, KIND_STATUS, frame, slot->context, NULL, NULL,
+                             (dmp_tx_token){0}, not_after);
         if (status != DMP_OK) {
             return status;
         }
@@ -1850,63 +3055,165 @@ static dmp_status send_pending_status(dmp_endpoint *endpoint, dmp_time_ms now)
     return DMP_OK;
 }
 
-dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
+static dmp_status poll_endpoint_peer_outputs(dmp_endpoint *endpoint, dmp_time_ms now,
+                                              uint32_t peer_index)
 {
-    dmp_status reliability;
     dmp_status status;
-    size_t expired = 0U;
-    uint32_t guard;
-    if (!ready(endpoint)) {
-        return DMP_INVALID_ARGUMENT;
+    uint64_t accepted_before;
+    if (endpoint->wire_busy != 0U || peer_index >= endpoint->profile.peers ||
+        endpoint->peers[peer_index].live == 0U) {
+        return DMP_BUSY;
     }
-    expire_drain(endpoint, now);
-    freshness_maintenance(endpoint, now);
-    reliability = dmp_reliability_poll(&endpoint->reliability, now);
-    freshness_maintenance(endpoint, now);
-    status = dmp_reassembly_poll(&endpoint->reassembly, now, &expired);
+    endpoint->active_peer_slot = peer_index;
+    status = select_active_route(endpoint);
     if (status != DMP_OK) {
         return status;
     }
-    /* The same poll may have released the assembly retain. Retry retire. */
-    expire_drain(endpoint, now);
+    if (PEER(endpoint, sync_pending) != 0U && PEER(endpoint, sync_tx) == 0U) {
+        status = submit_sync(endpoint, now);
+        if (status == DMP_OK) {
+            return DMP_OK;
+        }
+        if (status != DMP_BUSY) {
+            return status;
+        }
+        if (endpoint->wire_busy != 0U) {
+            return DMP_BUSY;
+        }
+    }
+    accepted_before = endpoint->accepted_tx_generation;
     status = send_pending_status(endpoint, now);
+    if (endpoint->accepted_tx_generation != accepted_before) {
+        return DMP_OK;
+    }
     if (status != DMP_OK && status != DMP_BUSY) {
         return status;
     }
-    for (guard = 0U; guard < endpoint->profile.fragments + 4U; guard++) {
-        if (endpoint->frag_live != 0U && endpoint->frag_tx == 0U && endpoint->wire_busy == 0U) {
-            status = send_fragment(endpoint, now);
-            if (status == DMP_BUSY) {
-                break;
-            }
-            if (status != DMP_OK) {
-                if (endpoint->frag_attempt != endpoint->association_attempt) {
-                    endpoint->frag_live = 0U;
-                    endpoint->frag_tx = 0U;
-                    continue;
+    if (PEER(endpoint, frag_live) != 0U && PEER(endpoint, frag_tx) == 0U) {
+        status = send_fragment(endpoint, now);
+        if (status == DMP_OK) {
+            return DMP_OK;
+        }
+        if (status != DMP_BUSY) {
+            if (PEER(endpoint, revoked) != 0U || status == DMP_DEADLINE_EXPIRED ||
+                status == DMP_STALE_HANDLE || status == DMP_AUTHENTICATION_FAILURE) {
+                if (PEER(endpoint, frag_context_retained) != 0U) {
+                    (void)dmp_identity_context_release(&endpoint->identity,
+                                                       PEER(endpoint, frag_context));
+                    PEER(endpoint, frag_context_retained) = 0U;
                 }
+                PEER(endpoint, frag_live) = 0U;
+                PEER(endpoint, frag_tx) = 0U;
+            } else {
                 return status;
             }
-            continue;
         }
-        if (endpoint->telem_pending != 0U && endpoint->telem_tx == 0U && endpoint->wire_busy == 0U &&
-            endpoint->frag_live == 0U) {
-            status = send_telem(endpoint, now);
-            if (status == DMP_BUSY) {
-                break;
-            }
-            if (status != DMP_OK) {
-                if (endpoint->telem_seq_set != 0U &&
-                    endpoint->telem_attempt != endpoint->association_attempt) {
-                    endpoint->telem_pending = 0U;
-                    endpoint->telem_tx = 0U;
-                    continue;
+    }
+    if (PEER(endpoint, telem_pending) != 0U && PEER(endpoint, telem_tx) == 0U) {
+        status = send_telem(endpoint, now);
+        if (status == DMP_OK) {
+            return DMP_OK;
+        }
+        if (status != DMP_BUSY) {
+            if (PEER(endpoint, revoked) != 0U || status == DMP_DEADLINE_EXPIRED ||
+                status == DMP_STALE_HANDLE || status == DMP_AUTHENTICATION_FAILURE) {
+                if (PEER(endpoint, telem_context_retained) != 0U) {
+                    (void)dmp_identity_context_release(&endpoint->identity,
+                                                       PEER(endpoint, telem_context));
+                    PEER(endpoint, telem_context_retained) = 0U;
                 }
+                PEER(endpoint, telem_pending) = 0U;
+                PEER(endpoint, telem_tx) = 0U;
+            } else {
                 return status;
             }
-            continue;
         }
-        break;
+    }
+    return DMP_OK;
+}
+
+dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
+{
+    dmp_status reliability = DMP_OK;
+    dmp_status status;
+    size_t expired = 0U;
+    uint32_t peer_index;
+    uint32_t start_peer;
+    uint32_t peers;
+    bool accepted;
+    dmp_peer_handle peer;
+    if (!ready(endpoint)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    peers = endpoint->profile.peers;
+    if (peers == 0U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    start_peer = endpoint->poll_peer_cursor % peers;
+    for (peer_index = 0U; peer_index < peers; peer_index++) {
+        if (endpoint->peers[peer_index].live != 0U) {
+            endpoint->active_peer_slot = peer_index;
+            expire_drain(endpoint, now);
+        }
+    }
+    freshness_maintenance(endpoint, now);
+    status = dmp_reliability_maintain(&endpoint->reliability, now);
+    if (status != DMP_OK) {
+        return status;
+    }
+    freshness_maintenance(endpoint, now);
+    if (endpoint->profile.fragments >= 2U) {
+        status = dmp_reassembly_poll(&endpoint->reassembly, now, &expired);
+        if (status != DMP_OK) {
+            return status;
+        }
+    }
+    /* The same poll may have released the assembly retain. Retry retire. */
+    for (peer_index = 0U; peer_index < peers; peer_index++) {
+        if (endpoint->peers[peer_index].live != 0U) {
+            endpoint->active_peer_slot = peer_index;
+            expire_drain(endpoint, now);
+        }
+    }
+    retire_revoked_peers(endpoint, now);
+
+    if (endpoint->wire_busy == 0U) {
+        for (uint32_t offset = 0U; offset < peers; offset++) {
+            uint32_t peer_index = (start_peer + offset) % peers;
+            if (endpoint->peers[peer_index].live == 0U) {
+                continue;
+            }
+            endpoint->active_peer_slot = peer_index;
+            status = select_active_route(endpoint);
+            if (status != DMP_OK) {
+                return status;
+            }
+            peer = PEER(endpoint, handle);
+            accepted = false;
+            status = dmp_reliability_poll_peer(&endpoint->reliability, now, peer,
+                                               &accepted);
+            if (accepted) {
+                endpoint->poll_peer_cursor = (peer_index + 1U) % peers;
+                return status;
+            }
+            if (status != DMP_OK && reliability == DMP_OK) {
+                reliability = status;
+            }
+            if (endpoint->wire_busy != 0U) {
+                break;
+            }
+            {
+                uint64_t accepted_before = endpoint->accepted_tx_generation;
+                status = poll_endpoint_peer_outputs(endpoint, now, peer_index);
+                if (endpoint->accepted_tx_generation != accepted_before) {
+                    endpoint->poll_peer_cursor = (peer_index + 1U) % peers;
+                    return reliability;
+                }
+            }
+            if (status != DMP_OK && status != DMP_BUSY) {
+                return status;
+            }
+        }
     }
     return reliability;
 }
@@ -2109,7 +3416,7 @@ static dmp_status bind_freshness(dmp_endpoint *endpoint, const dmp_frame_view *f
     }
     for (i = 0U; i < freshness_slot_count(endpoint); i++) {
         dmp_endpoint_freshness_slot *slot = &endpoint->mem.freshness_slots[i];
-        if (slot->state == DMP_ENDPOINT_FRESHNESS_BOUND &&
+        if (slot->state == DMP_ENDPOINT_FRESHNESS_BOUND && peer_equal(slot->peer, PEER(endpoint, handle)) &&
             slot->principal == source.origin.origin_id && slot->peer_epoch == source.origin.epoch &&
             slot->bound_seq == source.seq && slot->service_id == service &&
             !token_equal(slot->token, token.data)) {
@@ -2119,7 +3426,8 @@ static dmp_status bind_freshness(dmp_endpoint *endpoint, const dmp_frame_view *f
             !token_equal(slot->token, token.data)) {
             continue;
         }
-        if (slot->principal != source.origin.origin_id || slot->peer_epoch != source.origin.epoch ||
+        if (!peer_equal(slot->peer, PEER(endpoint, handle)) ||
+            slot->principal != source.origin.origin_id || slot->peer_epoch != source.origin.epoch ||
             slot->attempt != attempt) {
             return DMP_AUTHENTICATION_FAILURE;
         }
@@ -2170,7 +3478,7 @@ static dmp_status reject_authenticated_req(dmp_endpoint *endpoint, const dmp_fra
     if (status == DMP_DUPLICATE) {
         status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
     }
-    use_context(endpoint, endpoint->context);
+    use_context(endpoint, PEER(endpoint, context));
     freshness_consume_frame(endpoint, frame, service, context, now);
     return status == DMP_OK || status == DMP_DUPLICATE ? DMP_OK : status;
 }
@@ -2223,7 +3531,7 @@ static dmp_status validate_request_before_accept(dmp_endpoint *endpoint,
                 *retained_rejection = 1;
             }
         }
-        use_context(endpoint, endpoint->context);
+        use_context(endpoint, PEER(endpoint, context));
         if (status == DMP_DUPLICATE) {
             return DMP_OK;
         }
@@ -2288,7 +3596,8 @@ static int freshness_duplicate_grant(dmp_endpoint *endpoint, dmp_message_key key
     size_t i;
     for (i = 0U; i < freshness_slot_count(endpoint); i++) {
         const dmp_endpoint_freshness_slot *slot = &endpoint->mem.freshness_slots[i];
-        if (slot->state != DMP_ENDPOINT_FRESHNESS_EMPTY && slot->principal == key.origin.origin_id &&
+        if (slot->state != DMP_ENDPOINT_FRESHNESS_EMPTY &&
+            peer_equal(slot->peer, PEER(endpoint, handle)) && slot->principal == key.origin.origin_id &&
             slot->peer_epoch == key.origin.epoch && slot->attempt == attempt &&
             slot->grant_request_seq == key.seq) {
             return slot->grant_request_lifetime_ms == requested_lifetime ? 1 : -1;
@@ -2297,14 +3606,16 @@ static int freshness_duplicate_grant(dmp_endpoint *endpoint, dmp_message_key key
     return 0;
 }
 
-static uint32_t freshness_live_count(const dmp_endpoint *endpoint, uint32_t principal,
+static uint32_t freshness_live_count(const dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                    uint32_t principal,
                                     uint32_t attempt, int match_attempt, int grants_only)
 {
     size_t i;
     uint32_t count = 0U;
     for (i = 0U; i < freshness_slot_count(endpoint); i++) {
         const dmp_endpoint_freshness_slot *slot = &endpoint->mem.freshness_slots[i];
-        if (slot->state == DMP_ENDPOINT_FRESHNESS_EMPTY || slot->principal != principal ||
+        if (slot->state == DMP_ENDPOINT_FRESHNESS_EMPTY || !peer_equal(slot->peer, peer) ||
+            slot->principal != principal ||
             (match_attempt && slot->attempt != attempt) ||
             (grants_only && slot->grant_request_live == 0U)) {
             continue;
@@ -2359,17 +3670,17 @@ static dmp_status prepare_freshness_grant(dmp_endpoint *endpoint, const dmp_fram
         *protocol_status = 7U;
         return DMP_MALFORMED;
     }
-    if (endpoint->context.slot >= endpoint->identity.capacity) {
+    if (PEER(endpoint, context).slot >= endpoint->identity.capacity) {
         *protocol_status = 6U;
         return DMP_STALE_HANDLE;
     }
-    context = &endpoint->identity.slots[endpoint->context.slot];
-    if (context->generation != endpoint->context.generation || context->state != DMP_IDENTITY_SLOT_ACTIVE ||
-        attempt != endpoint->association_attempt || require_attempt(endpoint, attempt) != DMP_OK) {
+    context = &endpoint->identity.slots[PEER(endpoint, context).slot];
+    if (context->generation != PEER(endpoint, context).generation || context->state != DMP_IDENTITY_SLOT_ACTIVE ||
+        attempt != PEER(endpoint, association_attempt) || require_attempt(endpoint, attempt) != DMP_OK) {
         *protocol_status = 6U;
         return DMP_AUTHENTICATION_FAILURE;
     }
-    status = dmp_identity_source_key(frame, &endpoint->identity, endpoint->context, now, &source);
+    status = dmp_identity_source_key(frame, &endpoint->identity, PEER(endpoint, context), now, &source);
     if (status != DMP_OK) {
         *protocol_status = 6U;
         return status;
@@ -2413,11 +3724,11 @@ static dmp_status prepare_freshness_grant(dmp_endpoint *endpoint, const dmp_fram
     if (freshness_identity_retained(endpoint, source, 0U, DMP_TYPE_REQ)) {
         return DMP_DUPLICATE;
     }
-    if (freshness_live_count(endpoint, context->peer.origin_id, attempt, 1, 0) >=
+    if (freshness_live_count(endpoint, PEER(endpoint, handle), context->peer.origin_id, attempt, 1, 0) >=
             endpoint->profile.freshness_tokens_per_association ||
-        freshness_live_count(endpoint, context->peer.origin_id, attempt, 0, 0) >=
+        freshness_live_count(endpoint, PEER(endpoint, handle), context->peer.origin_id, attempt, 0, 0) >=
             endpoint->profile.freshness_tokens_per_principal ||
-        freshness_live_count(endpoint, context->peer.origin_id, attempt, 0, 1) >=
+        freshness_live_count(endpoint, PEER(endpoint, handle), context->peer.origin_id, attempt, 0, 1) >=
             endpoint->profile.freshness_grant_requests_per_pair) {
         *protocol_status = 4U;
         return DMP_QUOTA_EXHAUSTED;
@@ -2446,6 +3757,7 @@ static dmp_status prepare_freshness_grant(dmp_endpoint *endpoint, const dmp_fram
         return status;
     }
     memset(record, 0, sizeof *record);
+    record->peer = PEER(endpoint, handle);
     record->state = DMP_ENDPOINT_FRESHNESS_RESERVED;
     record->principal = context->peer.origin_id;
     record->peer_epoch = context->peer.epoch;
@@ -2455,8 +3767,8 @@ static dmp_status prepare_freshness_grant(dmp_endpoint *endpoint, const dmp_fram
     record->granted_lifetime_ms = granted;
     record->expires_at = expires;
     record->record_until = record_until;
-    if (endpoint->association == NULL ||
-        dmp_hs_entropy(endpoint->association, record->token, sizeof record->token) != DMP_HS_OK) {
+    if (PEER(endpoint, association) == NULL ||
+        dmp_hs_entropy(PEER(endpoint, association), record->token, sizeof record->token) != DMP_HS_OK) {
         memset(record, 0, sizeof *record);
         *protocol_status = 4U;
         return DMP_AUTHENTICATION_FAILURE;
@@ -2470,9 +3782,9 @@ static dmp_status prepare_freshness_grant(dmp_endpoint *endpoint, const dmp_fram
             return DMP_AUTHENTICATION_FAILURE;
         }
     }
-    endpoint->prepared_grant_key = source;
-    endpoint->prepared_grant_live = 1U;
-    endpoint->pending_grant_slot = (uint32_t)(record - endpoint->mem.freshness_slots);
+    PEER(endpoint, prepared_grant_key) = source;
+    PEER(endpoint, prepared_grant_live) = 1U;
+    PEER(endpoint, pending_grant_slot) = (uint32_t)(record - endpoint->mem.freshness_slots);
     return DMP_OK;
 }
 
@@ -2483,22 +3795,22 @@ static dmp_status finish_freshness_grant(dmp_endpoint *endpoint, dmp_time_ms now
     uint8_t response[21];
     dmp_bytes payload;
     dmp_status status;
-    if (endpoint->pending_grant_live == 0U) {
+    if (PEER(endpoint, pending_grant_live) == 0U) {
         return DMP_OK;
     }
-    if (endpoint->pending_grant_slot >= freshness_slot_count(endpoint) ||
-        endpoint->pending_grant_request.slot >= endpoint->mem.history_capacity) {
-        endpoint->pending_grant_live = 0U;
-        endpoint->prepared_grant_live = 0U;
+    if (PEER(endpoint, pending_grant_slot) >= freshness_slot_count(endpoint) ||
+        PEER(endpoint, pending_grant_request).slot >= endpoint->mem.history_capacity) {
+        PEER(endpoint, pending_grant_live) = 0U;
+        PEER(endpoint, prepared_grant_live) = 0U;
         return DMP_STALE_HANDLE;
     }
-    record = &endpoint->mem.freshness_slots[endpoint->pending_grant_slot];
-    history = &endpoint->mem.history[endpoint->pending_grant_request.slot];
+    record = &endpoint->mem.freshness_slots[PEER(endpoint, pending_grant_slot)];
+    history = &endpoint->mem.history[PEER(endpoint, pending_grant_request).slot];
     if (record->state != DMP_ENDPOINT_FRESHNESS_RESERVED || history->live == 0U ||
-        history->generation != endpoint->pending_grant_request.generation) {
+        history->generation != PEER(endpoint, pending_grant_request).generation) {
         memset(record, 0, sizeof *record);
-        endpoint->pending_grant_live = 0U;
-        endpoint->prepared_grant_live = 0U;
+        PEER(endpoint, pending_grant_live) = 0U;
+        PEER(endpoint, prepared_grant_live) = 0U;
         return DMP_STALE_HANDLE;
     }
     response[0] = 0x11U;
@@ -2509,7 +3821,7 @@ static dmp_status finish_freshness_grant(dmp_endpoint *endpoint, dmp_time_ms now
     response[20] = (uint8_t)(record->granted_lifetime_ms >> 24U);
     payload.data = response;
     payload.size = sizeof response;
-    status = endpoint_complete_for_lifetime(endpoint, endpoint->pending_grant_request, false, 0U,
+    status = endpoint_complete_for_lifetime(endpoint, PEER(endpoint, pending_grant_request), false, 0U,
                                             payload, endpoint->profile.freshness_grant_result_ms,
                                             now);
     if (status == DMP_OK) {
@@ -2520,22 +3832,22 @@ static dmp_status finish_freshness_grant(dmp_endpoint *endpoint, dmp_time_ms now
     } else {
         record->state = DMP_ENDPOINT_FRESHNESS_CONSUMED;
     }
-    endpoint->pending_grant_live = 0U;
-    endpoint->prepared_grant_live = 0U;
+    PEER(endpoint, pending_grant_live) = 0U;
+    PEER(endpoint, prepared_grant_live) = 0U;
     return status;
 }
 
 static void discard_prepared_freshness_grant(dmp_endpoint *endpoint)
 {
-    if (endpoint->prepared_grant_live != 0U && endpoint->pending_grant_live == 0U &&
-        endpoint->pending_grant_slot < freshness_slot_count(endpoint)) {
+    if (PEER(endpoint, prepared_grant_live) != 0U && PEER(endpoint, pending_grant_live) == 0U &&
+        PEER(endpoint, pending_grant_slot) < freshness_slot_count(endpoint)) {
         dmp_endpoint_freshness_slot *record =
-            &endpoint->mem.freshness_slots[endpoint->pending_grant_slot];
+            &endpoint->mem.freshness_slots[PEER(endpoint, pending_grant_slot)];
         if (record->state == DMP_ENDPOINT_FRESHNESS_RESERVED) {
             memset(record, 0, sizeof *record);
         }
     }
-    endpoint->prepared_grant_live = 0U;
+    PEER(endpoint, prepared_grant_live) = 0U;
 }
 
 static int ack_req_logical(const dmp_frame_view *frame)
@@ -2599,7 +3911,7 @@ static dmp_status present_assembled(dmp_endpoint *endpoint, const dmp_frame_view
     input.immutable_metadata = metadata;
     use_context(endpoint, context);
     status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
-    use_context(endpoint, endpoint->context);
+    use_context(endpoint, PEER(endpoint, context));
     if (status != DMP_BUSY && status != DMP_INCOMPLETE) {
         freshness_consume_frame(endpoint, frame, service, context, now);
     }
@@ -2675,6 +3987,15 @@ static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *fr
         if (accepted != DMP_OK && accepted != DMP_DUPLICATE && accepted != DMP_BUSY) {
             return accepted;
         }
+        if (accepted == DMP_OK && deliver_assembled == 0) {
+            dmp_reassembly_handle rejected;
+            rejected.slot = (uint32_t)(slot - endpoint->reassembly.storage.assemblies);
+            rejected.generation = slot->generation;
+            accepted = dmp_reassembly_reject(&endpoint->reassembly, rejected);
+            if (accepted != DMP_OK) {
+                return accepted;
+            }
+        }
         return DMP_DUPLICATE;
     }
     if (status != DMP_OK) {
@@ -2695,14 +4016,20 @@ static dmp_status take_fragment(dmp_endpoint *endpoint, const dmp_frame_view *fr
             if (status != DMP_OK && status != DMP_DUPLICATE) {
                 return status;
             }
+            if (status == DMP_OK && deliver_assembled == 0) {
+                status = dmp_reassembly_reject(&endpoint->reassembly, handle);
+                if (status != DMP_OK) {
+                    return status;
+                }
+            }
         }
         if (deliver_assembled != 0) {
-            emit(endpoint, DMP_ENDPOINT_ASSEMBLED, none, message.service_id, 0U, message.payload,
-                 message.source);
+            emit_with_context(endpoint, DMP_ENDPOINT_ASSEMBLED, none, message.service_id, 0U,
+                              message.payload, message.source, context);
         }
-        /* Keep the completed slot. release clears the RESERVED tombstone, so
-         * the same SEQ could be assembled again. Replay is DMP_DUPLICATE while
-         * this assembly remains. Poll expires only an incomplete transfer. */
+        /* Accepted complete slots retain their payload for duplicate receipt
+         * handling. Terminally rejected messages use a REJECTED tombstone and
+         * return the payload/metadata slot to the bounded assembly pool. */
         return DMP_OK;
     }
 }
@@ -2719,26 +4046,26 @@ static int matching_attempt(const dmp_endpoint *endpoint, dmp_bytes core, uint32
     limits = receive_limits_of(endpoint);
     parsed = dmp_core_parse(core, &limits, &view);
     if (parsed.status != DMP_OK || (view.fields.options & DMP_OPT_SECURITY) == 0U ||
-        endpoint->association == NULL) {
+        PEER(endpoint, association) == NULL) {
         return 0;
     }
     cid = view.fields.security.receive_cid;
     if (cid == 0U) {
         return 0;
     }
-    if (endpoint->association_bound != 0U &&
-        dmp_hs_rx_cid(endpoint->association, endpoint->association_attempt) == cid) {
-        if (endpoint->context.slot >= endpoint->identity.capacity) {
+    if (PEER(endpoint, association_bound) != 0U &&
+        dmp_hs_rx_cid(PEER(endpoint, association), PEER(endpoint, association_attempt)) == cid) {
+        if (PEER(endpoint, context).slot >= endpoint->identity.capacity) {
             return 0;
         }
-        *attempt = endpoint->association_attempt;
-        *peer_epoch = endpoint->identity.slots[endpoint->context.slot].peer.epoch;
+        *attempt = PEER(endpoint, association_attempt);
+        *peer_epoch = endpoint->identity.slots[PEER(endpoint, context).slot].peer.epoch;
         return 1;
     }
-    if (endpoint->drain_live != 0U &&
-        dmp_hs_rx_cid(endpoint->association, endpoint->drain_attempt) == cid) {
-        *attempt = endpoint->drain_attempt;
-        *peer_epoch = endpoint->drain_peer_epoch;
+    if (PEER(endpoint, drain_live) != 0U &&
+        dmp_hs_rx_cid(PEER(endpoint, association), PEER(endpoint, drain_attempt)) == cid) {
+        *attempt = PEER(endpoint, drain_attempt);
+        *peer_epoch = PEER(endpoint, drain_peer_epoch);
         return 1;
     }
     return 0;
@@ -2754,11 +4081,11 @@ static dmp_status open_protected(dmp_endpoint *endpoint, dmp_bytes core, dmp_fra
     uint64_t peer_epoch = 0U;
     dmp_hs_status opened;
 
-    if (endpoint->revoked != 0U || endpoint->context.slot >= endpoint->identity.capacity ||
+    if (PEER(endpoint, revoked) != 0U || PEER(endpoint, context).slot >= endpoint->identity.capacity ||
         !matching_attempt(endpoint, core, &attempt, &peer_epoch)) {
         return DMP_AUTHENTICATION_FAILURE;
     }
-    slot = &endpoint->identity.slots[endpoint->context.slot];
+    slot = &endpoint->identity.slots[PEER(endpoint, context).slot];
     memset(&incoming, 0, sizeof incoming);
     incoming.frame = core.data;
     incoming.frame_len = core.size;
@@ -2766,7 +4093,7 @@ static dmp_status open_protected(dmp_endpoint *endpoint, dmp_bytes core, dmp_fra
     incoming.destination_id = slot->local.origin_id;
     incoming.namespace_id = slot->local.namespace_id;
     incoming.context_epoch = peer_epoch;
-    opened = dmp_hs_open_logical(endpoint->association, attempt, &incoming, plain, plain_cap,
+    opened = dmp_hs_open_logical(PEER(endpoint, association), attempt, &incoming, plain, plain_cap,
                                  plain_len, view);
     if (opened != DMP_HS_OK) {
         return from_hs(opened);
@@ -2792,7 +4119,7 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
     dmp_identity_handle rx_context;
     dmp_status status;
     memset(&view, 0, sizeof view);
-    rx_context = endpoint->context;
+    rx_context = PEER(endpoint, context);
     if (secured(endpoint)) {
         /* Epochs are the attempt values installed above. No hash and no
          * allocation on this path. */
@@ -2804,8 +4131,8 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
         if (plain_len != view.payload.size) {
             return DMP_AUTHENTICATION_FAILURE;
         }
-        if (endpoint->drain_live != 0U && opened_attempt == endpoint->drain_attempt) {
-            rx_context = endpoint->drain_context;
+        if (PEER(endpoint, drain_live) != 0U && opened_attempt == PEER(endpoint, drain_attempt)) {
+            rx_context = PEER(endpoint, drain_context);
         }
     } else {
         limits = receive_limits_of(endpoint);
@@ -2849,7 +4176,7 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
             if (rx_context.slot >= endpoint->identity.capacity ||
                 (peer_slot = &endpoint->identity.slots[rx_context.slot])->generation !=
                     rx_context.generation ||
-                opened_attempt != endpoint->association_attempt ||
+                opened_attempt != PEER(endpoint, association_attempt) ||
                 require_attempt(endpoint, opened_attempt) != DMP_OK ||
                 !action_allowed(endpoint, peer_slot->peer.origin_id, 0U,
                                 DMP_ENDPOINT_PERMIT_CONTROL)) {
@@ -2988,7 +4315,7 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
         input.immutable_metadata = empty;
         use_context(endpoint, rx_context);
         status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
-        use_context(endpoint, endpoint->context);
+        use_context(endpoint, PEER(endpoint, context));
         return status;
     }
     if ((view.fields.options & DMP_OPT_FRAG) != 0U) {
@@ -3015,7 +4342,8 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
         if (status != DMP_OK) {
             return status;
         }
-        emit(endpoint, DMP_ENDPOINT_TELEMETRY, none, service, 0U, view.payload, source);
+        emit_with_context(endpoint, DMP_ENDPOINT_TELEMETRY, none, service, 0U, view.payload,
+                          source, rx_context);
         return DMP_OK;
     }
     if (view.fields.type != DMP_TYPE_REQ && view.fields.type != DMP_TYPE_RSP &&
@@ -3041,7 +4369,7 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
     input.immutable_metadata = metadata;
     use_context(endpoint, rx_context);
     status = dmp_reliability_on_rx(&endpoint->reliability, &input, now);
-    use_context(endpoint, endpoint->context);
+    use_context(endpoint, PEER(endpoint, context));
     if (status != DMP_BUSY && status != DMP_INCOMPLETE &&
         freshness_required(&endpoint->profile, service) && freshness_command(view.fields.type)) {
         dmp_message_key source;
@@ -3049,8 +4377,8 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
             freshness_consume_key(endpoint, source, service);
         }
     }
-    if (service == 0U && endpoint->prepared_grant_live != 0U) {
-        if (endpoint->pending_grant_live != 0U) {
+    if (service == 0U && PEER(endpoint, prepared_grant_live) != 0U) {
+        if (PEER(endpoint, pending_grant_live) != 0U) {
             dmp_status grant_status = finish_freshness_grant(endpoint, now);
             if (grant_status != DMP_OK) {
                 return grant_status;
@@ -3062,14 +4390,27 @@ static dmp_status take_frame(dmp_endpoint *endpoint, dmp_bytes core, dmp_time_ms
     return status;
 }
 
-dmp_status dmp_endpoint_rx(dmp_endpoint *endpoint, dmp_bytes input, dmp_time_ms now)
+dmp_status dmp_endpoint_rx_from(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                dmp_bytes input, dmp_time_ms now)
 {
     dmp_status status = DMP_OK;
     if (!ready(endpoint) || !bytes_ok(input)) {
         return DMP_INVALID_ARGUMENT;
     }
+    if (endpoint->mem.framing_mode != DMP_ENDPOINT_FRAMING_STREAM_R) {
+        return DMP_UNSUPPORTED;
+    }
+    status = select_peer(endpoint, peer);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = select_active_route(endpoint);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = DMP_OK;
     while (input.size != 0U) {
-        dmp_stream_result fed = dmp_stream_feed(&endpoint->decoder, input, now);
+        dmp_stream_result fed = dmp_stream_feed(&PEER(endpoint, decoder), input, now);
         if (fed.status != DMP_OK) {
             return fed.status;
         }
@@ -3089,5 +4430,50 @@ dmp_status dmp_endpoint_rx(dmp_endpoint *endpoint, dmp_bytes input, dmp_time_ms 
             return status;
         }
     }
+    (void)select_active_route(endpoint);
     return status;
+}
+
+dmp_status dmp_endpoint_rx(dmp_endpoint *endpoint, dmp_bytes input, dmp_time_ms now)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    return dmp_endpoint_rx_from(endpoint, peer, input, now);
+}
+
+dmp_status dmp_endpoint_rx_packet_from(dmp_endpoint *endpoint, dmp_peer_handle peer,
+                                       dmp_bytes frame, dmp_time_ms now)
+{
+    dmp_status status;
+    if (!ready(endpoint) || !bytes_ok(frame) || frame.size == 0U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (endpoint->mem.framing_mode != DMP_ENDPOINT_FRAMING_PACKET) {
+        return DMP_UNSUPPORTED;
+    }
+    status = select_peer(endpoint, peer);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = select_active_route(endpoint);
+    if (status != DMP_OK) {
+        return status;
+    }
+    if (frame.size > receive_core_mtu(endpoint)) {
+        return DMP_LIMIT_EXHAUSTED;
+    }
+    status = take_frame(endpoint, frame, now);
+    (void)select_active_route(endpoint);
+    return status;
+}
+
+dmp_status dmp_endpoint_rx_packet(dmp_endpoint *endpoint, dmp_bytes frame, dmp_time_ms now)
+{
+    dmp_peer_handle peer = {0U, 1U};
+    if (endpoint == NULL || endpoint->profile.peers != 1U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    return dmp_endpoint_rx_packet_from(endpoint, peer, frame, now);
 }

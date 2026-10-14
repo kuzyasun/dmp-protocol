@@ -208,6 +208,62 @@ typedef struct dmp_hs_protected {
 } dmp_hs_protected;
 
 typedef struct dmp_hs dmp_hs;
+typedef struct dmp_hs_admission dmp_hs_admission;
+
+/* Shared endpoint-owned SEC-1 admission limits. Zero limits are invalid. */
+typedef struct dmp_hs_admission_limits {
+    uint32_t max_pending;
+    uint32_t max_scratch;
+    uint32_t global_work;
+    uint32_t ingress_work;
+} dmp_hs_admission_limits;
+
+/* Opaque token: callers may copy it, but only the exact live generation can
+ * retain or release the resource it names. Calls are serialized by the owner. */
+typedef struct dmp_hs_admission_token {
+    uint32_t slot;
+    uint64_t generation;
+} dmp_hs_admission_token;
+
+#define DMP_HS_TX_RESERVATION_MAX 4u
+#define DMP_HS_CACHED_FRAGMENT_MAX 256u
+typedef struct dmp_hs_tx_reservation {
+    uint32_t count;
+    dmp_hs_admission_token tokens[DMP_HS_TX_RESERVATION_MAX];
+} dmp_hs_tx_reservation;
+
+typedef struct dmp_hs_bootstrap_context {
+    uint32_t namespace_id;
+    uint32_t origin_id;
+    uint32_t destination_id;
+    uint64_t provisional_epoch;
+    uint8_t route_ttl;
+} dmp_hs_bootstrap_context;
+
+/* The returned size includes fixed metadata and bounded token storage. The
+ * caller supplies that many bytes aligned to alignof(max_align_t). */
+size_t dmp_hs_admission_size(void);
+dmp_hs_status dmp_hs_admission_init(dmp_hs_admission *admission,
+                                    const dmp_hs_admission_limits *limits);
+/* Retain creates a distinct releasable token for endpoint-owned records.
+ * Release accepts only such retained tokens; dmp_hs owns its original token. */
+dmp_hs_status dmp_hs_admission_retain(dmp_hs_admission *admission,
+                                      dmp_hs_admission_token token,
+                                      dmp_hs_admission_token *retained_token);
+dmp_hs_status dmp_hs_admission_release(dmp_hs_admission *admission,
+                                       dmp_hs_admission_token token);
+/* Retain pending/CID/key admission resources before async transport use.
+ * Release the returned set only after the transport's terminal callback. */
+dmp_hs_status dmp_hs_retain_tx_reservation(const dmp_hs *hs,
+                                           uint32_t attempt_index,
+                                           dmp_hs_tx_reservation *reservation);
+dmp_hs_status dmp_hs_release_tx_reservation(dmp_hs *hs,
+                                            dmp_hs_tx_reservation *reservation);
+/* Retain the active association's CID and both directional epoch keys until
+ * its endpoint identity context and all retained work have retired. */
+dmp_hs_status dmp_hs_retain_association_reservation(
+    const dmp_hs *hs, uint32_t attempt_index,
+    dmp_hs_tx_reservation *reservation);
 
 size_t dmp_hs_size(void);
 size_t dmp_hs_attempt_size(void);
@@ -215,6 +271,11 @@ uint32_t dmp_hs_replay_width(const dmp_hs *hs);
 uint32_t dmp_hs_remote_rx_cid(const dmp_hs *hs, uint32_t attempt_index);
 dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider,
                           const dmp_hs_config *config, const dmp_hs_ports *ports);
+/* Multi-peer endpoints must pass the same initialized owner to every peer. */
+dmp_hs_status dmp_hs_init_shared(dmp_hs *hs, dmp_provider *provider,
+                                 const dmp_hs_config *config, const dmp_hs_ports *ports,
+                                 dmp_hs_admission *admission);
+int dmp_hs_uses_admission(const dmp_hs *hs, const dmp_hs_admission *admission);
 void dmp_hs_cleanup(dmp_hs *hs);
 /* Draw cryptographic randomness from the same configured entropy port used by
  * SEC-1 handshakes. Failure wipes the requested output and never substitutes a
@@ -229,6 +290,17 @@ dmp_hs_status dmp_hs_accept(dmp_hs *hs, const dmp_hs_completion *completion);
 dmp_hs_status dmp_hs_cancel(dmp_hs *hs, uint32_t attempt_index);
 dmp_hs_status dmp_hs_poll(dmp_hs *hs, uint32_t *attempt_index);
 dmp_hs_status dmp_hs_retransmit(dmp_hs *hs, uint32_t attempt_index);
+/* A cached flight has one handshake-owned send permit per initial flight or
+ * successful retransmit request. All fragments share that permit. A pre-accept
+ * binding rejection can return an unused retransmit permit; accepted traffic
+ * consumes it even when its terminal result is uncertain. */
+dmp_hs_status dmp_hs_cached_flight_tx_check(dmp_hs *hs, uint32_t attempt_index,
+                                             uint32_t fragment_count,
+                                             uint32_t fragment_index);
+dmp_hs_status dmp_hs_cached_flight_tx_accept(dmp_hs *hs, uint32_t attempt_index,
+                                              uint32_t fragment_count,
+                                              uint32_t fragment_index);
+dmp_hs_status dmp_hs_cached_flight_tx_reject(dmp_hs *hs, uint32_t attempt_index);
 dmp_hs_status dmp_hs_approve(dmp_hs *hs, uint32_t attempt_index,
                              const dmp_hs_approval *approval);
 dmp_hs_status dmp_hs_send_application(const dmp_hs *hs, uint32_t attempt_index);
@@ -250,6 +322,12 @@ int dmp_hs_traffic_identity(const dmp_hs *hs, uint32_t attempt_index, uint32_t *
                             uint32_t *local_id, uint32_t *peer_id, uint64_t *local_epoch,
                             uint64_t *peer_epoch);
 dmp_hs_status dmp_hs_retain_association(dmp_hs *hs, const dmp_hs_retained *retained);
+/* Return borrowed owner tokens. Endpoint records must call retain() for their
+ * own releasable reference before keeping a token across owner cleanup. */
+dmp_hs_status dmp_hs_association_tokens(const dmp_hs *hs, uint32_t attempt_index,
+                                         dmp_hs_admission_token *cid,
+                                         dmp_hs_admission_token *initiator_key,
+                                         dmp_hs_admission_token *responder_key);
 
 int dmp_hs_association_active(const dmp_hs *hs);
 dmp_hs_view dmp_hs_view_of(const dmp_hs *hs, uint32_t attempt_index);
@@ -280,6 +358,8 @@ int dmp_hs_copy_hash(const dmp_hs *hs, uint32_t attempt_index, uint8_t hash[32])
 int dmp_hs_epochs(const dmp_hs *hs, uint32_t attempt_index, uint64_t *initiator_epoch,
                   uint64_t *responder_epoch);
 uint64_t dmp_hs_boot_epoch(const dmp_hs *hs, uint32_t attempt_index);
+int dmp_hs_bootstrap_context_of(const dmp_hs *hs, uint32_t attempt_index,
+                               dmp_hs_bootstrap_context *context);
 uint8_t dmp_hs_expect_flight(const dmp_hs *hs, uint32_t attempt_index);
 int dmp_hs_copy_partial(const dmp_hs *hs, uint8_t *out, size_t cap, size_t *length);
 /* Current non-active handshake count used against budget.max_pending. */

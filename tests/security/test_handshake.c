@@ -2,8 +2,11 @@
  * public test material. Enrollment commit does not activate an association.
  */
 #include "handshake.h"
+#include "handshake_transport.h"
 #include "replay_window.h"
 #include "noise_fixture_probe.h"
+#include "dmp/integrity.h"
+#include "dmp/stream.h"
 
 #include <noise/protocol.h>
 
@@ -97,6 +100,19 @@ typedef struct port_ctx {
     unsigned watch_calls;
 } port_ctx;
 
+typedef struct hs_tx_probe {
+    dmp_tx_submission submission;
+    uint8_t bytes[600];
+    size_t length;
+    unsigned submits;
+    dmp_status submit_status;
+    dmp_status cancel_status;
+    unsigned cancels;
+    int complete_synchronously;
+    dmp_tx_outcome synchronous_outcome;
+    dmp_time_ms synchronous_time;
+} hs_tx_probe;
+
 typedef void (*tune_fn)(dmp_hs_config *initiator, dmp_hs_config *responder);
 
 static void expect_case(const char *name, int passed)
@@ -107,6 +123,38 @@ static void expect_case(const char *name, int passed)
     }
     fprintf(stderr, "FAIL %s\n", name);
     g_failures++;
+}
+
+static dmp_status hs_tx_probe_submit(void *context,
+                                     const dmp_tx_submission *submission)
+{
+    hs_tx_probe *probe = (hs_tx_probe *)context;
+    if (probe == NULL || submission == NULL || submission->frame.data == NULL ||
+        submission->frame.size > sizeof(probe->bytes)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (probe->submit_status != DMP_OK) {
+        dmp_status status = probe->submit_status;
+        probe->submit_status = DMP_OK;
+        return status;
+    }
+    probe->submission = *submission;
+    probe->length = submission->frame.size;
+    memcpy(probe->bytes, submission->frame.data, submission->frame.size);
+    probe->submits++;
+    if (probe->complete_synchronously) {
+        submission->complete(submission->owner, submission->token,
+                             probe->synchronous_outcome, probe->synchronous_time);
+    }
+    return DMP_OK;
+}
+
+static dmp_status hs_tx_probe_cancel(void *context, dmp_tx_token token)
+{
+    hs_tx_probe *probe = (hs_tx_probe *)context;
+    (void)token;
+    probe->cancels++;
+    return probe->cancel_status;
 }
 
 static int all_zero(const void *data, size_t size)
@@ -376,9 +424,9 @@ static void close_session(session *env)
     env->provider = NULL;
 }
 
-static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fixture_t *fixture,
-                     const uint8_t *init_pin, int init_has_pin, const uint8_t *resp_pin,
-                     int resp_has_pin, int pairing, tune_fn tune)
+static int make_pair_common(session *env, port_ctx *port, const noise_fixture_probe_fixture_t *fixture,
+                            const uint8_t *init_pin, int init_has_pin, const uint8_t *resp_pin,
+                            int resp_has_pin, int pairing, tune_fn tune, dmp_hs_admission *admission)
 {
     dmp_hs_config init_config;
     dmp_hs_config resp_config;
@@ -422,13 +470,115 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
     resp_ports.entropy = entropy_of;
     resp_ports.commit_pin = commit_of;
     resp_ports.ctx = &env->resp_box;
-    if (dmp_hs_init(env->initiator, env->provider, &init_config, &init_ports) != DMP_HS_OK ||
-        dmp_hs_init(env->responder, env->provider, &resp_config, &resp_ports) != DMP_HS_OK ||
+    if ((admission == NULL ? dmp_hs_init(env->initiator, env->provider, &init_config, &init_ports)
+                           : dmp_hs_init_shared(env->initiator, env->provider, &init_config, &init_ports, admission)) != DMP_HS_OK ||
+        (admission == NULL ? dmp_hs_init(env->responder, env->provider, &resp_config, &resp_ports)
+                           : dmp_hs_init_shared(env->responder, env->provider, &resp_config, &resp_ports, admission)) != DMP_HS_OK ||
         dmp_hs_begin_episode(env->initiator) != DMP_HS_OK) {
         close_session(env);
         return 0;
     }
     return 1;
+}
+
+static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fixture_t *fixture,
+                     const uint8_t *init_pin, int init_has_pin, const uint8_t *resp_pin,
+                     int resp_has_pin, int pairing, tune_fn tune)
+{
+    return make_pair_common(env, port, fixture, init_pin, init_has_pin, resp_pin, resp_has_pin,
+                            pairing, tune, NULL);
+}
+
+static int init_extra_responder(session *env, const noise_fixture_probe_fixture_t *fixture,
+                                dmp_hs_admission *admission, dmp_hs **hs,
+                                script *entropy_script, store *pin_store, box *port_box)
+{
+    dmp_hs_config config;
+    dmp_hs_ports ports;
+    *hs = (dmp_hs *)calloc(1U, dmp_hs_size());
+    if (*hs == NULL) return 0;
+    fill_config(&config, fixture, 0, NULL, 0, 0);
+    config.next_rx_cid = 55U;
+    script_add(entropy_script, fixture->resp_ephemeral.data, fixture->resp_ephemeral.size);
+    memset(pin_store->saved, 0xAB, sizeof(pin_store->saved));
+    port_box->now = &env->now;
+    port_box->entropy_script = entropy_script;
+    port_box->pin_store = pin_store;
+    memset(&ports, 0, sizeof(ports));
+    ports.now_ms = now_of;
+    ports.entropy = entropy_of;
+    ports.commit_pin = commit_of;
+    ports.ctx = port_box;
+    return dmp_hs_init_shared(*hs, env->provider, &config, &ports, admission) == DMP_HS_OK;
+}
+
+static void tune_shared_cid(dmp_hs_config *initiator, dmp_hs_config *responder)
+{
+    initiator->next_rx_cid = 55U;
+    responder->next_rx_cid = 55U;
+}
+
+static void tune_four_parallel(dmp_hs_config *initiator, dmp_hs_config *responder)
+{
+    initiator->budget.max_pending = 4U;
+    initiator->budget.max_scratch = 2U;
+    initiator->budget.episode_attempts = 4U;
+    responder->budget.max_pending = 4U;
+    responder->budget.max_scratch = 2U;
+}
+
+static int init_extra_responder_with_ephemeral(
+    session *env, const noise_fixture_probe_fixture_t *fixture,
+    dmp_hs_admission *admission, dmp_hs **hs, script *entropy_script,
+    const uint8_t ephemeral[32], store *pin_store, box *port_box)
+{
+    dmp_hs_config config;
+    dmp_hs_ports ports;
+
+    *hs = (dmp_hs *)calloc(1U, dmp_hs_size());
+    if (*hs == NULL) return 0;
+    fill_config(&config, fixture, 0, NULL, 0, 0);
+    config.next_rx_cid = 55U;
+    /* An inbound flight already supplies its attempt ID. This responder only
+     * requests fresh entropy for its local Noise ephemeral. */
+    script_add(entropy_script, ephemeral, 32U);
+    memset(pin_store->saved, 0xAB, sizeof(pin_store->saved));
+    port_box->now = &env->now;
+    port_box->entropy_script = entropy_script;
+    port_box->pin_store = pin_store;
+    memset(&ports, 0, sizeof(ports));
+    ports.now_ms = now_of;
+    ports.entropy = entropy_of;
+    ports.commit_pin = commit_of;
+    ports.ctx = port_box;
+    return dmp_hs_init_shared(*hs, env->provider, &config, &ports, admission) == DMP_HS_OK;
+}
+
+static int setup_admission(dmp_hs_admission **admission, uint32_t pending, uint32_t scratch,
+                           uint32_t global_work, uint32_t ingress_work)
+{
+    dmp_hs_admission_limits limits;
+    *admission = (dmp_hs_admission *)calloc(1U, dmp_hs_admission_size());
+    if (*admission == NULL) return 0;
+    limits.max_pending = pending;
+    limits.max_scratch = scratch;
+    limits.global_work = global_work;
+    limits.ingress_work = ingress_work;
+    if (dmp_hs_admission_init(*admission, &limits) != DMP_HS_OK) {
+        free(*admission);
+        *admission = NULL;
+        return 0;
+    }
+    return 1;
+}
+
+static void destroy_extra_hs(dmp_hs **hs)
+{
+    if (*hs != NULL) {
+        dmp_hs_cleanup(*hs);
+        free(*hs);
+        *hs = NULL;
+    }
 }
 
 static void set_ingress(dmp_hs_ingress *ingress, const uint8_t *payload, size_t length,
@@ -765,6 +915,570 @@ static int test_cached_flight_lifetime(void)
     passed = 1;
 
 done:
+    close_session(&env);
+    return passed && !port.nonzero_release;
+}
+
+static int decode_transport_frame(const hs_tx_probe *probe,
+                                  dmp_stream_decoder *decoder, uint8_t *core,
+                                  size_t core_capacity, dmp_time_ms now,
+                                  dmp_frame_view *view)
+{
+    dmp_stream_result result;
+    dmp_core_limits limits = {512U, DMP_HS_PAYLOAD_MAX, 8U};
+    dmp_parse_result parsed;
+
+    if (probe->length == 0U || decoder == NULL) return 0;
+    result = dmp_stream_feed(decoder, (dmp_bytes){probe->bytes, probe->length}, now);
+    if (result.status != DMP_OK || result.event != DMP_STREAM_FRAME ||
+        result.frame.size > core_capacity) {
+        return 0;
+    }
+    memcpy(core, result.frame.data, result.frame.size);
+    parsed = dmp_core_parse((dmp_bytes){core, result.frame.size}, &limits, view);
+    return parsed.status == DMP_OK;
+}
+
+static int decode_transport_packet(const hs_tx_probe *probe, uint8_t *core,
+                                   size_t core_capacity, dmp_frame_view *view)
+{
+    dmp_core_limits limits = {512U, DMP_HS_PAYLOAD_MAX, 8U};
+    dmp_parse_result parsed;
+    if (probe->length < 2U || probe->length > core_capacity) return 0;
+    memcpy(core, probe->bytes, probe->length);
+    parsed = dmp_core_parse((dmp_bytes){core, probe->length}, &limits, view);
+    return parsed.status == DMP_OK;
+}
+
+static int core_crc_matches(const dmp_frame_view *view)
+{
+    uint32_t crc = 0U;
+    size_t n = view->frame.size;
+    const uint8_t *bytes = view->frame.data;
+    return n >= 4U && dmp_crc32c((dmp_bytes){bytes, n - 4U}, &crc) == DMP_OK &&
+           bytes[n - 4U] == (uint8_t)crc && bytes[n - 3U] == (uint8_t)(crc >> 8U) &&
+           bytes[n - 2U] == (uint8_t)(crc >> 16U) && bytes[n - 1U] == (uint8_t)(crc >> 24U);
+}
+
+static void tune_routed_confirm(dmp_hs_config *initiator, dmp_hs_config *responder);
+
+static dmp_hs_status offer_frame(dmp_hs *hs, const uint8_t *frame, size_t length,
+                                 uint32_t origin, uint32_t destination, uint64_t epoch);
+static int drive_nn(session *env, uint32_t *index);
+
+static int test_real_handshake_transport_snapshot(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env = {0};
+    port_ctx port;
+    hs_tx_probe probe = {0};
+    dmp_transport transport = {0};
+    dmp_transport copy_transport;
+    dmp_hs_tx_config config = {512U, 8U, DMP_HS_TX_STREAM_R};
+    dmp_hs_tx_lifetime lifetime = {0U};
+    dmp_hs_tx_buffer buffers[DMP_HS_TX_SLOT_MAX];
+    dmp_hs_tx_buffer exact_buffers[DMP_HS_TX_SLOT_MAX];
+    uint8_t frame_buffers[DMP_HS_TX_SLOT_MAX][600];
+    uint8_t exact_stream_storage[DMP_HS_TX_SLOT_MAX][512];
+    uint8_t exact_packet_storage[DMP_HS_TX_SLOT_MAX][256];
+    uint8_t decoder_storage[600];
+    uint8_t decoder_storage2[600];
+    dmp_stream_decoder decoder;
+    dmp_stream_decoder decoder2;
+    dmp_stream_config decoder_config = {DMP_STREAM_R, 512U, 1000U};
+    dmp_hs_tx *tx = NULL;
+    dmp_hs_tx_result result;
+    dmp_tx_token token;
+    dmp_tx_token old_token;
+    dmp_tx_complete_fn old_complete;
+    void *old_owner;
+    uint8_t saved[DMP_HS_PAYLOAD_MAX];
+    uint8_t core[512];
+    uint8_t rebuilt[DMP_HS_PAYLOAD_MAX];
+    size_t saved_len = 0U;
+    size_t exact_stream_bound = 0U;
+    uint64_t provisional_epoch;
+    uint8_t expected_context[9];
+    size_t count = 0U, chunk = 0U, rebuilt_len = 0U;
+    const uint8_t *cached;
+    uint32_t index = 0U, i;
+    uint64_t deadline, generation;
+    dmp_frame_view view;
+    dmp_extension_view extension;
+    size_t cursor;
+    dmp_peer_handle peer = {0U, 1U};
+    dmp_peer_handle peer2 = {1U, 1U};
+    int passed = 0;
+
+    if (fixture == NULL ||
+        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_routed_confirm) ||
+        dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        close_session(&env);
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, index, &saved_len);
+    if (cached == NULL || saved_len == 0U || saved_len > sizeof(saved)) goto done;
+    memcpy(saved, cached, saved_len);
+    provisional_epoch = dmp_hs_boot_epoch(env.initiator, index);
+    expected_context[0] = LOCAL_NS;
+    for (i = 0U; i < 8U; ++i) {
+        expected_context[i + 1U] = (uint8_t)(provisional_epoch >> (8U * i));
+    }
+    generation = dmp_hs_generation(env.initiator, index);
+    deadline = dmp_hs_deadline(env.initiator, index);
+    transport.context = &probe;
+    transport.caps.ownership = DMP_TX_BORROW;
+    transport.caps.max_frame_bytes = sizeof(probe.bytes);
+    transport.submit = hs_tx_probe_submit;
+    transport.cancel = hs_tx_probe_cancel;
+    for (i = 0U; i < DMP_HS_TX_SLOT_MAX; ++i) {
+        buffers[i].data = frame_buffers[i];
+        buffers[i].capacity = sizeof(frame_buffers[i]);
+    }
+    tx = (dmp_hs_tx *)calloc(1U, dmp_hs_tx_size());
+    /* Core and encoded MTUs are distinct: a 256-byte Stream R Core frame has
+     * a 263-byte encoded bound; packet mode adds no framing bytes. */
+    if (dmp_stream_encoded_bound(DMP_STREAM_R, 256U, &exact_stream_bound) != DMP_OK ||
+        exact_stream_bound != 263U) goto done;
+    for (i = 0U; i < DMP_HS_TX_SLOT_MAX; ++i) {
+        exact_buffers[i].data = exact_stream_storage[i];
+        exact_buffers[i].capacity = exact_stream_bound;
+    }
+    {
+        dmp_hs_tx_config exact_config = {256U, 8U, DMP_HS_TX_STREAM_R};
+        if (tx == NULL || dmp_hs_tx_init(tx, env.initiator, &transport, &exact_config,
+                                         &lifetime, exact_buffers) != DMP_HS_TX_ACCEPTED) goto done;
+        exact_config.framing = DMP_HS_TX_CORE_PACKET;
+        for (i = 0U; i < DMP_HS_TX_SLOT_MAX; ++i) {
+            exact_buffers[i].data = exact_packet_storage[i];
+            exact_buffers[i].capacity = sizeof(exact_packet_storage[i]);
+        }
+        if (dmp_hs_tx_init(tx, env.initiator, &transport, &exact_config,
+                           &lifetime, exact_buffers) != DMP_HS_TX_ACCEPTED) goto done;
+    }
+    config.max_core_frame_bytes = 512U;
+    config.max_bootstrap_fragments = 8U;
+    config.framing = DMP_HS_TX_STREAM_R;
+    /* Coordinated open: initialize the receiver before the separate sync
+     * delimiter submission. */
+    if (dmp_stream_init(&decoder, decoder_config,
+                        (dmp_buffer){decoder_storage, sizeof(decoder_storage)}, 0U) != DMP_OK ||
+        dmp_hs_tx_init(tx, env.initiator, &transport, &config,
+                                    &lifetime, buffers) !=
+                          DMP_HS_TX_ACCEPTED) goto done;
+
+    /* BUSY leaves synchronization pending and prevents handshake frames. An
+     * uncertain delimiter is retried as its own operation; only definite TX
+     * releases the first frame. */
+    probe.submit_status = DMP_BUSY;
+    if (dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_BUSY ||
+        dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                         (dmp_time_ms)env.now, &token) != DMP_HS_TX_BUSY) goto done;
+    if (dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.length != 1U || probe.bytes[0] != 0U) goto done;
+    {
+        dmp_stream_result sync_result = dmp_stream_feed(&decoder,
+            (dmp_bytes){probe.bytes, probe.length}, 0U);
+        if (sync_result.status != DMP_OK || sync_result.event != DMP_STREAM_NONE ||
+            sync_result.consumed != 1U) goto done;
+    }
+    probe.submission.complete(probe.submission.owner, probe.submission.token,
+                              DMP_TX_POSSIBLY_TRANSMITTED, (dmp_time_ms)(env.now + 1U));
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+        !result.synchronization || result.outcome != DMP_TX_POSSIBLY_TRANSMITTED ||
+        dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                         (dmp_time_ms)(env.now + 1U), &token) != DMP_HS_TX_BUSY ||
+        dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.length != 1U || probe.bytes[0] != 0U) goto done;
+    {
+        dmp_stream_result sync_result = dmp_stream_feed(&decoder,
+            (dmp_bytes){probe.bytes, probe.length}, 1U);
+        if (sync_result.status != DMP_OK || sync_result.event != DMP_STREAM_NONE ||
+            sync_result.consumed != 1U) goto done;
+    }
+    probe.submission.complete(probe.submission.owner, probe.submission.token,
+                              DMP_TX_TRANSMITTED, (dmp_time_ms)(env.now + 2U));
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+        !result.synchronization || result.outcome != DMP_TX_TRANSMITTED ||
+        dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_NO_OUTPUT) goto done;
+    /* Sync state is independent for every routed peer. Resetting one peer
+     * requires its own delimiter and leaves the other route synchronized. */
+    if (dmp_stream_init(&decoder2, decoder_config,
+                        (dmp_buffer){decoder_storage2, sizeof(decoder_storage2)}, 0U) != DMP_OK ||
+        dmp_hs_tx_sync(tx, peer2, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.length != 1U || probe.bytes[0] != 0U) goto done;
+    {
+        dmp_stream_result sync_result = dmp_stream_feed(&decoder2,
+            (dmp_bytes){probe.bytes, probe.length}, (dmp_time_ms)(env.now + 3U));
+        if (sync_result.status != DMP_OK || sync_result.event != DMP_STREAM_NONE ||
+            sync_result.consumed != 1U) goto done;
+    }
+    probe.submission.complete(probe.submission.owner, probe.submission.token,
+                              DMP_TX_TRANSMITTED, (dmp_time_ms)(env.now + 3U));
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+        !result.synchronization ||
+        dmp_hs_tx_binding_reset(tx, peer) != DMP_HS_TX_ACCEPTED ||
+        dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                         (dmp_time_ms)(env.now + 3U), &token) != DMP_HS_TX_BUSY ||
+        dmp_hs_tx_sync(tx, peer2, &token) != DMP_HS_TX_NO_OUTPUT ||
+        dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.length != 1U || probe.bytes[0] != 0U) goto done;
+    {
+        dmp_stream_result sync_result = dmp_stream_feed(&decoder,
+            (dmp_bytes){probe.bytes, probe.length}, (dmp_time_ms)(env.now + 4U));
+        if (sync_result.status != DMP_OK || sync_result.event != DMP_STREAM_NONE ||
+            sync_result.consumed != 1U) goto done;
+    }
+    probe.submission.complete(probe.submission.owner, probe.submission.token,
+                              DMP_TX_TRANSMITTED, (dmp_time_ms)(env.now + 4U));
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+        !result.synchronization ||
+        dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_NO_OUTPUT) goto done;
+
+    /* BUSY has no callback and leaves both handshake state and quota reusable. */
+    probe.submit_status = DMP_BUSY;
+    if (dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                         (dmp_time_ms)env.now, &token) != DMP_HS_TX_BUSY ||
+        dmp_hs_generation(env.initiator, index) != generation) goto done;
+    probe.submit_status = DMP_OK;
+    if (
+        dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                         (dmp_time_ms)env.now, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.submission.frame.data == cached || probe.length <= 1U ||
+        probe.bytes[0] == 0U) goto done;
+    memset(&view, 0, sizeof(view));
+    if (!decode_transport_frame(&probe, &decoder, core, sizeof(core),
+                                (dmp_time_ms)(env.now + 5U), &view) ||
+        view.fields.type != DMP_TYPE_HELLO || view.fields.seq != 1U ||
+        (view.fields.options & (DMP_OPT_INTEGRITY | DMP_OPT_EXT | DMP_OPT_ROUTE)) !=
+            (DMP_OPT_INTEGRITY | DMP_OPT_EXT | DMP_OPT_ROUTE) ||
+        !core_crc_matches(&view) || view.payload.size != saved_len ||
+        memcmp(view.payload.data, saved, saved_len) != 0 ||
+        view.fields.route.mode != 1U || view.fields.route.source != ID_INIT ||
+        view.fields.route.destination != ID_RESP) goto done;
+    cursor = 0U;
+    if (dmp_extension_next(view.extensions, &cursor, &extension) != DMP_OK ||
+        extension.tag != 0x0BU || extension.value.size != sizeof(expected_context) ||
+        memcmp(extension.value.data, expected_context, sizeof(expected_context)) != 0 ||
+        dmp_extension_next(view.extensions, &cursor, &extension) != DMP_INCOMPLETE) goto done;
+    old_token = token;
+    old_complete = probe.submission.complete;
+    old_owner = probe.submission.owner;
+    probe.submission.complete(old_owner, old_token, DMP_TX_POSSIBLY_TRANSMITTED,
+                              (dmp_time_ms)(env.now + 1U));
+    if (memcmp(probe.submission.frame.data, probe.bytes, probe.length) != 0 ||
+        dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+        !all_zero(probe.submission.frame.data, sizeof(frame_buffers[0])) ||
+        result.outcome != DMP_TX_POSSIBLY_TRANSMITTED) goto done;
+    if (dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                         (dmp_time_ms)(env.now + 2U), &token) != DMP_HS_TX_REFUSED ||
+        dmp_hs_retransmits(env.initiator, index) != 0U ||
+        dmp_hs_retransmit(env.initiator, index) != DMP_HS_OK ||
+        dmp_hs_retransmits(env.initiator, index) != 1U) goto done;
+    probe.submit_status = DMP_BUSY;
+    if (dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                         (dmp_time_ms)(env.now + 2U), &token) != DMP_HS_TX_BUSY ||
+        dmp_hs_retransmits(env.initiator, index) != 0U) goto done;
+    probe.submit_status = DMP_OK;
+    if (dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                         (dmp_time_ms)(env.now + 2U), &token) != DMP_HS_TX_ACCEPTED ||
+        dmp_hs_retransmits(env.initiator, index) != 1U ||
+        probe.bytes[0] == 0U) goto done;
+    old_complete(old_owner, old_token, DMP_TX_FAILED_UNSENT,
+                 (dmp_time_ms)(env.now + 3U));
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_NO_OUTPUT) goto done;
+    probe.submission.complete(probe.submission.owner, probe.submission.token,
+                              DMP_TX_TRANSMITTED, (dmp_time_ms)(env.now + 4U));
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED) goto done;
+
+    /* The binding wire MTU forces fixed-stride DMP bootstrap FRAG slices. */
+    config.max_core_frame_bytes = 512U;
+    config.max_bootstrap_fragments = 8U;
+    copy_transport = transport;
+    copy_transport.caps.ownership = DMP_TX_COPY;
+    copy_transport.caps.max_frame_bytes = 120U;
+    if (dmp_stream_init(&decoder, decoder_config,
+                        (dmp_buffer){decoder_storage, sizeof(decoder_storage)}, 0U) != DMP_OK ||
+        dmp_hs_tx_init(tx, env.initiator, &copy_transport, &config,
+                       &lifetime, buffers) !=
+            DMP_HS_TX_ACCEPTED ||
+        dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.length != 1U || probe.bytes[0] != 0U) goto done;
+    {
+        dmp_stream_result sync_result = dmp_stream_feed(&decoder,
+            (dmp_bytes){probe.bytes, probe.length}, (dmp_time_ms)(env.now + 4U));
+        if (sync_result.status != DMP_OK || sync_result.event != DMP_STREAM_NONE ||
+            sync_result.consumed != 1U) goto done;
+    }
+    probe.submission.complete(probe.submission.owner, probe.submission.token,
+                              DMP_TX_TRANSMITTED, (dmp_time_ms)(env.now + 4U));
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+        !result.synchronization ||
+        dmp_hs_tx_fragment_plan(tx, index, DMP_HS_TX_CACHED_FLIGHT, &count, &chunk) !=
+            DMP_HS_TX_ACCEPTED || count <= 1U || chunk == 0U || count > 8U ||
+        dmp_hs_retransmit(env.initiator, index) != DMP_HS_OK) goto done;
+    for (i = 0U; i < count; ++i) {
+        dmp_hs_tx_status submit_status;
+        int decoded;
+        memset(&view, 0, sizeof(view));
+        submit_status = dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, i,
+                                         (dmp_time_ms)(env.now + 5U + i), &token);
+        decoded = submit_status == DMP_HS_TX_ACCEPTED &&
+                  decode_transport_frame(&probe, &decoder, core, sizeof(core),
+                                        (dmp_time_ms)(env.now + 5U + i), &view);
+        if (submit_status != DMP_HS_TX_ACCEPTED || probe.bytes[0] == 0U || !decoded ||
+            probe.length > copy_transport.caps.max_frame_bytes ||
+            view.fields.type != DMP_TYPE_HELLO || view.fields.seq != 1U ||
+            (view.fields.options & (DMP_OPT_FRAG | DMP_OPT_EXT | DMP_OPT_ROUTE |
+                                    DMP_OPT_INTEGRITY)) !=
+                (DMP_OPT_FRAG | DMP_OPT_EXT | DMP_OPT_ROUTE | DMP_OPT_INTEGRITY) ||
+            !core_crc_matches(&view) || view.fields.route.source != ID_INIT ||
+            view.fields.route.destination != ID_RESP ||
+            view.fields.fragment.index != i || view.fields.fragment.chunk_size != chunk ||
+            view.fields.fragment.total_size != saved_len ||
+            view.payload.size > sizeof(rebuilt) - rebuilt_len) goto done;
+        memcpy(rebuilt + rebuilt_len, view.payload.data, view.payload.size);
+        rebuilt_len += view.payload.size;
+        probe.submission.complete(probe.submission.owner, probe.submission.token,
+                                  DMP_TX_TRANSMITTED, (dmp_time_ms)(env.now + 6U + i));
+        if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED) goto done;
+        old_token = token;
+        old_complete = probe.submission.complete;
+        old_owner = probe.submission.owner;
+    }
+    if (rebuilt_len != saved_len || memcmp(rebuilt, saved, saved_len) != 0) goto done;
+
+    /* Packet transport carries the Core frame directly, with no Stream R
+     * envelope, delimiter or stream synchronization state. */
+    {
+        dmp_hs_tx_config packet_config = config;
+        packet_config.framing = DMP_HS_TX_CORE_PACKET;
+        if (dmp_hs_tx_init(tx, env.initiator, &transport, &packet_config,
+                           &lifetime, buffers) != DMP_HS_TX_ACCEPTED ||
+            dmp_hs_retransmit(env.initiator, index) != DMP_HS_OK ||
+            dmp_hs_tx_submit(tx, index, DMP_HS_TX_CACHED_FLIGHT, peer, 0U,
+                             (dmp_time_ms)(env.now + 15U), &token) !=
+                DMP_HS_TX_ACCEPTED ||
+            !decode_transport_packet(&probe, core, sizeof(core), &view) ||
+            view.fields.type != DMP_TYPE_HELLO || view.fields.seq != 1U ||
+            (view.fields.options & DMP_OPT_INTEGRITY) == 0U ||
+            view.payload.size != saved_len ||
+            memcmp(view.payload.data, saved, saved_len) != 0) goto done;
+        old_token = token;
+        old_complete = probe.submission.complete;
+        old_owner = probe.submission.owner;
+        probe.submission.complete(probe.submission.owner, token,
+                                  DMP_TX_TRANSMITTED,
+                                  (dmp_time_ms)(env.now + 16U));
+        if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED) goto done;
+    }
+
+    /* Produce an actual SEC-1 FINISH and prove Stream R preserves its Core bytes. */
+    {
+        dmp_hs_ingress ingress;
+        size_t response_len = 0U;
+        const uint8_t *response;
+        if (dmp_hs_begin_episode(env.responder) != DMP_HS_OK) goto done;
+        set_ingress(&ingress, saved, saved_len, ID_INIT, ID_RESP, 1U,
+                    dmp_hs_boot_epoch(env.initiator, index));
+        if (accept_offer(env.responder, &ingress, NULL) != DMP_HS_CANDIDATE) goto done;
+        response = dmp_hs_cached_flight(env.responder, 0U, &response_len);
+        if (response == NULL) goto done;
+        set_ingress(&ingress, response, response_len, ID_RESP, ID_INIT, 2U,
+                    dmp_hs_boot_epoch(env.responder, 0U));
+        if (accept_offer(env.initiator, &ingress, NULL) != DMP_HS_CANDIDATE ||
+            dmp_hs_confirm(env.initiator, index) != DMP_HS_OK) goto done;
+    }
+    config.max_core_frame_bytes = 512U;
+    probe.complete_synchronously = 1;
+    probe.synchronous_outcome = DMP_TX_TRANSMITTED;
+    probe.synchronous_time = (dmp_time_ms)(env.now + 21U);
+    if (dmp_stream_init(&decoder, decoder_config,
+                        (dmp_buffer){decoder_storage, sizeof(decoder_storage)}, 0U) != DMP_OK ||
+        dmp_hs_tx_init(tx, env.initiator, &transport, &config,
+                       &lifetime, buffers) !=
+            DMP_HS_TX_ACCEPTED ||
+        dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.length != 1U || probe.bytes[0] != 0U) goto done;
+    {
+        dmp_stream_result sync_result = dmp_stream_feed(&decoder,
+            (dmp_bytes){probe.bytes, probe.length}, (dmp_time_ms)(env.now + 19U));
+        if (sync_result.status != DMP_OK || sync_result.event != DMP_STREAM_NONE ||
+            sync_result.consumed != 1U ||
+            dmp_hs_tx_binding_reset(tx, peer) != DMP_HS_TX_BUSY ||
+            dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+            !result.synchronization || result.outcome != DMP_TX_TRANSMITTED) goto done;
+    }
+    if (dmp_hs_tx_binding_reset(tx, peer) != DMP_HS_TX_ACCEPTED ||
+        dmp_hs_tx_submit(tx, index, DMP_HS_TX_PROTECTED_FRAME, peer, 0U,
+                         (dmp_time_ms)(env.now + 19U), &token) != DMP_HS_TX_BUSY ||
+        dmp_stream_reset(&decoder, (dmp_time_ms)(env.now + 19U)) != DMP_OK ||
+        dmp_hs_tx_sync(tx, peer, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.length != 1U || probe.bytes[0] != 0U) goto done;
+    {
+        dmp_stream_result sync_result = dmp_stream_feed(&decoder,
+            (dmp_bytes){probe.bytes, probe.length}, (dmp_time_ms)(env.now + 19U));
+        if (sync_result.status != DMP_OK || sync_result.event != DMP_STREAM_NONE ||
+            sync_result.consumed != 1U ||
+            dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+            !result.synchronization || result.outcome != DMP_TX_TRANSMITTED) goto done;
+    }
+    if (dmp_hs_tx_submit(tx, index, DMP_HS_TX_PROTECTED_FRAME, peer, 0U,
+                         (dmp_time_ms)(env.now + 20U), &token) != DMP_HS_TX_ACCEPTED ||
+        probe.bytes[0] == 0U || dmp_hs_tx_cancel(tx, old_token) != DMP_HS_TX_STALE) goto done;
+    old_complete(old_owner, old_token, DMP_TX_FAILED_UNSENT,
+                 (dmp_time_ms)(env.now + 20U));
+    if (!decode_transport_frame(&probe, &decoder, core, sizeof(core),
+                                (dmp_time_ms)(env.now + 20U), &view) ||
+        view.fields.type != DMP_TYPE_HELLO ||
+        (view.fields.options & DMP_OPT_SECURITY) == 0U ||
+        (view.fields.options & DMP_OPT_INTEGRITY) != 0U) goto done;
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED ||
+        result.outcome != DMP_TX_TRANSMITTED) goto done;
+    probe.complete_synchronously = 0;
+
+    /* Expiry requests cancellation before aborting and keeps reservation/buffer pinned. */
+    if (dmp_hs_tx_submit(tx, index, DMP_HS_TX_PROTECTED_FRAME, peer, 0U,
+                         (dmp_time_ms)(env.now + 22U), &token) != DMP_HS_TX_ACCEPTED) goto done;
+    probe.cancel_status = DMP_BUSY;
+    if (dmp_hs_tx_cancel(tx, token) != DMP_HS_TX_TRANSPORT_REJECTED ||
+        !dmp_hs_terminal(env.initiator, index)) goto done;
+    probe.cancel_status = DMP_OK;
+    if (dmp_hs_tx_cancel(tx, token) != DMP_HS_TX_ACCEPTED) goto done;
+    dmp_hs_tx_expire(tx, deadline);
+    probe.submission.complete(probe.submission.owner, probe.submission.token,
+                              DMP_TX_POSSIBLY_TRANSMITTED, deadline);
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED || !result.expired ||
+        !result.cancellation_requested || result.outcome != DMP_TX_POSSIBLY_TRANSMITTED ||
+        probe.cancels != 2U || !dmp_hs_terminal(env.initiator, index)) goto done;
+    passed = 1;
+
+done:
+    free(tx);
+    close_session(&env);
+    return passed && !port.nonzero_release;
+}
+
+static int test_late_active_transport_completion(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env = {0};
+    port_ctx port = {0};
+    hs_tx_probe probe = {0};
+    dmp_transport transport = {0};
+    dmp_hs_tx_config config = {512U, 8U, DMP_HS_TX_CORE_PACKET};
+    dmp_hs_tx_lifetime lifetime = {0U};
+    dmp_hs_tx_buffer buffers[DMP_HS_TX_SLOT_MAX];
+    uint8_t frame_storage[DMP_HS_TX_SLOT_MAX][600];
+    dmp_hs_tx *tx = NULL;
+    dmp_hs_tx_result result;
+    dmp_tx_token token;
+    dmp_peer_handle peer = {0U, 1U};
+    uint32_t index = 0U;
+    uint64_t epoch_i = 0U;
+    uint64_t epoch_r = 0U;
+    uint64_t generation = 0U;
+    uint64_t deadline = 0U;
+    size_t frame_len = 0U;
+    const uint8_t *frame;
+    int passed = 0;
+    uint32_t i;
+    const char *failed_at = "setup";
+
+    if (fixture == NULL) {
+        failed_at = "fixture";
+        goto done;
+    }
+    if (!make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0,
+                   tune_routed_confirm)) {
+        failed_at = "make pair";
+        goto done;
+    }
+    if (!drive_nn(&env, &index)) {
+        failed_at = "drive NN";
+        goto done;
+    }
+    if (!dmp_hs_epochs(env.initiator, index, &epoch_i, &epoch_r)) {
+        failed_at = "read epochs";
+        goto done;
+    }
+    if (dmp_hs_confirm(env.initiator, index) != DMP_HS_OK) {
+        failed_at = "confirm initiator";
+        goto done;
+    }
+    transport.context = &probe;
+    transport.caps.ownership = DMP_TX_BORROW;
+    transport.caps.max_frame_bytes = sizeof(probe.bytes);
+    transport.submit = hs_tx_probe_submit;
+    transport.cancel = hs_tx_probe_cancel;
+    for (i = 0U; i < DMP_HS_TX_SLOT_MAX; ++i) {
+        buffers[i].data = frame_storage[i];
+        buffers[i].capacity = sizeof(frame_storage[i]);
+    }
+    tx = (dmp_hs_tx *)calloc(1U, dmp_hs_tx_size());
+    if (tx == NULL || dmp_hs_tx_init(tx, env.initiator, &transport, &config,
+                                    &lifetime, buffers) != DMP_HS_TX_ACCEPTED) {
+        goto done;
+    }
+    deadline = dmp_hs_deadline(env.initiator, index);
+    generation = dmp_hs_generation(env.initiator, index);
+    failed_at = "submit protected FINISH";
+    if (deadline == 0U ||
+        dmp_hs_tx_submit(tx, index, DMP_HS_TX_PROTECTED_FRAME, peer, 0U,
+                         (dmp_time_ms)env.now, &token) != DMP_HS_TX_ACCEPTED ||
+        probe.submits != 1U || probe.submission.complete == NULL) {
+        goto done;
+    }
+
+    failed_at = "activate from READY";
+    frame = dmp_hs_protected_frame(env.initiator, index, &frame_len);
+    if (frame == NULL || frame_len == 0U ||
+        offer_frame(env.responder, frame, frame_len, ID_INIT, ID_RESP, epoch_i) != DMP_HS_OK) {
+        goto done;
+    }
+    frame = dmp_hs_protected_frame(env.responder, 0U, &frame_len);
+    if (frame == NULL || frame_len == 0U ||
+        offer_frame(env.initiator, frame, frame_len, ID_RESP, ID_INIT, epoch_r) != DMP_HS_OK ||
+        dmp_hs_view_of(env.initiator, index) != DMP_HS_VIEW_ACTIVE ||
+        dmp_hs_send_application(env.initiator, index) != DMP_HS_OK) {
+        goto done;
+    }
+
+    /* The protected FINISH was accepted before READY activated this same
+     * attempt. Its callback may arrive at the handshake's latest-start time;
+     * that late transport result must not tear down the active association. */
+    failed_at = "deadline expiry after READY";
+    dmp_hs_tx_expire(tx, (dmp_time_ms)deadline);
+    if (probe.cancels != 0U || dmp_hs_tx_take(tx, &result) != DMP_HS_TX_NO_OUTPUT ||
+        dmp_hs_view_of(env.initiator, index) != DMP_HS_VIEW_ACTIVE ||
+        dmp_hs_generation(env.initiator, index) != generation) {
+        goto done;
+    }
+
+    failed_at = "late completion";
+    probe.submission.complete(probe.submission.owner, token, DMP_TX_TRANSMITTED,
+                              (dmp_time_ms)deadline);
+    if (dmp_hs_tx_take(tx, &result) != DMP_HS_TX_ACCEPTED || result.expired ||
+        result.outcome != DMP_TX_TRANSMITTED || probe.cancels != 0U ||
+        dmp_hs_generation(env.initiator, index) != generation ||
+        dmp_hs_view_of(env.initiator, index) != DMP_HS_VIEW_ACTIVE ||
+        dmp_hs_send_application(env.initiator, index) != DMP_HS_OK ||
+        dmp_hs_terminal(env.initiator, index)) {
+        goto done;
+    }
+    passed = 1;
+
+done:
+    if (!passed) {
+        fprintf(stderr,
+                "late-active completion failed at %s: view=%u hs=%d deadline=%llu gen=%llu/%llu\n",
+                failed_at, (unsigned)dmp_hs_view_of(env.initiator, index),
+                (int)dmp_hs_send_application(env.initiator, index),
+                (unsigned long long)deadline,
+                (unsigned long long)dmp_hs_generation(env.initiator, index),
+                (unsigned long long)generation);
+    }
+    free(tx);
     close_session(&env);
     return passed && !port.nonzero_release;
 }
@@ -1245,8 +1959,12 @@ static int test_episode_backoff(void)
         script_add(&env.init_script, ids[attempt_no], 16U);
         script_add(&env.init_script, ephs[attempt_no], 32U);
     }
-    if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK ||
-        !dmp_hs_copy_attempt_id(env.initiator, index, seen[0])) {
+    if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        fprintf(stderr, "episode initial schedule refused\n");
+        goto done;
+    }
+    if (!dmp_hs_copy_attempt_id(env.initiator, index, seen[0])) {
+        fprintf(stderr, "episode first attempt ID unavailable\n");
         goto done;
     }
     global_after_first = dmp_hs_global_work(env.initiator);
@@ -1291,16 +2009,23 @@ static int test_episode_backoff(void)
         dmp_hs_begin_episode(env.initiator) != DMP_HS_OK ||
         dmp_hs_episode_attempts_used(env.initiator) != 1U ||
         dmp_hs_cancel(env.initiator, index) != DMP_HS_OK) {
+        fprintf(stderr, "episode later-attempt schedule/begin/cancel failed\n");
         goto done;
     }
     env.now += 1000U;
     if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        fprintf(stderr, "episode later-attempt restart schedule refused\n");
         goto done;
     }
     passed = dmp_hs_global_work(env.initiator) >= global_after_first &&
              dmp_hs_begin_episode(env.initiator) == DMP_HS_REFUSED &&
              dmp_hs_global_work(env.initiator) >= global_after_first &&
              dmp_hs_episode_attempts_used(env.initiator) == 2U;
+    if (!passed) {
+        fprintf(stderr, "episode terminal budget mismatch: attempts=%u work=%u baseline=%u\n",
+                dmp_hs_episode_attempts_used(env.initiator),
+                dmp_hs_global_work(env.initiator), global_after_first);
+    }
 
 done:
     close_session(&env);
@@ -1453,6 +2178,7 @@ static int test_orphan_replay_and_quota(void)
     retained.rx_cid = 55U;
     if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK ||
         dmp_hs_retain_association(env.responder, &retained) != DMP_HS_OK) {
+        fprintf(stderr, "orphan initial schedule or retained-association setup failed\n");
         goto done;
     }
     cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
@@ -1460,6 +2186,7 @@ static int test_orphan_replay_and_quota(void)
     flight1_len = cached_len;
     if (!drive_flight(env.responder, flight1, flight1_len, ID_INIT, ID_RESP, 1U, NN_EPOCH,
                       DMP_HS_CANDIDATE)) {
+        fprintf(stderr, "orphan initial flight was not accepted as candidate\n");
         goto done;
     }
     cached = dmp_hs_cached_flight(env.responder, 0U, &reply_len);
@@ -1480,6 +2207,10 @@ static int test_orphan_replay_and_quota(void)
     env.now = 11000U;
     if (dmp_hs_poll(env.responder, &expired) != DMP_HS_EXPIRED || !dmp_hs_secrets_wiped(env.responder, 0U) ||
         dmp_hs_pending(env.responder) != 0U || !dmp_hs_retained_alive(env.responder, 0U)) {
+        fprintf(stderr, "orphan expiry mismatch: expired=%u pending=%u wiped=%d retained=%d\n",
+                expired, dmp_hs_pending(env.responder),
+                dmp_hs_secrets_wiped(env.responder, 0U),
+                dmp_hs_retained_alive(env.responder, 0U));
         goto done;
     }
     set_ingress(&ingress, flight1, flight1_len, ID_INIT, ID_RESP, 1U, NN_EPOCH);
@@ -1489,15 +2220,22 @@ static int test_orphan_replay_and_quota(void)
     }
     stale.generation ^= UINT64_C(1);
     if (dmp_hs_accept(env.responder, &stale) != DMP_HS_STALE) {
+        fprintf(stderr, "orphan stale completion generation was not rejected\n");
         goto done;
     }
     stale.generation ^= UINT64_C(1);
     if (dmp_hs_accept(env.responder, &stale) != DMP_HS_CANDIDATE) {
+        fprintf(stderr, "orphan live completion was not accepted after stale check\n");
         goto done;
     }
     cached = dmp_hs_cached_flight(env.responder, 0U, &cached_len);
     passed = cached_len == reply_len && memcmp(cached, first_reply, reply_len) != 0 &&
              dmp_hs_retained_alive(env.responder, 0U) && not_active(env.responder, 0U);
+    if (!passed) {
+        fprintf(stderr, "orphan replay result mismatch: cached=%zu prior=%zu retained=%d active=%d\n",
+                cached_len, reply_len, dmp_hs_retained_alive(env.responder, 0U),
+                !not_active(env.responder, 0U));
+    }
 
 done:
     close_session(&env);
@@ -1845,6 +2583,14 @@ static void tune_confirm(dmp_hs_config *initiator, dmp_hs_config *responder)
     responder->budget.failed_aead_limit = 4U;
 }
 
+static void tune_short_association_lifetime(dmp_hs_config *initiator,
+                                            dmp_hs_config *responder)
+{
+    tune_confirm(initiator, responder);
+    initiator->budget.association_lifetime_ms = 100U;
+    responder->budget.association_lifetime_ms = 100U;
+}
+
 static void tune_window(dmp_hs_config *initiator, dmp_hs_config *responder)
 {
     tune_confirm(initiator, responder);
@@ -1892,16 +2638,115 @@ static int drive_nn(session *env, uint32_t *index)
 {
     const uint8_t *cached;
     size_t length = 0U;
+    dmp_hs_status status;
+    dmp_hs_ingress ingress;
+
+    status = dmp_hs_schedule(env->initiator, index);
+    if (status != DMP_HS_OK) {
+        fprintf(stderr, "drive_nn initiator schedule status=%d pending=%u\n",
+                (int)status, dmp_hs_pending(env->initiator));
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env->initiator, *index, &length);
+    set_ingress(&ingress, cached, length, ID_INIT, ID_RESP, 1U, NN_EPOCH);
+    status = accept_offer(env->responder, &ingress, NULL);
+    if (status != DMP_HS_CANDIDATE) {
+        fprintf(stderr, "drive_nn responder flight status=%d expected=%d pending=%u\n",
+                (int)status, DMP_HS_CANDIDATE, dmp_hs_pending(env->responder));
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env->responder, 0U, &length);
+    set_ingress(&ingress, cached, length, ID_RESP, ID_INIT, 2U, NN_EPOCH);
+    status = accept_offer(env->initiator, &ingress, NULL);
+    if (status != DMP_HS_CANDIDATE) {
+        fprintf(stderr, "drive_nn initiator flight status=%d expected=%d pending=%u\n",
+                (int)status, DMP_HS_CANDIDATE, dmp_hs_pending(env->initiator));
+        return 0;
+    }
+    return 1;
+}
+
+static int drive_nn_with_current_epochs(session *env, uint32_t *index)
+{
+    const uint8_t *cached;
+    size_t length = 0U;
+    dmp_hs_ingress ingress;
 
     if (dmp_hs_schedule(env->initiator, index) != DMP_HS_OK) {
         return 0;
     }
     cached = dmp_hs_cached_flight(env->initiator, *index, &length);
-    if (!drive_flight(env->responder, cached, length, ID_INIT, ID_RESP, 1U, NN_EPOCH, DMP_HS_CANDIDATE)) {
+    set_ingress(&ingress, cached, length, ID_INIT, ID_RESP, 1U,
+                dmp_hs_boot_epoch(env->initiator, *index));
+    if (accept_offer(env->responder, &ingress, NULL) != DMP_HS_CANDIDATE) {
         return 0;
     }
     cached = dmp_hs_cached_flight(env->responder, 0U, &length);
-    return drive_flight(env->initiator, cached, length, ID_RESP, ID_INIT, 2U, NN_EPOCH, DMP_HS_CANDIDATE);
+    set_ingress(&ingress, cached, length, ID_RESP, ID_INIT, 2U,
+                dmp_hs_boot_epoch(env->responder, 0U));
+    return accept_offer(env->initiator, &ingress, NULL) == DMP_HS_CANDIDATE;
+}
+
+static int test_active_expiry_releases_reservations(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env = {0};
+    port_ctx port;
+    uint8_t retry_attempt_id[16];
+    uint8_t finish[64];
+    uint8_t ready[64];
+    size_t finish_len = 0U;
+    size_t ready_len = 0U;
+    uint32_t index = 0U;
+    uint32_t expired_index = UINT32_MAX;
+    int passed = 0;
+
+    if (fixture == NULL ||
+        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 0,
+                   tune_short_association_lifetime) ||
+        !drive_nn(&env, &index) || dmp_hs_confirm(env.initiator, index) != DMP_HS_OK ||
+        !copy_protected(env.initiator, index, finish, sizeof(finish), &finish_len) ||
+        offer_frame(env.responder, finish, finish_len, ID_INIT, ID_RESP, NN_EPOCH_I) != DMP_HS_OK ||
+        !copy_protected(env.responder, 0U, ready, sizeof(ready), &ready_len) ||
+        offer_frame(env.initiator, ready, ready_len, ID_RESP, ID_INIT, NN_EPOCH_R) != DMP_HS_OK ||
+        !dmp_hs_association_active(env.initiator) ||
+        !dmp_hs_association_active(env.responder)) {
+        close_session(&env);
+        return 0;
+    }
+
+    env.now += 100U;
+    if (dmp_hs_poll(env.initiator, &expired_index) != DMP_HS_EXPIRED ||
+        expired_index != index || dmp_hs_poll(env.responder, &expired_index) != DMP_HS_EXPIRED ||
+        !dmp_hs_terminal(env.initiator, index) ||
+        !dmp_hs_terminal(env.responder, 0U) ||
+        !dmp_hs_secrets_wiped(env.initiator, index) ||
+        !dmp_hs_secrets_wiped(env.responder, 0U)) {
+        fprintf(stderr, "active association expiry did not terminate both endpoints\n");
+        goto done;
+    }
+    env.now += 1000U; /* Respect the configured restart backoff after expiry. */
+
+    /* Reuse the same Noise ephemeral inputs so the next association derives
+     * the same directional epoch keys. A successful second candidate proves
+     * expiry released its CID/key owners before alloc_attempt reused the slot. */
+    memset(retry_attempt_id, 0x66, sizeof(retry_attempt_id));
+    script_add(&env.init_script, retry_attempt_id, sizeof(retry_attempt_id));
+    script_add(&env.init_script, fixture->init_ephemeral.data,
+               fixture->init_ephemeral.size);
+    script_add(&env.resp_script, fixture->resp_ephemeral.data,
+               fixture->resp_ephemeral.size);
+    if (!drive_nn_with_current_epochs(&env, &index) || index != 0U ||
+        !dmp_hs_candidate(env.initiator, index) ||
+        !dmp_hs_candidate(env.responder, 0U)) {
+        fprintf(stderr, "expired active CID/epoch reservations blocked a fresh attempt\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    close_session(&env);
+    return passed && !port.nonzero_release;
 }
 
 static const noise_fixture_probe_packet_t *find_packet(const noise_fixture_probe_fixture_t *fixture,
@@ -2514,12 +3359,522 @@ static int test_cleanup_erases_owner(void)
     return 1;
 }
 
-int main(void)
+static int test_shared_pending_recovery(void)
 {
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    dmp_hs_admission *admission = NULL;
+    uint32_t index = 0U;
+    int passed = 0;
+
+    if (fixture == NULL || !setup_admission(&admission, 1U, 1U, 100U, 100U) ||
+        !make_pair_common(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_shared_cid, admission)) {
+        free(admission);
+        return 0;
+    }
+    env.resp_script.count = 0U;
+    env.resp_script.index = 0U;
+    script_add(&env.resp_script, fixture->attempt_id.data, fixture->attempt_id.size);
+    script_add(&env.resp_script, fixture->resp_ephemeral.data, fixture->resp_ephemeral.size);
+    if (dmp_hs_begin_episode(env.responder) != DMP_HS_OK ||
+        dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK ||
+        dmp_hs_schedule(env.responder, NULL) != DMP_HS_INVALID) {
+        /* A null output is rejected before admission and is not a quota probe. */
+        goto done;
+    }
+    if (dmp_hs_schedule(env.responder, &index) != DMP_HS_REFUSED ||
+        dmp_hs_cancel(env.initiator, 0U) != DMP_HS_OK ||
+        dmp_hs_schedule(env.responder, &index) != DMP_HS_OK ||
+        dmp_hs_rx_cid(env.responder, index) != 55U) {
+        fprintf(stderr, "shared pending slot did not release exactly on cancellation\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    close_session(&env);
+    free(admission);
+    return passed && !port.nonzero_release;
+}
+
+static int test_shared_work_limit(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    dmp_hs_admission *admission = NULL;
+    uint32_t index = 0U;
+    int passed = 0;
+
+    if (fixture == NULL || !setup_admission(&admission, 4U, 2U, 1U, 100U) ||
+        !make_pair_common(&env, &port, fixture, NULL, 0, NULL, 0, 0, NULL, admission)) {
+        free(admission);
+        return 0;
+    }
+    env.resp_script.count = 0U;
+    env.resp_script.index = 0U;
+    script_add(&env.resp_script, fixture->attempt_id.data, fixture->attempt_id.size);
+    script_add(&env.resp_script, fixture->resp_ephemeral.data, fixture->resp_ephemeral.size);
+    if (dmp_hs_begin_episode(env.responder) != DMP_HS_OK ||
+        dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK ||
+        dmp_hs_schedule(env.responder, &index) != DMP_HS_ABORTED) {
+        fprintf(stderr, "shared global work ceiling was not monotonic across owners\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    close_session(&env);
+    free(admission);
+    return passed && !port.nonzero_release;
+}
+
+static int test_shared_scratch_recovery_and_cids(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    dmp_hs_admission *admission = NULL;
+    uint8_t attempt_id[16];
+    uint8_t responder_attempt_id[16];
+    const uint8_t *flight1;
+    size_t flight_len = 0U;
+    uint32_t first_index = 0U;
+    uint32_t second_index = 0U;
+    dmp_hs_ingress ingress;
+    dmp_hs_completion completion;
+    dmp_hs_completion retry_completion;
+    dmp_hs_status status;
+    int passed = 0;
+
+    memcpy(attempt_id, fixture == NULL ? (const uint8_t[16]){0} : fixture->attempt_id.data, 16U);
+    attempt_id[0] ^= 0x80U;
+    memcpy(responder_attempt_id, attempt_id, sizeof(responder_attempt_id));
+    responder_attempt_id[0] ^= 0x40U;
+    if (fixture == NULL || !setup_admission(&admission, 4U, 1U, 100U, 100U) ||
+        !make_pair_common(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_shared_cid, admission)) {
+        free(admission);
+        return 0;
+    }
+    script_add(&env.init_script, fixture->init_ephemeral.data, fixture->init_ephemeral.size);
+    env.resp_script.count = 0U;
+    env.resp_script.index = 0U;
+    script_add(&env.resp_script, responder_attempt_id, sizeof(responder_attempt_id));
+    script_add(&env.resp_script, fixture->resp_ephemeral.data, fixture->resp_ephemeral.size);
+    script_add(&env.resp_script, fixture->resp_ephemeral.data, fixture->resp_ephemeral.size);
+    if (dmp_hs_schedule(env.initiator, &first_index) != DMP_HS_OK) {
+        fprintf(stderr, "shared-scratch initial initiator schedule refused\n");
+        goto done;
+    }
+    if (dmp_hs_schedule(env.responder, &second_index) != DMP_HS_REFUSED) {
+        /* The responder has not opened an episode yet. */
+        fprintf(stderr, "shared-scratch responder schedule was not refused before episode\n");
+        goto done;
+    }
+    if (dmp_hs_begin_episode(env.responder) != DMP_HS_OK ||
+        dmp_hs_schedule(env.responder, &second_index) != DMP_HS_OK ||
+        dmp_hs_rx_cid(env.initiator, first_index) != 55U ||
+        dmp_hs_rx_cid(env.responder, second_index) != 56U) {
+        fprintf(stderr, "endpoint-wide CID allocator reused a live receive CID\n");
+        goto done;
+    }
+    flight1 = dmp_hs_cached_flight(env.initiator, first_index, &flight_len);
+    set_ingress(&ingress, flight1, flight_len, ID_INIT, ID_RESP, 1U, NN_EPOCH);
+    status = dmp_hs_offer(env.responder, &ingress, &completion);
+    if (status != DMP_HS_AWAITING) {
+        fprintf(stderr, "shared-scratch async ingress returned status=%d\n", (int)status);
+        goto done;
+    }
+    flight1 = dmp_hs_cached_flight(env.responder, second_index, &flight_len);
+    set_ingress(&ingress, flight1, flight_len, ID_RESP, ID_INIT, 1U,
+                dmp_hs_boot_epoch(env.responder, second_index));
+    if (dmp_hs_offer(env.initiator, &ingress, NULL) != DMP_HS_REFUSED ||
+        dmp_hs_accept(env.responder, &completion) != DMP_HS_CANDIDATE) {
+        fprintf(stderr, "shared scratch was not held through provider completion\n");
+        goto done;
+    }
+    if (dmp_hs_offer(env.initiator, &ingress, &retry_completion) != DMP_HS_AWAITING ||
+        dmp_hs_accept(env.initiator, &retry_completion) != DMP_HS_CANDIDATE) {
+        fprintf(stderr, "shared scratch capacity did not recover after provider completion\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    close_session(&env);
+    free(admission);
+    return passed && !port.nonzero_release;
+}
+
+static int test_shared_four_parallel_scratch_admission(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    dmp_hs_admission *admission = NULL;
+    dmp_hs *second = NULL;
+    dmp_hs *third = NULL;
+    script second_script = {{0}, {0}, 0U, 0U, 0};
+    script third_script = {{0}, {0}, 0U, 0U, 0};
+    store second_store = {0};
+    store third_store = {0};
+    box second_box = {0};
+    box third_box = {0};
+    uint8_t attempt_id_2[16];
+    uint8_t attempt_id_3[16];
+    uint8_t ephemeral_2[32];
+    uint8_t ephemeral_3[32];
+    uint8_t responder_ephemeral_2[32];
+    uint8_t responder_ephemeral_3[32];
+    uint8_t responder_ephemeral_4[32];
+    uint8_t flight_1[DMP_HS_PAYLOAD_MAX];
+    uint8_t flight_2[DMP_HS_PAYLOAD_MAX];
+    uint8_t flight_3[DMP_HS_PAYLOAD_MAX];
+    size_t flight_1_len = 0U;
+    size_t flight_2_len = 0U;
+    size_t flight_3_len = 0U;
+    uint32_t init_index_1 = 0U;
+    uint32_t init_index_2 = 0U;
+    uint32_t init_index_3 = 0U;
+    uint32_t pending_total;
+    dmp_hs_ingress ingress_1;
+    dmp_hs_ingress ingress_2;
+    dmp_hs_ingress ingress_3;
+    dmp_hs_completion completion_1;
+    dmp_hs_completion completion_2;
+    dmp_hs_completion completion_3;
+    dmp_hs_completion capacity_completion;
+    const uint8_t *cached;
+    dmp_hs_status status;
+    int passed = 0;
+    size_t i;
+
+    if (fixture == NULL ||
+        !setup_admission(&admission, 4U, 2U, 100U, 100U) ||
+        !make_pair_common(&env, &port, fixture, NULL, 0, NULL, 0, 0,
+                          tune_four_parallel, admission)) {
+        free(admission);
+        return 0;
+    }
+    for (i = 0U; i < sizeof(attempt_id_2); ++i) {
+        attempt_id_2[i] = (uint8_t)(fixture->attempt_id.data[i] ^ 0x31U);
+        attempt_id_3[i] = (uint8_t)(fixture->attempt_id.data[i] ^ 0x62U);
+    }
+    for (i = 0U; i < sizeof(ephemeral_2); ++i) {
+        ephemeral_2[i] = (uint8_t)(fixture->init_ephemeral.data[i] ^ 0x55U);
+        ephemeral_3[i] = (uint8_t)(fixture->init_ephemeral.data[i] ^ 0xAAU);
+        responder_ephemeral_2[i] = (uint8_t)(fixture->resp_ephemeral.data[i] ^ 0x3CU);
+        responder_ephemeral_3[i] = (uint8_t)(fixture->resp_ephemeral.data[i] ^ 0xC3U);
+        responder_ephemeral_4[i] = (uint8_t)(fixture->resp_ephemeral.data[i] ^ 0x69U);
+    }
+    script_add(&env.init_script, attempt_id_2, sizeof(attempt_id_2));
+    script_add(&env.init_script, ephemeral_2, sizeof(ephemeral_2));
+    if (dmp_hs_begin_episode(env.responder) != DMP_HS_OK ||
+        !init_extra_responder_with_ephemeral(&env, fixture, admission, &second,
+                                             &second_script, responder_ephemeral_2,
+                                             &second_store, &second_box) ||
+        !init_extra_responder_with_ephemeral(&env, fixture, admission, &third,
+                                             &third_script, responder_ephemeral_3,
+                                             &third_store, &third_box) ||
+        dmp_hs_begin_episode(second) != DMP_HS_OK ||
+        dmp_hs_begin_episode(third) != DMP_HS_OK) {
+        fprintf(stderr, "four-parallel shared responder setup failed\n");
+        goto done;
+    }
+    /* The third responder completes two separate inbound reads below. */
+    script_add(&third_script, responder_ephemeral_4,
+               sizeof(responder_ephemeral_4));
+    if (dmp_hs_schedule(env.initiator, &init_index_1) != DMP_HS_OK ||
+        dmp_hs_schedule(env.initiator, &init_index_2) != DMP_HS_OK) {
+        fprintf(stderr, "four-parallel could not prepare two real Noise flights\n");
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, init_index_1, &flight_1_len);
+    if (cached == NULL || flight_1_len > sizeof(flight_1)) goto done;
+    memcpy(flight_1, cached, flight_1_len);
+    cached = dmp_hs_cached_flight(env.initiator, init_index_2, &flight_2_len);
+    if (cached == NULL || flight_2_len > sizeof(flight_2)) goto done;
+    memcpy(flight_2, cached, flight_2_len);
+    set_ingress(&ingress_1, flight_1, flight_1_len, ID_INIT, ID_RESP, 1U,
+                dmp_hs_boot_epoch(env.initiator, init_index_1));
+    set_ingress(&ingress_2, flight_2, flight_2_len, ID_INIT, ID_RESP, 1U,
+                dmp_hs_boot_epoch(env.initiator, init_index_2));
+    if (dmp_hs_pending(env.initiator) != 2U ||
+        dmp_hs_offer(env.responder, &ingress_1, &completion_1) != DMP_HS_AWAITING ||
+        dmp_hs_offer(second, &ingress_2, &completion_2) != DMP_HS_AWAITING ||
+        dmp_hs_noise_reads(env.responder, completion_1.attempt_index) != 1U ||
+        dmp_hs_noise_reads(second, completion_2.attempt_index) != 1U) {
+        fprintf(stderr, "four-parallel did not hold two real provider reads awaiting completion\n");
+        goto done;
+    }
+
+    /* Four pending attempts are independently live: two initiators and two
+     * peer responders. A third provider read must be rejected at scratch=2. */
+    pending_total = dmp_hs_pending(env.initiator) + dmp_hs_pending(env.responder) +
+                    dmp_hs_pending(second) + dmp_hs_pending(third);
+    set_ingress(&ingress_3, flight_1, flight_1_len, ID_INIT, ID_RESP, 1U,
+                dmp_hs_boot_epoch(env.initiator, init_index_1));
+    status = dmp_hs_offer(third, &ingress_3, NULL);
+    if (pending_total != 4U || status != DMP_HS_REFUSED ||
+        dmp_hs_total_reads(third) != 0U ||
+        dmp_hs_pending(env.initiator) != 2U || dmp_hs_pending(env.responder) != 1U ||
+        dmp_hs_pending(second) != 1U || dmp_hs_pending(third) != 0U) {
+        fprintf(stderr, "four-parallel scratch refusal changed pending attempts or called Noise\n");
+        goto done;
+    }
+
+    /* Accepting one provider completion releases scratch while the candidate
+     * still holds its pending token. Free a different pending token, then
+     * prove the third owner reaches Noise before retiring that candidate. */
+    if (dmp_hs_accept(env.responder, &completion_1) != DMP_HS_CANDIDATE ||
+        dmp_hs_cancel(env.initiator, init_index_1) != DMP_HS_OK ||
+        dmp_hs_offer(third, &ingress_1, &capacity_completion) != DMP_HS_AWAITING ||
+        dmp_hs_noise_reads(third, capacity_completion.attempt_index) != 1U ||
+        dmp_hs_cancel(third, capacity_completion.attempt_index) != DMP_HS_OK ||
+        dmp_hs_cancel(env.responder, completion_1.attempt_index) != DMP_HS_OK) {
+        fprintf(stderr, "four-parallel completion did not release scratch independently\n");
+        goto done;
+    }
+    /* Cancelling the initiator schedules its configured restart backoff; let
+     * that retry window elapse before proving endpoint-wide capacity recovery. */
+    env.now += 1000U;
+    script_add(&env.init_script, attempt_id_3, sizeof(attempt_id_3));
+    script_add(&env.init_script, ephemeral_3, sizeof(ephemeral_3));
+    status = dmp_hs_schedule(env.initiator, &init_index_3);
+    if (status != DMP_HS_OK) {
+        fprintf(stderr,
+                "four-parallel pending capacity did not recover status=%d pending=%u attempts=%u entropy=%u/%u\n",
+                (int)status, (unsigned)dmp_hs_pending(env.initiator),
+                (unsigned)dmp_hs_episode_attempts_used(env.initiator),
+                (unsigned)env.init_script.index, (unsigned)env.init_script.count);
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, init_index_3, &flight_3_len);
+    if (cached == NULL || flight_3_len > sizeof(flight_3)) goto done;
+    memcpy(flight_3, cached, flight_3_len);
+    set_ingress(&ingress_3, flight_3, flight_3_len, ID_INIT, ID_RESP, 1U,
+                dmp_hs_boot_epoch(env.initiator, init_index_3));
+    if (dmp_hs_offer(third, &ingress_3, &completion_3) != DMP_HS_AWAITING ||
+        dmp_hs_noise_reads(third, completion_3.attempt_index) != 1U ||
+        dmp_hs_accept(second, &completion_2) != DMP_HS_CANDIDATE ||
+        dmp_hs_accept(third, &completion_3) != DMP_HS_CANDIDATE) {
+        fprintf(stderr, "four-parallel later provider operation did not proceed\n");
+        goto done;
+    }
+    if (dmp_hs_pending(env.initiator) + dmp_hs_pending(env.responder) +
+            dmp_hs_pending(second) + dmp_hs_pending(third) != 4U) {
+        fprintf(stderr, "four-parallel pending quota was not independently restored\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    destroy_extra_hs(&second);
+    destroy_extra_hs(&third);
+    close_session(&env);
+    free(admission);
+    return passed && !port.nonzero_release;
+}
+
+static int test_shared_epoch_refs_and_cleanup(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    dmp_hs_admission *admission = NULL;
+    dmp_hs *second = NULL;
+    dmp_hs *third = NULL;
+    script second_script = {{0}, {0}, 0U, 0U, 0};
+    script third_script = {{0}, {0}, 0U, 0U, 0};
+    store second_store = {0};
+    store third_store = {0};
+    box second_box = {0};
+    box third_box = {0};
+    dmp_hs_admission_token cid, key_i, key_r, keep_cid, keep_i, keep_r;
+    uint32_t namespace_id = 0U;
+    uint32_t local_id = 0U;
+    uint32_t peer_id = 0U;
+    uint64_t local_epoch = 0U;
+    uint64_t peer_epoch = 0U;
+    uint32_t index = 0U;
+    const uint8_t *flight;
+    size_t flight_len = 0U;
+    int passed = 0;
+
+    if (fixture == NULL || !setup_admission(&admission, 4U, 2U, 100U, 100U) ||
+        !make_pair_common(&env, &port, fixture, NULL, 0, NULL, 0, 0, tune_shared_cid, admission)) {
+        free(admission);
+        return 0;
+    }
+    if (dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        fprintf(stderr, "shared-epoch initial schedule refused\n");
+        goto done;
+    }
+    flight = dmp_hs_cached_flight(env.initiator, index, &flight_len);
+    if (flight == NULL) {
+        fprintf(stderr, "shared-epoch initiator cached flight missing\n");
+        goto done;
+    }
+    if (!drive_flight(env.responder, flight, flight_len, ID_INIT, ID_RESP, 1U,
+                      NN_EPOCH, DMP_HS_CANDIDATE)) {
+        fprintf(stderr, "shared-epoch responder did not accept candidate\n");
+        goto done;
+    }
+    if (dmp_hs_rx_cid(env.initiator, index) != 55U ||
+        dmp_hs_rx_cid(env.responder, 0U) != 56U) {
+        fprintf(stderr, "shared-epoch CID mismatch: initiator=%u responder=%u\n",
+                dmp_hs_rx_cid(env.initiator, index), dmp_hs_rx_cid(env.responder, 0U));
+        goto done;
+    }
+    {
+        dmp_hs_status token_status =
+            dmp_hs_association_tokens(env.responder, 0U, &cid, &key_i, &key_r);
+        if (token_status != DMP_HS_OK) {
+            fprintf(stderr,
+                    "shared-epoch association tokens unavailable: status=%d candidate=%d cid=%u identity=%d\n",
+                    (int)token_status, dmp_hs_candidate(env.responder, 0U),
+                    dmp_hs_rx_cid(env.responder, 0U),
+                    dmp_hs_traffic_identity(env.responder, 0U, &namespace_id,
+                                            &local_id, &peer_id, &local_epoch,
+                                            &peer_epoch));
+            goto done;
+        }
+    }
+    if (dmp_hs_admission_retain(admission, cid, &keep_cid) != DMP_HS_OK ||
+        dmp_hs_admission_retain(admission, key_i, &keep_i) != DMP_HS_OK ||
+        dmp_hs_admission_retain(admission, key_r, &keep_r) != DMP_HS_OK) {
+        fprintf(stderr, "shared-epoch external token retain failed\n");
+        goto done;
+    }
+    dmp_hs_cleanup(env.responder);
+    free(env.responder);
+    env.responder = NULL;
+    if (dmp_hs_admission_release(admission, cid) != DMP_HS_STALE ||
+        dmp_hs_admission_retain(admission, key_i, &cid) != DMP_HS_STALE ||
+        dmp_hs_admission_release(admission, keep_cid) != DMP_HS_OK) {
+        fprintf(stderr, "shared-epoch owner cleanup did not stale its original tokens\n");
+        goto done;
+    }
+    if (!init_extra_responder(&env, fixture, admission, &second, &second_script,
+                              &second_store, &second_box)) {
+        fprintf(stderr, "shared-epoch second responder initialization failed\n");
+        goto done;
+    }
+    {
+        dmp_hs_ingress duplicate_ingress;
+        dmp_hs_status duplicate_status;
+        uint32_t duplicate_namespace = 0U;
+        uint32_t duplicate_local = 0U;
+        uint32_t duplicate_peer = 0U;
+        uint64_t duplicate_local_epoch = 0U;
+        uint64_t duplicate_peer_epoch = 0U;
+        int duplicate_identity;
+        set_ingress(&duplicate_ingress, flight, flight_len, ID_INIT, ID_RESP,
+                    1U, NN_EPOCH);
+        duplicate_status = accept_offer(second, &duplicate_ingress, NULL);
+        duplicate_identity = dmp_hs_traffic_identity(second, 0U,
+                                                     &duplicate_namespace,
+                                                     &duplicate_local,
+                                                     &duplicate_peer,
+                                                     &duplicate_local_epoch,
+                                                     &duplicate_peer_epoch);
+        if (duplicate_status != DMP_HS_ABORTED) {
+            fprintf(stderr,
+                    "retained epoch fence status=%d old=(%u,%u,%llu,%u,%llu) new=(%d,%u,%u,%llu,%u,%llu)\n",
+                    (int)duplicate_status, namespace_id, local_id,
+                    (unsigned long long)local_epoch, peer_id,
+                    (unsigned long long)peer_epoch, duplicate_identity,
+                    duplicate_namespace, duplicate_local,
+                    (unsigned long long)duplicate_local_epoch, duplicate_peer,
+                    (unsigned long long)duplicate_peer_epoch);
+            goto done;
+        }
+    }
+    if (dmp_hs_pending(second) != 0U || dmp_hs_candidate(second, 0U)) {
+        fprintf(stderr, "retained directional epoch key did not fence duplicate candidate\n");
+        goto done;
+    }
+    destroy_extra_hs(&second);
+    if (dmp_hs_admission_release(admission, keep_i) != DMP_HS_OK ||
+        dmp_hs_admission_release(admission, keep_r) != DMP_HS_OK ||
+        dmp_hs_admission_release(admission, keep_i) != DMP_HS_STALE ||
+        !init_extra_responder(&env, fixture, admission, &third, &third_script,
+                              &third_store, &third_box) ||
+        !drive_flight(third, flight, flight_len, ID_INIT, ID_RESP, 1U, NN_EPOCH, DMP_HS_CANDIDATE)) {
+        fprintf(stderr, "exact shared reservation release or stale-token fence failed\n");
+        goto done;
+    }
+    if (dmp_hs_rx_cid(third, 0U) != 56U ||
+        dmp_hs_admission_release(admission, keep_i) != DMP_HS_STALE) {
+        fprintf(stderr, "cleanup released another peer owner's live CID\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    destroy_extra_hs(&second);
+    destroy_extra_hs(&third);
+    close_session(&env);
+    free(admission);
+    return passed && !port.nonzero_release;
+}
+
+static int test_shared_directional_epoch_collision(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    dmp_hs_admission *admission = NULL;
+    dmp_hs_retained retained;
+    uint32_t index = 0U;
+    const uint8_t *flight;
+    size_t flight_len = 0U;
+    int passed = 0;
+
+    if (fixture == NULL || !setup_admission(&admission, 4U, 2U, 100U, 100U) ||
+        !make_pair_common(&env, &port, fixture, NULL, 0, NULL, 0, 0, NULL, admission) ||
+        dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        free(admission);
+        return 0;
+    }
+    memset(&retained, 0, sizeof(retained));
+    retained.namespace_id = LOCAL_NS;
+    retained.origin_id = ID_RESP;
+    retained.epoch = NN_EPOCH_R;
+    retained.rx_cid = 99U;
+    flight = dmp_hs_cached_flight(env.initiator, index, &flight_len);
+    if (dmp_hs_retain_association(env.responder, &retained) != DMP_HS_OK || flight == NULL ||
+        !drive_flight(env.responder, flight, flight_len, ID_INIT, ID_RESP, 1U, NN_EPOCH,
+                      DMP_HS_ABORTED) || dmp_hs_candidate(env.responder, 0U) ||
+        !dmp_hs_terminal(env.responder, 0U) || !dmp_hs_secrets_wiped(env.responder, 0U)) {
+        fprintf(stderr, "responder-direction epoch collision did not abort and release candidate keys\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    close_session(&env);
+    free(admission);
+    return passed && !port.nonzero_release;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc == 2 && strcmp(argv[1], "transport") == 0) {
+        int passed = test_real_handshake_transport_snapshot();
+        int late_active = test_late_active_transport_completion();
+        if (!passed) fprintf(stderr, "real-transport-snapshot failed\n");
+        if (!late_active) fprintf(stderr, "late-active-transport-completion failed\n");
+        return passed && late_active ? 0 : 1;
+    }
     expect_case("nn-candidate", test_nn_candidate());
     expect_case("preread-conflict", test_preread_and_conflict());
     expect_case("duplicate-loss-processed-conflict", test_duplicate_loss_and_processed_conflict());
     expect_case("cached-flight-lifetime", test_cached_flight_lifetime());
+    expect_case("real-transport-snapshot", test_real_handshake_transport_snapshot());
+    expect_case("late-active-transport-completion",
+                test_late_active_transport_completion());
     expect_case("invalid-authenticated-payload-restart", test_invalid_authenticated_payload_restart());
     expect_case("low-order-dh-abort", test_low_order_dh_abort());
     expect_case("wrong-psk", test_wrong_psk());
@@ -2533,6 +3888,8 @@ int main(void)
     expect_case("entropy-cid-collision", test_entropy_cid_collision_and_cipher());
     expect_case("epoch-hash-alloc", test_epoch_hash_alloc());
     expect_case("finish-ready", test_finish_ready());
+    expect_case("active-expiry-releases-reservations",
+                test_active_expiry_releases_reservations());
     expect_case("routed-finish-ready", test_routed_finish_ready());
     expect_case("confirmation-loss", test_confirmation_loss());
     expect_case("replay-window", test_replay_window());
@@ -2540,6 +3897,12 @@ int main(void)
     expect_case("enroll-not-active", test_enroll_not_active());
     expect_case("failed-aead-limit", test_failed_aead_limit());
     expect_case("cleanup-erases-owner", test_cleanup_erases_owner());
+    expect_case("shared-pending-recovery", test_shared_pending_recovery());
+    expect_case("shared-work-limit", test_shared_work_limit());
+    expect_case("shared-scratch-recovery-cids", test_shared_scratch_recovery_and_cids());
+    expect_case("shared-four-parallel-scratch", test_shared_four_parallel_scratch_admission());
+    expect_case("shared-epoch-refs-cleanup", test_shared_epoch_refs_and_cleanup());
+    expect_case("shared-directional-epoch-collision", test_shared_directional_epoch_collision());
     if (g_failures != 0) {
         fprintf(stderr, "%d handshake case(s) failed\n", g_failures);
         return 1;

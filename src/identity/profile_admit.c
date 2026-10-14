@@ -110,6 +110,7 @@ static dmp_status admit_freshness(const dmp_config *in)
 dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
 {
     uint64_t tombstones;
+    uint64_t assemblies;
     dmp_config admitted;
 
     if (in == NULL || out == NULL || (const void *)in == (const void *)out) {
@@ -120,6 +121,7 @@ dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
         return DMP_INVALID_ARGUMENT;
     }
     tombstones = (uint64_t)in->peers * (uint64_t)in->assembly_tombstones_per_peer;
+    assemblies = (uint64_t)in->peers * (uint64_t)in->assemblies_per_peer;
     if (!product_fits(in->sender_slots, in->message_bytes) ||
         !product_fits(in->result_slots, in->message_bytes) ||
         !product_fits(in->history_slots, (uint32_t)DMP_MAX_HEADER_BYTES) ||
@@ -127,12 +129,19 @@ dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
         !product_fits(in->adapter_slots, in->encoded_mtu) ||
         !product_fits(in->assembly_slots, in->message_bytes) ||
         !product_fits(in->assembly_slots, (uint32_t)DMP_MAX_HEADER_BYTES) ||
-        tombstones > 0xFFFFFFFFULL) {
+        tombstones > 0xFFFFFFFFULL || assemblies > 0xFFFFFFFFULL) {
         return DMP_INVALID_ARGUMENT;
     }
     if (in->default_service == 0U || !service_selected(in) ||
         in->service_id[0] == in->service_id[1] || in->chunk_bytes >= in->message_bytes ||
-        in->peers == 0U || in->assembly_tombstones_per_peer < in->assemblies_per_peer ||
+        in->peers == 0U || in->peers > DMP_PROFILE_MAX_PEERS ||
+        in->operations_per_service == 0U ||
+        in->operations_per_service > DMP_PROFILE_MAX_OPERATIONS_PER_SERVICE ||
+        in->assemblies_per_peer == 0U ||
+        in->assemblies_per_peer > DMP_PROFILE_MAX_ASSEMBLIES_PER_PEER ||
+        in->assembly_tombstones_per_peer > DMP_PROFILE_MAX_TOMBSTONES_PER_PEER ||
+        in->assembly_tombstones_per_peer < in->assemblies_per_peer ||
+        (uint64_t)in->assembly_slots < assemblies ||
         (uint64_t)in->assembly_tombstone_slots < tombstones) {
         return DMP_UNSUPPORTED;
     }

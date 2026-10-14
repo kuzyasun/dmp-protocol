@@ -20,6 +20,7 @@ from dmp_peer.events import (  # noqa: E402
     Receive,
 )
 from dmp_peer.frame import (  # noqa: E402
+    FrameError,
     crc32c,
     encode_frame,
     encode_uleb,
@@ -314,14 +315,21 @@ class TestP23MixedEndpointPath(unittest.TestCase):
 
         def c_to_peer(stream_wire: bytes) -> tuple[object, bytes]:
             nonlocal peer_return_sync_pending
-            parsed_frames = [
-                item.frame
-                for item in c_decoder.feed(stream_wire, at_ms=transport_time())
-                if item.kind == "frame"
-            ]
-            if len(parsed_frames) != 1:
-                raise AssertionError("C process did not emit exactly one Stream R core frame")
-            original = parsed_frames[0]
+            try:
+                parse_frame(stream_wire, max_frame=_MAX_CORE)
+            except FrameError:
+                parsed_frames = [
+                    item.frame
+                    for item in c_decoder.feed(stream_wire, at_ms=transport_time())
+                    if item.kind == "frame"
+                ]
+                if len(parsed_frames) != 1 or parsed_frames[0] is None:
+                    raise AssertionError(
+                        "C process did not emit one packet Core or Stream R frame"
+                    )
+                original = parsed_frames[0]
+            else:
+                original = stream_wire
             event = _advance_until(
                 router,
                 router.feed_packet(original, at_ms=transport_time()),
@@ -382,11 +390,16 @@ class TestP23MixedEndpointPath(unittest.TestCase):
         self.assertEqual(c_request_state.status, 0)
         self.assertEqual(len(c_request_state.frames), 1)
         c_request_wires = list(c_request_state.frames)
-        c_core_frames = [
-            item.frame
-            for item in c_decoder.feed(c_request_wires[0], at_ms=clock.next())
-            if item.kind == "frame"
-        ]
+        try:
+            parse_frame(c_request_wires[0], max_frame=_MAX_CORE)
+        except FrameError:
+            c_core_frames = [
+                item.frame
+                for item in c_decoder.feed(c_request_wires[0], at_ms=clock.next())
+                if item.kind == "frame"
+            ]
+        else:
+            c_core_frames = [c_request_wires[0]]
         self.assertEqual(len(c_core_frames), 1)
         self._check_endpoint_frame_negatives(
             python_frame=sample_frames[0],

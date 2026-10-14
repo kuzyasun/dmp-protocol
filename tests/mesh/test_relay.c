@@ -352,6 +352,7 @@ static int run(void)
     dmp_replay_window replay_before;
     dmp_endpoint endpoint;
     dmp_endpoint_storage storage;
+    dmp_endpoint_peer_state peer_states[1];
     dmp_identity_slot ids[2];
     dmp_identity_slot id_before;
     dmp_reliability_sender_slot senders[2];
@@ -378,7 +379,6 @@ static int run(void)
     uint8_t telemetry_frame[RADIO_MTU];
     uint8_t stream_tx[1024];
     uint8_t stream_rx[1024];
-    size_t stream_bound = 0U;
     harness_adapter *endpoint_adapter;
     dmp_transport *endpoint_transport;
 
@@ -562,13 +562,15 @@ static int run(void)
                       sizeof payload));
     memset(&endpoint, 0, sizeof endpoint);
     memset(&storage, 0, sizeof storage);
-    CHECK(dmp_stream_encoded_bound(DMP_STREAM_R, admitted.encoded_mtu, &stream_bound) == DMP_OK);
-    CHECK(stream_bound + 1U <= sizeof stream_tx);
-    binding.encoded_mtu = (uint32_t)(stream_bound + 1U);
+    /* RADIO-1 binds raw DMP Core packets: encoded_mtu is the packet/Core cap. */
+    binding.encoded_mtu = RADIO_MTU;
     endpoint_adapter = harness_adapter_create(&binding);
     CHECK(endpoint_adapter != NULL);
     endpoint_transport = harness_adapter_transport(endpoint_adapter);
     storage.profile = &admitted;
+    storage.framing_mode = DMP_ENDPOINT_FRAMING_PACKET;
+    storage.peer_states = peer_states;
+    storage.peer_state_capacity = sizeof peer_states / sizeof peer_states[0];
     storage.identity_slots = ids;
     storage.identity_capacity = 2U;
     storage.context.local.namespace_id = 1U;
@@ -626,7 +628,7 @@ static int run(void)
     storage.stream_rx_capacity = sizeof stream_rx;
     CHECK(dmp_endpoint_init(&endpoint, &storage, 0U) == DMP_OK);
     CHECK(dmp_endpoint_poll(&endpoint, 0U) == DMP_OK);
-    id_before = ids[endpoint.context.slot];
+    id_before = ids[endpoint.peers[0].context.slot];
     sender_before = senders[0];
     assembly_before = assemblies[0];
     dmp_replay_window_init(&replay, DMP_REPLAY_WINDOW_DEFAULT);
@@ -643,7 +645,7 @@ static int run(void)
     CHECK(fwd.written == 55U);
     CHECK(memcmp(outbuf, sentinel, sizeof outbuf) == 0);
     CHECK(occupied(cache, 8U) == slots_before);
-    CHECK(memcmp(&ids[endpoint.context.slot], &id_before, sizeof id_before) == 0);
+    CHECK(memcmp(&ids[endpoint.peers[0].context.slot], &id_before, sizeof id_before) == 0);
     CHECK(memcmp(&senders[0], &sender_before, sizeof sender_before) == 0);
     CHECK(memcmp(&assemblies[0], &assembly_before, sizeof assembly_before) == 0);
     CHECK(memcmp(&replay, &replay_before, sizeof replay) == 0);

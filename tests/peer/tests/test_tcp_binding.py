@@ -1,4 +1,6 @@
+import select
 import socket
+import time
 import unittest
 
 from dmp_peer.frame import CoreFrame, encode_frame
@@ -102,7 +104,15 @@ class TcpStreamBindingTests(unittest.TestCase):
             stream = encode_stream_r(a) + encode_stream_r(b)
             client.sendall(stream[:3])
             client.sendall(stream[3:])
-            rx.poll_read(at_ms=1, chunk_size=3)
+            deadline = time.monotonic() + 1.0
+            while len(self.frames) < 2:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                readable, _, _ = select.select([server], [], [], remaining)
+                if not readable:
+                    break
+                rx.poll_read(at_ms=1, chunk_size=3)
             self.assertEqual([frame for frame, _ in self.frames], [a, b])
         finally:
             listener.close()

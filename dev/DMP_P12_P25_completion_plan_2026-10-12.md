@@ -13,6 +13,22 @@ for their enabled host/simulation scopes. P25 depends on P24 and full P01. P01C
 will remain the final hardware gate; this plan does not waive its acceptance
 criteria.
 
+## Owner decisions — 2026-10-13
+
+The [continuation decision record](DMP_Continuation_Decisions_2026-10-13.md)
+authorizes up to four authenticated peers per endpoint, a separate two-attempt
+SAMPLE-1 READ test profile, production handshake/transport integration and an
+application-side epoch-transition owner with storage/lifecycle ports. Include
+wrong-authenticated-sender rejection in multi-peer acceptance. These are
+software completion requirements; existing partial rows do not become passes.
+
+Final hardware qualification uses ESP32-S3 and ESP32-C3 boards. Exact models and
+configurations are selected before that phase. Non-Espressif physical
+qualification is explicitly deferred to a future stage and does not block
+first-version P01/P25 acceptance for the qualified S3/C3 scope. Preserve its
+requirement and cross-compile evidence without claiming runtime support. All
+other hardware/resource/security criteria remain in force.
+
 ## Milestones
 
 1. **Reconcile P12 evidence.** Audit all 34 normative rows that include P12 as
@@ -39,8 +55,10 @@ criteria.
 5. **Final hardware qualification.** After the software report is stable, run
    the owner-approved target/resource scenarios, close the C3 reset evidence
    using an available diagnostic channel without changing eFuses, qualify the
-   selected non-Espressif target, and complete the required resource/entropy
-   measurements. Then close P01C/P01 and finish the P25 release assessment.
+   selected S3/C3 configurations, and complete the required resource/entropy
+   measurements. Non-Espressif physical qualification remains deferred to a
+   future stage by the 2026-10-13 owner decision. Then close P01C/P01 and finish
+   the P25 assessment for the qualified scope.
 
 ## Progress on 2026-10-12
 
@@ -452,3 +470,66 @@ criteria.
   same-cipher exact PN0 recovery. Provider build was current; focused CTest
   passed 1/1, and independent review found no actionable issue. Target and
   endpoint transport qualification remain open.
+
+## Owner-approved D1-D6 continuation — 2026-10-13
+
+- The owner approved four authenticated peers on one endpoint, a separate
+  two-attempt SAMPLE-1 initialization manifest, a wrong-authenticated-sender
+  check over real SEC-1 associations, production handshake/transport
+  composition, and an application-side SAMPLE-1 epoch owner. The captured
+  implementation contract is in `DMP_Multi_Peer_Contract_2026-10-13.md`.
+- The current dirty tree contains these changes and named host tests. The
+  focused existing host CTest filter passed 6/6 in the recorded current-tree
+  run. RBO job `job_01M4VK50CRT9GJMARGB4BVJEGP` then built
+  `dmp_test_endpoint_sec` and passed
+  `endpoint.protected_multi_peer_routing` 1/1. That test exercises the
+  endpoint-owned four-pending/two-scratch admission case and runs both
+  `four_parallel` (two scratch slots) and `four_serial` (one scratch slot).
+  This closes the integrated host concurrency scenario, not whole-endpoint MCU
+  fit or the full host gate.
+- The two-attempt profile is
+  `profiles/deployments/test-direct-sample-retry-2-nnpsk0.json`, SHA-256
+  `56687ad71c6bd557a3629b35819e77576dcf551ddc53ff7cb3731b231aa8b294`.
+  Existing DIRECT-1 manifests remain unchanged. Decoded Core MTU is 256 bytes;
+  encoded Stream R MTU is 263 bytes.
+- A later broad RBO host gate built all 166 targets; CTest passed 115/142
+  and failed 27. Its logs have now been recovered. The focused multi-peer
+  failure was due to creating one provider per simulated session; after
+  sharing the test provider, the endpoint test advanced to a misuse of
+  inbound-only `abandon_request` with an outbound sender handle. The test now
+  cancels the outbound sender through the reliability API, and the focused
+  RBO CTest passes. Other broad failures remain in handshake scratch setup,
+  endpoint repair, peer radio/R7 interop, P24 benchmark, retry/freshness
+  scenarios, and endpoint RAM lifecycle/report/layout checks. The full gate
+  has not yet been rerun; no local full build/CTest substitute was used.
+  Final independent review remains pending.
+- The 137-row ledger now includes concrete primary, peer, interop, or offline
+  profile-validator references for every row, each with explicit scope limits.
+  Whole-row ledger counts remain 74 passed, 62 partial, and 1 not run until the
+  fresh gate and independent review are complete. Hardware evidence is still
+  deferred to the final plan phase: ESP32-S3 and ESP32-C3 are the v1 physical
+  targets; non-Espressif physical qualification remains deferred.
+
+## Progress on 2026-10-14 — full host gate and RAM refresh
+
+- RBO job `job_01M4VNEW5PSA337VT0PA715CMY` configured and built the current
+  host tree successfully. CTest passed 135/142. The only seven failures were
+  `memory.*.layout` cases for DIRECT, RADIO and minimal DIRECT profiles; each
+  lacked the required Cortex-M ABI records. The worker has no
+  `arm-none-eabi-gcc`; `memory.mcu_abi` exits 0 when the compiler is absent,
+  which is not compile evidence. Keep the seven layout checks open and rerun
+  the full gate after the RBO worker's toolchain is installed.
+- All other registered CTest cases passed, including the security,
+  handshake/transport, four-peer `four_parallel`/`four_serial`, two-attempt
+  SAMPLE-1 and C/Python interop coverage. The independent final review of the
+  packet RX dispatch and finite pump bound found no actionable issue.
+- RBO job `job_01M4VNT0DN9C77R7FV7JYVBYH4` passed RADIO-1 lifecycle,
+  measurement, merge and report CTests 4/4. The manifest-bound host
+  requested-byte high-water is 47,146 B; this excludes peer memory, target
+  allocator metadata/alignment, stack high-water and physical MCU peak.
+- A 2026-10-14 source audit checked all 137 normative rows and 510 linked
+  primary/peer/profile/interop file-symbol references; none were missing. This
+  does not recalculate whole-row outcomes. Counts remain 74 passed, 62 partial
+  and 1 not-run pending explicit row-by-row review.
+- P12/P01/P25 and final S3/C3 physical qualification remain open. Hardware
+  checks stay at the final phase; host results do not satisfy them.

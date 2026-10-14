@@ -230,6 +230,42 @@ static int test_descriptors_security_and_fragment_geometry(void)
     }
     return 0;
 }
+static int test_fragmentation_disabled_limits(void)
+{
+    static const uint8_t telemetry[] = {0x45, 0x02, 0xaa};
+    static const uint8_t fragment[] = {0x47, 0x07, 0x09, 0x01, 0x00, 0x01, 0x03, 0xaa};
+    uint8_t output[8];
+    dmp_core_limits single = limits;
+    dmp_frame_spec frame;
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+    size_t written = 0U;
+
+    single.max_fragments = 1U;
+    parsed = dmp_core_parse((dmp_bytes){telemetry, sizeof telemetry}, &single, &view);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof telemetry);
+    parsed = dmp_core_parse((dmp_bytes){fragment, sizeof fragment}, &single, &view);
+    CHECK(parsed.status == DMP_LIMIT_EXHAUSTED);
+    memset(&frame, 0, sizeof frame);
+    frame.fields.type = DMP_TYPE_TELEM;
+    frame.payload = (dmp_bytes){telemetry + 2U, 1U};
+    CHECK(dmp_core_encode(&frame, &single, (dmp_buffer){output, sizeof output}, &written) ==
+          DMP_OK);
+    CHECK(written == sizeof telemetry && memcmp(output, telemetry, sizeof telemetry) == 0);
+    frame.fields.type = DMP_TYPE_DATA;
+    frame.fields.options = DMP_OPT_FRAG;
+    frame.fields.fragment.chunk_size = 1U;
+    frame.fields.fragment.total_size = 3U;
+    frame.payload = (dmp_bytes){fragment + sizeof fragment - 1U, 1U};
+    CHECK(dmp_core_encode(&frame, &single, (dmp_buffer){output, sizeof output}, &written) ==
+          DMP_LIMIT_EXHAUSTED);
+    single.max_fragments = 0U;
+    CHECK(dmp_core_parse((dmp_bytes){telemetry, sizeof telemetry}, &single, &view).status ==
+          DMP_INVALID_ARGUMENT);
+    CHECK(dmp_core_encode(&frame, &single, (dmp_buffer){output, sizeof output}, &written) ==
+          DMP_INVALID_ARGUMENT);
+    return 0;
+}
 static int test_type_rules_and_endpoint_canonical_service(void)
 {
     static const uint8_t no_seq_ackreq[] = {0x45,0x03,0x02};
@@ -422,6 +458,7 @@ int main(void)
     CHECK(test_extension_iterator() == 0);
     CHECK(test_extension_structure_and_roles() == 0);
     CHECK(test_descriptors_security_and_fragment_geometry() == 0);
+    CHECK(test_fragmentation_disabled_limits() == 0);
     CHECK(test_type_rules_and_endpoint_canonical_service() == 0);
     CHECK(test_reply_status_and_control_shapes() == 0);
     CHECK(test_encoder_failure_sentinels() == 0);

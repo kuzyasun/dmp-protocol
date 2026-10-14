@@ -2885,27 +2885,35 @@ No repository files were modified by the remote job, no test was run on a
 board, and no stage/commit/push occurred. P12 and 137-row statuses were not
 promoted solely from the suite result; see the updated P25 report for open work.
 
-## 2026-10-14 — Rejected fragmented-message tombstone (reassembly core)
+## 2026-10-14 — Rejected fragmented-message tombstone
 
-The reassembly core now releases payload, metadata and its identity retain after
-terminal rejection, while keeping a bounded REJECTED tombstone until the exact
-identity context is retired. Fresh-PN replay of that source/context/SEQ returns
-DUPLICATE. The sole assembly slot is reusable for another message, while the
-tombstone remains charged to the existing bounded quota.
+The endpoint previously kept the full completed assembly after terminal
+application rejection so a retransmission could not reopen the same SEQ. This
+held the sole DIRECT-1 application assembly slot until its timeout. The
+reassembly API now releases payload, metadata and its identity retain while
+keeping a bounded REJECTED tombstone until the identity context is retired.
+Fresh-PN fragments for that source/context/SEQ return DUPLICATE, and the
+tombstone remains charged to the existing per-peer quota. Accepted complete
+assemblies continue to retain payload for receipt/retry handling.
 
-test_rejected_message_fence checks zeroing, retain release, stale handles,
-no-reopen behavior, slot reuse, tombstone quota and cleanup after identity
-retirement. The host build
-cmake --build build/host --target dmp_test_reassembly dmp_test_endpoint_sec
---config Debug succeeded. The targeted CTest invocation
-ctest --test-dir build/host --output-on-failure -R
-'^(reassembly\.direct|endpoint\.protected_sample_invalid_fragmented_result|endpoint\.protected_retained_rejection_reassembly|endpoint\.protected_drain)$'
-passed 4/4 against the current integrated working tree. No MCU or physical
-transport evidence is claimed.
+The secure endpoint regression uses the admitted DIRECT-1 assembly quota of
+one. It rejects a fragmented invalid SAMPLE-1 result, replays it with fresh
+packet numbers, and then accepts a different valid fragmented result using the
+same assembly slot. A protected retained-request rejection case verifies the
+same cleanup path for a previously cached rejection. The reassembly unit test
+also verifies payload/metadata zeroing, identity release, no-reopen behavior,
+tombstone quota enforcement and cleanup after identity retirement. The endpoint
+drain regression leaves a rejected tombstone on a draining association, retires
+that identity through endpoint polling, then proves a new assembly works on the
+active successor association.
 
-The endpoint wiring and drain cleanup stay in the follow-up integration slice:
-they are layered on the already-staged multi-peer endpoint implementation.
-Independent read-only review found that committing those hunks directly from
-the current HEAD would omit that prerequisite. The current complete working tree
-also contains the protected endpoint and drain regressions; this commit isolates
-the reusable reassembly core and its direct unit test.
+Local Windows build succeeded with the existing host configuration after
+pointing Python's temporary directory outside the repository:
+`cmake --build build/host --target dmp_test_reassembly dmp_test_endpoint_sec
+--config Debug`. Final CTest command
+`ctest --test-dir build/host --output-on-failure -R
+'^(reassembly\.direct|endpoint\.protected_sample_invalid_fragmented_result|endpoint\.protected_retained_rejection_reassembly|endpoint\.protected_drain)$'`
+passed 4/4. A focused RBO snapshot reconfigured without
+`DMP_SODIUM_SOURCE_DIR`, so it did not register the protected endpoint target;
+no remote test ran. No MCU or physical transport evidence is claimed.
+Independent read-only review found no actionable issue. The drain lifecycle regression seeds rejection through the reassembly API; the protected endpoint rejection regression covers the wire path.

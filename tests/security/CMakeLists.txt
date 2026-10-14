@@ -124,8 +124,7 @@ add_custom_command(OUTPUT "${_fixture_header}"
 add_executable(dmp_test_provider test_provider.c "${_fixture_header}")
 target_include_directories(dmp_test_provider PRIVATE
     "${PROJECT_SOURCE_DIR}/src/security" "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(dmp_test_provider PRIVATE
-    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+dmp_link_rescan(dmp_test_provider libdmp dmp_p01b_noise dmp_p01b_sodium)
 set_target_properties(dmp_test_provider PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 dmp_strict_target(dmp_test_provider)
@@ -136,19 +135,20 @@ set_tests_properties(security.provider_adapter PROPERTIES
 add_executable(dmp_test_handshake test_handshake.c "${_fixture_header}")
 target_include_directories(dmp_test_handshake PRIVATE
     "${PROJECT_SOURCE_DIR}/src/security" "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(dmp_test_handshake PRIVATE
-    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+dmp_link_rescan(dmp_test_handshake libdmp dmp_p01b_noise dmp_p01b_sodium)
 set_target_properties(dmp_test_handshake PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 dmp_strict_target(dmp_test_handshake)
 add_test(NAME security.handshake COMMAND dmp_test_handshake)
 set_tests_properties(security.handshake PROPERTIES
     TIMEOUT 60 LABELS "handshake")
+add_test(NAME security.handshake_transport COMMAND dmp_test_handshake transport)
+set_tests_properties(security.handshake_transport PROPERTIES
+    TIMEOUT 30 LABELS "handshake;transport")
 
 # endpoint.o now calls the handshake record path, so the plaintext endpoint
 # binary needs the same Noise link group.
-target_link_libraries(dmp_test_endpoint PRIVATE
-    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+dmp_link_rescan(dmp_test_endpoint libdmp dmp_p01b_noise dmp_p01b_sodium)
 
 add_executable(dmp_test_endpoint_sec
     "${PROJECT_SOURCE_DIR}/tests/endpoint/test_endpoint_sec.c" "${_fixture_header}")
@@ -172,18 +172,108 @@ target_include_directories(dmp_test_endpoint_sec PRIVATE
     "${PROJECT_SOURCE_DIR}/src/security"
     "${PROJECT_SOURCE_DIR}/tests/endpoint"
     "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(dmp_test_endpoint_sec PRIVATE
-    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+dmp_link_rescan(dmp_test_endpoint_sec libdmp_sample1 libdmp dmp_p01b_noise dmp_p01b_sodium)
 set_target_properties(dmp_test_endpoint_sec PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 dmp_strict_target(dmp_test_endpoint_sec)
 if(MSVC)
     target_compile_definitions(dmp_test_endpoint_sec PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
-foreach(name activation transport_reject_retry alter loss result_loss receipt_loss sample_invalid_request sample_no_sample sample_initialization service2_immediate single_peer_bounds sample_late_assoc sample_superseded sample_init_timeout sample_invalid_result sample_invalid_telem sample_fragmented_result sample_invalid_fragmented_result err_status_contract validator_duplicate_skipped retained_rejection_reassembly freshness_terminal_rejection isolate reassembly ttl acl rotation result fragdeny drain context repair)
+# The four-peer endpoint acceptance runs against its own manifest v1.0 hash.
+# Keep the ordinary endpoint scenarios bound to DIRECT-1 below.
+set(_multi_peer_manifest
+    "${PROJECT_SOURCE_DIR}/profiles/deployments/test-direct-multi-peer-nnpsk0.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_multi_peer_manifest}")
+file(READ "${_multi_peer_manifest}" _multi_peer_json)
+file(SHA256 "${_multi_peer_manifest}" _multi_peer_profile_hash)
+string(JSON _multi_peer_count GET "${_multi_peer_json}" limits peers)
+string(JSON _multi_peer_operations_per_service GET "${_multi_peer_json}" limits operations_per_service)
+string(JSON _multi_peer_message_bytes GET "${_multi_peer_json}" limits message_bytes)
+string(JSON _multi_peer_chunk_bytes GET "${_multi_peer_json}" limits chunk_bytes)
+string(JSON _multi_peer_fragments GET "${_multi_peer_json}" limits fragments)
+string(JSON _multi_peer_sender_slots GET "${_multi_peer_json}" limits sender_slots)
+string(JSON _multi_peer_pending_attempts GET "${_multi_peer_json}" multi_peer shared_endpoint pending_attempts)
+string(JSON _multi_peer_application_operations GET "${_multi_peer_json}" multi_peer shared_endpoint application_operations)
+string(JSON _multi_peer_serial_crypto_slots GET "${_multi_peer_json}" multi_peer sensitivity_rows 0 crypto_slots)
+string(JSON _multi_peer_parallel_crypto_slots GET "${_multi_peer_json}" multi_peer sensitivity_rows 1 crypto_slots)
+set(_multi_peer_test_definitions
+    DMP_MULTI_PEER_HASH=\"${_multi_peer_profile_hash}\"
+    DMP_MULTI_PEER_COUNT=${_multi_peer_count}
+    DMP_MULTI_PEER_OPERATIONS_PER_SERVICE=${_multi_peer_operations_per_service}
+    DMP_MULTI_PEER_MESSAGE_BYTES=${_multi_peer_message_bytes}
+    DMP_MULTI_PEER_CHUNK_BYTES=${_multi_peer_chunk_bytes}
+    DMP_MULTI_PEER_FRAGMENTS=${_multi_peer_fragments}
+    DMP_MULTI_PEER_SENDER_SLOTS=${_multi_peer_sender_slots}
+    DMP_MULTI_PEER_PENDING_ATTEMPTS=${_multi_peer_pending_attempts}
+    DMP_MULTI_PEER_APPLICATION_OPERATIONS=${_multi_peer_application_operations}
+    DMP_MULTI_PEER_SERIAL_CRYPTO_SLOTS=${_multi_peer_serial_crypto_slots}
+    DMP_MULTI_PEER_PARALLEL_CRYPTO_SLOTS=${_multi_peer_parallel_crypto_slots})
+target_compile_definitions(dmp_test_endpoint_sec PRIVATE
+    ${_multi_peer_test_definitions})
+foreach(name activation transport_reject_retry alter loss result_loss receipt_loss sample_invalid_request sample_no_sample sample_initialization service2_immediate single_peer_bounds different_sender multi_peer_routing sample1_epoch_endpoint sample_late_assoc sample_superseded sample_init_timeout sample_invalid_result sample_invalid_status_result sample_invalid_telem sample_fragmented_result sample_invalid_fragmented_result err_status_contract validator_duplicate_skipped retained_rejection_reassembly freshness_terminal_rejection isolate reassembly ttl acl rotation result fragdeny drain context repair)
     add_test(NAME endpoint.protected_${name} COMMAND dmp_test_endpoint_sec ${name})
     set_tests_properties(endpoint.protected_${name} PROPERTIES TIMEOUT 60 LABELS "endpoint")
 endforeach()
+
+# Reuse the SEC-1 endpoint scenarios with the separately hashed two-attempt
+# SAMPLE-1 test manifest. DIRECT-1 remains compiled and exercised above.
+set(_sample_retry_manifest
+    "${PROJECT_SOURCE_DIR}/profiles/deployments/test-direct-sample-retry-2-nnpsk0.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_sample_retry_manifest}")
+file(READ "${_sample_retry_manifest}" _sample_retry_json)
+string(JSON _retry_init_attempts GET "${_sample_retry_json}" sample init_attempts)
+string(JSON _retry_init_delay GET "${_sample_retry_json}" sample init_retry_ms)
+string(JSON _retry_init_deadline GET "${_sample_retry_json}" sample init_deadline_ms)
+string(JSON _retry_no_sample GET "${_sample_retry_json}" sample no_sample_status)
+string(JSON _retry_result_deadline GET "${_sample_retry_json}" timing result_deadline_ms)
+file(SHA256 "${_sample_retry_manifest}" _retry_profile_hash)
+add_executable(dmp_test_endpoint_sample_retry
+    "${PROJECT_SOURCE_DIR}/tests/endpoint/test_endpoint.c")
+target_compile_definitions(dmp_test_endpoint_sample_retry PRIVATE
+    SAMPLE_INIT_ATTEMPTS=${_retry_init_attempts}
+    SAMPLE_INIT_RETRY_MS=${_retry_init_delay}
+    SAMPLE_INIT_DEADLINE_MS=${_retry_init_deadline}
+    SAMPLE_RESULT_DEADLINE_MS=${_retry_result_deadline}
+    SAMPLE_NO_SAMPLE=${_retry_no_sample})
+set_target_properties(dmp_test_endpoint_sample_retry PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+dmp_strict_target(dmp_test_endpoint_sample_retry)
+dmp_link_rescan(dmp_test_endpoint_sample_retry libdmp dmp_p01b_noise dmp_p01b_sodium)
+if(MSVC)
+    target_compile_definitions(dmp_test_endpoint_sample_retry PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+add_test(NAME endpoint.sample_retry_exhaustion
+    COMMAND dmp_test_endpoint_sample_retry sample_init_retry_budget)
+set_tests_properties(endpoint.sample_retry_exhaustion PROPERTIES
+    TIMEOUT 30 LABELS "endpoint;sample1;manifest")
+add_executable(dmp_test_endpoint_sec_sample_retry
+    "${PROJECT_SOURCE_DIR}/tests/endpoint/test_endpoint_sec.c" "${_fixture_header}")
+target_include_directories(dmp_test_endpoint_sec_sample_retry PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/security"
+    "${PROJECT_SOURCE_DIR}/tests/endpoint"
+    "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(dmp_test_endpoint_sec_sample_retry PRIVATE
+    ${_multi_peer_test_definitions}
+    SAMPLE_INIT_ATTEMPTS=${_retry_init_attempts}
+    SAMPLE_INIT_RETRY_MS=${_retry_init_delay}
+    SAMPLE_INIT_DEADLINE_MS=${_retry_init_deadline}
+    SAMPLE_NO_SAMPLE=${_retry_no_sample}
+    SAMPLE_RESULT_DEADLINE_MS=${_retry_result_deadline}
+    DMP_SAMPLE_RETRY_HASH=\"${_retry_profile_hash}\")
+dmp_link_rescan(dmp_test_endpoint_sec_sample_retry
+    libdmp_sample1 libdmp dmp_p01b_noise dmp_p01b_sodium)
+set_target_properties(dmp_test_endpoint_sec_sample_retry PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+dmp_strict_target(dmp_test_endpoint_sec_sample_retry)
+if(MSVC)
+    target_compile_definitions(dmp_test_endpoint_sec_sample_retry PRIVATE
+        _CRT_SECURE_NO_WARNINGS)
+endif()
+add_test(NAME endpoint.protected_sample_retry_two_attempts
+    COMMAND dmp_test_endpoint_sec_sample_retry sample_init_retry_two_attempts)
+set_tests_properties(endpoint.protected_sample_retry_two_attempts PROPERTIES
+    TIMEOUT 60 LABELS "endpoint;sample1;manifest")
+
 foreach(_p23_gate IN ITEMS
         c_endpoint_interop
         radio_endpoint_interop

@@ -13,7 +13,8 @@ add_library(libdmp STATIC src/core/base.c src/core/codec.c
     src/mesh/relay.c
     src/security/provider_adapter.c
     src/security/replay_window.c
-    src/security/handshake.c)
+    src/security/handshake.c
+    src/security/handshake_transport.c)
 add_library(dmp::dmp ALIAS libdmp)
 set_target_properties(libdmp PROPERTIES OUTPUT_NAME dmp
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
@@ -32,6 +33,32 @@ function(dmp_strict_target target)
 endfunction()
 dmp_strict_target(libdmp)
 
+# RESCAN is not supported by every linker (notably Apple's ld64). Keep one
+# portable helper for cyclic static-library sets: supported linkers use the
+# native group feature; others rescan by repeating the archives in order.
+function(dmp_link_rescan target)
+    if(CMAKE_C_LINK_GROUP_USING_RESCAN_SUPPORTED)
+        list(JOIN ARGN "," _rescan_group)
+        target_link_libraries(${target} PRIVATE "$<LINK_GROUP:RESCAN,${_rescan_group}>")
+    else()
+        set(_rescan_libraries ${ARGN} ${ARGN})
+        target_link_libraries(${target} PRIVATE ${_rescan_libraries})
+    endif()
+endfunction()
+
+# SAMPLE-1 is an application example layered on the payload-agnostic core.
+add_library(libdmp_sample1 STATIC
+    src/application/sample1_epoch_owner.c
+    src/application/sample1_endpoint.c)
+add_library(dmp::sample1 ALIAS libdmp_sample1)
+set_target_properties(libdmp_sample1 PROPERTIES
+    OUTPUT_NAME dmp_sample1
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+target_link_libraries(libdmp_sample1 PUBLIC dmp::dmp)
+target_include_directories(libdmp_sample1 PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/application")
+dmp_strict_target(libdmp_sample1)
+
 option(DMP_BUILD_TESTS "Build library tests, host scaffold and provider experiments" ON)
 option(DMP_NOISE_EXPERIMENTS "Build opt-in Noise candidate characterization tests" OFF)
 option(DMP_FUZZ "Build bounded Clang libFuzzer targets with ASan/UBSan" OFF)
@@ -48,6 +75,7 @@ if(DMP_BUILD_TESTS)
     add_subdirectory(tests/identity)
     add_subdirectory(tests/reassembly)
     add_subdirectory(tests/reliability)
+    add_subdirectory(tests/application)
     add_subdirectory(tests/endpoint)
     add_subdirectory(tests/provider)
     set(DMP_SODIUM_SOURCE_DIR "" CACHE PATH

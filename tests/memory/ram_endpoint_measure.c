@@ -17,9 +17,10 @@ enum { MESSAGE_MAX = 256, CHUNK = 64, MTU = 263, SLOTS = 3, TOMBSTONES = 16,
 
 typedef struct memory_bundle {
     dmp_endpoint endpoint;
+    dmp_endpoint_peer_state peer_states[1];
     dmp_admitted_profile admitted;
     dmp_transport transport;
-    dmp_identity_slot identities[1];
+    dmp_identity_slot identities[2];
     dmp_reliability_sender_slot senders[1];
     uint8_t sender_payload[MESSAGE_MAX];
     dmp_reliability_result_slot results[1];
@@ -171,7 +172,8 @@ int main(int argc, char **argv)
     b->transport.caps.ownership = DMP_TX_BORROW;
     b->transport.caps.synchronous_completion = true;
     memset(&s, 0, sizeof s); s.profile = &b->admitted;
-    s.identity_slots = b->identities; s.identity_capacity = 1U; s.context = identity;
+    s.peer_states = b->peer_states; s.peer_state_capacity = 1U;
+    s.identity_slots = b->identities; s.identity_capacity = 2U; s.context = identity;
     s.transport = &b->transport; s.notice = notice; s.senders = b->senders; s.sender_capacity = 1U;
     s.sender_payload = b->sender_payload; s.sender_payload_capacity = sizeof b->sender_payload;
     s.results = b->results; s.result_capacity = 1U;

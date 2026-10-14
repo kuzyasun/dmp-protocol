@@ -40,6 +40,16 @@ static int origin_eq(dmp_message_origin a, dmp_message_origin b)
     return a.namespace_id == b.namespace_id && a.origin_id == b.origin_id && a.epoch == b.epoch;
 }
 
+static int peer_eq(dmp_peer_handle a, dmp_peer_handle b)
+{
+    return a.slot == b.slot && a.generation == b.generation;
+}
+
+static int context_eq(dmp_identity_handle a, dmp_identity_handle b)
+{
+    return a.slot == b.slot && a.generation == b.generation;
+}
+
 static int service_allowed(const dmp_admitted_profile *profile, uint32_t service)
 {
     return service == 0U || service == profile->service_id[0] || service == profile->service_id[1];
@@ -165,7 +175,7 @@ static uint32_t control_reserve(const dmp_admitted_profile *profile)
 static const dmp_identity_slot *bound(const dmp_reliability *engine)
 {
     const dmp_identity_table *table = engine->storage.identity;
-    dmp_identity_handle handle = engine->storage.context;
+    dmp_identity_handle handle = engine->selected_context;
     const dmp_identity_slot *slot;
 
     if (table == NULL || table->slots == NULL || handle.slot >= table->capacity) {
@@ -225,37 +235,68 @@ static uint8_t *frame_bytes(dmp_reliability *engine, size_t index)
     return engine->storage.frames + index * (size_t)engine->profile.encoded_mtu;
 }
 
-static void release_sender(dmp_reliability_sender_slot *slot)
+static uint32_t max_core_mtu(const dmp_admitted_profile *profile)
+{
+    return profile->forward_mtu > profile->return_mtu ? profile->forward_mtu
+                                                       : profile->return_mtu;
+}
+
+static dmp_status retain_context(dmp_reliability *engine, dmp_identity_handle context,
+                                 uint8_t *retained)
+{
+    dmp_status status = dmp_identity_context_retain(engine->storage.identity, context);
+    if (status == DMP_OK) {
+        *retained = 1U;
+    }
+    return status;
+}
+
+static void release_context(dmp_reliability *engine, dmp_identity_handle context,
+                            uint8_t *retained)
+{
+    if (*retained != 0U) {
+        (void)dmp_identity_context_release(engine->storage.identity, context);
+        *retained = 0U;
+    }
+}
+
+static void release_sender(dmp_reliability *engine, dmp_reliability_sender_slot *slot)
 {
     uint64_t generation = slot->generation;
+    release_context(engine, slot->context, &slot->context_retained);
     memset(slot, 0, sizeof *slot);
     slot->generation = generation;
 }
 
-static void release_result(dmp_reliability_result_slot *slot)
+static void release_result(dmp_reliability *engine, dmp_reliability_result_slot *slot)
 {
     uint64_t generation = slot->generation;
+    release_context(engine, slot->context, &slot->context_retained);
     memset(slot, 0, sizeof *slot);
     slot->generation = generation;
 }
 
-static void release_history(dmp_reliability_history_slot *slot)
+static void release_history(dmp_reliability *engine, dmp_reliability_history_slot *slot)
 {
     uint64_t generation = slot->generation;
+    release_context(engine, slot->context, &slot->context_retained);
     memset(slot, 0, sizeof *slot);
     slot->generation = generation;
 }
 
-static void release_correlation(dmp_reliability_correlation_slot *slot)
+static void release_correlation(dmp_reliability *engine,
+                                dmp_reliability_correlation_slot *slot)
 {
     uint64_t generation = slot->generation;
+    release_context(engine, slot->context, &slot->context_retained);
     memset(slot, 0, sizeof *slot);
     slot->generation = generation;
 }
 
-static void release_adapter(dmp_reliability_adapter_slot *slot)
+static void release_adapter(dmp_reliability *engine, dmp_reliability_adapter_slot *slot)
 {
     uint64_t generation = slot->generation;
+    release_context(engine, slot->context, &slot->context_retained);
     memset(slot, 0, sizeof *slot);
     slot->generation = generation;
 }
@@ -340,12 +381,14 @@ static size_t queued_application(const dmp_reliability *engine)
     return count;
 }
 
-static int gate_held(const dmp_reliability *engine, uint32_t service, size_t self)
+static int gate_held(const dmp_reliability *engine, dmp_peer_handle peer,
+                     uint32_t service, size_t self)
 {
     size_t i;
     for (i = 0U; i < engine->storage.sender_capacity; i++) {
         const dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
-        if (i == self || sender->live == 0U || sender->service_id != service) {
+        if (i == self || sender->live == 0U || sender->service_id != service ||
+            !peer_eq(sender->peer, peer)) {
             continue;
         }
         if (sender->kind != KIND_REQ && sender->kind != KIND_RESULT && sender->kind != KIND_DATA) {
@@ -359,7 +402,8 @@ static int gate_held(const dmp_reliability *engine, uint32_t service, size_t sel
     return 0;
 }
 
-static size_t operations_used(const dmp_reliability *engine, uint32_t service)
+static size_t operations_used(const dmp_reliability *engine, dmp_peer_handle peer,
+                              uint32_t service)
 {
     size_t i;
     size_t count = 0U;
@@ -367,14 +411,15 @@ static size_t operations_used(const dmp_reliability *engine, uint32_t service)
         const dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
         if (sender->live != 0U &&
             (sender->kind == KIND_REQ || sender->kind == KIND_DATA) &&
-            sender->service_id == service) {
+            sender->service_id == service && peer_eq(sender->peer, peer)) {
             count++;
         }
     }
     for (i = 0U; i < engine->storage.history_capacity; i++) {
         const dmp_reliability_history_slot *history = &engine->storage.history[i];
         const dmp_reliability_result_slot *result;
-        if (history->live == 0U || history->decision != 0U || history->service_id != service) {
+        if (history->live == 0U || history->decision != 0U || history->service_id != service ||
+            !peer_eq(history->peer, peer)) {
             continue;
         }
         if (history->result_slot >= engine->storage.result_capacity) {
@@ -390,12 +435,15 @@ static size_t operations_used(const dmp_reliability *engine, uint32_t service)
 }
 
 static void emit(dmp_reliability *engine, dmp_reliability_event event,
-                 dmp_reliability_handle handle, dmp_message_key key, uint32_t service,
-                 uint32_t wire_status, dmp_bytes payload)
+                 dmp_reliability_handle handle, dmp_identity_handle context,
+                 dmp_message_key key, uint32_t service, uint32_t wire_status,
+                 dmp_bytes payload)
 {
     dmp_reliability_notice notice;
     notice.event = event;
     notice.handle = handle;
+    notice.peer = handle.peer;
+    notice.context = context;
     notice.key = key;
     notice.service_id = service;
     notice.wire_status = wire_status;
@@ -423,6 +471,7 @@ static dmp_reliability_handle sender_handle(const dmp_reliability *engine,
     dmp_reliability_handle handle;
     handle.slot = (uint32_t)(sender - engine->storage.senders);
     handle.generation = sender->generation;
+    handle.peer = sender->peer;
     return handle;
 }
 
@@ -434,7 +483,9 @@ static dmp_reliability_correlation_slot *correlation_of(dmp_reliability *engine,
         return NULL;
     }
     correlation = &engine->storage.correlations[sender->related_slot];
-    if (correlation->live == 0U || correlation->generation != sender->related_generation) {
+    if (correlation->live == 0U || correlation->generation != sender->related_generation ||
+        !peer_eq(correlation->peer, sender->peer) ||
+        !context_eq(correlation->context, sender->context)) {
         return NULL;
     }
     return correlation;
@@ -448,7 +499,8 @@ static dmp_reliability_result_slot *result_of_sender(dmp_reliability *engine,
         return NULL;
     }
     result = &engine->storage.results[sender->related_slot];
-    if (result->live == 0U || result->generation != sender->related_generation) {
+    if (result->live == 0U || result->generation != sender->related_generation ||
+        !peer_eq(result->peer, sender->peer) || !context_eq(result->context, sender->context)) {
         return NULL;
     }
     return result;
@@ -465,6 +517,8 @@ static dmp_status sender_logical(dmp_reliability *engine,
         return DMP_INVALID_ARGUMENT;
     }
     memset(logical, 0, sizeof *logical);
+    logical->peer = sender->peer;
+    logical->context = sender->context;
     logical->service_id = sender->service_id;
     logical->own = sender->own;
     index = (size_t)(sender - engine->storage.senders);
@@ -525,7 +579,7 @@ static dmp_status probe_sender_frame(dmp_reliability *engine,
         logical.payload.size = engine->profile.chunk_bytes;
     }
     probe.data = NULL;
-    probe.capacity = engine->profile.encoded_mtu;
+    probe.capacity = max_core_mtu(&engine->profile);
     status = engine->storage.encode(engine->storage.encode_context, &logical, probe, &written);
     if (status == DMP_OK) {
         *fits = 1;
@@ -558,7 +612,8 @@ static dmp_reliability_history_slot *history_of_sender(dmp_reliability *engine,
         return NULL;
     }
     history = &engine->storage.history[sender->related_slot];
-    if (history->live == 0U || history->generation != sender->related_generation) {
+    if (history->live == 0U || history->generation != sender->related_generation ||
+        !peer_eq(history->peer, sender->peer) || !context_eq(history->context, sender->context)) {
         return NULL;
     }
     return history;
@@ -572,7 +627,8 @@ static dmp_reliability_sender_slot *sender_of_result(dmp_reliability *engine,
         return NULL;
     }
     sender = &engine->storage.senders[result->sender_slot];
-    if (sender->live == 0U || sender->generation != result->sender_generation) {
+    if (sender->live == 0U || sender->generation != result->sender_generation ||
+        !peer_eq(sender->peer, result->peer) || !context_eq(sender->context, result->context)) {
         return NULL;
     }
     return sender;
@@ -586,7 +642,8 @@ static dmp_reliability_history_slot *history_of_result(
         return NULL;
     }
     history = &engine->storage.history[result->history_slot];
-    if (history->live == 0U || history->generation != result->history_generation) {
+    if (history->live == 0U || history->generation != result->history_generation ||
+        !peer_eq(history->peer, result->peer) || !context_eq(history->context, result->context)) {
         return NULL;
     }
     return history;
@@ -608,13 +665,14 @@ static void settle_sender(dmp_reliability *engine, dmp_reliability_sender_slot *
         if (sender->phase == DMP_REL_PHASE_TERMINAL && !sender->result_seen) {
             emit(engine, sender->possibly_sent != 0U ? DMP_REL_EVENT_DATA_UNKNOWN
                                                      : DMP_REL_EVENT_DATA_LOCAL_UNSENT,
-                 sender_handle(engine, sender), sender->own, sender->service_id, 0U, empty);
+                 sender_handle(engine, sender), sender->context, sender->own,
+                 sender->service_id, 0U, empty);
         }
-        release_sender(sender);
+        release_sender(engine, sender);
         return;
     }
     if (sender->kind != KIND_REQ) {
-        release_sender(sender);
+        release_sender(engine, sender);
         return;
     }
     if (sender->phase == DMP_REL_PHASE_TERMINAL && !sender->result_seen) {
@@ -625,11 +683,65 @@ static void settle_sender(dmp_reliability *engine, dmp_reliability_sender_slot *
         }
         handle = sender_handle(engine, sender);
         emit(engine, unknown ? DMP_REL_EVENT_UNKNOWN : DMP_REL_EVENT_LOCAL_UNSENT, handle,
-             sender->own, sender->service_id, 0U, empty);
+             sender->context, sender->own, sender->service_id, 0U, empty);
     }
     if (sender->phase == DMP_REL_PHASE_TERMINAL || sender->result_seen) {
-        release_sender(sender);
+        release_sender(engine, sender);
     }
+}
+
+static dmp_status select_route_internal(dmp_reliability *engine, dmp_peer_handle peer,
+                                        dmp_identity_handle context)
+{
+    const dmp_identity_table *table;
+    const dmp_identity_slot *slot;
+    dmp_status status;
+    int local_match;
+    int peer_match;
+    if (!ready(engine) || peer.generation == 0U || peer.slot >= engine->profile.peers ||
+        context.generation == 0U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    table = engine->storage.identity;
+    if (table == NULL || table->slots == NULL || context.slot >= table->capacity) {
+        return DMP_STALE_HANDLE;
+    }
+    slot = &table->slots[context.slot];
+    if (slot->state == DMP_IDENTITY_SLOT_UNUSED || slot->generation != context.generation) {
+        return DMP_STALE_HANDLE;
+    }
+    if (slot->local.namespace_id != engine->profile.namespace_id ||
+        slot->peer.namespace_id != engine->profile.namespace_id) {
+        return DMP_CONTEXT_REQUIRED;
+    }
+    local_match = slot->local.origin_id == engine->profile.node_id[0] ||
+                  slot->local.origin_id == engine->profile.node_id[1];
+    peer_match = slot->peer.origin_id != 0U && slot->peer.origin_id != slot->local.origin_id;
+    if (!local_match || !peer_match) {
+        return DMP_CONTEXT_REQUIRED;
+    }
+    /* A single-peer engine owns one root retain so its selected context stays
+     * live between operations. Transfer that retain together with the route;
+     * otherwise an old context would remain pinned after association rotation. */
+    if (engine->context_retained != 0U &&
+        (engine->storage.context.slot != context.slot ||
+         engine->storage.context.generation != context.generation)) {
+        status = dmp_identity_context_retain(engine->storage.identity, context);
+        if (status != DMP_OK) {
+            return status;
+        }
+        status = dmp_identity_context_release(engine->storage.identity,
+                                              engine->storage.context);
+        if (status != DMP_OK) {
+            (void)dmp_identity_context_release(engine->storage.identity, context);
+            return status;
+        }
+        engine->storage.context = context;
+    }
+    engine->selected_peer = peer;
+    engine->selected_context = context;
+    engine->route_selected = 1U;
+    return DMP_OK;
 }
 
 static void on_tx_complete(void *owner, dmp_tx_token token, dmp_tx_outcome outcome,
@@ -668,7 +780,7 @@ static void apply_tx(dmp_reliability *engine, dmp_reliability_sender_slot *sende
             sender->phase = DMP_REL_PHASE_QUEUED;
             sender->next_attempt = when;
         } else {
-            release_sender(sender);
+            release_sender(engine, sender);
         }
         return;
     }
@@ -708,7 +820,7 @@ static void apply_tx(dmp_reliability *engine, dmp_reliability_sender_slot *sende
     if (sender->kind == KIND_RESULT) {
         result = result_of_sender(engine, sender);
         if (result != NULL && result->acknowledged != 0U) {
-            release_sender(sender);
+            release_sender(engine, sender);
             return;
         }
     }
@@ -736,20 +848,21 @@ static void consume(dmp_reliability *engine)
         outcome = adapter->outcome;
         when = adapter->completed_at;
         if (adapter->control != 0U) {
-            release_adapter(adapter);
+            release_adapter(engine, adapter);
             continue;
         }
         if (adapter->sender_slot >= engine->storage.sender_capacity) {
-            release_adapter(adapter);
+            release_adapter(engine, adapter);
             continue;
         }
         sender = &engine->storage.senders[adapter->sender_slot];
         if (sender->live == 0U || sender->generation != adapter->sender_generation ||
-            !sender->tx_live) {
-            release_adapter(adapter);
+            !peer_eq(sender->peer, adapter->peer) ||
+            !context_eq(sender->context, adapter->context) || !sender->tx_live) {
+            release_adapter(engine, adapter);
             continue;
         }
-        release_adapter(adapter);
+        release_adapter(engine, adapter);
         apply_tx(engine, sender, outcome, when);
     }
 }
@@ -937,7 +1050,9 @@ static int find_history_key(const dmp_reliability *engine, dmp_message_key key)
     size_t i;
     for (i = 0U; i < engine->storage.history_capacity; i++) {
         const dmp_reliability_history_slot *history = &engine->storage.history[i];
-        if (history->live != 0U && key_eq(history->source, key)) {
+        if (history->live != 0U && peer_eq(history->peer, engine->selected_peer) &&
+            context_eq(history->context, engine->selected_context) &&
+            key_eq(history->source, key)) {
             return (int)i;
         }
     }
@@ -949,7 +1064,9 @@ static int find_result_key(const dmp_reliability *engine, dmp_message_key key)
     size_t i;
     for (i = 0U; i < engine->storage.result_capacity; i++) {
         const dmp_reliability_result_slot *result = &engine->storage.results[i];
-        if (result->live != 0U && key_eq(result->request, key)) {
+        if (result->live != 0U && peer_eq(result->peer, engine->selected_peer) &&
+            context_eq(result->context, engine->selected_context) &&
+            key_eq(result->request, key)) {
             return (int)i;
         }
     }
@@ -990,6 +1107,13 @@ static dmp_status arm_adapter(dmp_reliability *engine, int index, int control,
     adapter->generation = generation;
     adapter->live = 1U;
     adapter->control = control ? 1U : 0U;
+    adapter->peer = engine->selected_peer;
+    adapter->context = engine->selected_context;
+    status = retain_context(engine, adapter->context, &adapter->context_retained);
+    if (status != DMP_OK) {
+        release_adapter(engine, adapter);
+        return status;
+    }
     adapter->token.slot = (uint32_t)index;
     adapter->token.generation = generation;
     adapter->sender_slot = sender_slot;
@@ -1005,6 +1129,7 @@ static dmp_status submit_frame(dmp_reliability *engine, dmp_reliability_adapter_
     dmp_tx_submission submission;
     dmp_status status;
     submission.token = adapter->token;
+    submission.peer = adapter->peer;
     submission.frame.data = frame_bytes(engine, adapter->token.slot);
     submission.frame.size = written;
     submission.not_after = not_after;
@@ -1013,7 +1138,7 @@ static dmp_status submit_frame(dmp_reliability *engine, dmp_reliability_adapter_
     adapter->frame_len = written;
     status = engine->transport.submit(engine->transport.context, &submission);
     if (status != DMP_OK) {
-        release_adapter(adapter);
+        release_adapter(engine, adapter);
         return status;
     }
     consume(engine);
@@ -1042,7 +1167,7 @@ static dmp_status send_ack(dmp_reliability *engine, uint32_t service, dmp_messag
     if (index < 0) {
         return DMP_BUSY;
     }
-    status = dmp_identity_next_seq(engine->storage.identity, engine->storage.context, &seq);
+    status = dmp_identity_next_seq(engine->storage.identity, engine->selected_context, &seq);
     if (status != DMP_OK) {
         return status;
     }
@@ -1052,6 +1177,8 @@ static dmp_status send_ack(dmp_reliability *engine, uint32_t service, dmp_messag
     }
     memset(&logical, 0, sizeof logical);
     logical.type = DMP_TYPE_ACK;
+    logical.peer = engine->selected_peer;
+    logical.context = engine->selected_context;
     logical.service_id = service;
     logical.destination = destination;
     logical.own.origin = slot->local;
@@ -1060,10 +1187,10 @@ static dmp_status send_ack(dmp_reliability *engine, uint32_t service, dmp_messag
     logical.has_reply_to = true;
     logical.ack_req = false;
     out.data = frame_bytes(engine, (size_t)index);
-    out.capacity = engine->profile.encoded_mtu;
+    out.capacity = max_core_mtu(&engine->profile);
     status = engine->storage.encode(engine->storage.encode_context, &logical, out, &written);
     if (status != DMP_OK || written == 0U || written > out.capacity) {
-        release_adapter(adapter);
+        release_adapter(engine, adapter);
         return status == DMP_OK ? DMP_MALFORMED : status;
     }
     return submit_frame(engine, adapter, written, not_after);
@@ -1095,7 +1222,8 @@ static dmp_bytes slice_view(dmp_reliability *engine, size_t sender_index, uint32
     return slice_at(sender_bytes(engine, sender_index), index, chunk, total);
 }
 
-static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms now)
+static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms now,
+                             int *accepted)
 {
     dmp_reliability_sender_slot *sender = &engine->storage.senders[index];
     const dmp_identity_slot *slot = bound(engine);
@@ -1106,6 +1234,7 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
     int adapter_index;
     int allow_control = sender->kind == KIND_REJECT;
     dmp_status status;
+    *accepted = 0;
     if (slot == NULL) {
         return DMP_STALE_HANDLE;
     }
@@ -1114,6 +1243,8 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
         return DMP_DEADLINE_EXPIRED;
     }
     memset(&logical, 0, sizeof logical);
+    logical.peer = sender->peer;
+    logical.context = sender->context;
     logical.service_id = sender->service_id;
     logical.own = sender->own;
     if (sender->kind == KIND_REQ || sender->kind == KIND_DATA) {
@@ -1133,7 +1264,7 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
         }
         if (result->reserved == 0U) {
             uint32_t seq = 0U;
-            status = dmp_identity_next_seq(engine->storage.identity, engine->storage.context,
+            status = dmp_identity_next_seq(engine->storage.identity, engine->selected_context,
                                            &seq);
             if (status != DMP_OK) {
                 return status;
@@ -1155,7 +1286,7 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
     } else {
         dmp_reliability_history_slot *history = history_of_sender(engine, sender);
         if (history == NULL) {
-            release_sender(sender);
+            release_sender(engine, sender);
             return DMP_OK;
         }
         logical.type = DMP_TYPE_ERR;
@@ -1211,7 +1342,7 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
     }
     if (sender->kind == KIND_REJECT) {
         uint32_t seq = 0U;
-        status = dmp_identity_next_seq(engine->storage.identity, engine->storage.context, &seq);
+        status = dmp_identity_next_seq(engine->storage.identity, engine->selected_context, &seq);
         if (status != DMP_OK) {
             return status;
         }
@@ -1224,11 +1355,11 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
         return status;
     }
     out.data = frame_bytes(engine, (size_t)adapter_index);
-    out.capacity = engine->profile.encoded_mtu;
+    out.capacity = max_core_mtu(&engine->profile);
     status = engine->storage.encode(engine->storage.encode_context, &logical, out, &written);
     if (status == DMP_BUSY) {
         /* The attempt is alive but not active yet. Keep the admitted sender. */
-        release_adapter(adapter);
+        release_adapter(engine, adapter);
         if (sender->live != 0U && sender->frag_count != 0U && sender->burst_counted == 0U) {
             sender->burst_inflight = 0U;
         }
@@ -1239,7 +1370,7 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
         /* A terminal seal or encode failure is local: no frame is submitted
          * and the slot does not stay live until a later deadline.
          * possibly_sent stays clear, so the outcome is unsent. */
-        release_adapter(adapter);
+        release_adapter(engine, adapter);
         if (sender->live != 0U) {
             sender->burst_inflight = 0U;
             sender->phase = DMP_REL_PHASE_TERMINAL;
@@ -1266,6 +1397,7 @@ static dmp_status begin_send(dmp_reliability *engine, size_t index, dmp_time_ms 
         }
         return status;
     }
+    *accepted = 1;
     return DMP_OK;
 }
 
@@ -1278,6 +1410,9 @@ static int sender_waiting(const dmp_reliability *engine,
     }
     sender = &engine->storage.senders[correlation->request.slot];
     return sender->live != 0U && sender->generation == correlation->request.generation &&
+           peer_eq(sender->peer, correlation->peer) &&
+           context_eq(sender->context, correlation->context) &&
+           peer_eq(correlation->request.peer, correlation->peer) &&
            sender->kind == KIND_REQ && !sender->result_seen;
 }
 
@@ -1348,21 +1483,21 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
             continue;
         }
         if (sender != NULL) {
-            release_sender(sender);
+            release_sender(engine, sender);
         }
-        release_result(result);
+        release_result(engine, result);
     }
     for (i = 0U; i < engine->storage.history_capacity; i++) {
         dmp_reliability_history_slot *history = &engine->storage.history[i];
         if (history->live != 0U && dmp_deadline_reached(now, history->deadline)) {
-            release_history(history);
+            release_history(engine, history);
         }
     }
     for (i = 0U; i < engine->storage.correlation_capacity; i++) {
         dmp_reliability_correlation_slot *correlation = &engine->storage.correlations[i];
         if (correlation->live != 0U &&
             dmp_deadline_reached(now, correlation->tombstone_deadline)) {
-            release_correlation(correlation);
+            release_correlation(engine, correlation);
         }
     }
     for (i = 0U; i < engine->storage.sender_capacity; i++) {
@@ -1419,9 +1554,9 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
             } else {
                 dmp_reliability_result_slot *result = result_of_sender(engine, sender);
                 if (result != NULL && result->deadline == 0U) {
-                    release_result(result);
+                    release_result(engine, result);
                 }
-                release_sender(sender);
+                release_sender(engine, sender);
             }
             continue;
         }
@@ -1432,7 +1567,7 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
                     sender->phase = DMP_REL_PHASE_TERMINAL;
                     cancel_tx(engine, sender);
                 } else {
-                    release_sender(sender);
+                    release_sender(engine, sender);
                 }
             }
         }
@@ -1440,7 +1575,9 @@ static void expire(dmp_reliability *engine, dmp_time_ms now)
     consume(engine);
 }
 
-static void send_due_receipts(dmp_reliability *engine, dmp_time_ms now, dmp_status *acc)
+static int send_due_receipts(dmp_reliability *engine, dmp_time_ms now, dmp_status *acc,
+                             int filter_peer, uint32_t peer_slot,
+                             uint64_t peer_generation, int one)
 {
     size_t i;
     for (i = 0U; i < engine->storage.history_capacity; i++) {
@@ -1450,7 +1587,10 @@ static void send_due_receipts(dmp_reliability *engine, dmp_time_ms now, dmp_stat
         int due;
         dmp_status status;
         if (history->live == 0U || history->decision != 0U ||
-            history->receipt_count >= engine->profile.receipt_limit) {
+            history->receipt_count >= engine->profile.receipt_limit ||
+            (filter_peer && (history->peer.slot != peer_slot ||
+                             (peer_generation != 0U &&
+                              history->peer.generation != peer_generation)))) {
             continue;
         }
         if (history->result_slot >= engine->storage.result_capacity) {
@@ -1476,23 +1616,36 @@ static void send_due_receipts(dmp_reliability *engine, dmp_time_ms now, dmp_stat
         if (!due) {
             continue;
         }
+        engine->selected_peer = history->peer;
+        engine->selected_context = history->context;
+        engine->route_selected = 1U;
         status = send_ack(engine, history->service_id, history->source, history->source.origin, now);
         if (status == DMP_OK) {
             history->receipt_count++;
             sender->receipt_seen = true;
+            if (one) {
+                return 1;
+            }
         } else if (status != DMP_BUSY && *acc == DMP_OK) {
             *acc = status;
         }
     }
+    return 0;
 }
 
-static void send_ready(dmp_reliability *engine, dmp_time_ms now, dmp_status *acc)
+static int send_ready(dmp_reliability *engine, dmp_time_ms now, dmp_status *acc,
+                      int filter_peer, uint32_t peer_slot,
+                      uint64_t peer_generation, int one)
 {
     size_t i;
     for (i = 0U; i < engine->storage.sender_capacity; i++) {
         dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
+        int accepted;
         dmp_status status;
-        if (sender->live == 0U || sender->tx_live || sender->phase != DMP_REL_PHASE_QUEUED) {
+        if (sender->live == 0U || sender->tx_live || sender->phase != DMP_REL_PHASE_QUEUED ||
+            (filter_peer && (sender->peer.slot != peer_slot ||
+                             (peer_generation != 0U &&
+                              sender->peer.generation != peer_generation)))) {
             continue;
         }
         if (sender->kind == KIND_RESULT && sender->receipt_seen == 0U &&
@@ -1509,10 +1662,16 @@ static void send_ready(dmp_reliability *engine, dmp_time_ms now, dmp_status *acc
             dmp_deadline_reached(now, sender->send_deadline)) {
             continue;
         }
-        if (sender->kind != KIND_REJECT && gate_held(engine, sender->service_id, i)) {
+        if (sender->kind != KIND_REJECT && gate_held(engine, sender->peer, sender->service_id, i)) {
             continue;
         }
-        status = begin_send(engine, i, now);
+        engine->selected_peer = sender->peer;
+        engine->selected_context = sender->context;
+        engine->route_selected = 1U;
+        status = begin_send(engine, i, now, &accepted);
+        if (accepted && one) {
+            return 1;
+        }
         if (status == DMP_DEADLINE_EXPIRED || status == DMP_BUSY) {
             continue;
         }
@@ -1520,6 +1679,29 @@ static void send_ready(dmp_reliability *engine, dmp_time_ms now, dmp_status *acc
             *acc = status;
         }
     }
+    return 0;
+}
+
+/* Try peers in round-robin order and accept at most one transmission for the
+ * shared multi-peer engine during this poll opportunity. Peer slots, rather
+ * than sender slots, are the scheduling unit so one peer cannot gain extra
+ * opportunities by occupying several sender records. */
+static int send_multi_peer(dmp_reliability *engine, dmp_time_ms now, dmp_status *acc)
+{
+    uint32_t offset;
+    for (offset = 0U; offset < engine->profile.peers; offset++) {
+        uint32_t peer_slot = (engine->poll_peer_cursor + offset) % engine->profile.peers;
+        int accepted;
+        accepted = send_due_receipts(engine, now, acc, 1, peer_slot, 0U, 1);
+        if (!accepted) {
+            accepted = send_ready(engine, now, acc, 1, peer_slot, 0U, 1);
+        }
+        if (accepted) {
+            engine->poll_peer_cursor = (peer_slot + 1U) % engine->profile.peers;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static int any_live(const dmp_reliability *engine)
@@ -1587,6 +1769,12 @@ static dmp_status rearm_result(dmp_reliability *engine, int result_index, dmp_ti
     }
     memset(sender, 0, sizeof *sender);
     sender->generation = generation;
+    sender->peer = result->peer;
+    sender->context = result->context;
+    status = retain_context(engine, sender->context, &sender->context_retained);
+    if (status != DMP_OK) {
+        return status;
+    }
     sender->live = 1U;
     sender->phase = DMP_REL_PHASE_QUEUED;
     sender->kind = KIND_RESULT;
@@ -1605,7 +1793,7 @@ static dmp_status rearm_result(dmp_reliability *engine, int result_index, dmp_ti
     if (status != DMP_OK) {
         /* The encoder refused the size probe. No frame, and this new sender
          * does not stay queued. */
-        release_sender(sender);
+        release_sender(engine, sender);
         return status;
     }
     result->sender_slot = (uint32_t)index;
@@ -1635,6 +1823,12 @@ static dmp_status queue_rejection_sender(dmp_reliability *engine, int history_in
     }
     memset(sender, 0, sizeof *sender);
     sender->generation = generation;
+    sender->peer = history->peer;
+    sender->context = history->context;
+    status = retain_context(engine, sender->context, &sender->context_retained);
+    if (status != DMP_OK) {
+        return status;
+    }
     sender->live = 1U;
     sender->phase = DMP_REL_PHASE_QUEUED;
     sender->kind = KIND_REJECT;
@@ -1722,6 +1916,8 @@ static dmp_status handle_ack(dmp_reliability *engine, dmp_message_key reply, uin
         dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
         if (sender->live == 0U ||
             (sender->kind != KIND_REQ && sender->kind != KIND_DATA) ||
+            !peer_eq(sender->peer, engine->selected_peer) ||
+            !context_eq(sender->context, engine->selected_context) ||
             sender->service_id != service ||
             !key_eq(sender->own, reply)) {
             continue;
@@ -1734,20 +1930,21 @@ static dmp_status handle_ack(dmp_reliability *engine, dmp_message_key reply, uin
                 sender->result_seen = true;
                 sender->phase = DMP_REL_PHASE_TERMINAL;
                 emit(engine, DMP_REL_EVENT_DATA_DELIVERED, sender_handle(engine, sender),
-                     sender->own, service, 0U, empty_ack);
+                     sender->context, sender->own, service, 0U, empty_ack);
             }
             if (sender->tx_live) {
                 cancel_tx(engine, sender);
                 consume(engine);
             } else {
-                release_sender(sender);
+                release_sender(engine, sender);
             }
             return DMP_OK;
         }
         if (!sender->receipt_seen && !sender->result_seen) {
             sender->receipt_seen = true;
             sender->phase = DMP_REL_PHASE_AWAIT_RESULT;
-            emit(engine, DMP_REL_EVENT_RECEIPT, sender_handle(engine, sender), sender->own,
+            emit(engine, DMP_REL_EVENT_RECEIPT, sender_handle(engine, sender), sender->context,
+                 sender->own,
                  service, 0U, empty);
         }
         return DMP_OK;
@@ -1767,7 +1964,7 @@ static dmp_status handle_ack(dmp_reliability *engine, dmp_message_key reply, uin
                 cancel_tx(engine, sender);
                 consume(engine);
             } else {
-                release_sender(sender);
+                release_sender(engine, sender);
             }
         }
         return DMP_OK;
@@ -1803,7 +2000,9 @@ static dmp_status handle_reply(dmp_reliability *engine, const dmp_frame_view *fr
     }
     for (i = 0U; i < engine->storage.correlation_capacity; i++) {
         dmp_reliability_correlation_slot *candidate = &engine->storage.correlations[i];
-        if (candidate->live != 0U && candidate->service_id == service &&
+        if (candidate->live != 0U && peer_eq(candidate->peer, engine->selected_peer) &&
+            context_eq(candidate->context, engine->selected_context) &&
+            candidate->service_id == service &&
             key_eq(candidate->request_key, reply) &&
             !dmp_deadline_reached(now, candidate->tombstone_deadline)) {
             correlation = candidate;
@@ -1823,7 +2022,8 @@ static dmp_status handle_reply(dmp_reliability *engine, const dmp_frame_view *fr
         sender = live_request_sender(engine, correlation);
         payload.data = NULL;
         payload.size = 0U;
-        emit(engine, DMP_REL_EVENT_REJECTED, correlation->request, correlation->request_key,
+        emit(engine, DMP_REL_EVENT_REJECTED, correlation->request, correlation->context,
+             correlation->request_key,
              service, wire_status, payload);
         stop_request(engine, sender, 1);
         return DMP_OK;
@@ -1838,7 +2038,8 @@ static dmp_status handle_reply(dmp_reliability *engine, const dmp_frame_view *fr
             payload.data = NULL;
             payload.size = 0U;
             correlation->reserved = 1U;
-            emit(engine, DMP_REL_EVENT_LATE_RESULT, correlation->request, source, service,
+            emit(engine, DMP_REL_EVENT_LATE_RESULT, correlation->request, correlation->context,
+                 source, service,
                  wire_status, payload);
         }
         if (!dmp_deadline_reached(now, correlation->tombstone_deadline)) {
@@ -1857,7 +2058,8 @@ static dmp_status handle_reply(dmp_reliability *engine, const dmp_frame_view *fr
             payload.data = NULL;
             payload.size = 0U;
             correlation->reserved = 1U;
-            emit(engine, DMP_REL_EVENT_LATE_RESULT, correlation->request, source, service,
+            emit(engine, DMP_REL_EVENT_LATE_RESULT, correlation->request, correlation->context,
+                 source, service,
                  wire_status, payload);
         }
         status = send_ack(engine, service, source, source.origin, now);
@@ -1877,7 +2079,8 @@ static dmp_status handle_reply(dmp_reliability *engine, const dmp_frame_view *fr
     store_result_meta(engine, correlation, metadata);
     correlation->result_delivered = 1U;
     payload = stage_bytes(engine, plaintext.data, plaintext.size);
-    emit(engine, DMP_REL_EVENT_RESULT, correlation->request, source, service, wire_status, payload);
+    emit(engine, DMP_REL_EVENT_RESULT, correlation->request, correlation->context, source,
+         service, wire_status, payload);
     if (sender != NULL) {
         sender->receipt_seen = true;
     }
@@ -1908,7 +2111,7 @@ static dmp_status accept_request(dmp_reliability *engine, const dmp_frame_view *
     dmp_status status;
     dmp_bytes payload;
     dmp_reliability_handle handle;
-    if (operations_used(engine, service) >= engine->profile.operations_per_service) {
+    if (operations_used(engine, engine->selected_peer, service) >= engine->profile.operations_per_service) {
         return DMP_BUSY;
     }
     if (metadata.size > DMP_RELIABILITY_METADATA_BYTES ||
@@ -1954,6 +2157,27 @@ static dmp_status accept_request(dmp_reliability *engine, const dmp_frame_view *
     history->generation = history_gen;
     result->generation = result_gen;
     sender->generation = sender_gen;
+    history->peer = engine->selected_peer;
+    history->context = engine->selected_context;
+    result->peer = engine->selected_peer;
+    result->context = engine->selected_context;
+    sender->peer = engine->selected_peer;
+    sender->context = engine->selected_context;
+    status = retain_context(engine, history->context, &history->context_retained);
+    if (status != DMP_OK) {
+        return status;
+    }
+    status = retain_context(engine, result->context, &result->context_retained);
+    if (status != DMP_OK) {
+        release_history(engine, history);
+        return status;
+    }
+    status = retain_context(engine, sender->context, &sender->context_retained);
+    if (status != DMP_OK) {
+        release_result(engine, result);
+        release_history(engine, history);
+        return status;
+    }
     if (metadata.size != 0U) {
         memcpy(history_meta(engine, (size_t)history_index), metadata.data, metadata.size);
     }
@@ -1991,8 +2215,10 @@ static dmp_status accept_request(dmp_reliability *engine, const dmp_frame_view *
     sender->related_generation = result_gen;
     handle.slot = (uint32_t)history_index;
     handle.generation = history_gen;
+    handle.peer = engine->selected_peer;
     payload = stage_bytes(engine, plaintext.data, plaintext.size);
-    emit(engine, DMP_REL_EVENT_REQUEST_ACCEPTED, handle, source, service, 0U, payload);
+    emit(engine, DMP_REL_EVENT_REQUEST_ACCEPTED, handle, engine->selected_context, source,
+         service, 0U, payload);
     return DMP_OK;
 }
 
@@ -2081,6 +2307,12 @@ static dmp_status handle_data(dmp_reliability *engine, const dmp_frame_view *fra
     }
     memset(history, 0, sizeof *history);
     history->generation = generation;
+    history->peer = engine->selected_peer;
+    history->context = engine->selected_context;
+    status = retain_context(engine, history->context, &history->context_retained);
+    if (status != DMP_OK) {
+        return status;
+    }
     if (metadata.size != 0U) {
         memcpy(history_meta(engine, (size_t)history_index), metadata.data, metadata.size);
     }
@@ -2097,8 +2329,10 @@ static dmp_status handle_data(dmp_reliability *engine, const dmp_frame_view *fra
     remember_descriptor(history, frame);
     handle.slot = (uint32_t)history_index;
     handle.generation = generation;
+    handle.peer = engine->selected_peer;
     payload = stage_bytes(engine, plaintext.data, plaintext.size);
-    emit(engine, DMP_REL_EVENT_DATA_ACCEPTED, handle, source, service, 0U, payload);
+    emit(engine, DMP_REL_EVENT_DATA_ACCEPTED, handle, engine->selected_context, source,
+         service, 0U, payload);
     status = send_ack(engine, service, source, source.origin, now);
     if (status == DMP_OK) {
         history->receipt_count = 1U;
@@ -2118,8 +2352,8 @@ static dmp_status validate_storage(const dmp_reliability_storage *storage,
         storage->transport->submit == NULL || storage->transport->cancel == NULL) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (profile->peers != 1U || profile->encoded_mtu == 0U || profile->default_service == 0U ||
-        !service_allowed(profile, profile->default_service)) {
+    if (profile->peers == 0U || profile->encoded_mtu == 0U || max_core_mtu(profile) == 0U ||
+        profile->default_service == 0U || !service_allowed(profile, profile->default_service)) {
         return DMP_INVALID_ARGUMENT;
     }
     if (storage->sender_capacity < profile->sender_slots ||
@@ -2206,7 +2440,7 @@ static dmp_status validate_storage(const dmp_reliability_storage *storage,
     if ((profile->tx_borrow ? 1 : 0) !=
             (storage->transport->caps.ownership == DMP_TX_BORROW ? 1 : 0) ||
         profile->synchronous_completion != storage->transport->caps.synchronous_completion ||
-        storage->transport->caps.max_frame_bytes < profile->encoded_mtu) {
+        storage->transport->caps.max_frame_bytes < max_core_mtu(profile)) {
         return DMP_INVALID_ARGUMENT;
     }
     reserve = control_reserve(profile);
@@ -2234,9 +2468,11 @@ dmp_status dmp_reliability_init(dmp_reliability *engine, const dmp_reliability_s
     if (status != DMP_OK) {
         return status;
     }
-    status = dmp_identity_context_retain(storage->identity, storage->context);
-    if (status != DMP_OK) {
-        return status;
+    if (profile->peers == 1U) {
+        status = dmp_identity_context_retain(storage->identity, storage->context);
+        if (status != DMP_OK) {
+            return status;
+        }
     }
     memset(engine, 0, sizeof *engine);
     engine->storage = *storage;
@@ -2244,6 +2480,10 @@ dmp_status dmp_reliability_init(dmp_reliability *engine, const dmp_reliability_s
     engine->transport = *storage->transport;
     engine->storage.profile = &engine->profile;
     engine->storage.transport = &engine->transport;
+    engine->selected_peer.slot = 0U;
+    engine->selected_peer.generation = 1U;
+    engine->selected_context = storage->context;
+    engine->route_selected = engine->profile.peers == 1U ? 1U : 0U;
     /* Extra caller-provided storage is accepted but must not raise admitted quotas. */
     engine->storage.sender_capacity = engine->profile.sender_slots;
     engine->storage.result_capacity = engine->profile.result_slots;
@@ -2251,7 +2491,7 @@ dmp_status dmp_reliability_init(dmp_reliability *engine, const dmp_reliability_s
     engine->storage.correlation_capacity = engine->profile.correlation_slots;
     engine->storage.adapter_capacity = engine->profile.adapter_slots;
     engine->generation = 1U;
-    engine->context_retained = 1U;
+    engine->context_retained = engine->profile.peers == 1U ? 1U : 0U;
     if (engine->storage.sender_capacity != 0U) {
         memset(engine->storage.senders, 0,
                engine->storage.sender_capacity * sizeof *engine->storage.senders);
@@ -2276,6 +2516,12 @@ dmp_status dmp_reliability_init(dmp_reliability *engine, const dmp_reliability_s
     return DMP_OK;
 }
 
+dmp_status dmp_reliability_select_route(dmp_reliability *engine, dmp_peer_handle peer,
+                                        dmp_identity_handle context)
+{
+    return select_route_internal(engine, peer, context);
+}
+
 dmp_status dmp_reliability_close(dmp_reliability *engine, dmp_time_ms now)
 {
     dmp_status status;
@@ -2286,9 +2532,11 @@ dmp_status dmp_reliability_close(dmp_reliability *engine, dmp_time_ms now)
     if (any_live(engine)) {
         return DMP_BUSY;
     }
-    status = dmp_identity_context_release(engine->storage.identity, engine->storage.context);
-    if (status != DMP_OK) {
-        return status;
+    if (engine->context_retained != 0U) {
+        status = dmp_identity_context_release(engine->storage.identity, engine->storage.context);
+        if (status != DMP_OK) {
+            return status;
+        }
     }
     engine->context_retained = 0U;
     engine->initialized = 0U;
@@ -2314,7 +2562,7 @@ static dmp_status submit_outbound(dmp_reliability *engine, uint32_t service_id,
     int sender_index;
     int correlation_index = -1;
     dmp_status status;
-    if (!ready(engine) || out == NULL || !bytes_ok(payload) || !bytes_ok(token) ||
+    if (!ready(engine) || engine->route_selected == 0U || out == NULL || !bytes_ok(payload) || !bytes_ok(token) ||
         (kind != KIND_REQ && kind != KIND_DATA) ||
         (message_type != DMP_TYPE_REQ && message_type != DMP_TYPE_DATA &&
          message_type != DMP_TYPE_EVENT) ||
@@ -2333,7 +2581,7 @@ static dmp_status submit_outbound(dmp_reliability *engine, uint32_t service_id,
     if (slot == NULL) {
         return DMP_STALE_HANDLE;
     }
-    if (operations_used(engine, service_id) >= engine->profile.operations_per_service ||
+    if (operations_used(engine, engine->selected_peer, service_id) >= engine->profile.operations_per_service ||
         queued_application(engine) >= engine->profile.application_queue_slots) {
         return DMP_BUSY;
     }
@@ -2381,7 +2629,7 @@ static dmp_status submit_outbound(dmp_reliability *engine, uint32_t service_id,
             return status;
         }
     }
-    status = dmp_identity_next_seq(engine->storage.identity, engine->storage.context, &seq);
+    status = dmp_identity_next_seq(engine->storage.identity, engine->selected_context, &seq);
     if (status != DMP_OK) {
         return status;
     }
@@ -2389,8 +2637,12 @@ static dmp_status submit_outbound(dmp_reliability *engine, uint32_t service_id,
     if (correlation != NULL) {
         memset(correlation, 0, sizeof *correlation);
         correlation->generation = correlation_gen;
+        correlation->peer = engine->selected_peer;
+        correlation->context = engine->selected_context;
     }
     sender->generation = sender_gen;
+    sender->peer = engine->selected_peer;
+    sender->context = engine->selected_context;
     if (payload.size != 0U) {
         memcpy(sender_bytes(engine, (size_t)sender_index), payload.data, payload.size);
     }
@@ -2425,13 +2677,31 @@ static dmp_status submit_outbound(dmp_reliability *engine, uint32_t service_id,
         correlation->live = 1U;
         correlation->request.slot = (uint32_t)sender_index;
         correlation->request.generation = sender_gen;
+        correlation->request.peer = engine->selected_peer;
         correlation->request_key = sender->own;
         correlation->service_id = service_id;
         correlation->correlation_deadline = correlation_deadline;
         correlation->tombstone_deadline = tombstone_deadline;
     }
+    status = retain_context(engine, sender->context, &sender->context_retained);
+    if (status != DMP_OK) {
+        release_sender(engine, sender);
+        if (correlation != NULL) {
+            release_correlation(engine, correlation);
+        }
+        return status;
+    }
+    if (correlation != NULL) {
+        status = retain_context(engine, correlation->context, &correlation->context_retained);
+        if (status != DMP_OK) {
+            release_sender(engine, sender);
+            release_correlation(engine, correlation);
+            return status;
+        }
+    }
     out->slot = (uint32_t)sender_index;
     out->generation = sender_gen;
+    out->peer = engine->selected_peer;
     return DMP_OK;
 }
 
@@ -2502,9 +2772,13 @@ dmp_status dmp_reliability_cancel(dmp_reliability *engine, dmp_reliability_handl
     }
     sender = &engine->storage.senders[handle.slot];
     if (sender->live == 0U || sender->generation != handle.generation ||
+        !peer_eq(sender->peer, handle.peer) ||
         (sender->kind != KIND_REQ && sender->kind != KIND_DATA)) {
         return DMP_STALE_HANDLE;
     }
+    engine->selected_peer = sender->peer;
+    engine->selected_context = sender->context;
+    engine->route_selected = 1U;
     if (sender->phase == DMP_REL_PHASE_TERMINAL) {
         return DMP_OK;
     }
@@ -2523,6 +2797,7 @@ dmp_status dmp_reliability_poll(dmp_reliability *engine, dmp_time_ms now)
     dmp_status status = DMP_OK;
     size_t guard;
     size_t pass;
+    int multi_peer_scheduled = 0;
     if (!ready(engine)) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -2530,8 +2805,47 @@ dmp_status dmp_reliability_poll(dmp_reliability *engine, dmp_time_ms now)
     for (pass = 0U; pass < guard; pass++) {
         consume(engine);
         expire(engine, now);
-        send_due_receipts(engine, now, &status);
-        send_ready(engine, now, &status);
+        if (engine->profile.peers > 1U) {
+            if (!multi_peer_scheduled) {
+                multi_peer_scheduled = send_multi_peer(engine, now, &status);
+            }
+        } else {
+            (void)send_due_receipts(engine, now, &status, 0, 0U, 0U, 0);
+            (void)send_ready(engine, now, &status, 0, 0U, 0U, 0);
+        }
+    }
+    return status;
+}
+
+dmp_status dmp_reliability_maintain(dmp_reliability *engine, dmp_time_ms now)
+{
+    size_t guard;
+    size_t pass;
+    if (!ready(engine)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    guard = engine->storage.sender_capacity + engine->storage.adapter_capacity + 2U;
+    for (pass = 0U; pass < guard; pass++) {
+        consume(engine);
+        expire(engine, now);
+    }
+    return DMP_OK;
+}
+
+dmp_status dmp_reliability_poll_peer(dmp_reliability *engine, dmp_time_ms now,
+                                     dmp_peer_handle peer, bool *accepted)
+{
+    dmp_status status = DMP_OK;
+    if (!ready(engine) || accepted == NULL || peer.generation == 0U ||
+        peer.slot >= engine->profile.peers) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    *accepted = false;
+    *accepted = send_due_receipts(engine, now, &status, 1, peer.slot,
+                                  peer.generation, 1) != 0;
+    if (!*accepted) {
+        *accepted = send_ready(engine, now, &status, 1, peer.slot,
+                               peer.generation, 1) != 0;
     }
     return status;
 }
@@ -2548,7 +2862,7 @@ dmp_status dmp_reliability_req_is_retained(dmp_reliability *engine,
     int result_index;
     dmp_status status;
 
-    if (!ready(engine) || input == NULL || input->frame == NULL || retained_rejection == NULL ||
+    if (!ready(engine) || engine->route_selected == 0U || input == NULL || input->frame == NULL || retained_rejection == NULL ||
         !bytes_ok(input->plaintext) || !bytes_ok(input->immutable_metadata)) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -2564,7 +2878,7 @@ dmp_status dmp_reliability_req_is_retained(dmp_reliability *engine,
 
     expire(engine, now);
     status = dmp_identity_source_key(frame, engine->storage.identity,
-                                     engine->storage.context, now, &source);
+                                     engine->selected_context, now, &source);
     if (status != DMP_OK) {
         return status;
     }
@@ -2599,7 +2913,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
     uint32_t service = 0U;
     int ack_req;
     dmp_status status;
-    if (!ready(engine) || input == NULL || input->frame == NULL || !bytes_ok(input->plaintext) ||
+    if (!ready(engine) || engine->route_selected == 0U || input == NULL || input->frame == NULL || !bytes_ok(input->plaintext) ||
         !bytes_ok(input->immutable_metadata)) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -2621,7 +2935,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
         if (status != DMP_OK || !selective_service(&engine->profile, service_id)) {
             return status == DMP_OK ? DMP_OK : status;
         }
-        status = dmp_identity_reply_to(frame, engine->storage.identity, engine->storage.context, now,
+        status = dmp_identity_reply_to(frame, engine->storage.identity, engine->selected_context, now,
                                        &reply);
         if (status != DMP_OK) {
             return DMP_OK;
@@ -2677,7 +2991,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
         int history_index;
         expire(engine, now);
         status = dmp_identity_source_key(frame, engine->storage.identity,
-                                         engine->storage.context, now, &source);
+                                         engine->selected_context, now, &source);
         if (status != DMP_OK) {
             return status;
         }
@@ -2699,7 +3013,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
         return DMP_UNSUPPORTED;
     }
     expire(engine, now);
-    status = dmp_identity_source_key(frame, engine->storage.identity, engine->storage.context, now,
+    status = dmp_identity_source_key(frame, engine->storage.identity, engine->selected_context, now,
                                      &source);
     if (status != DMP_OK) {
         return status;
@@ -2738,7 +3052,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
         if (status_present) {
             return DMP_MALFORMED;
         }
-        status = dmp_identity_reply_to(frame, engine->storage.identity, engine->storage.context,
+        status = dmp_identity_reply_to(frame, engine->storage.identity, engine->selected_context,
                                        now, &reply);
         if (status != DMP_OK) {
             return status;
@@ -2753,7 +3067,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
         if (status != DMP_OK) {
             return status;
         }
-        status = dmp_identity_reply_to(frame, engine->storage.identity, engine->storage.context,
+        status = dmp_identity_reply_to(frame, engine->storage.identity, engine->selected_context,
                                        now, &reply);
         if (status != DMP_OK) {
             return status;
@@ -2774,7 +3088,7 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
     int history_index;
     int ack_req;
     dmp_status status;
-    if (!ready(engine) || input == NULL || input->frame == NULL ||
+    if (!ready(engine) || engine->route_selected == 0U || input == NULL || input->frame == NULL ||
         !bytes_ok(input->immutable_metadata)) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -2791,7 +3105,7 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
         return DMP_LIMIT_EXHAUSTED;
     }
     expire(engine, now);
-    status = dmp_identity_source_key(frame, engine->storage.identity, engine->storage.context, now,
+    status = dmp_identity_source_key(frame, engine->storage.identity, engine->selected_context, now,
                                      &source);
     if (status != DMP_OK) {
         return status;
@@ -2827,6 +3141,12 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
         }
         memset(history, 0, sizeof *history);
         history->generation = generation;
+        history->peer = engine->selected_peer;
+        history->context = engine->selected_context;
+        status = retain_context(engine, history->context, &history->context_retained);
+        if (status != DMP_OK) {
+            return status;
+        }
         if (input->immutable_metadata.size != 0U) {
             memcpy(history_meta(engine, (size_t)history_index), input->immutable_metadata.data,
                    input->immutable_metadata.size);
@@ -2845,7 +3165,7 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
         remember_descriptor(history, frame);
         status = queue_rejection_sender(engine, history_index, now);
         if (status != DMP_OK) {
-            release_history(history);
+            release_history(engine, history);
             return status;
         }
     }
@@ -2873,9 +3193,13 @@ dmp_status dmp_reliability_complete_for_lifetime(
         return DMP_STALE_HANDLE;
     }
     history = &engine->storage.history[request.slot];
-    if (history->live == 0U || history->generation != request.generation || history->decision != 0U) {
+    if (history->live == 0U || history->generation != request.generation ||
+        !peer_eq(history->peer, request.peer) || history->decision != 0U) {
         return DMP_STALE_HANDLE;
     }
+    engine->selected_peer = history->peer;
+    engine->selected_context = history->context;
+    engine->route_selected = 1U;
     if (history->result_slot >= engine->storage.result_capacity) {
         return DMP_STALE_HANDLE;
     }
@@ -2913,7 +3237,7 @@ dmp_status dmp_reliability_complete_for_lifetime(
     defer_sequence = history->receipt_count == 0U && !sender->receipt_seen && !suppress &&
                      history->receipt_count < engine->profile.receipt_limit;
     if (!defer_sequence) {
-        status = dmp_identity_next_seq(engine->storage.identity, engine->storage.context, &seq);
+        status = dmp_identity_next_seq(engine->storage.identity, engine->selected_context, &seq);
         if (status != DMP_OK) {
             return status;
         }
@@ -2939,7 +3263,7 @@ dmp_status dmp_reliability_complete_for_lifetime(
         /* No result frame. Drop the sender; the deadline stays unset so this
          * is not reported as a duplicate completion. */
         sender->phase = DMP_REL_PHASE_TERMINAL;
-        release_sender(sender);
+        release_sender(engine, sender);
         return status;
     }
     result->deadline = cache_deadline;
@@ -2994,6 +3318,7 @@ dmp_status dmp_reliability_abandon_request(dmp_reliability *engine,
     }
     history = &engine->storage.history[request.slot];
     if (history->live == 0U || history->generation != request.generation ||
+        !peer_eq(history->peer, request.peer) ||
         history->decision != 0U || history->type != DMP_TYPE_REQ ||
         history->result_slot >= engine->storage.result_capacity) {
         return DMP_STALE_HANDLE;
@@ -3010,8 +3335,12 @@ dmp_status dmp_reliability_abandon_request(dmp_reliability *engine,
         return DMP_BUSY;
     }
 
-    release_sender(sender);
-    release_result(result);
-    release_history(history);
+    engine->selected_peer = history->peer;
+    engine->selected_context = history->context;
+    engine->route_selected = 1U;
+
+    release_sender(engine, sender);
+    release_result(engine, result);
+    release_history(engine, history);
     return DMP_OK;
 }

@@ -1,6 +1,15 @@
-# P25 host and simulation readiness report — 2026-10-13
+# P25 host and simulation readiness report — 2026-10-14
 
 ## Status and conclusion
+
+**Owner disposition, 2026-10-13:** the
+[continuation decision record](DMP_Continuation_Decisions_2026-10-13.md) accepts
+the remaining multi-peer, retry-profile, handshake-transport and SAMPLE-1
+epoch-owner software scope. It selects S3/C3 for final physical qualification
+and explicitly defers non-Espressif physical qualification to a future stage.
+Older references below to non-Espressif runtime as a current acceptance blocker
+are superseded for first-version S3/C3 acceptance. Other outstanding evidence
+remains required; no test result or package status changes with this decision.
 
 This report consolidates the accepted host/simulation evidence available for
 P25. It is not a release approval. P25 remains pending because P12, the P01
@@ -17,11 +26,11 @@ clean-room or complete-independence claim is made.
 
 | Area | Recorded state | Scope boundary |
 |---|---|---|
-| P12 endpoint/SAMPLE-1 | Running; 28 passed / 6 partial among 34 primary rows | Host and SEC-1 evidence. Remaining rows include durable epoch storage, production association-transition integration, and profile-dependent retry scheduling. |
+| P12 endpoint/SAMPLE-1 | Running; last 34-row reconciliation records 28 passed / 6 partial | Owner-approved D1-D6 continuation now has multi-peer endpoint routing/lifecycle, separate two-attempt retry manifest, real different-sender SEC-1 rejection, handshake-to-transport composition, and SAMPLE-1 epoch-owner composition. The integrated `four_parallel`/`four_serial` endpoint scenario passes. Final RBO job `job_01M4VXMPM95Q2AR8ZER5D091KM` passed 134/134 native CTests after excluding `memory.mcu_abi` and its seven dependent layout checks at the owner's direction; both ESP32-S3/C3 IDF 6.1 compile/link probes passed. Focused continuation selection passed 4/4 and independent GPT-6.1-sol High source review found no actionable findings. ARM ABI/layout evidence remains deferred and unpassed. P12 row-status review, durable target storage and physical qualification remain open. |
 | P13–P20 | Accepted for their recorded package scopes | Each package's linked evidence remains authoritative; this summary does not expand its gate. |
 | P21 independent peer | Owner-accepted for host/peer functionality | Historical actual-input/read-set and enforced access-boundary records are incomplete. |
 | P22 mixed Stream R/packet binding | Done for host/simulation | No physical transport or MCU claim. Reviewed snapshot hash: `0D126BC55389C446496EA6EA213FE28D7F7E93AD3F8F4F119F9F7D7F275208FF`. |
-| P23 C/Python interoperability | Done for enabled host/simulation scope | Full registered CTest 111/111 on the accepted snapshot; peer suite 410 run, 408 passed, 2 skipped for documented sandbox/profile reasons. No physical binding or release claim. |
+| P23 C/Python interoperability | Done for enabled host/simulation scope | Historical accepted snapshot recorded full CTest 111/111 and peer suite 410 run, 408 passed, 2 skipped for documented sandbox/profile reasons. The latest owner-authorized non-ARM RBO gate passed all registered C/Python interop tests; ARM ABI/layout checks were excluded and remain pending. No physical binding or release claim. |
 | P24 equivalent-workload benchmark | Done for host/simulation tooling | One-iteration correctness smoke; not a release-performance, energy, or physical-radio study. |
 | P01 / P01C | Running / deferred | Provider host gaps and complete target/physical acceptance remain open. |
 | P25 | Pending | This evidence report does not close dependencies or authorize a release. |
@@ -86,10 +95,66 @@ entire current CTest inventory was rerun.
   accounting, and then writes exact flight 1 on the same handshake. The
   provider CTest passed 1/1; independent review found no issue. It does not
   cover authenticated-read failures.
-- A recent full host CTest attempt did not complete: after the subprocess
+ - A previous full host CTest attempt did not complete: after the subprocess
   harness passed with workspace-local TEMP/TMP, the process-isolated minimal
   endpoint lifecycle test could not establish its host loopback peer and timed
-  out. Therefore the current full CTest suite is not reported green.
+  out. It was superseded by the completed RBO gate recorded below.
+
+## Owner-approved continuation evidence — 2026-10-13
+
+The current continuation adds exact implementation and test evidence for D1-D6.
+The focused tests were built and passed on the current working tree before this
+RBO retry was submitted:
+
+- `cmake --build build-local-gcc --parallel 4` — passed.
+- `ctest --test-dir build-local-gcc --output-on-failure -R
+  "^(application.sample1_epoch_owner|security.handshake_transport|endpoint.protected_different_sender|endpoint.protected_multi_peer_routing|endpoint.protected_sample1_epoch_endpoint|endpoint.protected_sample_retry_two_attempts)$"` — 6/6 passed.
+- The six cases cover the application-side epoch owner, integrated handshake
+  transport lifecycle, another authenticated sender over real SEC-1 peers, one
+  endpoint with four active/draining peers and shared result pressure, the
+  protected epoch endpoint path, and the separate two-attempt manifest profile.
+- The retry manifest
+  `profiles/deployments/test-direct-sample-retry-2-nnpsk0.json` has SHA-256
+  `56687ad71c6bd557a3629b35819e77576dcf551ddc53ff7cb3731b231aa8b294`; its
+  validator reports a 263-byte encoded Stream R bound and timing/resource
+  feasibility. Existing DIRECT-1 manifests remain unchanged.
+- The multi-peer endpoint test proves routing/isolation, active/draining
+  lifecycle and shared operation pressure. Its new regression prepares two
+  local initiators before holding two inbound reads, then exercises four
+  endpoint-total pending reservations, two occupied scratch slots, refusal and
+  recovery, authenticated-candidate binding, and rejection of a fifth attempt
+  under one endpoint-owned admission. RBO job
+  `job_01M4VK50CRT9GJMARGB4BVJEGP` built `dmp_test_endpoint_sec` and passed
+  `endpoint.protected_multi_peer_routing` 1/1. The wrapper runs both the
+  `four_parallel` (two scratch slots) and `four_serial` (one scratch slot)
+  lifecycle profiles. This is host concurrency evidence; it does not measure
+  whole-endpoint target RAM or close the full host gate.
+
+Earlier attempts to start a fresh full CMake/CTest run were canceled or could
+not capture a snapshot. A later broad RBO host gate did run and is recorded
+below; its failures do not close the gate.
+
+## Previous broad host gate — 2026-10-13
+
+RBO job `job_01M4VF3G79Y9083FA5PMNWB3QQ` built all 166 targets successfully;
+CTest passed 115/142 and reported 27 failures. The recorded failing areas are
+`security.handshake`, protected multi-peer routing and endpoint repair, peer
+radio/R7 interop, P24 benchmark, retry-all and freshness scenarios, and endpoint
+RAM lifecycle/report/layout checks. One radio endpoint lifecycle case timed
+out. This is a failed broad host gate, not a pass inferred from compilation.
+The focused SEC-1 drain regression ran later and passed
+`endpoint.protected_rotation` and `endpoint.protected_drain` (2/2), but does
+not substitute for the broad rerun. The exact failure output has since been
+recovered. The multi-peer test failed first during fixture provider setup and,
+after that fix, at an assertion that used inbound-only `abandon_request` for an
+outbound request. Both test issues are corrected in the current dirty tree.
+RBO job `job_01M4VK50CRT9GJMARGB4BVJEGP` rebuilt the endpoint security target
+and passed the focused multi-peer test (1/1), which runs both crypto-slot
+profiles. The broad gate has not yet been rerun; the 27-failure count remains
+the last full-gate result, not a current-tree result.
+
+The failures above are historical and were resolved in the newer host gate
+below. Target qualification remains a separate final phase.
 
 ## P19 endpoint memory evidence
 
@@ -102,11 +167,17 @@ MCU peaks.
 | `TEST-DIRECT-MINIMAL-128` | `3bbcce998d664fa74970f503a39b28474de9291d453373810d641b2b662fb6e4` | 24,617 B | 38,167 / 131,072 B |
 | `TEST-DIRECT-MINIMAL-256` | `4dc75347343c209c1ed12ab67e60eba83ff974beaa9f351c121da87e7b18b946` | 26,281 B | 39,959 / 131,072 B |
 | `DIRECT-1` | `29f7895ab3f8dadfbe7331f1981fa35dcad2bec59139464e29bddc4e841e5285` | 36,265 B | 60,488 / 131,072 B |
-| `RADIO-1` | `9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9` | 42,146 B | 66,340 / 131,072 B |
+| `RADIO-1` | `9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9` | 47,146 B | 66,340 / 131,072 B |
 
-The RADIO-1 run delivered a 1,024-byte request in 32 fragments, observed a
-retry, validated 80/80 routed frames, and checked the 21-byte S7 freshness
-grant/token binding. The measured provider retained peak was 1,477 B, retained
+The RADIO-1 requested-byte high-water was refreshed on 2026-10-14 after the
+packet-framing RX correction. RBO job `job_01M4VNT0DN9C77R7FV7JYVBYH4` passed
+the lifecycle, measurement, merge and report checks 4/4. The three DIRECT
+figures remain the earlier P19 measurements. The RADIO-1 manifest digest and
+reservation are unchanged.
+
+The earlier P19 RADIO-1 run delivered a 1,024-byte request in 32 fragments,
+observed a retry, validated 80/80 routed frames, and checked the 21-byte S7
+freshness grant/token binding. The measured provider retained peak was 1,477 B, retained
 payload after handshake was 408 B, and the largest single allocation was
 256 B. The 16,384 B scratch value is a single-allocation limit, not an additive
 arena.
@@ -179,56 +250,52 @@ independence claim is made.
 
 ## Open software and final qualification gates
 
-- P12 now has six partial primary rows. The current known gaps include
-  production durable SAMPLE-1 epoch storage and fail-stop behavior, a production
-  adapter that couples epoch rollover to closure of old associations, a
-  wrong-authenticated-sender negative case, and protected initialization retry
-  scheduling under a profile that permits more than one attempt. The three
-  result/association ordering rows now pass under the endpoint's documented
-  serialized-call contract; this is not evidence for concurrent calls from
-  multiple threads. The protected host case also invalidates the old READ
-  designation on association replacement, preserves the sample as an
-  unsynchronized cache, and requires a new designated READ to resynchronize.
-- P01 host evidence still lacks the declared `four_parallel` four-peer /
-  four-pending / two-crypto-slot resource scenario and exhaustive buffer
-  ownership/failure output reconciliation. Recent provider OOM/capacity tests
-  cover only their named branches. `cached-flight-lifetime` checks the provider
-  retry ceiling, cache stability, absolute deadline and expiry; the new
-  `endpoint.protected_transport_reject_retry` checks pre-accept BUSY and an
-  accepted uncertain completion through the endpoint wrapper. The production
-  handshake owner still has no `dmp_transport` submission path, so its cached
-  flight send-fault lifecycle remains open. Source inspection confirms that
-  `dmp_reliability` rejects profiles where `peers != 1`, while `dmp_endpoint`
-  stores one active and one draining association. The declared sensitivity
-  counts are per endpoint, so four separate endpoints or the existing direct-
-  Noise worker test cannot close the four-peer resource row. Closing it requires
-  an owner decision on multi-peer endpoint scope; the manifest's `mtu_bytes`
-  also needs an explicit mapping to endpoint `encoded_mtu` before that bound is
-  treated as the same quantity. New host-only regressions check premature
-  provider hash failure cleanup/recovery and one-peer service 1/2, configured
-  core-size 256/257, and local request-size 4096/4097 boundaries. They do not
-  close four-peer topology, prove a complete 4096-byte exchange, or qualify a
-  target.
-- P01C remains open for integrated target RAM/stack measurements, hardware
-  entropy and energy evidence, the C3 reset diagnostic gate, and a selected
-  non-Espressif board/runtime. The final hardware phase must use explicitly
-  selected boards, ports and bindings; no eFuse or irreversible board action
-  is authorized by this report.
-- The earlier full CTest host run remains incomplete due the sandbox loopback
-  limitation described above. Re-run an appropriate complete host gate after
-  software edits and environment access are settled.
+- The 137-row normative ledger now links exact primary, peer, profile and
+  interop test symbols. The last row-level reconciliation recorded 74 passed, 62 partial and 1
+  not-run; mapping the 27 later broad-gate failures to normative rows is
+  pending. The separately recorded P23 interop axis has 53 applicable rows
+  with concrete test references and 84 rows outside that matrix. The row-level
+  counts and limits are in [`DMP_Normative_Cases.md`](DMP_Normative_Cases.md).
+  A test reference or package status does not close the entire normative row.
+- D1 multi-peer behavior is implemented for one endpoint with peer routing,
+  isolation, shared quotas and active/draining lifecycle. Focused RBO CTest now
+  proves four endpoint-total pending reservations and two occupied crypto
+  scratch slots under endpoint-owned admission. The same CTest wrapper passes
+  both declared `four_serial` and `four_parallel` lifecycle profiles. This is
+  host scenario evidence; provider/endpoint target RAM and physical runtime
+  remain separate requirements.
+- D2 adds an independently hashed two-attempt SAMPLE-1 test profile and
+  protected retry scenario. The base DIRECT-1 manifests are preserved.
+  Dependent P19 retry-profile/RAM evidence still needs current-snapshot
+  revalidation in the full host gate.
+- D3 rejects a well-formed correlated SAMPLE-1 result from another authenticated
+  SEC-1 peer and checks that the designated producer remains routed. The focused
+  `endpoint.protected_different_sender` CTest passed 1/1.
+- D4 adds the production handshake-to-transport adapter around the existing
+  Noise state machine. The focused `security.handshake_transport` CTest passed
+  1/1 for per-peer synchronization and COPY/BORROW, BUSY, delayed/uncertain
+  completion, cancellation, expiry and stale-callback cases.
+- D6 adds the SAMPLE-1 application-side epoch owner with storage and lifecycle
+  ports, outside the payload-agnostic core. The host composition orders epoch
+  reservation, old-association closure, READ, publication and activation, and
+  stops on uncertain storage/lifecycle outcomes. Target-backed durable storage
+  and reset/rollback qualification remain for the final hardware phase.
+- P01 remains open for the integrated endpoint resource row, the finite provider
+  failure/secret-copy inventory, aggregate resources and target qualification.
+  P01C will qualify the selected ESP32-S3/C3 scope at the end of the plan;
+  non-Espressif physical qualification stays deferred and its requirements
+  remain recorded. No host result closes target or physical requirements.
+- At the time of the earlier canceled job, RBO reported no online agent. The previous Bash job was canceled before
+  execution, and a zsh replacement could not be captured. The owner directed us
+  to wait for RBO; no local full-gate run has been substituted. P25 remains pending until a green post-fix host gate, evidence/status
+  reconciliation and independent review are complete, followed by the
+  scheduled hardware gate.
 
-The six remaining P12 primary rows stay partial for distinct reasons; none is
-counted as a pass by P23 peer or interop results:
-
-| P12 row | Remaining evidence | Next gate |
-|---|---|---|
-| `s-a1-epoch` | The host persistence port is deterministic test scaffolding; no production durable epoch store exists. | Implement the selected production storage adapter and qualify durable commit/failure behavior in P01C. |
-| `s-a1-epoch-transition` | Sample epoch selection and generic rotation are separate tests; no production owner serializes READ, publication, activation, and closure of every old-epoch association. | Define and implement the production transition owner, then test its ordering and failure behavior. |
-| `s-a2-designated-read` | Protected timeout and supersession are covered, but DIRECT-1 permits one initialization attempt, so retry scheduling is absent. | Preserve the one-attempt policy or authorize a profile revision and revalidate its hash and dependent evidence. |
-| `s-a3-negative` | Wrong service, status, and payload lengths are rejected; a wrong authenticated sender/association is not exercised in the single-peer profile. | Add an authorized multi-peer test profile/fixture or retain this as outside the active profile. |
-| `s-a4-restart` | Epoch reservation and association-closure callbacks remain host stubs. | Implement production persistence/closure adapters and qualify restart behavior in P01C. |
-| `s-a4-persistence` | Durable target commit, rollback/counter-loss diagnostics, and production fail-stop behavior are unverified. | Complete the production storage/fail-stop path and the P01C target qualification. |
+The prior P12 table is superseded by the continuation results above. Durable
+target persistence remains distinct from the host application-owner behavior;
+wrong-sender rejection and retry scheduling now have direct host tests. P12 row
+status remains 28 passed / 6 partial until the fresh gate and independent review
+justify a row-by-row update.
 
 ## Reproduction and linked evidence
 
@@ -237,6 +304,8 @@ counted as a pass by P23 peer or interop results:
 - P22/P23 evidence and final review: [`DMP_P22_plan_2026-10-12.md`](DMP_P22_plan_2026-10-12.md), [`DMP_P23_plan_2026-10-12.md`](DMP_P23_plan_2026-10-12.md).
 - P24 benchmark command, comparison rules and results: [`DMP_P24_plan_2026-10-12.md`](DMP_P24_plan_2026-10-12.md).
 - P12/P01 continuation and final hardware sequence: [`DMP_P12_P25_completion_plan_2026-10-12.md`](DMP_P12_P25_completion_plan_2026-10-12.md), [`p01-reconciliation.md`](evidence/noise-mcu-soak-20260927/p01-reconciliation.md).
+- Normative row-to-test references and result axes: [`DMP_Normative_Cases.json`](DMP_Normative_Cases.json) and [`DMP_Normative_Cases.md`](DMP_Normative_Cases.md).
+- Separate two-attempt SAMPLE-1 profile: [`test-direct-sample-retry-2-nnpsk0.json`](../profiles/deployments/test-direct-sample-retry-2-nnpsk0.json).
 
 P25 should remain pending until the remaining required software gates are
 resolved or explicitly dispositioned and P01C has completed. This report does
@@ -361,3 +430,96 @@ unchanged resource accounting, then exact fixture PN0 recovery on the same
 cipher. Provider build was current, focused CTest passed 1/1, and independent
 review found no actionable issue. This remains host provider-boundary evidence;
 it does not establish endpoint transport or target behavior.
+
+## 2026-10-14 — Integrated four_parallel RBO verification
+
+The endpoint-owned shared-admission regression covers four endpoint-total
+pending attempts while two real asynchronous reads occupy the configured
+scratch slots. It checks refusal without losing pending work, scratch recovery,
+authenticated candidate binding, and fifth-attempt rejection. Independent
+GPT-6.1-sol High review found no actionable issue after correcting the fixture
+provider ownership and the outbound request cleanup call.
+
+RBO job `job_01M4VK50CRT9GJMARGB4BVJEGP` built
+`dmp_test_endpoint_sec` with AppleClang 21.0.0.21000101 and passed
+`ctest --test-dir build/host --output-on-failure -R
+'^endpoint\\.protected_multi_peer_routing$'` (1/1). This CTest invokes both
+the `four_parallel` (two scratch slots) and `four_serial` (one scratch slot)
+profiles. The build emitted one Apple linker warning about duplicate static
+libraries. `git diff --check --ignore-submodules=all --
+tests/endpoint/test_endpoint_sec.c` passed. The broad host gate remains open;
+no local full build/test or hardware action was performed.
+
+## Earlier ARM-inclusive RBO host gate — 2026-10-14
+
+RBO job `job_01M4VNEW5PSA337VT0PA715CMY` (snapshot
+`snp_01M4VNEWDFEZSR3CAFGBQ5P2VN`) completed the host configure and build. CTest
+ran 142 cases: 135 passed and 7 failed. Every failure was a profile RAM layout
+check: `memory.direct-nnpsk0.layout`, `memory.direct-nnpsk0-async.layout`,
+`memory.radio-nnpsk0.layout`, `memory.radio-nnpsk0-n2.layout`,
+`memory.test-radio-retry-all-nnpsk0.layout`,
+`memory.test-direct-minimal-128.layout`, and
+`memory.test-direct-minimal-256.layout`. Each reports that the MCU layout lacks
+the required endpoint/provider/peer records.
+
+The Cortex-M ABI report contains no required records because the RBO worker does
+not provide `arm-none-eabi-gcc`. `memory.mcu_abi` currently exits successfully
+when that compiler is unavailable, so its 1/1 result is not cross-compile
+evidence. The dependent layout checks remain unresolved. By the owner's later
+direction, ARM ABI/layout checks are deferred; the subsequent non-ARM gate
+explicitly excludes the ABI probe and these seven layout cases and is recorded
+below. This 142-case run remains an ARM-inclusive historical attempt with
+seven failed layout checks. The other 135 cases passed, including all
+registered P23 C/Python interop tests. Neither run establishes physical
+behavior.
+
+The follow-up RADIO-1 refresh, RBO job
+`job_01M4VNT0DN9C77R7FV7JYVBYH4`, passed the endpoint lifecycle, measurement,
+merge and report checks 4/4. It measured 47,146 B requested-byte high-water for
+one host endpoint with the unchanged RADIO-1 manifest digest. This excludes peer
+memory, target allocator overhead/alignment, stack high-water and physical MCU
+peak.
+
+## Normative test-reference audit — 2026-10-14
+
+The source audit checked all 137 JSON ledger rows and all 510 linked test
+references: 317 primary C, 112 independent-peer, 4 profile-validator and 77
+interop references. Every referenced file exists and contains its named test
+symbol (zero missing references). This verifies the crosswalk only. It does not
+prove the test body covers every normative subcase or convert test execution
+into a whole-row pass. Whole-row counts remain 74 passed, 62 partial and 1
+not-run pending explicit row-by-row disposition; P21 retains its owner-accepted
+provenance caveat.
+
+## Non-ARM host and ESP32 compile/link gate — 2026-10-14
+
+RBO job `job_01M4VXMPM95Q2AR8ZER5D091KM` (snapshot
+`snp_01M4VXMPXC9BDN5X3Z462R7E6Z`) ran the final dirty checkout on the macOS
+arm64 worker. The native host configuration and build succeeded. CTest was run
+with `-E '^(memory\.mcu_abi|memory\..*\.layout)$'`: 134 tests passed, 0
+failed. This explicitly excludes the Cortex-M ABI test and its seven dependent
+profile layout checks; those results remain deferred, not passed. The remaining
+native suite, including P12 endpoint/security and P23 interop tests, passed.
+
+The ESP-IDF 6.1 compile/link-only probes also succeeded for
+`tests/embedded/esp32s3` (`IDF_TARGET=esp32s3`) and
+`tests/embedded/esp32c3` (`IDF_TARGET=esp32c3`). They compile and link the
+portable library and SAMPLE-1 probe apps; no board was flashed or run. The logs
+include Apple linker duplicate-library warnings and ESP-IDF component include
+validation warnings; all requested commands exited successfully.
+
+The final focused continuation selection also passed 4/4:
+`endpoint.protected_sample1_epoch_endpoint`,
+`endpoint.protected_transport_reject_retry`, `security.handshake_transport`,
+and `application.sample1_epoch_owner`. Independent GPT-6.1-sol High review of
+the current source changes found no actionable findings; the reviewer did not
+run tests.
+
+This gate does not refresh the 34 P12 whole-row dispositions or the 137-row
+ledger by itself. Current recorded counts remain P12 28 passed / 6 partial and
+the normative ledger 74 passed / 62 partial / 1 not-run pending concrete
+row-by-row review. P01 provider failure/secret-copy mapping, complete normative
+disposition review, target durable storage, and final S3/C3 physical
+qualification remain open. The owner has directed that ARM checks be revisited
+later; they are not a current blocker to continuing native and ESP32 software
+work.

@@ -19,6 +19,7 @@
 #include "handshake.h"
 #include "noise_fixture_probe.h"
 #include "sample1.h"
+#include "sample1_endpoint.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +59,8 @@ enum {
     CID_RESP = 9,
     KEY_HINT = 5,
     FRAG_BYTES = 300,
-    FRAG_CHUNK = 16
+    FRAG_CHUNK = 16,
+    ASSEMBLY_STORAGE_SLOTS = 2
 };
 
 enum {
@@ -112,6 +114,8 @@ typedef struct {
     int producer;
     int have_pending;
     dmp_reliability_handle pending;
+    uint8_t peer_pending_live[DMP_PROFILE_MAX_PEERS];
+    dmp_reliability_handle peer_pending[DMP_PROFILE_MAX_PEERS];
     int accepts;
     int results;
     uint32_t last_status;
@@ -120,19 +124,28 @@ typedef struct {
     int sample_update_status;
     int drop_result_receipt;
     int telems;
+    dmp_identity_handle last_notice_association;
     int assembled;
     int unknowns;
     int local_unsent;
     int data_unknowns;
     int data_local_unsent;
+    dmp_sample1_owner_result sample_owner_result;
     uint32_t data_unknown_service;
+    dmp_peer_handle last_unknown_peer;
+    dmp_peer_handle last_peer;
     uint8_t req[MAX_MESSAGE];
     size_t req_n;
     size_t request_service;
     uint8_t result[MAX_MESSAGE];
     size_t result_n;
+    uint8_t telem[MAX_MESSAGE];
+    size_t telem_n;
     uint8_t body[MAX_MESSAGE];
     size_t body_n;
+    dmp_message_key sample1_expected_request;
+    uint8_t sample1_expected_request_opcode;
+    uint8_t sample1_expected_request_live;
 } app;
 
 struct sample_tracker {
@@ -147,12 +160,14 @@ struct sample_tracker {
 
 struct node {
     dmp_endpoint endpoint;
+    dmp_endpoint_peer_state peer_states[DMP_PROFILE_MAX_PEERS];
     dmp_transport transport;
     wire wire;
     app app;
     sample_tracker *sample_state;
+    dmp_sample1_endpoint *sample_endpoint;
     dmp_reliability_handle sample_designated;
-    dmp_identity_slot ids[2];
+    dmp_identity_slot ids[8];
     dmp_reliability_sender_slot senders[SENDERS];
     uint8_t sender_payload[SENDERS * MAX_MESSAGE];
     dmp_reliability_result_slot results[RESULTS];
@@ -162,20 +177,20 @@ struct node {
     uint8_t history_metadata[HISTORY * DMP_RELIABILITY_METADATA_BYTES];
     uint8_t correlation_metadata[CORRELATIONS * DMP_RELIABILITY_METADATA_BYTES];
     dmp_reliability_adapter_slot adapters[ADAPTERS];
-    uint8_t frames[ADAPTERS * MTU];
+    uint8_t frames[ADAPTERS * FRAME_CAP];
     uint8_t receive_payload[MAX_MESSAGE];
-    dmp_reassembly_slot assemblies[ASSEMBLIES];
-    dmp_reassembly_tombstone tombstones[TOMBSTONES];
+    dmp_reassembly_slot assemblies[ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS];
+    dmp_reassembly_tombstone tombstones[TOMBSTONES * DMP_PROFILE_MAX_PEERS];
     dmp_endpoint_freshness_slot freshness[8];
-    uint8_t assembly_payload[ASSEMBLIES * MAX_MESSAGE];
-    uint8_t assembly_metadata[ASSEMBLIES * DMP_REASSEMBLY_METADATA_BYTES];
-    uint8_t fragment_message[MAX_MESSAGE];
+    uint8_t assembly_payload[ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS * MAX_MESSAGE];
+    uint8_t assembly_metadata[ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS * DMP_REASSEMBLY_METADATA_BYTES];
+    uint8_t fragment_message[MAX_MESSAGE * DMP_PROFILE_MAX_PEERS];
     uint8_t fragment_frame[MTU];
-    uint8_t telemetry_payload[MAX_MESSAGE];
-    uint8_t telemetry_next[MAX_MESSAGE];
+    uint8_t telemetry_payload[MAX_MESSAGE * DMP_PROFILE_MAX_PEERS];
+    uint8_t telemetry_next[MAX_MESSAGE * DMP_PROFILE_MAX_PEERS];
     uint8_t telemetry_frame[MTU];
     uint8_t stream_tx[STREAM_CAP];
-    uint8_t stream_rx[STREAM_CAP];
+    uint8_t stream_rx[STREAM_CAP * DMP_PROFILE_MAX_PEERS];
 };
 
 static int sample_accept_read_result(sample_tracker *state, const app *result,
@@ -204,6 +219,7 @@ typedef struct box {
 
 typedef struct session {
     uint64_t now;
+    uint32_t responder_index;
     script init_script;
     script resp_script;
     store init_store;
@@ -226,6 +242,14 @@ typedef struct port_ctx {
     size_t peak_one;
 } port_ctx;
 
+typedef struct {
+    uint64_t durable_epoch;
+    uint64_t published_epoch;
+    uint32_t published_index;
+    uint32_t published_value;
+    uint8_t locked;
+} sample1_store;
+
 typedef void (*tune_fn)(dmp_hs_config *initiator, dmp_hs_config *responder);
 
 static node left;
@@ -233,7 +257,17 @@ static node right;
 static const uint8_t *g_profile_hash_override;
 static const uint8_t *g_psk_override;
 static int g_p23_copy_async_binding;
+static int g_endpoint_test_async_borrow;
 static uint8_t g_p23_profile_id;
+static int p23_uses_packet_endpoint(void)
+{
+  return g_p23_profile_id == P23_PROFILE_RADIO_SELECTIVE ||
+         g_p23_profile_id == P23_PROFILE_RADIO_RETRY_ALL ||
+         g_p23_profile_id == P23_PROFILE_MIXED ||
+         g_p23_profile_id == P23_PROFILE_RADIO_XX ||
+         g_p23_profile_id == P23_PROFILE_RADIO_RETRY_ALL_XX;
+}
+
 static int p23_defer_tx_completions;
 static uint8_t g_p23_confirmation_route_ttl;
 static uint8_t p23_profile_hash[32];
@@ -245,10 +279,24 @@ static dmp_config p23_effective_config;
 static dmp_hs_budget p23_effective_budget;
 static int g_validate_sample1_requests;
 static int g_validate_sample1_results;
+static uint32_t g_endpoint_test_assembly_quota_override;
 static uint32_t g_sample1_validator_calls;
 static uint32_t g_sample1_forced_status;
 static uint32_t g_endpoint_test_message_bytes;
 static uint32_t g_endpoint_test_encoded_mtu;
+static uint32_t g_endpoint_test_sender_id;
+static uint32_t g_endpoint_test_peer_count;
+static uint32_t g_endpoint_test_scratch_slots;
+static uint32_t g_endpoint_test_result_slots;
+static uint32_t g_endpoint_test_handshake_pending;
+static struct dmp_hs_admission *g_endpoint_test_admission;
+static void *g_endpoint_test_admission_storage;
+static int g_endpoint_test_responder_admission_only;
+static int g_endpoint_test_initiator_admission_only;
+static int g_endpoint_test_unique_entropy;
+static uint8_t g_endpoint_test_alt_attempt[16];
+static uint8_t g_endpoint_test_alt_init_ephemeral[32];
+static uint8_t g_endpoint_test_alt_resp_ephemeral[32];
 
 static const uint8_t DIRECT_SHA[DMP_PROFILE_SHA256_BYTES] = {
     0x29, 0xcb, 0x7b, 0x91, 0xee, 0x0c, 0x26, 0x9b, 0xc1, 0x4a, 0xc4, 0x3e, 0x3a, 0x7c, 0x8f, 0xd8,
@@ -279,15 +327,54 @@ static uint32_t validate_sample1_request(void *user, const dmp_frame_view *frame
     return 0U;
 }
 
+static int message_key_equal(dmp_message_key left, dmp_message_key right)
+{
+    return left.origin.namespace_id == right.origin.namespace_id &&
+           left.origin.origin_id == right.origin.origin_id &&
+           left.origin.epoch == right.origin.epoch && left.seq == right.seq;
+}
+
+static void expect_sample1_result(node *self, dmp_message_key request,
+                                  uint8_t request_opcode)
+{
+    if (self == NULL) {
+        return;
+    }
+    self->app.sample1_expected_request = request;
+    self->app.sample1_expected_request_opcode = request_opcode;
+    self->app.sample1_expected_request_live = 1U;
+}
+
 static int validate_sample1_result(void *user, const dmp_frame_view *frame,
                                    uint32_t service_id, dmp_bytes payload)
 {
+    node *self = user;
+    dmp_message_key reply_to;
+    dmp_identity_handle context;
     uint64_t epoch;
     uint32_t index;
-    (void)user;
     if (frame == NULL || frame->fields.type != DMP_TYPE_RSP || service_id != 1U ||
-        payload.data == NULL || payload.size != SAMPLE1_READ_BYTES ||
-        payload.data[0] != SAMPLE1_READ) {
+        payload.data == NULL || self == NULL ||
+        self->app.sample1_expected_request_live == 0U ||
+        self->app.sample1_expected_request_opcode == 0U ||
+        self->endpoint.active_peer_slot >= self->endpoint.profile.peers) {
+        return 0;
+    }
+    context = self->endpoint.peers[self->endpoint.active_peer_slot].context;
+    if (dmp_identity_reply_to(frame, &self->endpoint.identity, context, self->wire.now,
+                              &reply_to) != DMP_OK ||
+        !message_key_equal(reply_to, self->app.sample1_expected_request)) {
+        return 0;
+    }
+    if (payload.data[0] != self->app.sample1_expected_request_opcode) {
+        return 0;
+    }
+    if (self->app.sample1_expected_request_opcode == SAMPLE1_STATUS &&
+        payload.size == SAMPLE1_STATUS_BYTES && payload.data[0] == SAMPLE1_STATUS) {
+        return payload.data[1] <= 1U;
+    }
+    if (self->app.sample1_expected_request_opcode != SAMPLE1_READ ||
+        payload.size != SAMPLE1_READ_BYTES || payload.data[0] != SAMPLE1_READ) {
         return 0;
     }
     epoch = sample1_load_u64(payload.data + 1U);
@@ -303,13 +390,74 @@ static dmp_bytes span(const void *data, size_t size)
     return bytes;
 }
 
+static bool sample1_store_try_enter(void *user)
+{
+    sample1_store *store = user;
+    if (store == NULL || store->locked != 0U) {
+        return false;
+    }
+    store->locked = 1U;
+    return true;
+}
+
+static void sample1_store_leave(void *user)
+{
+    sample1_store *store = user;
+    if (store != NULL) {
+        store->locked = 0U;
+    }
+}
+
+static dmp_sample1_port_result sample1_store_reserve(
+    void *user, dmp_sample1_principal principal, bool *has_previous,
+    uint64_t *previous_epoch, uint64_t *reserved_epoch)
+{
+    sample1_store *store = user;
+    (void)principal;
+    if (store == NULL || store->locked == 0U || has_previous == NULL ||
+        previous_epoch == NULL || reserved_epoch == NULL ||
+        store->durable_epoch == UINT64_MAX) {
+        return DMP_SAMPLE1_PORT_FAILED;
+    }
+    *has_previous = store->durable_epoch != 0U;
+    *previous_epoch = store->durable_epoch;
+    *reserved_epoch = store->durable_epoch + 1U;
+    store->durable_epoch = *reserved_epoch;
+    return DMP_SAMPLE1_PORT_ACCEPTED;
+}
+
+static dmp_sample1_port_result sample1_store_publish(
+    void *user, dmp_sample1_principal principal, uint64_t sample_epoch,
+    uint32_t sample_index, const uint8_t payload[DMP_SAMPLE1_TELEM_BYTES])
+{
+    sample1_store *store = user;
+    (void)principal;
+    if (store == NULL || store->locked == 0U || payload == NULL ||
+        sample_epoch != store->durable_epoch || sample_index == 0U) {
+        return DMP_SAMPLE1_PORT_FAILED;
+    }
+    store->published_epoch = sample_epoch;
+    store->published_index = sample_index;
+    store->published_value = (uint32_t)payload[12] |
+                             ((uint32_t)payload[13] << 8U) |
+                             ((uint32_t)payload[14] << 16U) |
+                             ((uint32_t)payload[15] << 24U);
+    return DMP_SAMPLE1_PORT_ACCEPTED;
+}
+
 static void on_notice(void *user, const dmp_endpoint_notice *notice) {
   node *self = user;
   if (self == NULL || notice == NULL) {
     return;
   }
+  self->app.last_notice_association = notice->association;
   if (notice->event == DMP_ENDPOINT_REQUEST) {
     self->app.accepts++;
+    self->app.last_peer = notice->peer;
+    if (notice->peer.slot < DMP_PROFILE_MAX_PEERS) {
+      self->app.peer_pending_live[notice->peer.slot] = 1U;
+      self->app.peer_pending[notice->peer.slot] = notice->request;
+    }
     self->app.request_service = notice->service_id;
     self->app.req_n = notice->payload.size <= sizeof self->app.req
                           ? notice->payload.size
@@ -319,6 +467,10 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
     }
     self->app.pending = notice->request;
     self->app.have_pending = 1;
+    if (self->sample_endpoint != NULL) {
+      self->app.sample_owner_result = dmp_sample1_endpoint_handle_notice(
+          self->sample_endpoint, notice, self->wire.now);
+    }
     return;
   }
   if (notice->event == DMP_ENDPOINT_RESULT) {
@@ -345,6 +497,13 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
   }
   if (notice->event == DMP_ENDPOINT_TELEMETRY) {
     self->app.telems++;
+    self->app.last_peer = notice->peer;
+    self->app.telem_n = notice->payload.size <= sizeof self->app.telem
+                            ? notice->payload.size
+                            : 0U;
+    if (self->app.telem_n != 0U && notice->payload.data != NULL) {
+      memcpy(self->app.telem, notice->payload.data, self->app.telem_n);
+    }
     return;
   }
   if (notice->event == DMP_ENDPOINT_ASSEMBLED) {
@@ -359,6 +518,7 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
   }
   if (notice->event == DMP_ENDPOINT_UNKNOWN) {
     self->app.unknowns++;
+    self->app.last_unknown_peer = notice->peer;
     return;
   }
   if (notice->event == DMP_ENDPOINT_LOCAL_UNSENT) {
@@ -630,7 +790,9 @@ static void p23_apply_direct_profile_config(dmp_config *config) {
   config->recovery[0] = DMP_PROFILE_RECOVERY_RETRY_ALL;
   config->recovery[1] = DMP_PROFILE_RECOVERY_RETRY_ALL;
   config->freshness_required_mask = 0U;
-  config->peers = 1U;
+  config->peers = g_endpoint_test_peer_count != 0U
+                       ? g_endpoint_test_peer_count
+                       : 1U;
   config->operations_per_service = 1U;
   config->assemblies_per_peer = 1U;
   config->assembly_tombstones_per_peer = 16U;
@@ -691,14 +853,18 @@ static void fill_direct(dmp_config *config, uint32_t chunk,
   config->service_id[1] = 2U;
   config->recovery[0] = DMP_PROFILE_RECOVERY_RETRY_ALL;
   config->recovery[1] = DMP_PROFILE_RECOVERY_RETRY_ALL;
-  config->peers = 1U;
+  config->peers = g_endpoint_test_peer_count != 0U
+                       ? g_endpoint_test_peer_count
+                       : 1U;
   config->operations_per_service = 1U;
   config->assemblies_per_peer = 1U;
   config->assembly_tombstones_per_peer = TOMBSTONES;
   config->sender_slots = SENDERS;
-  config->assembly_slots = ASSEMBLIES;
-  config->assembly_tombstone_slots = TOMBSTONES;
-  config->result_slots = RESULTS;
+  config->assembly_slots = ASSEMBLIES * config->peers;
+  config->assembly_tombstone_slots = TOMBSTONES * config->peers;
+  config->result_slots = g_endpoint_test_result_slots != 0U
+                             ? g_endpoint_test_result_slots
+                             : RESULTS;
   config->history_slots = HISTORY;
   config->correlation_slots = CORRELATIONS;
   config->adapter_slots = ADAPTERS;
@@ -731,7 +897,8 @@ static void fill_direct(dmp_config *config, uint32_t chunk,
   config->collect_ms = 5652U;
   config->assembly_ms = 5657U;
   config->tx_borrow = !g_p23_copy_async_binding;
-  config->synchronous_completion = !g_p23_copy_async_binding;
+  config->synchronous_completion =
+      !g_p23_copy_async_binding && !g_endpoint_test_async_borrow;
   if (g_p23_copy_async_binding) {
     config->burst_span_ms = 1024U;
     config->forward_delay_ms = 20U;
@@ -797,6 +964,10 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   fill_direct(&input, chunk, fragments);
   p23_apply_profile_config(&input);
   p23_apply_direct_profile_config(&input);
+  if (g_endpoint_test_assembly_quota_override != 0U) {
+    input.assemblies_per_peer = g_endpoint_test_assembly_quota_override;
+    input.assembly_slots = g_endpoint_test_assembly_quota_override * input.peers;
+  }
   CHECK(dmp_config_admit(&input, &admitted) == DMP_OK);
   if (g_p23_profile_id != P23_PROFILE_NONE) {
     p23_effective_config = admitted;
@@ -825,12 +996,18 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   self->transport.caps.synchronous_completion = admitted.synchronous_completion;
   memset(&storage, 0, sizeof storage);
   storage.profile = &admitted;
+  storage.framing_mode = p23_uses_packet_endpoint()
+                             ? DMP_ENDPOINT_FRAMING_PACKET
+                             : DMP_ENDPOINT_FRAMING_STREAM_R;
+  storage.peer_states = self->peer_states;
+  storage.peer_state_capacity = sizeof self->peer_states / sizeof self->peer_states[0];
   storage.identity_slots = self->ids;
   storage.identity_capacity = slots;
   storage.context = identity;
   storage.transport = &self->transport;
   storage.notice = on_notice;
   storage.notice_user = self;
+  storage.validate_request_user = self;
   if (g_validate_sample1_requests) {
     storage.validate_request = validate_sample1_request;
   }
@@ -860,9 +1037,9 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   storage.receive_payload = self->receive_payload;
   storage.receive_payload_capacity = sizeof self->receive_payload;
   storage.assemblies = self->assemblies;
-  storage.assembly_capacity = ASSEMBLIES;
+  storage.assembly_capacity = ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS;
   storage.tombstones = self->tombstones;
-  storage.tombstone_capacity = TOMBSTONES;
+  storage.tombstone_capacity = TOMBSTONES * DMP_PROFILE_MAX_PEERS;
   storage.freshness_slots = self->freshness;
   storage.freshness_capacity = sizeof self->freshness / sizeof self->freshness[0];
   storage.assembly_payload = self->assembly_payload;
@@ -883,13 +1060,45 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   storage.stream_tx_capacity = sizeof self->stream_tx;
   storage.stream_rx = self->stream_rx;
   storage.stream_rx_capacity = sizeof self->stream_rx;
-  CHECK(dmp_endpoint_init(&self->endpoint, &storage, now) == DMP_OK);
-  return install_manifest_grants(self);
+  if (admitted.peers > 1U) {
+    dmp_hs_admission_limits hs_limits;
+    CHECK(g_endpoint_test_admission_storage != NULL);
+    memset(&hs_limits, 0, sizeof hs_limits);
+    hs_limits.max_pending = g_endpoint_test_handshake_pending != 0U
+                                ? g_endpoint_test_handshake_pending
+                                : 4U;
+        hs_limits.max_scratch = g_endpoint_test_scratch_slots != 0U
+                                    ? g_endpoint_test_scratch_slots
+                                    : 2U;
+    hs_limits.global_work = 100000U;
+    hs_limits.ingress_work = 10000U;
+    storage.handshake_admission =
+        (struct dmp_hs_admission *)g_endpoint_test_admission_storage;
+    storage.handshake_admission_capacity = dmp_hs_admission_size();
+    storage.handshake_max_pending = hs_limits.max_pending;
+    storage.handshake_max_scratch = hs_limits.max_scratch;
+    storage.handshake_global_work = hs_limits.global_work;
+    storage.handshake_ingress_work = hs_limits.ingress_work;
+  }
+  {
+    dmp_status init_status = dmp_endpoint_init(&self->endpoint, &storage, now);
+    if (init_status != DMP_OK) {
+      (void)fprintf(stderr, "endpoint init returned %s (%d) for peers=%u\n",
+                    dmp_status_name(init_status), (int)init_status,
+                    (unsigned)admitted.peers);
+    }
+    CHECK(init_status == DMP_OK);
+  }
+  if (admitted.peers > 1U) {
+    g_endpoint_test_admission = dmp_endpoint_handshake_admission(&self->endpoint);
+    CHECK(g_endpoint_test_admission != NULL);
+  }
+  return admitted.peers > 1U ? 0 : install_manifest_grants(self);
 }
 
 static int boot_node(node *self, int producer, uint32_t chunk, uint32_t fragments, dmp_time_ms now)
 {
-    return boot_node_slots(self, producer, chunk, fragments, now, 1U);
+    return boot_node_slots(self, producer, chunk, fragments, now, 2U);
 }
 
 static int boot_selective(node *self, int producer, uint32_t chunk, uint32_t fragments, dmp_time_ms now)
@@ -909,13 +1118,21 @@ static int stream_fragment(const uint8_t *framed, size_t n, dmp_time_ms now, uin
                            uint64_t *pn)
 {
     uint8_t core[MTU];
+    uint8_t synced[FRAME_CAP + 1U];
     size_t core_n = 0U;
     dmp_frame_view view;
     dmp_core_limits limits;
     dmp_parse_result parsed;
 
     if (!unwrap_core(framed, n, core, sizeof core, &core_n, now)) {
-        return 0;
+        if (n >= FRAME_CAP) {
+            return 0;
+        }
+        synced[0] = 0U;
+        memcpy(synced + 1U, framed, n);
+        if (!unwrap_core(synced, n + 1U, core, sizeof core, &core_n, now)) {
+            return 0;
+        }
     }
     memset(&view, 0, sizeof view);
     limits.max_frame_bytes = MTU;
@@ -959,7 +1176,15 @@ static int deliver_one(node *from, node *to, int index, dmp_time_ms now, dmp_sta
         return 1;
     }
     bytes = span(from->wire.q[index].frame, from->wire.q[index].len);
-    status = dmp_endpoint_rx(&to->endpoint, bytes, now);
+    if (to->endpoint.profile.peers == 1U) {
+        status = dmp_endpoint_rx(&to->endpoint, bytes, now);
+    } else if (to->endpoint.active_peer_slot < to->endpoint.peer_count) {
+        dmp_peer_handle peer =
+            to->endpoint.peers[to->endpoint.active_peer_slot].handle;
+        status = dmp_endpoint_rx_from(&to->endpoint, peer, bytes, now);
+    } else {
+        status = DMP_INVALID_ARGUMENT;
+    }
     if (status_out != NULL) {
         *status_out = status;
     }
@@ -983,6 +1208,33 @@ static int deliver_all(node *from, node *to, dmp_time_ms now)
     return 0;
 }
 
+static int complete_pending_completions(wire *link, dmp_time_ms now)
+{
+    pending_completion pending[QUEUE];
+    size_t count = link->pending_count;
+    size_t i;
+    CHECK(count <= QUEUE);
+    memcpy(pending, link->pending, count * sizeof pending[0]);
+    link->pending_count = 0U;
+    for (i = 0U; i < count; i++) {
+        CHECK(pending[i].complete != NULL);
+        pending[i].complete(pending[i].owner, pending[i].token,
+                            pending[i].outcome, now);
+    }
+    return 0;
+}
+
+static int sync_stream_node(node *self, dmp_time_ms now)
+{
+    self->wire.now = now;
+    CHECK(dmp_endpoint_poll(&self->endpoint, now) == DMP_OK);
+    CHECK(self->wire.n == 1 && self->wire.q[0].len == 1U && self->wire.q[0].frame[0] == 0U);
+    CHECK(complete_pending_completions(&self->wire, now) == 0);
+    self->wire.n = 0;
+    self->wire.submits = 0;
+    return 0;
+}
+
 static int pump(dmp_time_ms now, int rounds)
 {
     int i;
@@ -995,6 +1247,8 @@ static int pump(dmp_time_ms now, int rounds)
         CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
         CHECK(deliver_all(&left, &right, now) == 0);
         CHECK(deliver_all(&right, &left, now) == 0);
+        CHECK(complete_pending_completions(&left.wire, now) == 0);
+        CHECK(complete_pending_completions(&right.wire, now) == 0);
     }
     CHECK(service(&left, now) == 0);
     CHECK(service(&right, now) == 0);
@@ -1227,6 +1481,30 @@ static void p23_apply_hs_profile(dmp_hs_config *config)
     p23_effective_budget = config->budget;
 }
 
+static void tune_test_sender_identity(dmp_hs_config *initiator,
+                                      dmp_hs_config *responder)
+{
+    if (initiator == NULL || responder == NULL || g_endpoint_test_sender_id == 0U) {
+        return;
+    }
+    initiator->local_id = g_endpoint_test_sender_id;
+    initiator->peer_id = ID_RESP;
+    responder->local_id = ID_RESP;
+    responder->peer_id = g_endpoint_test_sender_id;
+}
+
+static void tune_test_local_initiator_identity(dmp_hs_config *initiator,
+                                              dmp_hs_config *responder)
+{
+    if (initiator == NULL || responder == NULL || g_endpoint_test_sender_id == 0U) {
+        return;
+    }
+    initiator->local_id = ID_RESP;
+    initiator->peer_id = g_endpoint_test_sender_id;
+    responder->local_id = g_endpoint_test_sender_id;
+    responder->peer_id = ID_RESP;
+}
+
 static void close_session(session *env)
 {
     if (env->initiator != NULL) {
@@ -1257,7 +1535,9 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
     dmp_provider *provider;
     memset(env, 0, sizeof *env);
     env->now = 10000U;
-    memset(port, 0, sizeof *port);
+    if (existing == NULL) {
+        memset(port, 0, sizeof *port);
+    }
     provider = existing;
     if (existing == NULL) {
         memset(&ports, 0, sizeof ports);
@@ -1271,6 +1551,7 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
         ports.retained_limit = DMP_PROVIDER_RETAINED_MAX;
         env->provider = (dmp_provider *)calloc(1, dmp_provider_size());
         if (env->provider == NULL || dmp_provider_setup(env->provider, &ports) != DMP_PROVIDER_OK) {
+            (void)fprintf(stderr, "make_pair provider setup failed\n");
             close_session(env);
             return 0;
         }
@@ -1290,10 +1571,19 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
         tune(&init_config, &resp_config);
     }
     if (alt_entropy) {
-        memset(env->alt_attempt, 0x42, sizeof env->alt_attempt);
-        script_add(&env->init_script, env->alt_attempt, sizeof env->alt_attempt);
-        script_add(&env->init_script, fixture->resp_ephemeral.data, fixture->resp_ephemeral.size);
-        script_add(&env->resp_script, fixture->init_ephemeral.data, fixture->init_ephemeral.size);
+        if (g_endpoint_test_unique_entropy) {
+            script_add(&env->init_script, g_endpoint_test_alt_attempt,
+                       sizeof g_endpoint_test_alt_attempt);
+            script_add(&env->init_script, g_endpoint_test_alt_init_ephemeral,
+                       sizeof g_endpoint_test_alt_init_ephemeral);
+            script_add(&env->resp_script, g_endpoint_test_alt_resp_ephemeral,
+                       sizeof g_endpoint_test_alt_resp_ephemeral);
+        } else {
+            memset(env->alt_attempt, 0x42, sizeof env->alt_attempt);
+            script_add(&env->init_script, env->alt_attempt, sizeof env->alt_attempt);
+            script_add(&env->init_script, fixture->resp_ephemeral.data, fixture->resp_ephemeral.size);
+            script_add(&env->resp_script, fixture->init_ephemeral.data, fixture->init_ephemeral.size);
+        }
     } else {
         script_add(&env->init_script, fixture->attempt_id.data, fixture->attempt_id.size);
         script_add(&env->init_script, fixture->init_ephemeral.data, fixture->init_ephemeral.size);
@@ -1315,13 +1605,53 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
     resp_ports.entropy = entropy_of;
     resp_ports.commit_pin = commit_of;
     resp_ports.ctx = &env->resp_box;
-    if (dmp_hs_init(env->initiator, provider, &init_config, &init_ports) != DMP_HS_OK ||
-        dmp_hs_init(env->responder, provider, &resp_config, &resp_ports) != DMP_HS_OK ||
+    if ((g_endpoint_test_admission != NULL &&
+         (g_endpoint_test_responder_admission_only == 0 ||
+          g_endpoint_test_initiator_admission_only != 0)
+             ? dmp_hs_init_shared(env->initiator, provider, &init_config,
+                                  &init_ports, g_endpoint_test_admission)
+             : dmp_hs_init(env->initiator, provider, &init_config, &init_ports)) !=
+            DMP_HS_OK ||
+        (g_endpoint_test_admission != NULL &&
+         g_endpoint_test_initiator_admission_only == 0
+             ? dmp_hs_init_shared(env->responder, provider, &resp_config,
+                                  &resp_ports, g_endpoint_test_admission)
+             : dmp_hs_init(env->responder, provider, &resp_config, &resp_ports)) !=
+            DMP_HS_OK ||
         dmp_hs_begin_episode(env->initiator) != DMP_HS_OK) {
+        (void)fprintf(stderr, "make_pair handshake init failed\n");
         close_session(env);
         return 0;
     }
     return 1;
+}
+
+/* Re-create only a simulated remote initiator while retaining the responder
+ * object bound to the endpoint. The test shares one provider across its local
+ * endpoint and four in-process remote peers, so the remote initiator's old
+ * cipher objects must be released before exercising the endpoint's declared
+ * four-active/four-draining provider envelope. */
+static int renew_multi_peer_initiator(session *env, dmp_provider *provider,
+                                     const noise_fixture_probe_fixture_t *fixture,
+                                     uint32_t peer_id)
+{
+    dmp_hs_config config;
+    dmp_hs_ports ports;
+
+    if (env == NULL || provider == NULL || fixture == NULL || env->initiator == NULL) {
+        return 0;
+    }
+    fill_hs(&config, fixture, 1);
+    p23_apply_hs_profile(&config);
+    config.local_id = peer_id;
+    config.peer_id = ID_RESP;
+    memset(&ports, 0, sizeof ports);
+    ports.now_ms = now_of;
+    ports.entropy = entropy_of;
+    ports.commit_pin = commit_of;
+    ports.ctx = &env->init_box;
+    return dmp_hs_init(env->initiator, provider, &config, &ports) == DMP_HS_OK &&
+           dmp_hs_begin_episode(env->initiator) == DMP_HS_OK;
 }
 
 static int drive_flight(dmp_hs *hs, const uint8_t *payload, size_t length, uint32_t origin,
@@ -1330,6 +1660,7 @@ static int drive_flight(dmp_hs *hs, const uint8_t *payload, size_t length, uint3
     dmp_hs_ingress ingress;
     dmp_hs_completion completion;
     dmp_hs_status status;
+    dmp_hs_status offered;
     memset(&ingress, 0, sizeof ingress);
     ingress.payload = payload;
     ingress.payload_len = length;
@@ -1339,18 +1670,43 @@ static int drive_flight(dmp_hs *hs, const uint8_t *payload, size_t length, uint3
     ingress.context_epoch = epoch;
     ingress.seq = seq;
     status = dmp_hs_offer(hs, &ingress, &completion);
+    offered = status;
     if (status == DMP_HS_AWAITING) {
         status = dmp_hs_accept(hs, &completion);
+    }
+    if (status != expected) {
+        (void)fprintf(stderr,
+                      "flight offer=%d final=%d expected=%d (seq=%u origin=%u destination=%u)\n",
+                      (int)offered, (int)status, (int)expected, seq, origin, destination);
     }
     return status == expected;
 }
 
-static int drive_nn(session *env, uint32_t *index)
+static int find_cached_flight(const dmp_hs *hs, const uint8_t attempt_id[16],
+                             uint8_t flight, uint32_t *index_out)
+{
+    uint32_t index;
+    for (index = 0U; index < DMP_HS_ATTEMPT_MAX; index++) {
+        size_t length = 0U;
+        const uint8_t *cached = dmp_hs_cached_flight(hs, index, &length);
+        if (cached != NULL && length >= 18U && cached[0] == 2U && cached[1] == flight &&
+            memcmp(cached + 2U, attempt_id, 16U) == 0) {
+            *index_out = index;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int drive_nn_for_ids(session *env, uint32_t *index,
+                            uint32_t initiator_id, uint32_t responder_id)
 {
     const uint8_t *cached;
+    uint8_t scheduled_id[16];
     size_t length = 0U;
     uint64_t boot;
-    if (dmp_hs_schedule(env->initiator, index) != DMP_HS_OK) {
+    if (dmp_hs_schedule(env->initiator, index) != DMP_HS_OK ||
+        !dmp_hs_copy_attempt_id(env->initiator, *index, scheduled_id)) {
         return 0;
     }
     boot = dmp_hs_boot_epoch(env->initiator, *index);
@@ -1358,11 +1714,30 @@ static int drive_nn(session *env, uint32_t *index)
         return 0;
     }
     cached = dmp_hs_cached_flight(env->initiator, *index, &length);
-    if (!drive_flight(env->responder, cached, length, ID_INIT, ID_RESP, 1U, boot, DMP_HS_CANDIDATE)) {
+    if (!drive_flight(env->responder, cached, length, initiator_id,
+                      responder_id, 1U, boot, DMP_HS_CANDIDATE)) {
+        (void)fprintf(stderr, "drive_nn flight 1 failed (%u -> %u)\n",
+                      initiator_id, responder_id);
         return 0;
     }
-    cached = dmp_hs_cached_flight(env->responder, 0U, &length);
-    return drive_flight(env->initiator, cached, length, ID_RESP, ID_INIT, 2U, boot, DMP_HS_CANDIDATE);
+    if (!find_cached_flight(env->responder, scheduled_id, 2U,
+                            &env->responder_index)) {
+        (void)fprintf(stderr, "responder flight 2 not found for scheduled attempt\n");
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env->responder, env->responder_index, &length);
+    if (!drive_flight(env->initiator, cached, length, responder_id,
+                      initiator_id, 2U, boot, DMP_HS_CANDIDATE)) {
+        (void)fprintf(stderr, "drive_nn flight 2 failed (%u -> %u)\n",
+                      responder_id, initiator_id);
+        return 0;
+    }
+    return 1;
+}
+
+static int drive_nn(session *env, uint32_t *index)
+{
+    return drive_nn_for_ids(env, index, ID_INIT, ID_RESP);
 }
 
 static int offer_protected(dmp_hs *hs, const uint8_t *frame, size_t length, uint32_t origin,
@@ -1379,7 +1754,8 @@ static int offer_protected(dmp_hs *hs, const uint8_t *frame, size_t length, uint
     return dmp_hs_offer_protected(hs, &incoming) == DMP_HS_OK;
 }
 
-static int activate(session *env, uint32_t index)
+static int activate_for_ids(session *env, uint32_t index,
+                            uint32_t initiator_id, uint32_t responder_id)
 {
     uint64_t epoch_i = 0U;
     uint64_t epoch_r = 0U;
@@ -1392,18 +1768,41 @@ static int activate(session *env, uint32_t index)
         return 0;
     }
     frame = dmp_hs_protected_frame(env->initiator, index, &length);
-    if (frame == NULL || !offer_protected(env->responder, frame, length, ID_INIT, ID_RESP, epoch_i)) {
+    if (frame == NULL || !offer_protected(env->responder, frame, length,
+                                          initiator_id, responder_id, epoch_i)) {
         return 0;
     }
-    frame = dmp_hs_protected_frame(env->responder, 0U, &length);
-    if (frame == NULL || !offer_protected(env->initiator, frame, length, ID_RESP, ID_INIT, epoch_r)) {
+    frame = dmp_hs_protected_frame(env->responder, env->responder_index, &length);
+    if (frame == NULL || !offer_protected(env->initiator, frame, length,
+                                          responder_id, initiator_id, epoch_r)) {
         return 0;
     }
     return dmp_hs_association_active(env->initiator) && dmp_hs_association_active(env->responder);
 }
 
+static int activate(session *env, uint32_t index)
+{
+    return activate_for_ids(env, index, ID_INIT, ID_RESP);
+}
+
+static int sync_stream_pair(dmp_time_ms now)
+{
+    left.wire.now = now;
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(complete_pending_completions(&left.wire, now) == 0);
+    CHECK(complete_pending_completions(&right.wire, now) == 0);
+    CHECK(left.wire.n == 0 && right.wire.n == 0);
+    return 0;
+}
+
 static int bind_pair(session *env, uint32_t index)
 {
+    dmp_time_ms now = left.wire.now;
+    CHECK(sync_stream_pair(now) == 0);
     CHECK(dmp_endpoint_bind(&left.endpoint, env->initiator, index) == DMP_OK);
     CHECK(dmp_endpoint_bind(&right.endpoint, env->responder, 0U) == DMP_OK);
     return 0;
@@ -1416,7 +1815,9 @@ static int unwrap_core(const uint8_t *framed, size_t n, uint8_t *core, size_t ca
     dmp_stream_config config;
     dmp_buffer storage;
     uint8_t scratch[STREAM_CAP];
+    uint8_t prefixed[FRAME_CAP + 1U];
     dmp_bytes input;
+    dmp_stream_result fed;
     memset(&decoder, 0, sizeof decoder);
     memset(&config, 0, sizeof config);
     config.mode = DMP_STREAM_R;
@@ -1429,7 +1830,7 @@ static int unwrap_core(const uint8_t *framed, size_t n, uint8_t *core, size_t ca
     }
     input = span(framed, n);
     while (input.size != 0U) {
-        dmp_stream_result fed = dmp_stream_feed(&decoder, input, now);
+        fed = dmp_stream_feed(&decoder, input, now);
         if (fed.status != DMP_OK || fed.consumed == 0U || fed.consumed > input.size) {
             return 0;
         }
@@ -1442,6 +1843,26 @@ static int unwrap_core(const uint8_t *framed, size_t n, uint8_t *core, size_t ca
             if (fed.frame.size != 0U) {
                 memcpy(core, fed.frame.data, fed.frame.size);
             }
+            *core_n = fed.frame.size;
+            return 1;
+        }
+    }
+    if (n + 1U > sizeof prefixed) return 0;
+    prefixed[0] = 0U;
+    memcpy(prefixed + 1U, framed, n);
+    memset(&decoder, 0, sizeof decoder);
+    if (dmp_stream_init(&decoder, config, storage, now) != DMP_OK) return 0;
+    input = span(prefixed, n + 1U);
+    while (input.size != 0U) {
+        fed = dmp_stream_feed(&decoder, input, now);
+        if (fed.status != DMP_OK || fed.consumed == 0U || fed.consumed > input.size) {
+            return 0;
+        }
+        input.data += fed.consumed;
+        input.size -= fed.consumed;
+        if (fed.event == DMP_STREAM_FRAME) {
+            if (fed.frame.size > cap) return 0;
+            if (fed.frame.size != 0U) memcpy(core, fed.frame.data, fed.frame.size);
             *core_n = fed.frame.size;
             return 1;
         }
@@ -1464,6 +1885,81 @@ static int wrap_core(const uint8_t *core, size_t n, uint8_t *out, size_t cap, si
     out[0] = 0U;
     *out_n = written + 1U;
     return 1;
+}
+
+static int wire_opens_type(wire *from, dmp_hs *receiver, uint32_t attempt,
+                           uint8_t wanted_type, uint8_t *payload,
+                           size_t payload_capacity, size_t *payload_size,
+                           dmp_time_ms now)
+{
+    uint8_t core[FRAME_CAP];
+    uint8_t plain[FRAME_CAP];
+    uint8_t synced[FRAME_CAP + 1U];
+    uint64_t local_epoch = 0U;
+    uint64_t remote_epoch = 0U;
+    size_t core_size;
+    size_t plain_size;
+    int i;
+    if (from == NULL || receiver == NULL || payload_size == NULL ||
+        !dmp_hs_epochs(receiver, attempt, &local_epoch, &remote_epoch) ||
+        local_epoch == 0U || remote_epoch == 0U) {
+        return 0;
+    }
+    for (i = 0; i < from->n; i++) {
+        dmp_hs_protected incoming;
+        dmp_frame_view view;
+        dmp_hs_status open_status;
+        if (!unwrap_core(from->q[i].frame, from->q[i].len, core, sizeof core,
+                         &core_size, now)) {
+            if (from->q[i].len >= FRAME_CAP) {
+                continue;
+            }
+            /* Stream R may emit the sync delimiter as its own transport send. */
+            synced[0] = 0U;
+            memcpy(synced + 1U, from->q[i].frame, from->q[i].len);
+            if (!unwrap_core(synced, from->q[i].len + 1U, core, sizeof core,
+                             &core_size, now)) {
+                continue;
+            }
+        }
+        memset(&incoming, 0, sizeof incoming);
+        incoming.frame = core;
+        incoming.frame_len = core_size;
+        incoming.origin_id = ID_RESP;
+        incoming.destination_id = ID_INIT;
+        incoming.namespace_id = LOCAL_NS;
+        incoming.context_epoch = remote_epoch;
+        open_status = dmp_hs_open_logical(receiver, attempt, &incoming, plain,
+                                          sizeof plain, &plain_size, &view);
+        if (open_status != DMP_HS_OK) {
+            if (wanted_type == DMP_TYPE_TELEM) {
+                (void)fprintf(stderr,
+                              "wire telemetry frame %d failed authenticated open: status=%d len=%zu core=%zu epochs=%llu/%llu\n",
+                              i, (int)open_status, from->q[i].len, core_size,
+                              (unsigned long long)local_epoch,
+                              (unsigned long long)remote_epoch);
+            }
+            continue;
+        }
+        if (view.fields.type != wanted_type) {
+            if (wanted_type == DMP_TYPE_TELEM) {
+                (void)fprintf(stderr,
+                              "wire telemetry frame %d opened with unexpected type=%u\n",
+                              i, (unsigned)view.fields.type);
+            }
+            continue;
+        }
+        if (view.payload.size > payload_capacity ||
+            (view.payload.size != 0U && (payload == NULL || view.payload.data == NULL))) {
+            return 0;
+        }
+        if (view.payload.size != 0U) {
+            memcpy(payload, view.payload.data, view.payload.size);
+        }
+        *payload_size = view.payload.size;
+        return 1;
+    }
+    return 0;
 }
 
 static int test_activation(void)
@@ -1596,6 +2092,52 @@ static int test_transport_reject_retry(void)
     CHECK(dmp_endpoint_revoke(&right.endpoint, now + 2U) == DMP_OK);
     CHECK(right.app.unknowns == 1);
     CHECK(right.app.local_unsent == 0);
+    close_session(&env);
+
+    /* A possibly-transmitted Stream R sync delimiter may have been lost.
+     * Keep sync pending until a later delimiter is definitely delivered so
+     * queued application frames cannot be sent into an unsynchronized stream. */
+    now += 100U;
+    if (!make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    g_p23_copy_async_binding = 1;
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0) {
+        g_p23_copy_async_binding = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_p23_copy_async_binding = 0;
+    CHECK(dmp_endpoint_bind(&left.endpoint, env.initiator, index) == DMP_OK);
+    CHECK(dmp_endpoint_bind(&right.endpoint, env.responder, 0U) == DMP_OK);
+    sample1_read_req(req);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, sizeof req), now, &handle) ==
+          DMP_OK);
+    right.wire.drop_remaining = 1;
+    right.wire.completion_outcome = DMP_TX_POSSIBLY_TRANSMITTED;
+    right.wire.now = now;
+    CHECK(right.endpoint.peers[0].sync_pending != 0U);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(right.wire.n == 0 && right.wire.pending_count == 1U);
+    CHECK(complete_pending_completions(&right.wire, now) == 0);
+    CHECK(right.endpoint.peers[0].sync_pending != 0U &&
+          right.endpoint.peers[0].sync_tx == 0U);
+
+    right.wire.completion_outcome = DMP_TX_TRANSMITTED;
+    right.wire.now = now + 1U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 1U) == DMP_OK);
+    CHECK(right.wire.n == 1 && right.wire.q[0].len == 1U &&
+          right.wire.q[0].frame[0] == 0U && right.wire.pending_count == 1U);
+    CHECK(complete_pending_completions(&right.wire, now + 1U) == 0);
+    CHECK(right.endpoint.peers[0].sync_pending == 0U);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 2U) == DMP_OK);
+    CHECK(right.wire.n == 2 && right.wire.q[1].len > 1U);
+    CHECK(deliver_all(&right, &left, now + 2U) == 0);
+    CHECK(left.app.accepts == 1);
+    CHECK(complete_pending_completions(&right.wire, now + 2U) == 0);
     close_session(&env);
     return 0;
 }
@@ -1805,6 +2347,7 @@ static int test_isolate(void)
     }
     CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
     CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(sync_stream_pair(now) == 0);
     CHECK(dmp_endpoint_bind(&left.endpoint, other.initiator, other_index) == DMP_OK);
     CHECK(dmp_endpoint_bind(&right.endpoint, other.responder, 0U) == DMP_OK);
     sample1_read_req(req);
@@ -1862,6 +2405,7 @@ static int test_reassembly(void)
     dmp_time_ms now = 20000U;
     dmp_status status = DMP_OK;
     int i;
+    int expected_fragments = (FRAG_BYTES + FRAG_CHUNK - 1) / FRAG_CHUNK;
     size_t n;
     memset(&env, 0, sizeof env);
     memset(&other, 0, sizeof other);
@@ -1871,6 +2415,7 @@ static int test_reassembly(void)
         return 1;
     }
     CHECK(boot_node(&left, 1, FRAG_CHUNK, 32U, now) == 0);
+    CHECK(sync_stream_node(&left, now) == 0);
     CHECK(dmp_endpoint_bind(&left.endpoint, other.initiator, other_index) == DMP_OK);
     for (n = 0U; n < sizeof body; n++) {
         body[n] = (uint8_t)(0x40U + (uint8_t)(n & 0x0fU));
@@ -1897,8 +2442,10 @@ static int test_reassembly(void)
     memset(conflict_bytes, 0xff, sizeof conflict_bytes);
     left.wire.now = now;
     CHECK(dmp_endpoint_submit_fragmented(&left.endpoint, 2U, span(body, sizeof body), now) == DMP_OK);
-    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
-    CHECK(left.wire.n >= 2);
+    for (i = 0; i < 24 && left.wire.n < expected_fragments; i++) {
+        CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    }
+    CHECK(left.wire.n >= expected_fragments);
     status = dmp_endpoint_rx(&right.endpoint, span(stolen, stolen_len), now);
     CHECK(status == DMP_AUTHENTICATION_FAILURE);
     CHECK(right.app.assembled == 0);
@@ -2107,13 +2654,21 @@ static int stream_protection(const uint8_t *framed, size_t n, dmp_time_ms now, u
                              uint64_t *pn, uint8_t *type_out)
 {
     uint8_t core[MTU];
+    uint8_t synced[FRAME_CAP + 1U];
     size_t core_n = 0U;
     dmp_frame_view view;
     dmp_core_limits limits;
     dmp_parse_result parsed;
 
     if (!unwrap_core(framed, n, core, sizeof core, &core_n, now)) {
-        return 0;
+        if (n >= FRAME_CAP) {
+            return 0;
+        }
+        synced[0] = 0U;
+        memcpy(synced + 1U, framed, n);
+        if (!unwrap_core(synced, n + 1U, core, sizeof core, &core_n, now)) {
+            return 0;
+        }
     }
     memset(&view, 0, sizeof view);
     limits.max_frame_bytes = MTU;
@@ -2138,6 +2693,7 @@ static int stream_protection(const uint8_t *framed, size_t n, dmp_time_ms now, u
 static int protected_err_status(const uint8_t *framed, size_t n, dmp_time_ms now, uint32_t *status_out)
 {
     uint8_t core[MTU];
+    uint8_t synced[FRAME_CAP + 1U];
     size_t core_n = 0U;
     size_t cursor = 0U;
     dmp_frame_view view;
@@ -2146,8 +2702,18 @@ static int protected_err_status(const uint8_t *framed, size_t n, dmp_time_ms now
     int found = 0;
     uint32_t wire = 0U;
 
-    if (!unwrap_core(framed, n, core, sizeof core, &core_n, now) || status_out == NULL) {
+    if (status_out == NULL) {
         return 0;
+    }
+    if (!unwrap_core(framed, n, core, sizeof core, &core_n, now)) {
+        if (n >= FRAME_CAP) {
+            return 0;
+        }
+        synced[0] = 0U;
+        memcpy(synced + 1U, framed, n);
+        if (!unwrap_core(synced, n + 1U, core, sizeof core, &core_n, now)) {
+            return 0;
+        }
     }
     memset(&view, 0, sizeof view);
     limits.max_frame_bytes = MTU;
@@ -2202,13 +2768,21 @@ static int protected_frame_type_seq(const uint8_t *framed, size_t n, dmp_time_ms
                                     uint8_t *type_out, uint32_t *seq_out)
 {
     uint8_t core[MTU];
+    uint8_t synced[FRAME_CAP + 1U];
     size_t core_n = 0U;
     dmp_core_limits limits = {MTU, MESSAGE, 32U};
     dmp_frame_view view;
     dmp_parse_result parsed;
 
     if (!unwrap_core(framed, n, core, sizeof core, &core_n, now)) {
-        return 0;
+        if (n >= FRAME_CAP) {
+            return 0;
+        }
+        synced[0] = 0U;
+        memcpy(synced + 1U, framed, n);
+        if (!unwrap_core(synced, n + 1U, core, sizeof core, &core_n, now)) {
+            return 0;
+        }
     }
     memset(&view, 0, sizeof view);
     parsed = dmp_core_parse(span(core, core_n), &limits, &view);
@@ -2719,7 +3293,8 @@ static int test_protected_single_peer_service_and_bounds(void)
     }
     env.now = now;
     g_endpoint_test_message_bytes = MAX_MESSAGE;
-    g_endpoint_test_encoded_mtu = 256U;
+    /* 256 is the directional decoded-Core MTU. Stream R needs framing headroom. */
+    g_endpoint_test_encoded_mtu = 270U;
     if (boot_node(&left, 1, 128U, 32U, now) != 0 ||
         boot_node(&right, 0, 128U, 32U, now) != 0) {
         g_endpoint_test_message_bytes = 0U;
@@ -2735,8 +3310,10 @@ static int test_protected_single_peer_service_and_bounds(void)
     }
 
     CHECK(left.endpoint.profile.peers == 1U && right.endpoint.profile.peers == 1U);
-    CHECK(left.endpoint.profile.encoded_mtu == 256U &&
-          right.endpoint.profile.encoded_mtu == 256U);
+    CHECK(left.endpoint.profile.forward_mtu == 256U &&
+          right.endpoint.profile.forward_mtu == 256U);
+    CHECK(left.endpoint.profile.encoded_mtu == 270U &&
+          right.endpoint.profile.encoded_mtu == 270U);
     CHECK(left.endpoint.profile.message_bytes == MAX_MESSAGE &&
           right.endpoint.profile.message_bytes == MAX_MESSAGE);
 
@@ -2745,8 +3322,7 @@ static int test_protected_single_peer_service_and_bounds(void)
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&small, 1U), now,
                                   &request) == DMP_OK);
     /* Seal a protected default-service telemetry frame whose decoded core is
-     * exactly encoded_mtu. The next byte makes the core one byte too large;
-     * Stream R rejects it before dispatch. */
+     * exactly forward_mtu. The next byte exceeds the Core bound and is rejected. */
     memset(&spec, 0, sizeof(spec));
     spec.fields.type = (uint8_t)DMP_TYPE_TELEM;
     spec.fields.options = DMP_OPT_SEQ;
@@ -2754,12 +3330,12 @@ static int test_protected_single_peer_service_and_bounds(void)
     spec.payload = span(payload, 0U);
     CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof(sealed),
                               &sealed_n) == DMP_HS_OK);
-    CHECK(sealed_n < right.endpoint.profile.encoded_mtu);
-    exact_frame_payload = right.endpoint.profile.encoded_mtu - sealed_n;
+    CHECK(sealed_n < right.endpoint.profile.forward_mtu);
+    exact_frame_payload = right.endpoint.profile.forward_mtu - sealed_n;
     spec.payload = span(payload, exact_frame_payload);
     CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof(sealed),
                               &sealed_n) == DMP_HS_OK);
-    CHECK(sealed_n == right.endpoint.profile.encoded_mtu);
+    CHECK(sealed_n == right.endpoint.profile.forward_mtu);
     CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof(wrapped), &wrapped_n));
     CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
     CHECK(right.app.telems == 1);
@@ -2768,7 +3344,7 @@ static int test_protected_single_peer_service_and_bounds(void)
     spec.payload = span(payload, exact_frame_payload + 1U);
     CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof(sealed),
                               &sealed_n) == DMP_HS_OK);
-    CHECK(sealed_n == right.endpoint.profile.encoded_mtu + 1U);
+    CHECK(sealed_n == right.endpoint.profile.forward_mtu + 1U);
     CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof(wrapped), &wrapped_n));
     CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + 1U) ==
           DMP_MALFORMED);
@@ -2786,6 +3362,1873 @@ static int test_protected_single_peer_service_and_bounds(void)
 
     close_session(&env);
     return 0;
+}
+
+static int test_protected_sample_result_other_peer(void);
+
+static int test_protected_different_sender_not_dispatched(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session target;
+    session other;
+    port_ctx port;
+    uint32_t target_index = 0U;
+    uint32_t other_index = 0U;
+    uint32_t namespace_id = 0U;
+    uint32_t local_id = 0U;
+    uint32_t peer_id = 0U;
+    uint64_t local_epoch = 0U;
+    uint64_t peer_epoch = 0U;
+    uint8_t payload = 0x6dU;
+    uint8_t sealed[FRAME_CAP];
+    uint8_t wrapped[FRAME_CAP];
+    size_t sealed_size = 0U;
+    size_t wrapped_size = 0U;
+    dmp_frame_spec spec;
+    dmp_peer_handle target_peer = {0U, 1U};
+    dmp_time_ms now = 20000U;
+    dmp_status status;
+
+    memset(&target, 0, sizeof target);
+    memset(&other, 0, sizeof other);
+    g_endpoint_test_sender_id = 0U;
+    if (fixture == NULL ||
+        !make_pair(&target, &port, fixture, tune_test_sender_identity,
+                   NULL, 0) ||
+        !drive_nn_for_ids(&target, &target_index, ID_INIT, ID_RESP) ||
+        !activate_for_ids(&target, target_index, ID_INIT, ID_RESP)) {
+        close_session(&target);
+        return 1;
+    }
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0 ||
+        bind_pair(&target, target_index) != 0) {
+        close_session(&target);
+        return 1;
+    }
+
+    /* This is a separately authenticated NNpsk0 peer with a distinct node ID
+     * and distinct ephemeral material, sharing the real provider instance. */
+    g_endpoint_test_sender_id = 0x22U;
+    if (!make_pair(&other, &port, fixture, tune_test_sender_identity,
+                   target.provider, 1) ||
+        !drive_nn_for_ids(&other, &other_index, 0x22U, ID_RESP) ||
+        !activate_for_ids(&other, other_index, 0x22U, ID_RESP)) {
+        g_endpoint_test_sender_id = 0U;
+        close_session(&other);
+        close_session(&target);
+        return 1;
+    }
+    g_endpoint_test_sender_id = 0U;
+    CHECK(dmp_hs_traffic_identity(other.initiator, other_index, &namespace_id,
+                                  &local_id, &peer_id, &local_epoch,
+                                  &peer_epoch));
+    CHECK(namespace_id == LOCAL_NS && local_id == 0x22U && peer_id == ID_RESP &&
+          local_epoch != 0U && peer_epoch != 0U);
+
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_TELEM;
+    spec.fields.options = DMP_OPT_SEQ;
+    spec.fields.seq = 1U;
+    spec.payload = span(&payload, sizeof payload);
+    CHECK(dmp_hs_seal_logical(other.initiator, other_index, &spec, sealed,
+                              sizeof sealed, &sealed_size) == DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped,
+                    &wrapped_size));
+
+    status = dmp_endpoint_rx_from(&right.endpoint, target_peer,
+                                  span(wrapped, wrapped_size), now);
+    CHECK(status == DMP_AUTHENTICATION_FAILURE);
+    CHECK(right.app.telems == 0 && right.app.accepts == 0 &&
+          right.wire.n == 0);
+
+    /* The rejected sender must not disrupt the intended authenticated peer. */
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_TELEM;
+    spec.fields.options = DMP_OPT_SEQ;
+    spec.fields.seq = 1U;
+    spec.payload = span(&payload, sizeof payload);
+    CHECK(dmp_hs_seal_logical(target.initiator, target_index, &spec, sealed,
+                              sizeof sealed, &sealed_size) == DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped,
+                    &wrapped_size));
+    status = dmp_endpoint_rx_from(&right.endpoint, target_peer,
+                                  span(wrapped, wrapped_size), now + 1U);
+    CHECK(status == DMP_OK);
+    CHECK(right.app.telems == 1 && right.app.accepts == 0);
+
+    close_session(&other);
+    close_session(&target);
+    return test_protected_sample_result_other_peer();
+}
+
+static int test_protected_sample_result_other_peer(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session peers[2];
+    port_ctx peer_ports[2];
+    uint64_t admission_storage[2048];
+    dmp_peer_handle handles[2] = {{0U, 1U}, {0U, 0U}};
+    dmp_identity_context_config context;
+    dmp_identity_handle associations[2];
+    dmp_endpoint_grant grants[4];
+    sample_tracker state = {1, 0, 0, 0, 7U, 4U, 400U};
+    dmp_reliability_handle designated;
+    dmp_message_key designated_key;
+    uint32_t indices[2] = {0U, 0U};
+    uint8_t read = SAMPLE1_READ;
+    uint8_t response[SAMPLE1_READ_BYTES];
+    uint8_t wrapped[FRAME_CAP];
+    size_t wrapped_n = 0U;
+    size_t i;
+    dmp_time_ms now = 20000U;
+    dmp_status status;
+    uint32_t pump_round;
+    int frame_i;
+
+    memset(peers, 0, sizeof peers);
+    memset(peer_ports, 0, sizeof peer_ports);
+    memset(admission_storage, 0, sizeof admission_storage);
+    g_endpoint_test_peer_count = 2U;
+    g_endpoint_test_scratch_slots = 2U;
+    g_endpoint_test_result_slots = 4U;
+    g_endpoint_test_responder_admission_only = 1;
+    g_endpoint_test_admission = NULL;
+    g_endpoint_test_admission_storage = admission_storage;
+    if (fixture == NULL || dmp_hs_admission_size() > sizeof admission_storage ||
+        boot_node_slots(&right, 0, 64U, 16U, now, 8U) != 0) {
+        goto fail;
+    }
+    g_endpoint_test_peer_count = 0U;
+    g_endpoint_test_admission_storage = NULL;
+    if (boot_node_slots(&left, 1, 64U, 16U, now, 2U) != 0) {
+        goto fail;
+    }
+    if (!make_pair(&peers[0], &peer_ports[0], fixture, NULL, NULL, 0) ||
+        !drive_nn(&peers[0], &indices[0]) || !activate(&peers[0], indices[0]) ||
+        dmp_endpoint_bind_peer(&right.endpoint, handles[0], peers[0].responder,
+                               0U) != DMP_OK ||
+        dmp_endpoint_bind(&left.endpoint, peers[0].initiator, indices[0]) != DMP_OK) {
+        goto fail;
+    }
+
+    memset(grants, 0, sizeof grants);
+    grants[0].principal = ID_INIT;
+    grants[0].service_id = 1U;
+    grants[0].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_TELEM |
+                       DMP_ENDPOINT_PERMIT_RESULT;
+    grants[1].principal = ID_RESP;
+    grants[1].service_id = 1U;
+    grants[1].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+    grants[2].principal = ID_INIT;
+    grants[2].service_id = 2U;
+    grants[2].permit = DMP_ENDPOINT_PERMIT_REQ;
+    grants[3].principal = ID_RESP;
+    grants[3].service_id = 2U;
+    grants[3].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+    if (dmp_endpoint_set_peer_grants(&right.endpoint, handles[0], grants, 4U) !=
+        DMP_OK) {
+        goto fail;
+    }
+
+    memset(&context, 0, sizeof context);
+    context.local.namespace_id = LOCAL_NS;
+    context.local.origin_id = ID_RESP;
+    context.peer.namespace_id = LOCAL_NS;
+    context.peer.origin_id = 0x22U;
+    context.security = 1U;
+    if (dmp_endpoint_add_peer(&right.endpoint, &context, now, &handles[1]) !=
+        DMP_OK) {
+        goto fail;
+    }
+    grants[0].principal = 0x22U;
+    grants[2].principal = 0x22U;
+    if (dmp_endpoint_set_peer_grants(&right.endpoint, handles[1], grants, 4U) !=
+        DMP_OK) {
+        goto fail;
+    }
+    for (i = 0U; i < sizeof g_endpoint_test_alt_attempt; ++i) {
+        g_endpoint_test_alt_attempt[i] = (uint8_t)(0x30U + i);
+    }
+    for (i = 0U; i < sizeof g_endpoint_test_alt_init_ephemeral; ++i) {
+        g_endpoint_test_alt_init_ephemeral[i] =
+            (uint8_t)(fixture->init_ephemeral.data[i] ^ (uint8_t)(0x22U + i));
+        g_endpoint_test_alt_resp_ephemeral[i] =
+            (uint8_t)(fixture->resp_ephemeral.data[i] ^ (uint8_t)(0x25U + 3U * i));
+    }
+    g_endpoint_test_unique_entropy = 1;
+    g_endpoint_test_sender_id = 0x22U;
+    if (!make_pair(&peers[1], &peer_ports[1], fixture,
+                   tune_test_sender_identity, peers[0].provider, 1) ||
+        !drive_nn_for_ids(&peers[1], &indices[1], 0x22U, ID_RESP) ||
+        !activate_for_ids(&peers[1], indices[1], 0x22U, ID_RESP)) {
+        goto fail;
+    }
+    g_endpoint_test_unique_entropy = 0;
+    g_endpoint_test_sender_id = 0U;
+    peers[1].provider = NULL;
+    if (dmp_endpoint_bind_peer(&right.endpoint, handles[1], peers[1].responder,
+                               0U) != DMP_OK ||
+        dmp_endpoint_set_peer_grants(&right.endpoint, handles[1], grants, 4U) !=
+            DMP_OK) {
+        goto fail;
+    }
+    CHECK(right.endpoint.peer_count == 2U &&
+          dmp_hs_association_active(peers[0].responder) != 0 &&
+          dmp_hs_association_active(peers[1].responder) != 0);
+    CHECK(dmp_endpoint_peer_association(&right.endpoint, handles[0],
+                                        &associations[0]) == DMP_OK);
+    CHECK(dmp_endpoint_peer_association(&right.endpoint, handles[1],
+                                        &associations[1]) == DMP_OK);
+    CHECK(associations[0].slot != associations[1].slot ||
+          associations[0].generation != associations[1].generation);
+    g_endpoint_test_peer_count = 0U;
+    g_endpoint_test_scratch_slots = 0U;
+    g_endpoint_test_result_slots = 0U;
+    g_endpoint_test_admission_storage = NULL;
+    g_endpoint_test_admission = NULL;
+
+    right.sample_state = &state;
+    CHECK(sample1_read_req(&read) == 1U);
+    status = dmp_endpoint_submit_req_to(&right.endpoint, handles[0], 1U,
+                                        span(&read, sizeof read), now,
+                                        &designated);
+    CHECK(status == DMP_OK);
+    right.sample_designated = designated;
+    CHECK(designated.slot < right.endpoint.mem.sender_capacity);
+    CHECK(right.senders[designated.slot].live != 0U);
+    designated_key = right.senders[designated.slot].own;
+    right.wire.now = now;
+    for (i = 0U; i < 8U; ++i) {
+        CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    }
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.have_pending != 0);
+    right.wire.n = 0;
+
+    CHECK(sample1_read_rsp(response, 7U, 5U, 500U) == sizeof response);
+    CHECK(seal_sample_result(&peers[1], indices[1], 500U, designated_key.seq,
+                             1U, span(response, sizeof response), wrapped,
+                             &wrapped_n));
+    status = dmp_endpoint_rx_from(&right.endpoint, handles[1],
+                                  span(wrapped, wrapped_n), now + 1U);
+    CHECK(status == DMP_OK);
+    CHECK(right.app.results == 0 && right.app.sample_update_attempts == 0U &&
+          right.app.telems == 0);
+    CHECK(right.senders[designated.slot].live != 0U &&
+          same_handle(right.sample_designated, designated));
+    CHECK(state.synchronized == 1 && state.epoch == 7U && state.index == 4U &&
+          state.value == 400U && state.discarded == 0 && state.rollbacks == 0 &&
+          state.violations == 0);
+
+    /* The designated producer remains usable after the other authenticated
+     * peer's correlated-looking response was rejected. */
+    CHECK(sample1_read_rsp(response, 7U, 5U, 500U) == sizeof response);
+    CHECK(left.app.have_pending != 0);
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                                span(response, sizeof response), now + 2U) == DMP_OK);
+    left.app.have_pending = 0;
+    /* The left endpoint has not transmitted its initial per-peer Stream R
+     * delimiter yet. Pump the real endpoint/transport while routing every
+     * left-to-right frame explicitly to the designated producer peer. */
+    for (pump_round = 0U; pump_round < 4U; ++pump_round) {
+        left.wire.now = now + 2U;
+        right.wire.now = now + 2U;
+        CHECK(service(&left, now + 2U) == 0);
+        CHECK(service(&right, now + 2U) == 0);
+        CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+        CHECK(dmp_endpoint_poll(&right.endpoint, now + 2U) == DMP_OK);
+        for (frame_i = 0; frame_i < left.wire.n; ++frame_i) {
+            status = dmp_endpoint_rx_from(&right.endpoint, handles[0],
+                                          span(left.wire.q[frame_i].frame,
+                                               left.wire.q[frame_i].len),
+                                          now + 2U);
+            CHECK(status == DMP_OK || status == DMP_INCOMPLETE ||
+                  status == DMP_DUPLICATE);
+        }
+        left.wire.n = 0;
+        CHECK(deliver_all(&right, &left, now + 2U) == 0);
+        CHECK(complete_pending_completions(&left.wire, now + 2U) == 0);
+        CHECK(complete_pending_completions(&right.wire, now + 2U) == 0);
+    }
+    CHECK(right.app.results == 1 && right.app.sample_update_attempts == 1U &&
+          right.app.telems == 0);
+    CHECK(right.senders[designated.slot].live == 0U &&
+          state.synchronized == 1 && state.epoch == 7U && state.index == 5U &&
+          state.value == 500U && state.discarded == 0 && state.rollbacks == 0 &&
+          state.violations == 0);
+
+    close_session(&peers[1]);
+    close_session(&peers[0]);
+    g_endpoint_test_responder_admission_only = 0;
+    return 0;
+
+fail:
+    g_endpoint_test_unique_entropy = 0;
+    g_endpoint_test_sender_id = 0U;
+    g_endpoint_test_peer_count = 0U;
+    g_endpoint_test_scratch_slots = 0U;
+    g_endpoint_test_result_slots = 0U;
+    g_endpoint_test_responder_admission_only = 0;
+    g_endpoint_test_admission_storage = NULL;
+    g_endpoint_test_admission = NULL;
+    memset(&left, 0, sizeof left);
+    memset(&right, 0, sizeof right);
+    close_session(&peers[1]);
+    close_session(&peers[0]);
+    return 1;
+}
+
+static int test_protected_sample1_epoch_endpoint(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session initial;
+    session replacement;
+    port_ctx initial_port;
+    port_ctx replacement_port;
+    dmp_sample1_endpoint sample;
+    dmp_sample1_endpoint_hooks hooks;
+    sample1_store store;
+    dmp_sample1_principal principal = {LOCAL_NS, ID_RESP};
+    uint64_t admission_storage[2048];
+    dmp_peer_handle first_peer = {0U, 1U};
+    dmp_peer_handle next_peer;
+    dmp_endpoint_grant left_grants[2];
+    dmp_identity_context_config context;
+    dmp_endpoint_grant grants[3];
+    dmp_reliability_handle request;
+    dmp_reliability_handle stale_request = {0};
+    dmp_message_key stale_request_key = {0};
+    dmp_frame_spec spec;
+    dmp_identity_handle association;
+    dmp_identity_handle stale_association;
+    dmp_status status;
+    uint32_t initial_index = 0U;
+    uint32_t replacement_index = 0U;
+    uint32_t rotation_init = 0U;
+    uint32_t rotation_resp = 0U;
+    uint32_t observed_cid = 0U;
+    uint32_t old_cid = 0U;
+    uint32_t new_cid = 0U;
+    uint8_t opened[FRAME_CAP];
+    size_t opened_size = 0U;
+    uint8_t read = DMP_SAMPLE1_READ_OPCODE;
+    uint8_t sealed[FRAME_CAP];
+    uint8_t framed[FRAME_CAP];
+    size_t sealed_size = 0U;
+    size_t framed_size = 0U;
+    dmp_time_ms now = 20000U;
+    dmp_time_ms replacement_now;
+
+    memset(admission_storage, 0, sizeof admission_storage);
+    g_endpoint_test_peer_count = 2U;
+    g_endpoint_test_async_borrow = 1;
+    g_endpoint_test_admission_storage = admission_storage;
+    g_endpoint_test_responder_admission_only = 1;
+    CHECK(boot_node_slots(&right, 0, 64U, 16U, now, 4U) == 0);
+    g_endpoint_test_async_borrow = 0;
+    g_endpoint_test_peer_count = 0U;
+    g_endpoint_test_admission_storage = NULL;
+    if (fixture == NULL || !make_pair(&initial, &initial_port, fixture,
+                                      NULL, NULL, 0) ||
+        !drive_nn(&initial, &initial_index) || !activate(&initial, initial_index)) {
+        close_session(&initial);
+        g_endpoint_test_admission = NULL;
+        return 1;
+    }
+    CHECK(boot_node_slots(&left, 1, 64U, 16U, now, 2U) == 0);
+    CHECK(dmp_endpoint_bind(&left.endpoint, initial.initiator,
+                            initial_index) == DMP_OK);
+    CHECK(dmp_endpoint_bind_peer(&right.endpoint, first_peer,
+                                 initial.responder, 0U) == DMP_OK);
+    memset(left_grants, 0, sizeof left_grants);
+    left_grants[0].principal = ID_INIT;
+    left_grants[0].service_id = 1U;
+    left_grants[0].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+    left_grants[1].principal = ID_RESP;
+    left_grants[1].service_id = 1U;
+    left_grants[1].permit = DMP_ENDPOINT_PERMIT_TELEM | DMP_ENDPOINT_PERMIT_RESULT;
+    CHECK(dmp_endpoint_set_grants(&left.endpoint, left_grants, 2U) == DMP_OK);
+    memset(&store, 0, sizeof store);
+    memset(&hooks, 0, sizeof hooks);
+    hooks.user = &store;
+    hooks.try_enter = sample1_store_try_enter;
+    hooks.leave = sample1_store_leave;
+    hooks.reserve_next = sample1_store_reserve;
+    hooks.publish_telem = sample1_store_publish;
+    CHECK(dmp_sample1_endpoint_init(&sample, &right.endpoint, principal,
+                                    &hooks) == DMP_SAMPLE1_OWNER_OK);
+    right.app.producer = 0;
+    right.sample_endpoint = &sample;
+    memset(grants, 0, sizeof grants);
+    grants[0].principal = ID_INIT;
+    grants[0].service_id = 1U;
+    grants[0].permit = DMP_ENDPOINT_PERMIT_REQ;
+    grants[1].principal = ID_RESP;
+    grants[1].service_id = 1U;
+    grants[1].permit = DMP_ENDPOINT_PERMIT_RESULT | DMP_ENDPOINT_PERMIT_TELEM;
+    CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, first_peer, grants,
+                                       2U) == DMP_OK);
+
+    /* Reserve the first durable epoch, bind its authenticated association,
+     * publish telemetry, and answer a real protected READ through the adapter. */
+    CHECK(dmp_sample1_endpoint_begin_epoch(&sample, now) == DMP_SAMPLE1_OWNER_OK);
+    CHECK(store.durable_epoch == 1U && sample.owner.epoch == 1U);
+    CHECK(dmp_sample1_endpoint_activate_peer(&sample, first_peer) ==
+          DMP_SAMPLE1_OWNER_OK);
+    CHECK(dmp_sample1_endpoint_publish(&sample, UINT32_C(0x11223344), now) ==
+          DMP_SAMPLE1_OWNER_OK);
+    CHECK(store.published_epoch == 1U && store.published_index == 1U &&
+          store.published_value == UINT32_C(0x11223344));
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    /* Complete the delimiter before submitting the first borrowed application frame. */
+    CHECK(complete_pending_completions(&right.wire, now) == 0);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(complete_pending_completions(&right.wire, now) == 0);
+    CHECK(left.app.telems == 1);
+    CHECK(left.app.telem_n == DMP_SAMPLE1_TELEM_BYTES &&
+          sample1_load_u64(left.app.telem) == 1U &&
+          sample1_load_u32(left.app.telem + 8U) == 1U &&
+          sample1_load_u32(left.app.telem + 12U) == UINT32_C(0x11223344));
+    CHECK(pump(now, 4) == 0);
+
+    status = dmp_endpoint_submit_req(&left.endpoint, 1U, span(&read, 1U),
+                                     now + 1U, &request);
+    CHECK(status == DMP_OK);
+    left.wire.now = now + 1U;
+    right.wire.now = now + 1U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 1U) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now + 1U) == 0);
+    CHECK(right.app.sample_owner_result == DMP_SAMPLE1_OWNER_OK);
+    CHECK(dmp_sample1_endpoint_flush(&sample, now + 1U) == DMP_SAMPLE1_OWNER_OK);
+    right.app.have_pending = 0;
+    right.app.peer_pending_live[first_peer.slot] = 0U;
+    CHECK(pump(now + 1U, 8) == 0);
+    CHECK(left.app.results == 1 && left.app.last_status == 0U);
+    {
+        uint8_t expected[DMP_SAMPLE1_READ_BYTES];
+        CHECK(sample1_read_rsp(expected, 1U, 1U, UINT32_C(0x11223344)) ==
+              sizeof expected);
+        CHECK(left.app.result_n == sizeof expected &&
+              memcmp(left.app.result, expected, sizeof expected) == 0);
+    }
+    CHECK(pump(now + 2U, 4) == 0);
+
+    /* A same-epoch READ arriving over the old, still-live draining SA remains
+     * valid during its bounded retry window and must not stop the producer. */
+    CHECK(dmp_endpoint_set_drain_ms(&left.endpoint, 30000U) == DMP_OK);
+    CHECK(dmp_endpoint_set_peer_drain_ms(&right.endpoint, first_peer, 30000U) == DMP_OK);
+    status = dmp_endpoint_submit_req(&left.endpoint, 1U, span(&read, 1U),
+                                     now + 2U, &request);
+    CHECK(status == DMP_OK);
+    left.wire.now = now + 2U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 2U) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    old_cid = dmp_hs_rx_cid(initial.responder, initial_index);
+    if (!stream_protection(left.wire.q[0].frame, left.wire.q[0].len,
+                           now + 2U, &observed_cid, NULL, NULL)) {
+        (void)fprintf(stderr, "queued delayed READ is not a protected Core frame (len=%zu)\n",
+                      left.wire.q[0].len);
+    } else if (observed_cid != old_cid) {
+        (void)fprintf(stderr, "queued delayed READ CID %u differs from old CID %u\n",
+                      observed_cid, old_cid);
+    }
+    CHECK(drive_rotation(&initial, fixture, &rotation_init, &rotation_resp, 0xA6U));
+    CHECK(activate_at(&initial, rotation_init, rotation_resp));
+    new_cid = dmp_hs_rx_cid(initial.responder, rotation_resp);
+    if (new_cid == old_cid) {
+        (void)fprintf(stderr, "same-epoch rotation reused receive CID %u\n", old_cid);
+    }
+    CHECK(new_cid != old_cid);
+    CHECK(dmp_endpoint_rotate(&left.endpoint, rotation_init, now + 3U) == DMP_OK);
+    status = dmp_endpoint_rotate_peer(&right.endpoint, first_peer, rotation_resp,
+                                      now + 3U);
+    if (status != DMP_OK) {
+        (void)fprintf(stderr, "same-epoch SAMPLE-1 rotation returned %s (%d), attempt=%u\n",
+                      dmp_status_name(status), (int)status, rotation_resp);
+    }
+    CHECK(status == DMP_OK);
+    CHECK(dmp_sample1_endpoint_activate_peer(&sample, first_peer) ==
+          DMP_SAMPLE1_OWNER_OK);
+    CHECK(dmp_endpoint_peer_association(&right.endpoint, first_peer,
+                                        &stale_association) == DMP_OK);
+    CHECK(right.endpoint.peers[first_peer.slot].drain_live != 0U);
+    CHECK(sample.peers[first_peer.slot].draining_epoch == sample.owner.epoch);
+    if (right.endpoint.peers[first_peer.slot].drain_attempt != initial_index ||
+        dmp_hs_rx_cid(right.endpoint.peers[first_peer.slot].association,
+                      right.endpoint.peers[first_peer.slot].drain_attempt) != old_cid) {
+        (void)fprintf(stderr,
+                      "drain table mismatch: peer=%u active=%u drain=%u old=%u active_cid=%u drain_cid=%u frame_cid=%u\n",
+                      first_peer.slot,
+                      right.endpoint.peers[first_peer.slot].association_attempt,
+                      right.endpoint.peers[first_peer.slot].drain_attempt,
+                      initial_index,
+                      dmp_hs_rx_cid(right.endpoint.peers[first_peer.slot].association,
+                                    right.endpoint.peers[first_peer.slot].association_attempt),
+                      dmp_hs_rx_cid(right.endpoint.peers[first_peer.slot].association,
+                                    right.endpoint.peers[first_peer.slot].drain_attempt),
+                      observed_cid);
+    }
+    CHECK(right.endpoint.peers[first_peer.slot].drain_attempt == initial_index);
+    status = dmp_endpoint_validate_association(
+        &right.endpoint, right.endpoint.peers[first_peer.slot].drain_context,
+        LOCAL_NS, ID_RESP);
+    CHECK(status == DMP_OK);
+    right.wire.now = now + 3U;
+    CHECK(left.wire.n == 1);
+    status = dmp_endpoint_rx_from(
+        &right.endpoint, first_peer,
+        span(left.wire.q[0].frame, left.wire.q[0].len), now + 3U);
+    if (status != DMP_OK && status != DMP_INCOMPLETE && status != DMP_DUPLICATE) {
+        (void)fprintf(stderr, "draining SAMPLE-1 READ RX returned %s (%d)\n",
+                      dmp_status_name(status), (int)status);
+    }
+    CHECK(status == DMP_OK || status == DMP_INCOMPLETE || status == DMP_DUPLICATE);
+    left.wire.n = 0;
+    CHECK(right.app.sample_owner_result == DMP_SAMPLE1_OWNER_OK);
+    CHECK(dmp_sample1_endpoint_flush(&sample, now + 3U) == DMP_SAMPLE1_OWNER_OK);
+    right.app.have_pending = 0;
+    right.app.peer_pending_live[first_peer.slot] = 0U;
+    CHECK(pump(now + 3U, 8) == 0);
+    CHECK(left.app.results == 2 && left.app.last_status == 0U);
+
+    /* A borrowed epoch-1 frame must settle before epoch 2 can activate. */
+    CHECK(dmp_sample1_endpoint_publish(&sample, UINT32_C(0xAABBCCDD), now + 4U) ==
+          DMP_SAMPLE1_OWNER_OK);
+    right.wire.completion_outcome = DMP_TX_POSSIBLY_TRANSMITTED;
+    right.wire.now = now + 4U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now + 4U) == DMP_OK);
+    CHECK(right.wire.pending_count == 1U);
+    CHECK(dmp_endpoint_peer_fence_status(&right.endpoint, first_peer) ==
+          DMP_INVALID_ARGUMENT);
+    {
+        dmp_sample1_owner_result rollover =
+            dmp_sample1_endpoint_begin_epoch(&sample, now + 5U);
+        CHECK(rollover == DMP_SAMPLE1_OWNER_BUSY);
+    }
+    CHECK(dmp_endpoint_peer_fence_status(&right.endpoint, first_peer) == DMP_BUSY);
+    CHECK(store.durable_epoch == 2U && sample.owner.epoch == 1U &&
+          !sample.owner.active && !sample.owner.stopped);
+    CHECK(right.wire.pending_count == 1U);
+    CHECK(complete_pending_completions(&right.wire, now + 6U) == 0);
+    CHECK(dmp_endpoint_peer_fence_status(&right.endpoint, first_peer) == DMP_OK);
+    CHECK(dmp_sample1_endpoint_begin_epoch(&sample, now + 7U) == DMP_SAMPLE1_OWNER_OK);
+    CHECK(store.durable_epoch == 2U && sample.owner.epoch == 2U && sample.owner.active);
+    {
+        dmp_status old_peer_status =
+            dmp_endpoint_peer_association(&right.endpoint, first_peer, &association);
+        CHECK(old_peer_status == DMP_AUTHENTICATION_FAILURE ||
+              old_peer_status == DMP_STALE_HANDLE);
+    }
+    CHECK(dmp_sample1_endpoint_activate_peer(&sample, first_peer) ==
+          DMP_SAMPLE1_OWNER_NOT_READY);
+    replacement_now = now + 7U + right.endpoint.profile.result_cache_ms +
+                      right.endpoint.profile.send_horizon_ms + 10U;
+    CHECK(service(&right, replacement_now) == 0);
+    CHECK(dmp_endpoint_poll(&right.endpoint, replacement_now) == DMP_OK);
+
+    memset(&context, 0, sizeof context);
+    context.local.namespace_id = LOCAL_NS;
+    context.local.origin_id = ID_RESP;
+    context.peer.namespace_id = LOCAL_NS;
+    context.peer.origin_id = ID_INIT;
+    context.security = 1U;
+    status = dmp_endpoint_add_peer(&right.endpoint, &context, replacement_now + 1U,
+                                   &next_peer);
+    CHECK(status == DMP_OK);
+    CHECK(next_peer.slot == first_peer.slot &&
+          next_peer.generation != first_peer.generation);
+    CHECK(make_pair(&replacement, &replacement_port, fixture, NULL,
+                    initial.provider, 0));
+    CHECK(drive_nn(&replacement, &replacement_index));
+    CHECK(activate(&replacement, replacement_index));
+    CHECK(dmp_endpoint_bind_peer(&right.endpoint, next_peer,
+                                 replacement.responder, 0U) == DMP_OK);
+    CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, next_peer, grants,
+                                       2U) == DMP_OK);
+    CHECK(dmp_sample1_endpoint_activate_peer(&sample, next_peer) ==
+          DMP_SAMPLE1_OWNER_OK);
+    stale_request.generation = 1U;
+    stale_request.peer = next_peer;
+    CHECK(dmp_sample1_epoch_owner_accept_read(&sample.owner, stale_association,
+                                              stale_request, stale_request_key,
+                                              replacement_now + 2U) ==
+          DMP_SAMPLE1_OWNER_NOT_READY);
+    CHECK(sample.owner.active && !sample.owner.stopped && sample.owner.epoch == 2U &&
+          store.locked == 0U);
+    /* The uncertain outcome above belongs to the old borrowed epoch-1
+     * telemetry. Settle the replacement peer's delimiter definitively. */
+    right.wire.completion_outcome = DMP_TX_TRANSMITTED;
+    CHECK(dmp_sample1_endpoint_publish(&sample, UINT32_C(0x55667788), replacement_now + 3U) ==
+          DMP_SAMPLE1_OWNER_OK);
+    CHECK(store.published_epoch == 2U && store.published_index == 1U &&
+          store.published_value == UINT32_C(0x55667788));
+    right.wire.n = 0;
+    right.wire.now = replacement_now + 3U;
+    CHECK(dmp_endpoint_poll(&right.endpoint, replacement_now + 3U) == DMP_OK);
+    CHECK(right.wire.pending_count == 1);
+    CHECK(complete_pending_completions(&right.wire, replacement_now + 3U) == 0);
+    CHECK(dmp_endpoint_poll(&right.endpoint, replacement_now + 3U) == DMP_OK);
+    CHECK(wire_opens_type(&right.wire, replacement.initiator,
+                          replacement_index, DMP_TYPE_TELEM, opened,
+                          sizeof opened, &opened_size, replacement_now + 3U));
+    CHECK(opened_size == DMP_SAMPLE1_TELEM_BYTES &&
+          sample1_load_u64(opened) == 2U && sample1_load_u32(opened + 8U) == 1U &&
+          sample1_load_u32(opened + 12U) == UINT32_C(0x55667788));
+    CHECK(right.wire.pending_count == 1);
+    CHECK(complete_pending_completions(&right.wire, replacement_now + 3U) == 0);
+    right.wire.n = 0;
+
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = DMP_TYPE_REQ;
+    spec.fields.options = DMP_OPT_SEQ | DMP_OPT_ACK_REQ;
+    spec.fields.seq = 1U;
+    spec.payload = span(&read, 1U);
+    CHECK(dmp_hs_seal_logical(replacement.initiator, replacement_index,
+                              &spec, sealed, sizeof sealed, &sealed_size) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_size, framed, sizeof framed, &framed_size));
+    right.wire.now = replacement_now + 4U;
+    status = dmp_endpoint_rx_from(&right.endpoint, next_peer,
+                                  span(framed, framed_size), replacement_now + 4U);
+    CHECK(status == DMP_OK);
+    CHECK(right.app.sample_owner_result == DMP_SAMPLE1_OWNER_OK);
+    CHECK(dmp_sample1_endpoint_flush(&sample, replacement_now + 4U) == DMP_SAMPLE1_OWNER_OK);
+    CHECK(dmp_endpoint_poll(&right.endpoint, replacement_now + 4U) == DMP_OK);
+    CHECK(wire_opens_type(&right.wire, replacement.initiator,
+                          replacement_index, DMP_TYPE_RSP, opened,
+                          sizeof opened, &opened_size, replacement_now + 4U));
+    CHECK(opened_size == DMP_SAMPLE1_READ_BYTES && opened[0] == DMP_SAMPLE1_READ_OPCODE &&
+          sample1_load_u64(opened + 1U) == 2U &&
+          sample1_load_u32(opened + 9U) == 1U &&
+          sample1_load_u32(opened + 13U) == UINT32_C(0x55667788));
+    CHECK(store.locked == 0U);
+    close_session(&replacement);
+    close_session(&initial);
+    g_endpoint_test_admission = NULL;
+    return 0;
+}
+
+static int test_endpoint_shared_admission_four_pending(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session peers[5];
+    port_ctx peer_ports[5];
+    uint64_t admission_storage[2048];
+    dmp_peer_handle handles[4];
+    dmp_identity_context_config context;
+    dmp_hs_completion held_completions[2];
+    dmp_hs_completion refused_completion;
+    dmp_hs_completion fifth_completion;
+    const uint8_t *inbound_m1[2] = {NULL, NULL};
+    size_t inbound_m1_len[2] = {0U, 0U};
+    uint64_t inbound_boot_epoch[2] = {0U, 0U};
+    const uint8_t *local_m2[2] = {NULL, NULL};
+    size_t local_m2_len[2] = {0U, 0U};
+    uint32_t peer_ids[4] = {ID_INIT, 0x41U, 0x42U, 0x43U};
+    uint32_t initiator_indices[4] = {0U};
+    uint32_t responder_indices[2] = {0U};
+    uint32_t fifth_index = 0U;
+    uint32_t i;
+    size_t flight_len = 0U;
+    const uint8_t *flight;
+    dmp_hs_ingress ingress;
+    dmp_hs_status hs_status;
+    dmp_time_ms now = 19000U;
+
+    memset(peers, 0, sizeof peers);
+    memset(peer_ports, 0, sizeof peer_ports);
+    memset(admission_storage, 0, sizeof admission_storage);
+    memset(handles, 0, sizeof handles);
+    memset(held_completions, 0, sizeof held_completions);
+    memset(&refused_completion, 0, sizeof refused_completion);
+    memset(&fifth_completion, 0, sizeof fifth_completion);
+    memset(&right, 0, sizeof right);
+    g_endpoint_test_peer_count = 4U;
+    g_endpoint_test_scratch_slots = 2U;
+    g_endpoint_test_result_slots = 4U;
+    g_endpoint_test_handshake_pending = DMP_MULTI_PEER_PENDING_ATTEMPTS;
+    g_endpoint_test_message_bytes = DMP_MULTI_PEER_MESSAGE_BYTES;
+    g_endpoint_test_responder_admission_only = 1;
+    g_endpoint_test_initiator_admission_only = 0;
+    g_endpoint_test_admission = NULL;
+    g_endpoint_test_admission_storage = admission_storage;
+    if (fixture == NULL || dmp_hs_admission_size() > sizeof admission_storage ||
+        boot_node_slots(&right, 0, DMP_MULTI_PEER_CHUNK_BYTES,
+                        DMP_MULTI_PEER_FRAGMENTS, now, 8U) != 0 ||
+        dmp_endpoint_handshake_admission(&right.endpoint) !=
+            g_endpoint_test_admission) {
+        (void)fprintf(stderr, "shared SEC-1 admission setup failed\n");
+        goto fail;
+    }
+
+    /* Peer IDs follow the profile total: handle zero is the configured
+     * default peer, while the other three are explicit endpoint peers. */
+    handles[0].slot = 0U;
+    handles[0].generation = 1U;
+    for (i = 1U; i < 4U; i++) {
+        memset(&context, 0, sizeof context);
+        context.local.namespace_id = LOCAL_NS;
+        context.local.origin_id = ID_RESP;
+        context.peer.namespace_id = LOCAL_NS;
+        context.peer.origin_id = peer_ids[i];
+        context.security = 1U;
+        if (dmp_endpoint_add_peer(&right.endpoint, &context, now,
+                                  &handles[i]) != DMP_OK) {
+            (void)fprintf(stderr, "endpoint peer slot %u setup failed\n",
+                          (unsigned)i);
+            goto fail;
+        }
+    }
+    if (right.endpoint.profile.peers != 4U || right.endpoint.peer_count != 4U) {
+        (void)fprintf(stderr, "four-peer endpoint geometry mismatch\n");
+        goto fail;
+    }
+
+    /* Counts are endpoint totals across roles. Prepare two inbound responder
+     * flights and two local initiator schedules before holding any reads: a
+     * local schedule also needs a scratch slot while it builds flight one. */
+    for (i = 0U; i < 2U; i++) {
+        size_t entropy_index;
+        uint32_t peer_id = peer_ids[i];
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_attempt;
+             entropy_index++) {
+            g_endpoint_test_alt_attempt[entropy_index] =
+                (uint8_t)(0x60U + i * 17U + entropy_index);
+        }
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_init_ephemeral;
+             entropy_index++) {
+            g_endpoint_test_alt_init_ephemeral[entropy_index] =
+                (uint8_t)(fixture->init_ephemeral.data[entropy_index] ^
+                          (uint8_t)(peer_id + entropy_index));
+            g_endpoint_test_alt_resp_ephemeral[entropy_index] =
+                (uint8_t)(fixture->resp_ephemeral.data[entropy_index] ^
+                          (uint8_t)(peer_id + 3U * entropy_index));
+        }
+        g_endpoint_test_unique_entropy = 1;
+        g_endpoint_test_sender_id = peer_id;
+        if (!make_pair(&peers[i], &peer_ports[i], fixture,
+                       tune_test_sender_identity,
+                       i == 0U ? NULL : peers[0].provider, 1) ||
+            !dmp_hs_uses_admission(peers[i].responder,
+                                   g_endpoint_test_admission) ||
+            dmp_hs_uses_admission(peers[i].initiator,
+                                  g_endpoint_test_admission) ||
+            dmp_hs_schedule(peers[i].initiator,
+                            &initiator_indices[i]) != DMP_HS_OK) {
+            (void)fprintf(stderr, "inbound SEC-1 attempt setup failed for peer %u\n",
+                          (unsigned)i);
+            goto fail;
+        }
+        flight = dmp_hs_cached_flight(peers[i].initiator,
+                                      initiator_indices[i], &flight_len);
+        if (flight == NULL || flight_len == 0U) {
+            (void)fprintf(stderr, "inbound first flight missing for peer %u\n",
+                          (unsigned)i);
+            goto fail;
+        }
+        inbound_m1[i] = flight;
+        inbound_m1_len[i] = flight_len;
+        inbound_boot_epoch[i] = dmp_hs_boot_epoch(
+            peers[i].initiator, initiator_indices[i]);
+    }
+
+    g_endpoint_test_initiator_admission_only = 1;
+    g_endpoint_test_responder_admission_only = 0;
+    for (i = 2U; i < 4U; i++) {
+        size_t entropy_index;
+        uint32_t owner_index = i - 2U;
+        uint32_t peer_id = peer_ids[i];
+        uint8_t attempt_id[16];
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_attempt;
+             entropy_index++) {
+            g_endpoint_test_alt_attempt[entropy_index] =
+                (uint8_t)(0x80U + i * 13U + entropy_index);
+        }
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_init_ephemeral;
+             entropy_index++) {
+            g_endpoint_test_alt_init_ephemeral[entropy_index] =
+                (uint8_t)(fixture->init_ephemeral.data[entropy_index] ^
+                          (uint8_t)(peer_id + entropy_index));
+            g_endpoint_test_alt_resp_ephemeral[entropy_index] =
+                (uint8_t)(fixture->resp_ephemeral.data[entropy_index] ^
+                          (uint8_t)(peer_id + 3U * entropy_index));
+        }
+        g_endpoint_test_unique_entropy = 1;
+        g_endpoint_test_sender_id = peer_id;
+        if (!make_pair(&peers[i], &peer_ports[i], fixture,
+                       tune_test_local_initiator_identity,
+                       peers[0].provider, 1) ||
+            !dmp_hs_uses_admission(peers[i].initiator,
+                                   g_endpoint_test_admission) ||
+            dmp_hs_uses_admission(peers[i].responder,
+                                  g_endpoint_test_admission) ||
+            dmp_hs_schedule(peers[i].initiator,
+                            &initiator_indices[i]) != DMP_HS_OK ||
+            !dmp_hs_copy_attempt_id(peers[i].initiator,
+                                    initiator_indices[i], attempt_id)) {
+            (void)fprintf(stderr, "local SEC-1 attempt setup failed for peer %u\n",
+                          (unsigned)i);
+            goto fail;
+        }
+        flight = dmp_hs_cached_flight(peers[i].initiator,
+                                      initiator_indices[i], &flight_len);
+        if (flight == NULL || flight_len == 0U ||
+            !drive_flight(peers[i].responder, flight, flight_len,
+                          ID_RESP, peer_id, 1U,
+                          dmp_hs_boot_epoch(peers[i].initiator,
+                                            initiator_indices[i]),
+                          DMP_HS_CANDIDATE) ||
+            !find_cached_flight(peers[i].responder, attempt_id, 2U,
+                                &peers[i].responder_index)) {
+            (void)fprintf(stderr, "local SEC-1 reply setup failed for peer %u\n",
+                          (unsigned)i);
+            goto fail;
+        }
+        local_m2[owner_index] = dmp_hs_cached_flight(
+            peers[i].responder, peers[i].responder_index,
+            &local_m2_len[owner_index]);
+        if (local_m2[owner_index] == NULL || local_m2_len[owner_index] == 0U ||
+            dmp_hs_pending(peers[i].initiator) != 1U) {
+            (void)fprintf(stderr, "local SEC-1 pending attempt missing for peer %u\n",
+                          (unsigned)i);
+            goto fail;
+        }
+    }
+
+    /* These local schedules have consumed and released their scratch leases.
+     * Now two real inbound Noise reads retain both endpoint scratch leases. */
+    for (i = 0U; i < 2U; i++) {
+        memset(&ingress, 0, sizeof ingress);
+        ingress.payload = inbound_m1[i];
+        ingress.payload_len = inbound_m1_len[i];
+        ingress.origin_id = peer_ids[i];
+        ingress.destination_id = ID_RESP;
+        ingress.namespace_id = LOCAL_NS;
+        ingress.context_epoch = inbound_boot_epoch[i];
+        ingress.seq = 1U;
+        hs_status = dmp_hs_offer(peers[i].responder, &ingress,
+                                 &held_completions[i]);
+        if (hs_status != DMP_HS_AWAITING ||
+            dmp_hs_pending(peers[i].responder) != 1U) {
+            (void)fprintf(stderr,
+                          "inbound async read %u status=%d pending=%u\n",
+                          (unsigned)i, (int)hs_status,
+                          (unsigned)dmp_hs_pending(peers[i].responder));
+            goto fail;
+        }
+        responder_indices[i] = held_completions[i].attempt_index;
+    }
+    g_endpoint_test_unique_entropy = 0;
+    g_endpoint_test_sender_id = 0U;
+
+    if (dmp_hs_pending(peers[0].responder) != 1U ||
+        dmp_hs_pending(peers[1].responder) != 1U ||
+        dmp_hs_pending(peers[2].initiator) != 1U ||
+        dmp_hs_pending(peers[3].initiator) != 1U) {
+        (void)fprintf(stderr, "endpoint aggregate did not retain four pending attempts\n");
+        goto fail;
+    }
+
+    /* With both provider reads still awaiting acceptance, a real M2 read on
+     * one scheduled local attempt must be refused for lack of scratch, without
+     * dropping any of the four pending reservations. */
+    memset(&ingress, 0, sizeof ingress);
+    ingress.payload = local_m2[0];
+    ingress.payload_len = local_m2_len[0];
+    ingress.origin_id = peer_ids[2];
+    ingress.destination_id = ID_RESP;
+    ingress.namespace_id = LOCAL_NS;
+    ingress.context_epoch = dmp_hs_boot_epoch(peers[2].initiator,
+                                               initiator_indices[2]);
+    ingress.seq = 2U;
+    hs_status = dmp_hs_offer(peers[2].initiator, &ingress,
+                             &refused_completion);
+    if (hs_status != DMP_HS_REFUSED ||
+        dmp_hs_pending(peers[0].responder) != 1U ||
+        dmp_hs_pending(peers[1].responder) != 1U ||
+        dmp_hs_pending(peers[2].initiator) != 1U ||
+        dmp_hs_pending(peers[3].initiator) != 1U) {
+        (void)fprintf(stderr,
+                      "full scratch refusal status=%d changed a pending attempt\n",
+                      (int)hs_status);
+        goto fail;
+    }
+
+    /* Completion releases one scratch slot but leaves its candidate pending.
+     * The same real M2 read can now await acceptance in that recovered slot. */
+    if (dmp_hs_accept(peers[0].responder, &held_completions[0]) !=
+            DMP_HS_CANDIDATE ||
+        dmp_hs_pending(peers[0].responder) != 1U ||
+        dmp_hs_pending(peers[1].responder) != 1U ||
+        dmp_hs_pending(peers[2].initiator) != 1U ||
+        dmp_hs_pending(peers[3].initiator) != 1U ||
+        dmp_endpoint_bind_peer(&right.endpoint, handles[0],
+                               peers[0].responder,
+                               responder_indices[0]) != DMP_OK) {
+        (void)fprintf(stderr, "scratch recovery completion/bind failed\n");
+        goto fail;
+    }
+    hs_status = dmp_hs_offer(peers[2].initiator, &ingress,
+                             &held_completions[0]);
+    if (hs_status != DMP_HS_AWAITING ||
+        dmp_hs_pending(peers[0].responder) != 1U ||
+        dmp_hs_pending(peers[1].responder) != 1U ||
+        dmp_hs_pending(peers[2].initiator) != 1U ||
+        dmp_hs_pending(peers[3].initiator) != 1U) {
+        (void)fprintf(stderr,
+                      "recovered scratch slot was not usable; status=%d\n",
+                      (int)hs_status);
+        goto fail;
+    }
+
+    if (dmp_hs_accept(peers[1].responder, &held_completions[1]) !=
+            DMP_HS_CANDIDATE ||
+        dmp_endpoint_bind_peer(&right.endpoint, handles[1],
+                               peers[1].responder,
+                               responder_indices[1]) != DMP_OK ||
+        dmp_hs_accept(peers[2].initiator, &held_completions[0]) !=
+            DMP_HS_CANDIDATE ||
+        dmp_endpoint_bind_peer(&right.endpoint, handles[2],
+                               peers[2].initiator,
+                               initiator_indices[2]) != DMP_OK) {
+        (void)fprintf(stderr, "completed candidate peer binding failed\n");
+        goto fail;
+    }
+    ingress.payload = local_m2[1];
+    ingress.payload_len = local_m2_len[1];
+    ingress.origin_id = peer_ids[3];
+    ingress.context_epoch = dmp_hs_boot_epoch(peers[3].initiator,
+                                               initiator_indices[3]);
+    hs_status = dmp_hs_offer(peers[3].initiator, &ingress,
+                             &held_completions[0]);
+    if (hs_status != DMP_HS_AWAITING ||
+        dmp_hs_accept(peers[3].initiator, &held_completions[0]) !=
+            DMP_HS_CANDIDATE ||
+        dmp_endpoint_bind_peer(&right.endpoint, handles[3],
+                               peers[3].initiator,
+                               initiator_indices[3]) != DMP_OK) {
+        (void)fprintf(stderr, "fourth candidate peer binding failed\n");
+        goto fail;
+    }
+    for (i = 0U; i < 4U; i++) {
+        dmp_hs *owner = i < 2U ? peers[i].responder : peers[i].initiator;
+        uint32_t owner_attempt = i < 2U ? responder_indices[i]
+                                        : initiator_indices[i];
+        if (dmp_hs_pending(owner) != 1U ||
+            right.endpoint.peers[handles[i].slot].association_bound == 0U ||
+            right.endpoint.peers[handles[i].slot].association != owner ||
+            right.endpoint.peers[handles[i].slot].association_attempt !=
+                owner_attempt) {
+            (void)fprintf(stderr, "peer %u lost its bound pending attempt\n",
+                          (unsigned)i);
+            goto fail;
+        }
+    }
+
+    /* A fifth distinct NNpsk0 peer's first flight must hit the shared
+     * endpoint limit while the four earlier attempts are still pending. */
+    {
+        uint32_t peer_id = 0x50U;
+        size_t entropy_index;
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_attempt;
+             entropy_index++) {
+            g_endpoint_test_alt_attempt[entropy_index] =
+                (uint8_t)(0xa0U + entropy_index);
+        }
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_init_ephemeral;
+             entropy_index++) {
+            g_endpoint_test_alt_init_ephemeral[entropy_index] =
+                (uint8_t)(fixture->init_ephemeral.data[entropy_index] ^
+                          (uint8_t)(peer_id + entropy_index));
+            g_endpoint_test_alt_resp_ephemeral[entropy_index] =
+                (uint8_t)(fixture->resp_ephemeral.data[entropy_index] ^
+                          (uint8_t)(peer_id + 3U * entropy_index));
+        }
+        g_endpoint_test_unique_entropy = 1;
+        g_endpoint_test_sender_id = peer_id;
+        g_endpoint_test_initiator_admission_only = 0;
+        g_endpoint_test_responder_admission_only = 1;
+        if (!make_pair(&peers[4], &peer_ports[4], fixture,
+                       tune_test_sender_identity, peers[0].provider, 1) ||
+            !dmp_hs_uses_admission(peers[4].responder,
+                                   g_endpoint_test_admission) ||
+            dmp_hs_schedule(peers[4].initiator, &fifth_index) !=
+                DMP_HS_OK ||
+            (flight = dmp_hs_cached_flight(peers[4].initiator,
+                                           fifth_index, &flight_len)) ==
+                NULL ||
+            flight_len == 0U) {
+            (void)fprintf(stderr, "fifth SEC-1 attempt setup failed\n");
+            goto fail;
+        }
+        memset(&ingress, 0, sizeof ingress);
+        ingress.payload = flight;
+        ingress.payload_len = flight_len;
+        ingress.origin_id = peer_id;
+        ingress.destination_id = ID_RESP;
+        ingress.namespace_id = LOCAL_NS;
+        ingress.context_epoch =
+            dmp_hs_boot_epoch(peers[4].initiator, fifth_index);
+        ingress.seq = 1U;
+        hs_status = dmp_hs_offer(peers[4].responder, &ingress,
+                                 &fifth_completion);
+        if (hs_status != DMP_HS_REFUSED ||
+            dmp_hs_pending(peers[4].responder) != 0U) {
+            (void)fprintf(stderr,
+                          "fifth SEC-1 attempt status=%d pending=%u (expected refusal)\n",
+                          (int)hs_status,
+                          (unsigned)dmp_hs_pending(peers[4].responder));
+            goto fail;
+        }
+    }
+    for (i = 0U; i < 4U; i++) {
+        dmp_hs *owner = i < 2U ? peers[i].responder : peers[i].initiator;
+        if (dmp_hs_pending(owner) != 1U) {
+            (void)fprintf(stderr,
+                          "fifth SEC-1 attempt disturbed pending peer %u\n",
+                          (unsigned)i);
+            goto fail;
+        }
+    }
+
+    for (i = 5U; i > 0U; i--) {
+        close_session(&peers[i - 1U]);
+    }
+    g_endpoint_test_unique_entropy = 0;
+    g_endpoint_test_sender_id = 0U;
+    g_endpoint_test_peer_count = 0U;
+    g_endpoint_test_scratch_slots = 0U;
+    g_endpoint_test_result_slots = 0U;
+    g_endpoint_test_handshake_pending = 0U;
+    g_endpoint_test_message_bytes = 0U;
+    g_endpoint_test_responder_admission_only = 0;
+    g_endpoint_test_initiator_admission_only = 0;
+    g_endpoint_test_admission = NULL;
+    g_endpoint_test_admission_storage = NULL;
+    memset(&right, 0, sizeof right);
+    return 0;
+
+fail:
+    g_endpoint_test_unique_entropy = 0;
+    g_endpoint_test_sender_id = 0U;
+    for (i = 5U; i > 0U; i--) {
+        close_session(&peers[i - 1U]);
+    }
+    g_endpoint_test_peer_count = 0U;
+    g_endpoint_test_scratch_slots = 0U;
+    g_endpoint_test_result_slots = 0U;
+    g_endpoint_test_handshake_pending = 0U;
+    g_endpoint_test_message_bytes = 0U;
+    g_endpoint_test_responder_admission_only = 0;
+    g_endpoint_test_initiator_admission_only = 0;
+    g_endpoint_test_admission = NULL;
+    g_endpoint_test_admission_storage = NULL;
+    memset(&right, 0, sizeof right);
+    return 1;
+}
+
+static int test_protected_multi_peer_routing_profile(uint32_t scratch_slots)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session peers[5];
+    port_ctx peer_ports[5];
+    dmp_peer_handle handles[4];
+    dmp_identity_context_config context;
+    dmp_endpoint_grant grants[4];
+    uint64_t admission_storage[2048];
+    dmp_identity_handle active_assoc;
+    dmp_identity_handle active_assocs[4];
+    dmp_identity_handle drain_assocs[4];
+    uint32_t peer_ids[4] = {ID_INIT, 0x23U, 0x22U, 0x24U};
+    uint32_t indices[5] = {0U};
+    uint32_t replacement_index = 0U;
+    uint32_t rotated_indices[4] = {0U};
+    uint32_t i;
+    uint8_t sealed[FRAME_CAP];
+    uint8_t wrapped[FRAME_CAP];
+    uint8_t combined[FRAME_CAP * 2U];
+    uint8_t core[FRAME_CAP];
+    uint8_t plain[FRAME_CAP];
+    uint8_t drain_telem_frame[FRAME_CAP];
+    uint8_t payload;
+    uint8_t drain_telem_payload = 0xD3U;
+    uint8_t response;
+    size_t sealed_size;
+    size_t wrapped_size;
+    size_t combined_size;
+    size_t core_size;
+    size_t plain_size;
+    size_t drain_telem_len = 0U;
+    size_t frame_index;
+    uint64_t local_epoch;
+    uint64_t remote_epoch;
+    dmp_frame_spec spec;
+    dmp_frame_view view;
+    dmp_hs_protected incoming;
+    dmp_peer_handle replacement;
+    dmp_peer_handle stale;
+    dmp_time_ms now = 20000U;
+    dmp_time_ms rotate_at;
+    dmp_time_ms endpoint_now = now;
+    dmp_time_ms lifecycle_at;
+    dmp_status status;
+    uint8_t rotation_attempt[16] = {
+        0x91U, 0x42U, 0x27U, 0x18U, 0x55U, 0x36U, 0x73U, 0x04U,
+        0xa5U, 0x66U, 0x83U, 0x14U, 0xc5U, 0x86U, 0xa3U, 0x34U};
+
+    memset(peers, 0, sizeof peers);
+    memset(peer_ports, 0, sizeof peer_ports);
+    memset(handles, 0, sizeof handles);
+    g_endpoint_test_peer_count = DMP_MULTI_PEER_COUNT;
+    g_endpoint_test_scratch_slots = scratch_slots;
+    g_endpoint_test_result_slots = DMP_MULTI_PEER_APPLICATION_OPERATIONS;
+    g_endpoint_test_handshake_pending = DMP_MULTI_PEER_PENDING_ATTEMPTS;
+    g_endpoint_test_message_bytes = DMP_MULTI_PEER_MESSAGE_BYTES;
+    g_endpoint_test_responder_admission_only = 1;
+    g_endpoint_test_admission = NULL;
+    g_endpoint_test_admission_storage = admission_storage;
+    memset(admission_storage, 0, sizeof admission_storage);
+    if (fixture == NULL ||
+        dmp_hs_admission_size() > sizeof admission_storage ||
+        boot_node_slots(&right, 0, DMP_MULTI_PEER_CHUNK_BYTES,
+                        DMP_MULTI_PEER_FRAGMENTS, now, 8U) != 0) {
+        (void)fprintf(stderr, "multi-peer endpoint setup failed\n");
+        g_endpoint_test_peer_count = 0U;
+        g_endpoint_test_handshake_pending = 0U;
+        g_endpoint_test_message_bytes = 0U;
+        g_endpoint_test_admission = NULL;
+        g_endpoint_test_admission_storage = NULL;
+        return 1;
+    }
+    CHECK(right.endpoint.profile.peers == DMP_MULTI_PEER_COUNT);
+    CHECK(right.endpoint.profile.operations_per_service ==
+          DMP_MULTI_PEER_OPERATIONS_PER_SERVICE);
+    CHECK(right.endpoint.profile.message_bytes == DMP_MULTI_PEER_MESSAGE_BYTES);
+    CHECK(right.endpoint.profile.chunk_bytes == DMP_MULTI_PEER_CHUNK_BYTES);
+    CHECK(right.endpoint.profile.fragments == DMP_MULTI_PEER_FRAGMENTS);
+    CHECK(right.endpoint.profile.sender_slots == DMP_MULTI_PEER_SENDER_SLOTS);
+    CHECK(scratch_slots == DMP_MULTI_PEER_SERIAL_CRYPTO_SLOTS ||
+          scratch_slots == DMP_MULTI_PEER_PARALLEL_CRYPTO_SLOTS);
+    CHECK(dmp_endpoint_handshake_admission(&right.endpoint) ==
+          g_endpoint_test_admission);
+    if (!make_pair(&peers[0], &peer_ports[0], fixture, NULL, NULL, 0) ||
+        !drive_nn(&peers[0], &indices[0]) ||
+        !activate(&peers[0], indices[0])) {
+        (void)fprintf(stderr, "multi-peer setup failed for peer 0\n");
+        close_session(&peers[0]);
+        goto fail;
+    }
+    handles[0].slot = 0U;
+    handles[0].generation = 1U;
+    if (dmp_endpoint_bind_peer(&right.endpoint, handles[0],
+                               peers[0].responder, 0U) != DMP_OK) {
+        close_session(&peers[0]);
+        goto fail;
+    }
+    CHECK(right.endpoint.peers[handles[0].slot].association_reservation_live != 0U);
+    CHECK(dmp_endpoint_peer_association(&right.endpoint, handles[0],
+                                        &active_assoc) == DMP_OK);
+    CHECK(dmp_endpoint_validate_association(&right.endpoint, active_assoc,
+                                            LOCAL_NS, ID_RESP) == DMP_OK);
+    grants[0].principal = peer_ids[0];
+    grants[0].service_id = 1U;
+    grants[0].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_TELEM;
+    grants[1].principal = ID_RESP;
+    grants[1].service_id = 1U;
+    grants[1].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+    grants[2].principal = peer_ids[0];
+    grants[2].service_id = 2U;
+    grants[2].permit = DMP_ENDPOINT_PERMIT_REQ;
+    grants[3].principal = ID_RESP;
+    grants[3].service_id = 2U;
+    grants[3].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+    if (dmp_endpoint_set_peer_grants(&right.endpoint, handles[0], grants,
+                                     4U) != DMP_OK) {
+        goto fail;
+    }
+    CHECK(dmp_hs_uses_admission(peers[0].responder,
+                                g_endpoint_test_admission));
+    CHECK(!dmp_hs_uses_admission(peers[0].initiator,
+                                 g_endpoint_test_admission));
+
+    for (i = 1U; i < 4U; i++) {
+        size_t entropy_index;
+        memset(&context, 0, sizeof context);
+        context.local.namespace_id = LOCAL_NS;
+        context.local.origin_id = ID_RESP;
+        context.peer.namespace_id = LOCAL_NS;
+        context.peer.origin_id = peer_ids[i];
+        context.security = 1U;
+        if (dmp_endpoint_add_peer(&right.endpoint, &context, now,
+                                  &handles[i]) != DMP_OK) {
+            goto fail;
+        }
+        grants[0].principal = peer_ids[i];
+        grants[0].service_id = 1U;
+        grants[0].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_TELEM;
+        grants[1].principal = ID_RESP;
+        grants[1].service_id = 1U;
+        grants[1].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+        grants[2].principal = peer_ids[i];
+        grants[2].service_id = 2U;
+        grants[2].permit = DMP_ENDPOINT_PERMIT_REQ;
+        grants[3].principal = ID_RESP;
+        grants[3].service_id = 2U;
+        grants[3].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+        if (dmp_endpoint_set_peer_grants(&right.endpoint, handles[i], grants,
+                                         4U) != DMP_OK) {
+            goto fail;
+        }
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_attempt;
+             entropy_index++) {
+            g_endpoint_test_alt_attempt[entropy_index] =
+                (uint8_t)(0x30U + peer_ids[i] + entropy_index);
+        }
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_init_ephemeral;
+             entropy_index++) {
+            g_endpoint_test_alt_init_ephemeral[entropy_index] =
+                (uint8_t)(fixture->init_ephemeral.data[entropy_index] ^
+                          (uint8_t)(peer_ids[i] + entropy_index));
+            g_endpoint_test_alt_resp_ephemeral[entropy_index] =
+                (uint8_t)(fixture->resp_ephemeral.data[entropy_index] ^
+                          (uint8_t)(peer_ids[i] + 3U * entropy_index));
+        }
+        g_endpoint_test_unique_entropy = 1;
+        g_endpoint_test_sender_id = peer_ids[i];
+        if (!make_pair(&peers[i], &peer_ports[i], fixture,
+                       tune_test_sender_identity, peers[0].provider, 1)) {
+            (void)fprintf(stderr, "multi-peer make_pair failed for peer %u\n", i);
+            g_endpoint_test_unique_entropy = 0;
+            g_endpoint_test_sender_id = 0U;
+            goto fail;
+        }
+        peers[i].provider = NULL;
+        if (!drive_nn_for_ids(&peers[i], &indices[i], peer_ids[i], ID_RESP)) {
+            (void)fprintf(stderr, "multi-peer drive_nn failed for peer %u\n", i);
+            g_endpoint_test_unique_entropy = 0;
+            g_endpoint_test_sender_id = 0U;
+            goto fail;
+        }
+        if (!activate_for_ids(&peers[i], indices[i], peer_ids[i], ID_RESP)) {
+            (void)fprintf(stderr, "multi-peer activate failed for peer %u\n", i);
+            g_endpoint_test_unique_entropy = 0;
+            g_endpoint_test_sender_id = 0U;
+            goto fail;
+        }
+        g_endpoint_test_unique_entropy = 0;
+        g_endpoint_test_sender_id = 0U;
+        if (dmp_endpoint_bind_peer(&right.endpoint, handles[i],
+                                   peers[i].responder, 0U) != DMP_OK) {
+            goto fail;
+        }
+        CHECK(dmp_hs_uses_admission(peers[i].responder,
+                                    g_endpoint_test_admission));
+        CHECK(!dmp_hs_uses_admission(peers[i].initiator,
+                                     g_endpoint_test_admission));
+    }
+
+    for (i = 0U; i < 4U; i++) {
+        payload = (uint8_t)(0x40U + i);
+        memset(&spec, 0, sizeof spec);
+        spec.fields.type = DMP_TYPE_REQ;
+        spec.fields.options = DMP_OPT_SEQ | DMP_OPT_ACK_REQ;
+        spec.fields.seq = 1U;
+        spec.payload = span(&payload, sizeof payload);
+        CHECK(dmp_hs_seal_logical(peers[i].initiator, indices[i], &spec,
+                                  sealed, sizeof sealed, &sealed_size) ==
+              DMP_HS_OK);
+        CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped,
+                        &wrapped_size));
+        status = dmp_endpoint_rx_from(&right.endpoint, handles[i],
+                                      span(wrapped, wrapped_size), now + i);
+        if (status != DMP_OK) {
+            (void)fprintf(stderr,
+                          "multi-peer request RX for slot %u returned %s (%d); accepts=%d\n",
+                          (unsigned)i, dmp_status_name(status), (int)status,
+                          right.app.accepts);
+        }
+        CHECK(status == DMP_OK);
+        CHECK(right.app.accepts == (int)i + 1 &&
+              right.app.last_peer.slot == handles[i].slot &&
+              right.app.last_peer.generation == handles[i].generation &&
+              right.app.peer_pending_live[handles[i].slot] != 0U);
+    }
+
+    /* Four per-peer requests occupy the endpoint's shared result pool. A
+     * second service on peer 0 would fit its per-service quota, but the fifth
+     * outstanding operation must be refused at the endpoint-wide bound. */
+    {
+        uint8_t request = 0x85U;
+        uint8_t service_two_extensions[3] = {17U, 1U, 2U};
+        int accepts_before = right.app.accepts;
+        memset(&spec, 0, sizeof spec);
+        spec.fields.type = DMP_TYPE_REQ;
+        spec.fields.options = DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_EXT;
+        spec.fields.seq = 2U;
+        spec.extensions = span(service_two_extensions,
+                               sizeof service_two_extensions);
+        spec.payload = span(&request, sizeof request);
+        CHECK(dmp_hs_seal_logical(peers[0].initiator, indices[0], &spec,
+                                  sealed, sizeof sealed, &sealed_size) ==
+              DMP_HS_OK);
+        CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped,
+                        &wrapped_size));
+        status = dmp_endpoint_rx_from(&right.endpoint, handles[0],
+                                      span(wrapped, wrapped_size), now + 10U);
+        if (status != DMP_QUOTA_EXHAUSTED) {
+            (void)fprintf(stderr, "shared result-slot pressure returned %s (%d)\n",
+                          dmp_status_name(status), (int)status);
+        }
+        CHECK(status == DMP_QUOTA_EXHAUSTED);
+        CHECK(right.app.accepts == accepts_before);
+    }
+
+    for (i = 0U; i < 4U; i++) {
+        int response_opened = 0;
+        int decoded_frames = 0;
+        uint8_t last_type = 0U;
+        uint32_t response_seq = 0U;
+        payload = (uint8_t)(0x40U + i);
+        response = (uint8_t)~payload;
+        CHECK(right.app.peer_pending_live[handles[i].slot] != 0U);
+        CHECK(dmp_endpoint_complete(&right.endpoint,
+                                    right.app.peer_pending[handles[i].slot],
+                                    false, 0U, span(&response, sizeof response),
+                                    now + 20U + i) == DMP_OK);
+        right.app.peer_pending_live[handles[i].slot] = 0U;
+        {
+            uint32_t poll_index;
+            for (poll_index = 0U; poll_index < right.endpoint.profile.peers * 4U;
+                 poll_index++) {
+                CHECK(dmp_endpoint_poll(&right.endpoint, now + 20U + i) == DMP_OK);
+            }
+        }
+        CHECK(right.wire.n > 0);
+        CHECK(dmp_hs_epochs(peers[i].initiator, indices[i], &local_epoch,
+                            &remote_epoch));
+        CHECK(local_epoch != 0U && remote_epoch != 0U);
+        response_opened = 0;
+        for (frame_index = 0U; frame_index < (size_t)right.wire.n;
+             frame_index++) {
+            if (!unwrap_core(right.wire.q[frame_index].frame,
+                             right.wire.q[frame_index].len, core,
+                             sizeof core, &core_size, now + 20U + i)) {
+                if (right.wire.q[frame_index].len >= FRAME_CAP) {
+                    continue;
+                }
+                combined[0] = 0U;
+                memcpy(combined + 1U, right.wire.q[frame_index].frame,
+                       right.wire.q[frame_index].len);
+                if (!unwrap_core(combined,
+                                 right.wire.q[frame_index].len + 1U, core,
+                                 sizeof core, &core_size, now + 20U + i)) {
+                    continue;
+                }
+            }
+            decoded_frames++;
+            memset(&incoming, 0, sizeof incoming);
+            incoming.frame = core;
+            incoming.frame_len = core_size;
+            incoming.origin_id = ID_RESP;
+            incoming.destination_id = peer_ids[i];
+            incoming.namespace_id = LOCAL_NS;
+            incoming.context_epoch = remote_epoch;
+            CHECK(dmp_hs_open_logical(peers[i].initiator, indices[i],
+                                      &incoming, plain, sizeof plain,
+                                      &plain_size, &view) == DMP_HS_OK);
+            last_type = view.fields.type;
+            if (view.fields.type == DMP_TYPE_RSP) {
+                CHECK(view.payload.size == sizeof response &&
+                      view.payload.data[0] == response);
+                response_seq = view.fields.seq;
+                response_opened = 1;
+                break;
+            }
+        }
+        if (response_opened == 0) {
+            (void)fprintf(stderr,
+                          "multi-peer response absent for slot %u: frames=%d decoded=%d last_type=%u submits=%d\n",
+                          (unsigned)i, right.wire.n, decoded_frames,
+                          (unsigned)last_type, right.wire.submits);
+            for (frame_index = 0U; frame_index < (size_t)right.wire.n; frame_index++) {
+                (void)fprintf(stderr, "  frame[%zu] len=%zu first=%02x\n", frame_index,
+                              right.wire.q[frame_index].len,
+                              right.wire.q[frame_index].len != 0U
+                                  ? right.wire.q[frame_index].frame[0]
+                                  : 0U);
+            }
+        }
+        CHECK(response_opened != 0);
+        {
+            uint8_t ack_extensions[8];
+            uint8_t ack_sealed[FRAME_CAP];
+            uint8_t ack_wrapped[FRAME_CAP];
+            size_t ack_extension_size;
+            size_t ack_sealed_size = 0U;
+            size_t ack_wrapped_size = 0U;
+            dmp_bytes empty = {NULL, 0U};
+            ack_extensions[0] = 0x05U; /* Compact SEC-1 REPLY_TO. */
+            ack_extension_size = encode_test_uleb32(response_seq,
+                                                     ack_extensions + 2U);
+            ack_extensions[1] = (uint8_t)ack_extension_size;
+            ack_extension_size += 2U;
+            memset(&spec, 0, sizeof spec);
+            spec.fields.type = DMP_TYPE_ACK;
+            spec.fields.options = DMP_OPT_SEQ | DMP_OPT_EXT;
+            spec.fields.seq = 100U + i;
+            spec.extensions = span(ack_extensions, ack_extension_size);
+            spec.payload = empty;
+            CHECK(dmp_hs_seal_logical(peers[i].initiator, indices[i], &spec,
+                                      ack_sealed, sizeof ack_sealed,
+                                      &ack_sealed_size) == DMP_HS_OK);
+            CHECK(wrap_core(ack_sealed, ack_sealed_size, ack_wrapped,
+                            sizeof ack_wrapped, &ack_wrapped_size));
+            status = dmp_endpoint_rx_from(&right.endpoint, handles[i],
+                                          span(ack_wrapped, ack_wrapped_size),
+                                          now + 40U + i);
+            if (status != DMP_OK) {
+                (void)fprintf(stderr,
+                              "multi-peer response ACK for slot %u returned %s (%d)\n",
+                              (unsigned)i, dmp_status_name(status),
+                              (int)status);
+            }
+            CHECK(status == DMP_OK);
+            CHECK(service(&right, now + 40U + i) == 0);
+        }
+        right.wire.n = 0;
+    }
+
+    {
+        size_t sender_index;
+        size_t result_index;
+        unsigned live_senders = 0U;
+        unsigned live_results = 0U;
+        unsigned acked_results = 0U;
+        for (sender_index = 0U;
+             sender_index < right.endpoint.mem.sender_capacity;
+             sender_index++) {
+            live_senders += right.endpoint.mem.senders[sender_index].live != 0U;
+        }
+        for (result_index = 0U;
+             result_index < right.endpoint.mem.result_capacity;
+             result_index++) {
+            live_results += right.endpoint.mem.results[result_index].live != 0U;
+            acked_results += right.endpoint.mem.results[result_index].acknowledged != 0U;
+        }
+        CHECK(live_senders == 0U);
+        CHECK(live_results == 4U && acked_results == 4U);
+    }
+
+    /* Expire peer 1's retained request, then ensure peer 0's following
+     * receive batch keeps the route and decoder bound to peer 0. */
+    {
+        dmp_reliability_handle pending;
+        uint8_t request = 0xA1U;
+        uint8_t telem = 0xB2U;
+        dmp_time_ms submit_at = now +
+                                right.endpoint.profile.result_cache_ms + 10U;
+        dmp_time_ms expire_at = 0U;
+        int unknowns_before = right.app.unknowns;
+        int accepts_before = right.app.accepts;
+        int telems_before = right.app.telems;
+        dmp_identity_handle expected_context;
+
+        /* Acknowledged results remain in the shared cache until their original
+         * result-cache deadline. Age them out before exercising a new peer's
+         * independent pending request and timeout. */
+        CHECK(dmp_endpoint_poll(&right.endpoint, submit_at - 1U) == DMP_OK);
+        CHECK(dmp_endpoint_peer_association(&right.endpoint, handles[1],
+                                            &expected_context) == DMP_OK);
+        status = dmp_endpoint_submit_req_to(&right.endpoint, handles[1], 2U,
+                                            span(&request, 1U), submit_at,
+                                            &pending);
+        if (status != DMP_OK) {
+            (void)fprintf(stderr,
+                          "multi-peer outbound REQ on slot 1 returned %s (%d)\n",
+                          dmp_status_name(status), (int)status);
+        }
+        CHECK(status == DMP_OK);
+        CHECK(pending.slot < right.endpoint.mem.sender_capacity);
+        CHECK(right.endpoint.mem.senders[pending.slot].live != 0U &&
+              right.endpoint.mem.senders[pending.slot].generation ==
+                  pending.generation);
+        expire_at = right.endpoint.mem.senders[pending.slot].result_deadline + 1U;
+        CHECK(dmp_endpoint_poll(&right.endpoint, submit_at) == DMP_OK);
+        CHECK(service(&right, submit_at) == 0);
+        right.wire.n = 0;
+
+        memset(&spec, 0, sizeof spec);
+        spec.fields.type = DMP_TYPE_REQ;
+        spec.fields.options = DMP_OPT_SEQ | DMP_OPT_ACK_REQ;
+        spec.fields.seq = 2U;
+        spec.payload = span(&request, 1U);
+        CHECK(dmp_hs_seal_logical(peers[0].initiator, indices[0], &spec,
+                                  sealed, sizeof sealed, &sealed_size) == DMP_HS_OK);
+        CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped,
+                        &wrapped_size));
+        memcpy(combined, wrapped, wrapped_size);
+        combined_size = wrapped_size;
+
+        memset(&spec, 0, sizeof spec);
+        spec.fields.type = DMP_TYPE_TELEM;
+        spec.fields.options = DMP_OPT_SEQ;
+        spec.fields.seq = 3U;
+        spec.payload = span(&telem, 1U);
+        CHECK(dmp_hs_seal_logical(peers[0].initiator, indices[0], &spec,
+                                  sealed, sizeof sealed, &sealed_size) == DMP_HS_OK);
+        CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped,
+                        &wrapped_size));
+        CHECK(combined_size + wrapped_size <= sizeof combined);
+        memcpy(combined + combined_size, wrapped, wrapped_size);
+        combined_size += wrapped_size;
+
+        CHECK(dmp_endpoint_poll(&right.endpoint, expire_at) == DMP_OK);
+        if (right.app.unknowns != unknowns_before + 1) {
+            (void)fprintf(stderr,
+                          "peer expiry notification count=%d before=%d local_unsent=%d last_peer=%u/%llu pending=%u result_deadline=%llu now=%llu wire_pending=%d\n",
+                          right.app.unknowns, unknowns_before,
+                          right.app.local_unsent,
+                          (unsigned)right.app.last_unknown_peer.slot,
+                          (unsigned long long)right.app.last_unknown_peer.generation,
+                          (unsigned)right.endpoint.mem.senders[pending.slot].live,
+                          (unsigned long long)right.endpoint.mem.senders[pending.slot].result_deadline,
+                          (unsigned long long)expire_at,
+                          right.wire.pending_count);
+        }
+        CHECK(right.app.unknowns == unknowns_before + 1 &&
+              right.app.last_unknown_peer.slot == handles[1].slot &&
+              right.app.last_unknown_peer.generation == handles[1].generation &&
+              right.app.last_notice_association.slot == expected_context.slot &&
+              right.app.last_notice_association.generation == expected_context.generation);
+        unknowns_before = right.app.unknowns;
+        status = dmp_endpoint_rx_from(&right.endpoint, handles[0],
+                                      span(combined, combined_size), expire_at);
+        if (status != DMP_OK) {
+            (void)fprintf(stderr,
+                          "multi-peer combined expiry RX returned %s (%d)\n",
+                          dmp_status_name(status), (int)status);
+        }
+        CHECK(status == DMP_OK);
+        CHECK(right.app.unknowns == unknowns_before);
+        CHECK(right.app.accepts == accepts_before + 1 &&
+              right.app.last_peer.slot == handles[0].slot &&
+              right.app.last_peer.generation == handles[0].generation);
+        CHECK(right.app.telems == telems_before + 1 &&
+              right.app.last_peer.slot == handles[0].slot &&
+              right.app.last_peer.generation == handles[0].generation &&
+              right.endpoint.active_peer_slot == handles[0].slot);
+        endpoint_now = expire_at;
+    }
+
+    /* Reliable work and endpoint telemetry share one peer round-robin and
+     * one accepted-TX budget, including synchronous transport completions. */
+    {
+        uint8_t request_payload = 0xA5U;
+        uint8_t telem_payload = 0x5AU;
+        dmp_reliability_handle scheduled_request;
+        uint8_t observed_types[2] = {0U, 0U};
+        dmp_time_ms at = endpoint_now + 5U;
+        int wire_before;
+
+        grants[1].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT |
+                           DMP_ENDPOINT_PERMIT_TELEM;
+        CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, handles[0], grants, 4U) == DMP_OK);
+        for (i = 0U; i < 4U; i++) {
+            if (right.endpoint.peers[i].sync_pending != 0U) {
+                right.wire.now = at;
+                wire_before = right.wire.n;
+                CHECK(dmp_endpoint_poll(&right.endpoint, at++) == DMP_OK);
+                CHECK(right.wire.n <= wire_before + 1);
+                right.wire.n = 0;
+            }
+        }
+        right.wire.n = 0;
+        CHECK(dmp_endpoint_submit_req_to(&right.endpoint, handles[0], 2U,
+                                         span(&request_payload, 1U), at,
+                                         &scheduled_request) == DMP_OK);
+        CHECK(dmp_endpoint_submit_telem_to(&right.endpoint, handles[0], 1U,
+                                           span(&telem_payload, 1U), at) == DMP_OK);
+        for (i = 0U; i < 2U; i++) {
+            wire_before = right.wire.n;
+            right.wire.now = at + i;
+            CHECK(dmp_endpoint_poll(&right.endpoint, at + i) == DMP_OK);
+            CHECK(right.wire.n == wire_before + 1);
+            CHECK(protected_frame_type_seq(right.wire.q[wire_before].frame,
+                                           right.wire.q[wire_before].len, at + i,
+                                           &observed_types[i], NULL));
+        }
+        CHECK((observed_types[0] == DMP_TYPE_REQ && observed_types[1] == DMP_TYPE_TELEM) ||
+              (observed_types[0] == DMP_TYPE_TELEM && observed_types[1] == DMP_TYPE_REQ));
+        /* This is an outbound sender handle. Abandon is for app-held inbound
+         * requests after their association has closed. */
+        CHECK(dmp_reliability_cancel(&right.endpoint.reliability,
+                                     scheduled_request, at + 2U) == DMP_OK);
+        grants[1].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+        CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, handles[0], grants, 4U) == DMP_OK);
+        right.wire.n = 0;
+        endpoint_now = at + 2U;
+    }
+
+    /* Rotate all four associations while retaining all four old contexts.
+     * The shared endpoint must support four active plus four draining routes. */
+    rotate_at = endpoint_now + 10U;
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = DMP_TYPE_TELEM;
+    spec.fields.options = DMP_OPT_SEQ;
+    spec.fields.seq = 77U;
+    spec.payload = span(&drain_telem_payload, sizeof drain_telem_payload);
+    CHECK(dmp_hs_seal_logical(peers[0].initiator, indices[0], &spec, sealed,
+                              sizeof sealed, &sealed_size) == DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped, &wrapped_size));
+    CHECK(wrapped_size <= sizeof drain_telem_frame);
+    memcpy(drain_telem_frame, wrapped, wrapped_size);
+    drain_telem_len = wrapped_size;
+    for (i = 0U; i < 4U; i++) {
+        /* All original client-side ciphers have finished their traffic checks;
+         * the endpoint-side responder contexts stay active and retain the old
+         * association while each remote initiator is renewed below. */
+        dmp_hs_cleanup(peers[i].initiator);
+    }
+    for (i = 0U; i < 4U; i++) {
+        size_t entropy_index;
+        CHECK(dmp_endpoint_set_peer_drain_ms(&right.endpoint, handles[i],
+                                             1000U) == DMP_OK);
+        CHECK(dmp_endpoint_peer_association(&right.endpoint, handles[i],
+                                            &active_assocs[i]) == DMP_OK);
+        if (i == 0U) {
+            memcpy(peers[i].rot_id, rotation_attempt,
+                   sizeof peers[i].rot_id);
+        } else {
+            for (entropy_index = 0U; entropy_index < sizeof peers[i].rot_id;
+                 entropy_index++) {
+                peers[i].rot_id[entropy_index] =
+                    (uint8_t)(0x91U + 17U * i + entropy_index);
+            }
+        }
+        for (entropy_index = 0U; entropy_index < sizeof peers[i].rot_init_eph;
+             entropy_index++) {
+            peers[i].rot_init_eph[entropy_index] =
+                (uint8_t)(fixture->init_ephemeral.data[entropy_index] ^
+                          (uint8_t)(0x21U + i + entropy_index));
+            peers[i].rot_resp_eph[entropy_index] =
+                (uint8_t)(fixture->resp_ephemeral.data[entropy_index] ^
+                          (uint8_t)(0x43U + 3U * i + entropy_index));
+        }
+        script_add(&peers[i].init_script, peers[i].rot_id,
+                   sizeof peers[i].rot_id);
+        script_add(&peers[i].init_script, peers[i].rot_init_eph,
+                   sizeof peers[i].rot_init_eph);
+        script_add(&peers[i].resp_script, peers[i].rot_resp_eph,
+                   sizeof peers[i].rot_resp_eph);
+        peers[i].now = rotate_at + i;
+        if (!renew_multi_peer_initiator(&peers[i], peers[0].provider,
+                                        fixture, peer_ids[i])) {
+            (void)fprintf(stderr, "multi-peer initiator renewal failed for peer %u\n",
+                          (unsigned)i);
+            goto fail;
+        }
+        if (!drive_nn_for_ids(&peers[i], &rotated_indices[i],
+                              peer_ids[i], ID_RESP)) {
+            (void)fprintf(stderr, "multi-peer rotation handshake failed for peer %u\n",
+                          (unsigned)i);
+            goto fail;
+        }
+        CHECK(activate_for_ids(&peers[i], rotated_indices[i],
+                               peer_ids[i], ID_RESP));
+        CHECK(dmp_endpoint_rotate_peer(&right.endpoint, handles[i],
+                                       peers[i].responder_index, rotate_at + i) ==
+              DMP_OK);
+        CHECK(right.endpoint.peers[handles[i].slot].association_bound != 0U &&
+              right.endpoint.peers[handles[i].slot].drain_live != 0U &&
+              right.endpoint.peers[handles[i].slot].association_reservation_live != 0U &&
+              right.endpoint.peers[handles[i].slot].drain_reservation_live != 0U);
+        CHECK(dmp_endpoint_peer_association(&right.endpoint, handles[i],
+                                            &active_assoc) == DMP_OK);
+        CHECK(dmp_endpoint_validate_association(&right.endpoint, active_assoc,
+                                                LOCAL_NS, ID_RESP) == DMP_OK);
+        CHECK(dmp_endpoint_validate_association(&right.endpoint,
+                                                active_assocs[i], LOCAL_NS,
+                                                ID_RESP) == DMP_OK);
+        drain_assocs[i] = active_assocs[i];
+        dmp_hs_cleanup(peers[i].initiator);
+    }
+    for (i = 0U; i < 4U; i++) {
+        CHECK(right.endpoint.peers[handles[i].slot].drain_live != 0U);
+    }
+    CHECK(dmp_endpoint_rx_from(&right.endpoint, handles[0],
+                               span(drain_telem_frame, drain_telem_len),
+                               rotate_at + 5U) == DMP_OK);
+    CHECK(right.app.last_notice_association.slot == drain_assocs[0].slot &&
+          right.app.last_notice_association.generation == drain_assocs[0].generation);
+    status = dmp_endpoint_poll(&right.endpoint, rotate_at + 1005U);
+    /* The peer-0 request still retains its old identity context while the
+     * other three expired drains can be retired immediately. */
+    CHECK(status == DMP_OK || status == DMP_DEADLINE_EXPIRED);
+    CHECK(right.endpoint.peers[handles[0].slot].drain_live != 0U);
+    CHECK(dmp_endpoint_validate_association(&right.endpoint, drain_assocs[0],
+                                            LOCAL_NS, ID_RESP) ==
+          DMP_AUTHENTICATION_FAILURE);
+    for (i = 1U; i < 4U; i++) {
+        CHECK(right.endpoint.peers[handles[i].slot].drain_live == 0U);
+        CHECK(right.endpoint.peers[handles[i].slot].drain_reservation_live == 0U);
+        CHECK(dmp_endpoint_validate_association(&right.endpoint,
+                                                drain_assocs[i], LOCAL_NS,
+                                                ID_RESP) ==
+              DMP_AUTHENTICATION_FAILURE);
+    }
+
+    lifecycle_at = rotate_at + right.endpoint.profile.correlation_ms + 32U;
+    status = dmp_endpoint_poll(&right.endpoint, lifecycle_at);
+    CHECK(status == DMP_OK || status == DMP_DEADLINE_EXPIRED);
+    for (i = 0U; i < 4U; i++) {
+        CHECK(right.endpoint.peers[handles[i].slot].drain_live == 0U);
+        CHECK(right.endpoint.peers[handles[i].slot].drain_reservation_live == 0U);
+        CHECK(dmp_endpoint_validate_association(&right.endpoint,
+                                                drain_assocs[i], LOCAL_NS,
+                                                ID_RESP) ==
+              DMP_AUTHENTICATION_FAILURE);
+    }
+
+    stale = handles[0];
+    CHECK(dmp_endpoint_revoke_peer(&right.endpoint, stale, lifecycle_at + 1U) ==
+          DMP_OK);
+    memset(&context, 0, sizeof context);
+    context.local.namespace_id = LOCAL_NS;
+    context.local.origin_id = ID_RESP;
+    context.peer.namespace_id = LOCAL_NS;
+    context.peer.origin_id = peer_ids[1];
+    context.security = 1U;
+    {
+        dmp_peer_handle duplicate = {UINT32_MAX, UINT64_MAX};
+        CHECK(dmp_endpoint_add_peer(&right.endpoint, &context, lifecycle_at + 2U,
+                                    &duplicate) == DMP_DUPLICATE);
+        CHECK(duplicate.slot == UINT32_MAX && duplicate.generation == UINT64_MAX);
+    }
+    context.peer.origin_id = 0x30U;
+    context.security = 1U;
+    CHECK(dmp_endpoint_add_peer(&right.endpoint, &context, lifecycle_at + 3U,
+                                &replacement) == DMP_OK);
+    CHECK(replacement.slot == stale.slot &&
+          replacement.generation != stale.generation &&
+          right.endpoint.peers[replacement.slot].association_reservation_live == 0U &&
+          right.endpoint.peers[replacement.slot].drain_reservation_live == 0U);
+    grants[0].principal = 0x30U;
+    grants[0].service_id = 1U;
+    grants[0].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_TELEM;
+    grants[1].principal = ID_RESP;
+    grants[1].service_id = 1U;
+    grants[1].permit = DMP_ENDPOINT_PERMIT_RESULT;
+    CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, replacement, grants,
+                                       2U) == DMP_OK);
+    {
+        size_t entropy_index;
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_attempt;
+             entropy_index++) {
+            g_endpoint_test_alt_attempt[entropy_index] =
+                (uint8_t)(0x70U + entropy_index);
+        }
+        for (entropy_index = 0U;
+             entropy_index < sizeof g_endpoint_test_alt_init_ephemeral;
+             entropy_index++) {
+            g_endpoint_test_alt_init_ephemeral[entropy_index] =
+                (uint8_t)(fixture->init_ephemeral.data[entropy_index] ^
+                          (uint8_t)(0x30U + entropy_index));
+            g_endpoint_test_alt_resp_ephemeral[entropy_index] =
+                (uint8_t)(fixture->resp_ephemeral.data[entropy_index] ^
+                          (uint8_t)(0x50U + entropy_index));
+        }
+    }
+    g_endpoint_test_unique_entropy = 1;
+    g_endpoint_test_sender_id = 0x30U;
+    CHECK(make_pair(&peers[4], &peer_ports[4], fixture,
+                    tune_test_sender_identity, peers[0].provider, 1));
+    peers[4].provider = NULL;
+    g_endpoint_test_unique_entropy = 0;
+    g_endpoint_test_sender_id = 0U;
+    CHECK(drive_nn_for_ids(&peers[4], &replacement_index, 0x30U, ID_RESP));
+    CHECK(activate_for_ids(&peers[4], replacement_index, 0x30U, ID_RESP));
+    CHECK(dmp_endpoint_bind_peer(&right.endpoint, replacement, peers[4].responder,
+                                 0U) == DMP_OK);
+
+    {
+        int telems_before_replacement = right.app.telems;
+        memset(&spec, 0, sizeof spec);
+        spec.fields.type = DMP_TYPE_TELEM;
+        spec.fields.options = DMP_OPT_SEQ;
+        spec.fields.seq = 1U;
+        payload = 0x7cU;
+        spec.payload = span(&payload, sizeof payload);
+        CHECK(dmp_hs_seal_logical(peers[4].initiator, replacement_index, &spec,
+                                  sealed, sizeof sealed, &sealed_size) == DMP_HS_OK);
+        CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped,
+                        &wrapped_size));
+        CHECK(dmp_endpoint_rx_from(&right.endpoint, stale,
+                                   span(wrapped, wrapped_size), lifecycle_at + 4U) ==
+              DMP_STALE_HANDLE);
+        CHECK(right.app.telems == telems_before_replacement);
+        CHECK(dmp_endpoint_rx_from(&right.endpoint, replacement,
+                                   span(wrapped, wrapped_size), lifecycle_at + 4U) ==
+              DMP_OK);
+        CHECK(right.app.telems == telems_before_replacement + 1 &&
+              right.app.last_peer.slot == replacement.slot &&
+              right.app.last_peer.generation == replacement.generation);
+    }
+
+    for (i = 5U; i > 0U; i--) {
+        close_session(&peers[i - 1U]);
+    }
+    g_endpoint_test_peer_count = 0U;
+    g_endpoint_test_scratch_slots = 0U;
+    g_endpoint_test_result_slots = 0U;
+    g_endpoint_test_handshake_pending = 0U;
+    g_endpoint_test_message_bytes = 0U;
+    g_endpoint_test_responder_admission_only = 0;
+    g_endpoint_test_admission = NULL;
+    g_endpoint_test_admission_storage = NULL;
+    return 0;
+
+fail:
+    g_endpoint_test_sender_id = 0U;
+    g_endpoint_test_unique_entropy = 0;
+    for (i = 5U; i > 0U; i--) {
+        close_session(&peers[i - 1U]);
+    }
+    g_endpoint_test_peer_count = 0U;
+    g_endpoint_test_scratch_slots = 0U;
+    g_endpoint_test_result_slots = 0U;
+    g_endpoint_test_handshake_pending = 0U;
+    g_endpoint_test_message_bytes = 0U;
+    g_endpoint_test_responder_admission_only = 0;
+    g_endpoint_test_admission = NULL;
+    g_endpoint_test_admission_storage = NULL;
+    return 1;
+}
+
+static int test_protected_multi_peer_routing(void)
+{
+    if (test_endpoint_shared_admission_four_pending() != 0) {
+        return 1;
+    }
+    /* Keep the lifecycle/routing exercise on both manifest sensitivities:
+     * four_parallel owns two crypto slots; four_serial owns one. */
+    if (test_protected_multi_peer_routing_profile(
+            DMP_MULTI_PEER_PARALLEL_CRYPTO_SLOTS) != 0) {
+        return 1;
+    }
+    return test_protected_multi_peer_routing_profile(
+        DMP_MULTI_PEER_SERIAL_CRYPTO_SLOTS);
 }
 
 static int test_protected_sample_late_assoc(void)
@@ -2850,7 +5293,8 @@ static int test_protected_sample_late_assoc(void)
     CHECK(activate_at(&env, next_init, next_resp));
     CHECK(dmp_endpoint_rotate(&left.endpoint, next_init, now + 1U) == DMP_OK);
     CHECK(dmp_endpoint_rotate(&right.endpoint, next_resp, now + 1U) == DMP_OK);
-    CHECK(left.endpoint.drain_live != 0U && right.endpoint.drain_live != 0U);
+    CHECK(left.endpoint.peers[0].drain_live != 0U &&
+          right.endpoint.peers[0].drain_live != 0U);
     new_cid = dmp_hs_rx_cid(env.initiator, next_init);
     CHECK(new_cid != 0U && new_cid != old_cid);
 
@@ -3029,7 +5473,7 @@ static int test_protected_sample_superseded(void)
     return 0;
 }
 
-static int test_protected_sample_init_timeout(void)
+static int exercise_protected_sample_init_retry(int require_retry_success)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
     session env;
@@ -3038,12 +5482,17 @@ static int test_protected_sample_init_timeout(void)
     uint32_t index = 0U;
     uint8_t read = SAMPLE1_READ;
     uint8_t response[SAMPLE1_READ_BYTES];
-    dmp_reliability_handle designated;
+    dmp_reliability_handle first;
+    dmp_reliability_handle second;
+    dmp_reliability_handle first_producer_request;
+    dmp_reliability_handle second_producer_request;
+    dmp_message_key first_key;
+    dmp_message_key second_key;
     dmp_status late_status;
     dmp_time_ms now = 20000U;
-    dmp_time_ms deadline = now + SAMPLE_INIT_DEADLINE_MS;
-    uint32_t attempts = 0U;
-    int init_failed = 0;
+    dmp_time_ms first_deadline = now + SAMPLE_RESULT_DEADLINE_MS;
+    dmp_time_ms retry_at;
+    dmp_time_ms init_deadline = now + SAMPLE_INIT_DEADLINE_MS;
 
     if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
         !drive_nn(&env, &index) || !activate(&env, index)) {
@@ -3052,41 +5501,116 @@ static int test_protected_sample_init_timeout(void)
     }
     CHECK(SAMPLE_INIT_ATTEMPTS > 0U && SAMPLE_INIT_RETRY_MS > 0U);
     CHECK(SAMPLE_INIT_DEADLINE_MS > 0U);
-    CHECK(SAMPLE_INIT_DEADLINE_MS <= SAMPLE_RESULT_DEADLINE_MS);
+    CHECK(SAMPLE_INIT_DEADLINE_MS >=
+          SAMPLE_INIT_ATTEMPTS * SAMPLE_RESULT_DEADLINE_MS +
+              (SAMPLE_INIT_ATTEMPTS - 1U) * SAMPLE_INIT_RETRY_MS);
+    if (require_retry_success) {
+        CHECK(SAMPLE_INIT_ATTEMPTS == 2U);
+    }
     CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
     CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
     CHECK(bind_pair(&env, index) == 0);
+    right.sample_state = &state;
+
+    /* Each newly bound Stream R endpoint emits its sync delimiter before
+     * application frames. Complete that exchange before asserting READ delivery. */
+    left.wire.now = now;
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(deliver_all(&right, &left, now) == 0);
 
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof read), now,
-                                  &designated) == DMP_OK);
-    attempts++;
+                                  &first) == DMP_OK);
+    right.sample_designated = first;
     right.wire.now = now;
     CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
     CHECK(deliver_all(&right, &left, now) == 0);
-    CHECK(left.app.accepts == 1 && left.app.have_pending);
+    CHECK(left.app.accepts == 1 && left.app.have_pending &&
+          left.app.request_service == 1U && left.app.req_n == sizeof read &&
+          left.app.req[0] == SAMPLE1_READ);
+    first_producer_request = left.app.pending;
+    first_key = right.senders[first.slot].own;
 
-    right.wire.now = deadline;
-    CHECK(dmp_endpoint_poll(&right.endpoint, deadline) == DMP_OK);
+    right.wire.now = first_deadline;
+    CHECK(dmp_endpoint_poll(&right.endpoint, first_deadline) == DMP_OK);
     CHECK(right.app.unknowns == 1 && right.app.results == 0);
-    if (attempts >= SAMPLE_INIT_ATTEMPTS || deadline >= now + SAMPLE_INIT_DEADLINE_MS) {
-        init_failed = 1;
-    }
-    CHECK(init_failed == 1 && state.synchronized == 0);
-    CHECK(attempts == 1U);
-
     CHECK(sample1_read_rsp(response, 9U, 1U, 100U) == sizeof response);
-    left.wire.now = deadline;
-    CHECK(dmp_endpoint_poll(&left.endpoint, deadline) == DMP_OK);
-    late_status = dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
-                                        span(response, sizeof response), deadline);
+    late_status = dmp_endpoint_complete(&left.endpoint, first_producer_request, false, 0U,
+                                        span(response, sizeof response), first_deadline);
+    CHECK(late_status == DMP_OK);
+    /* Producer completion may queue the response at the deadline. The
+     * consumer's expired correlation must still reject it on delivery. */
+    left.app.have_pending = 0;
+    left.wire.now = first_deadline;
+    CHECK(dmp_endpoint_poll(&left.endpoint, first_deadline) == DMP_OK);
+    CHECK(deliver_all(&left, &right, first_deadline) == 0);
+    CHECK(state.synchronized == 0 && right.app.results == 0);
+
+    if (SAMPLE_INIT_ATTEMPTS == 1U) {
+        CHECK(!require_retry_success);
+        CHECK(first_deadline == init_deadline);
+        close_session(&env);
+        return 0;
+    }
+
+    CHECK(SAMPLE_INIT_ATTEMPTS == 2U);
+    retry_at = first_deadline + SAMPLE_INIT_RETRY_MS;
+    CHECK(retry_at < init_deadline);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(&read, sizeof read), retry_at,
+                                  &second) == DMP_OK);
+    right.sample_designated = second;
+    CHECK(!same_handle(first, second));
+    second_key = right.senders[second.slot].own;
+    CHECK(first_key.origin.namespace_id == second_key.origin.namespace_id &&
+          first_key.origin.origin_id == second_key.origin.origin_id &&
+          first_key.origin.epoch == second_key.origin.epoch &&
+          first_key.seq != second_key.seq);
+    right.wire.now = retry_at;
+    CHECK(dmp_endpoint_poll(&right.endpoint, retry_at) == DMP_OK);
+    CHECK(deliver_all(&right, &left, retry_at) == 0);
+    CHECK(left.app.accepts == 2 && left.app.have_pending &&
+          left.app.request_service == 1U && left.app.req_n == sizeof read &&
+          left.app.req[0] == SAMPLE1_READ);
+    second_producer_request = left.app.pending;
+    CHECK(!same_handle(first_producer_request, second_producer_request));
+
+    CHECK(sample1_read_rsp(response, 9U, 2U, 200U) == sizeof response);
+    CHECK(dmp_endpoint_complete(&left.endpoint, second_producer_request, false, 0U,
+                                span(response, sizeof response), retry_at) == DMP_OK);
+    left.wire.now = retry_at;
+    CHECK(dmp_endpoint_poll(&left.endpoint, retry_at) == DMP_OK);
+    CHECK(deliver_all(&left, &right, retry_at) == 0);
+    CHECK(left.app.accepts == 2 && right.app.results == 1 &&
+          same_handle(right.app.result_request, second) &&
+          right.app.sample_update_attempts == 1U &&
+          right.app.sample_update_status == 0);
+    CHECK(state.synchronized == 1 && state.epoch == 9U && state.index == 2U &&
+          state.value == 200U && state.violations == 0);
+    CHECK(retry_at < init_deadline && SAMPLE_INIT_ATTEMPTS == 2U);
+
+    /* The original first result identity remains stale after the second READ
+     * has become the current designated initialization attempt. */
+    late_status = dmp_endpoint_complete(&left.endpoint, first_producer_request, false, 0U,
+                                        span(response, sizeof response), retry_at + 1U);
     if (late_status != DMP_STALE_HANDLE) {
-        (void)fprintf(stderr, "late SAMPLE-1 completion returned %d\n", (int)late_status);
+        (void)fprintf(stderr, "superseded SAMPLE-1 completion returned %d\n",
+                      (int)late_status);
     }
     CHECK(late_status == DMP_STALE_HANDLE);
-    left.app.have_pending = 0;
-    CHECK(state.synchronized == 0 && state.index == 0U && state.value == 0U);
     close_session(&env);
     return 0;
+}
+
+static int test_protected_sample_init_timeout(void)
+{
+    return exercise_protected_sample_init_retry(0);
+}
+
+static int test_protected_sample_init_retry_two_attempts(void)
+{
+    return exercise_protected_sample_init_retry(1);
 }
 
 static int test_protected_sample_invalid_result(void)
@@ -3130,7 +5654,17 @@ static int test_protected_sample_invalid_result(void)
     CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
     CHECK(deliver_all(&left, &right, now) == 0);
     request_key = right.senders[request.slot].own;
+    expect_sample1_result(&right, request_key, SAMPLE1_READ);
     CHECK(sample1_read_rsp(valid, 9U, 2U, 200U) == sizeof valid);
+    {
+        uint8_t wrong_opcode[SAMPLE1_STATUS_BYTES];
+        CHECK(sample1_status_rsp(wrong_opcode, 1U) == sizeof wrong_opcode);
+        CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 1U,
+                                 span(wrong_opcode, sizeof wrong_opcode), wrapped, &wrapped_n));
+        CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+        CHECK(right.app.results == 0 && right.senders[request.slot].live == 1U &&
+              right.wire.n == 0);
+    }
 
     /* The authenticated peer cannot complete this READ under another service. */
     CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 2U,
@@ -3150,12 +5684,88 @@ static int test_protected_sample_invalid_result(void)
     /* A later valid result for the same request is accepted and can sync. */
     CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 1U,
                              span(valid, sizeof valid), wrapped, &wrapped_n));
+    right.wire.now = now + 1U;
     CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + 1U) == DMP_OK);
-    CHECK(right.app.results == 1 && right.app.last_status == 0U);
+    CHECK(right.app.results == 1 && right.app.last_status == 0U &&
+          same_handle(right.app.result_request, request));
     CHECK(sample_accept_read_result(&state, &right.app, request) == 0);
     CHECK(state.synchronized == 1 && state.epoch == 9U && state.index == 2U &&
           state.value == 200U && state.violations == 0);
 
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_sample_invalid_status_result(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t request_payload[1];
+    uint8_t invalid_status[SAMPLE1_STATUS_BYTES] = {SAMPLE1_STATUS, 2U};
+    uint8_t valid_status[SAMPLE1_STATUS_BYTES];
+    uint8_t wrapped[FRAME_CAP];
+    size_t wrapped_n = 0U;
+    dmp_reliability_handle request;
+    dmp_message_key request_key;
+    dmp_time_ms now = 20000U;
+    uint32_t own_seq = 300U;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_results = 1;
+    if (boot_node(&left, 1, 64U, 16U, now) != 0 ||
+        boot_node(&right, 0, 64U, 16U, now) != 0) {
+        g_validate_sample1_results = 0;
+        close_session(&env);
+        return 1;
+    }
+    g_validate_sample1_results = 0;
+    CHECK(bind_pair(&env, index) == 0);
+    CHECK(sample1_status_req(request_payload) == sizeof request_payload);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U,
+                                  span(request_payload, sizeof request_payload), now,
+                                  &request) == DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.app.accepts == 1 && left.app.req_n == sizeof request_payload &&
+          left.app.req[0] == SAMPLE1_STATUS);
+    request_key = right.senders[request.slot].own;
+    expect_sample1_result(&right, request_key, SAMPLE1_STATUS);
+
+    /* A canonical READ response cannot complete a correlated STATUS. */
+    {
+        uint8_t wrong_opcode[SAMPLE1_READ_BYTES];
+        CHECK(sample1_read_rsp(wrong_opcode, 9U, 2U, 200U) == sizeof wrong_opcode);
+        CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 1U,
+                                 span(wrong_opcode, sizeof wrong_opcode), wrapped, &wrapped_n));
+        CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+        CHECK(right.app.results == 0 && right.senders[request.slot].live == 1U &&
+              right.wire.n == 0);
+    }
+
+    /* A correlated STATUS response with READY=2 is rejected before the
+     * reliability sender completes; a valid response can still complete it. */
+    CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 1U,
+                             span(invalid_status, sizeof invalid_status), wrapped, &wrapped_n));
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(right.app.results == 0 && right.senders[request.slot].live == 1U &&
+          right.wire.n == 0);
+
+    CHECK(sample1_status_rsp(valid_status, 1U) == sizeof valid_status);
+    CHECK(seal_sample_result(&env, index, own_seq++, request_key.seq, 1U,
+                             span(valid_status, sizeof valid_status), wrapped, &wrapped_n));
+    right.wire.now = now + 1U;
+    CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + 1U) == DMP_OK);
+    CHECK(right.app.results == 1 && right.app.last_status == 0U &&
+          same_handle(right.app.result_request, request) &&
+          right.app.result_n == sizeof valid_status &&
+          memcmp(right.app.result, valid_status, sizeof valid_status) == 0);
     close_session(&env);
     return 0;
 }
@@ -3215,6 +5825,7 @@ static int run_protected_sample_fragmented_result(int valid_result)
     dmp_reliability_handle request;
     dmp_message_key request_key;
     dmp_time_ms now = 20000U;
+    dmp_time_ms valid_result_at = now + 2U;
     uint32_t fragment;
     dmp_status status;
 
@@ -3239,32 +5850,72 @@ static int run_protected_sample_fragmented_result(int valid_result)
     CHECK(deliver_all(&right, &left, now) == 0);
     CHECK(left.app.accepts == 1 && left.app.have_pending);
     request_key = right.senders[request.slot].own;
+    expect_sample1_result(&right, request_key, SAMPLE1_READ);
 
-    if (valid_result != 0) {
-        CHECK(sample1_read_rsp(result, 9U, 2U, 200U) == sizeof result);
-    } else {
-        memset(result, 0, sizeof result);
-        result[0] = SAMPLE1_STATUS;
+    if (valid_result == 0) {
+        uint8_t wrong_opcode[SAMPLE1_STATUS_BYTES];
+        CHECK(sample1_status_rsp(wrong_opcode, 1U) == sizeof wrong_opcode);
+        for (fragment = 0U; fragment < 2U; ++fragment) {
+            CHECK(seal_sample_result_fragment(&env, index, 300U, request_key.seq,
+                                              fragment, 1U, sizeof wrong_opcode,
+                                              span(wrong_opcode + fragment, 1U), wrapped,
+                                              &wrapped_n));
+            right.wire.now = now + fragment;
+            status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n),
+                                     now + fragment);
+            CHECK(status == (fragment == 0U ? DMP_INCOMPLETE : DMP_OK));
+        }
+        CHECK(right.app.results == 0 && right.senders[request.slot].live != 0U &&
+              right.wire.n == 0);
+        CHECK(right.endpoint.profile.assemblies_per_peer == 1U);
+        CHECK(right.endpoint.reassembly.storage.assemblies[0].live == 0U);
+        CHECK(right.endpoint.reassembly.storage.tombstones[0].state ==
+              DMP_REASSEMBLY_TOMBSTONE_REJECTED);
+
+        /* A fresh-PN replay cannot recreate the rejected assembly, and it does
+         * not prevent the next valid fragmented result from using the single
+         * DIRECT-1 assembly slot. */
+        for (fragment = 0U; fragment < 2U; ++fragment) {
+            size_t offset = (size_t)fragment;
+            CHECK(seal_sample_result_fragment(&env, index, 300U, request_key.seq,
+                                              fragment, 1U, sizeof wrong_opcode,
+                                              span(wrong_opcode + offset, 1U), wrapped,
+                                              &wrapped_n));
+            right.wire.now = now + 2U + fragment;
+            status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n),
+                                     now + 2U + fragment);
+            CHECK(status == DMP_DUPLICATE);
+            CHECK(right.endpoint.reassembly.storage.assemblies[0].live == 0U);
+        }
+        CHECK(right.app.results == 0 && right.senders[request.slot].live != 0U &&
+              right.wire.n == 0);
+        valid_result_at = now + 4U;
     }
+
+    CHECK(sample1_read_rsp(result, 9U, 2U, 200U) == sizeof result);
     for (fragment = 0U; fragment < 2U; ++fragment) {
         size_t offset = (size_t)fragment * 16U;
         size_t slice_n = sizeof result - offset;
         if (slice_n > 16U) {
             slice_n = 16U;
         }
-        CHECK(seal_sample_result_fragment(&env, index, 300U, request_key.seq, fragment, 16U,
+        CHECK(seal_sample_result_fragment(&env, index, 301U, request_key.seq, fragment, 16U,
                                          sizeof result, span(result + offset, slice_n), wrapped,
                                          &wrapped_n));
-        status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now + fragment);
-        CHECK(status == (fragment == 0U ? DMP_INCOMPLETE : DMP_OK));
+        right.wire.now = valid_result_at + fragment;
+        status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n),
+                                 valid_result_at + fragment);
+        if (status != (fragment == 0U ? DMP_INCOMPLETE : DMP_OK)) {
+            (void)fprintf(stderr,
+                          "follow-up SAMPLE-1 fragment %u returned %s (%d)\n",
+                          (unsigned)fragment, dmp_status_name(status), (int)status);
+            return 1;
+        }
     }
-    if (valid_result != 0) {
-        CHECK(right.app.results == 1 && right.app.last_status == 0U);
-        CHECK(right.app.result_n == sizeof result &&
-              memcmp(right.app.result, result, sizeof result) == 0);
-    } else {
-        CHECK(right.app.results == 0 && right.senders[request.slot].live != 0U && right.wire.n == 0);
-    }
+    CHECK(right.app.results == 1 && right.app.last_status == 0U &&
+          same_handle(right.app.result_request, request));
+    CHECK(right.app.result_n == sizeof result &&
+          memcmp(right.app.result, result, sizeof result) == 0);
     close_session(&env);
     return 0;
 }
@@ -3378,8 +6029,10 @@ static void issue_test_freshness(node *receiver, uint32_t attempt, dmp_time_ms n
 {
     dmp_endpoint_freshness_slot *freshness = &receiver->freshness[0];
     const dmp_identity_slot *identity =
-        &receiver->endpoint.identity.slots[receiver->endpoint.context.slot];
+        &receiver->endpoint.identity.slots[
+            receiver->endpoint.peers[0].context.slot];
     memset(freshness, 0, sizeof *freshness);
+    freshness->peer = receiver->endpoint.peers[0].handle;
     memcpy(freshness->token, token, sizeof freshness->token);
     freshness->expires_at = now + 12000U;
     freshness->record_until = now + 18000U;
@@ -3589,6 +6242,9 @@ static int test_retained_rejection_reassembly(void)
     CHECK(g_sample1_validator_calls == validator_calls);
     CHECK(left.app.accepts == 0);
     CHECK(left.app.assembled == 0);
+    CHECK(left.endpoint.reassembly.storage.assemblies[0].live == 0U);
+    CHECK(left.endpoint.reassembly.storage.tombstones[0].state ==
+          DMP_REASSEMBLY_TOMBSTONE_REJECTED);
 
     left.wire.now = now;
     CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
@@ -3800,15 +6456,24 @@ static int test_rotation(void)
     uint32_t new_cid = 0U;
     uint8_t req[1];
     uint8_t response[SAMPLE1_READ_BYTES];
+    uint8_t other_request = 0x55U;
+    uint8_t service_two_extensions[3] = {17U, 1U, 2U};
+    uint8_t sealed[MTU];
+    uint8_t wrapped[FRAME_CAP];
+    size_t sealed_n = 0U;
+    size_t wrapped_n = 0U;
+    dmp_frame_spec old_work;
     uint8_t saved[FRAME_CAP];
     size_t saved_len = 0U;
     dmp_reliability_handle handle;
     dmp_reliability_handle sample_handle;
     sample_tracker sample_state = {0};
+    dmp_identity_context_config occupied_identity;
+    dmp_identity_handle occupied_context;
     dmp_time_ms now = 20000U;
     int accepts;
 
-    /* One identity slot cannot overlap. The live association stays. */
+    /* The configured two-slot arena is full, so rotation cannot overlap. */
     memset(&env, 0, sizeof env);
     if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) || !drive_nn(&env, &index) ||
         !activate(&env, index)) {
@@ -3819,6 +6484,22 @@ static int test_rotation(void)
     CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
     CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
     CHECK(bind_pair(&env, index) == 0);
+    memset(&occupied_identity, 0, sizeof occupied_identity);
+    occupied_identity.local.namespace_id = LOCAL_NS;
+    occupied_identity.local.origin_id = ID_INIT;
+    occupied_identity.local.epoch = 101U;
+    occupied_identity.peer.namespace_id = LOCAL_NS;
+    occupied_identity.peer.origin_id = ID_RESP;
+    occupied_identity.peer.epoch = 102U;
+    occupied_identity.security = 1U;
+    CHECK(dmp_identity_context_open(&left.endpoint.identity, &occupied_identity,
+                                    &occupied_context) == DMP_OK);
+    occupied_identity.local.origin_id = ID_RESP;
+    occupied_identity.local.epoch = 102U;
+    occupied_identity.peer.origin_id = ID_INIT;
+    occupied_identity.peer.epoch = 101U;
+    CHECK(dmp_identity_context_open(&right.endpoint.identity, &occupied_identity,
+                                    &occupied_context) == DMP_OK);
     CHECK(dmp_endpoint_rotate(&left.endpoint, index, now) == DMP_BUSY);
     if (!drive_rotation(&env, fixture, &next_init, &next_resp, 0x5aU) ||
         !activate_at(&env, next_init, next_resp)) {
@@ -3827,8 +6508,8 @@ static int test_rotation(void)
     }
     CHECK(dmp_endpoint_rotate(&left.endpoint, next_init, now) == DMP_QUOTA_EXHAUSTED);
     CHECK(dmp_endpoint_rotate(&right.endpoint, next_resp, now) == DMP_QUOTA_EXHAUSTED);
-    CHECK(left.endpoint.drain_live == 0U);
-    CHECK(right.endpoint.drain_live == 0U);
+    CHECK(left.endpoint.peers[0].drain_live == 0U);
+    CHECK(right.endpoint.peers[0].drain_live == 0U);
     CHECK(dmp_hs_send_application(env.initiator, index) == DMP_HS_OK);
     sample1_read_req(req);
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) == DMP_OK);
@@ -3849,6 +6530,13 @@ static int test_rotation(void)
     CHECK(bind_pair(&env, index) == 0);
     CHECK(dmp_endpoint_set_drain_ms(&left.endpoint, 30000U) == DMP_OK);
     CHECK(dmp_endpoint_set_drain_ms(&right.endpoint, 30000U) == DMP_OK);
+    /* Complete the Stream R preamble before dropping the application frame. */
+    left.wire.now = now;
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(deliver_all(&right, &left, now) == 0);
     sample1_read_req(req);
     right.wire.drop_remaining = 1;
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) == DMP_OK);
@@ -3882,10 +6570,34 @@ static int test_rotation(void)
     }
     CHECK(dmp_hs_send_application(env.initiator, next_init) == DMP_HS_OK);
     CHECK(dmp_endpoint_rotate(&left.endpoint, next_init, now) == DMP_OK);
+    /* Rotation commits locally. Until the other endpoint switches, its new
+     * work under the old active key is still authenticated receive traffic on
+     * our bounded draining association; the wire has no drain marker. */
+    memset(&old_work, 0, sizeof old_work);
+    old_work.fields.type = DMP_TYPE_REQ;
+    old_work.fields.options = DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_EXT;
+    old_work.fields.seq = 700U;
+    old_work.extensions = span(service_two_extensions, sizeof service_two_extensions);
+    old_work.payload = span(&other_request, 1U);
+    CHECK(dmp_hs_seal_logical(env.responder, index, &old_work, sealed, sizeof sealed,
+                              &sealed_n) == DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(stream_protection(wrapped, wrapped_n, now, &new_cid, NULL, NULL) == 1);
+    CHECK(new_cid == old_cid);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
+    CHECK(left.app.accepts == 1 && left.app.request_service == 2U);
+    CHECK(left.app.last_notice_association.slot ==
+          left.endpoint.peers[0].drain_context.slot);
+    CHECK(left.app.last_notice_association.generation ==
+          left.endpoint.peers[0].drain_context.generation);
+    /* This request is deliberately independent of the already-dropped READ;
+     * release the fixture callback without manufacturing a sender record on
+     * the remote side. */
+    left.app.have_pending = 0;
     CHECK(dmp_endpoint_rotate(&right.endpoint, next_resp, now) == DMP_OK);
     CHECK(right.app.unknowns == 0);
     CHECK(pump(now + 1280U, 8) == 0);
-    CHECK(left.app.accepts == 1);
+    CHECK(left.app.accepts == 2);
     CHECK(right.app.results == 1);
     accepts = left.app.accepts;
     {
@@ -3905,6 +6617,15 @@ static int test_rotation(void)
         CHECK(left.app.accepts == accepts + 1);
     }
 
+    /* Keep a fresh, valid old-SA packet with a PN the receiver has never seen.
+     * Deliver it only after drain expiry so replay rejection cannot masquerade
+     * as the association-lifetime fence. */
+    old_work.fields.seq = 701U;
+    CHECK(dmp_hs_seal_logical(env.responder, index, &old_work, sealed, sizeof sealed,
+                              &sealed_n) == DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    CHECK(stream_protection(wrapped, wrapped_n, now, &new_cid, NULL, NULL) == 1);
+    CHECK(new_cid == old_cid);
     now = 20000U + 30000U;
     left.wire.now = now;
     right.wire.now = now;
@@ -3912,7 +6633,8 @@ static int test_rotation(void)
     CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
     CHECK(dmp_hs_send_application(env.initiator, index) != DMP_HS_OK);
     accepts = left.app.accepts;
-    CHECK(dmp_endpoint_rx(&left.endpoint, span(saved, saved_len), now) == DMP_AUTHENTICATION_FAILURE);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) ==
+          DMP_AUTHENTICATION_FAILURE);
     CHECK(left.app.accepts == accepts);
 
     /* A request that cannot finish inside the drain bound is unknown, not moved. */
@@ -3929,6 +6651,13 @@ static int test_rotation(void)
     CHECK(boot_node_slots(&right, 0, 64U, 16U, now, 2U) == 0);
     CHECK(bind_pair(&env, index) == 0);
     CHECK(dmp_endpoint_set_drain_ms(&right.endpoint, 1000U) == DMP_OK);
+    /* Consume each Stream R endpoint's one-byte synchronization preamble. */
+    left.wire.now = now;
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(deliver_all(&right, &left, now) == 0);
     sample1_read_req(req);
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &handle) == DMP_OK);
     right.wire.now = now;
@@ -3975,6 +6704,12 @@ static int test_rotation(void)
     CHECK(bind_pair(&env, index) == 0);
     CHECK(dmp_endpoint_set_drain_ms(&left.endpoint, 0U) == DMP_OK);
     CHECK(dmp_endpoint_set_drain_ms(&right.endpoint, 0U) == DMP_OK);
+    left.wire.now = now;
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(deliver_all(&right, &left, now) == 0);
     sample_state.synchronized = 1;
     sample_state.epoch = 41U;
     sample_state.index = 7U;
@@ -4013,13 +6748,24 @@ static int test_rotation(void)
         }
         CHECK(dmp_endpoint_rotate(&left.endpoint, next_init, now) == DMP_OK);
         CHECK(dmp_endpoint_rotate(&right.endpoint, next_resp, now) == DMP_OK);
-        CHECK(right.endpoint.drain_live == 0U);
+        right.wire.now = now;
+        CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+        /* The cancelled READ correlation keeps the old identity reserved until
+         * its late-result rejection window expires, although the drain deadline
+         * is already closed to traffic. */
+        CHECK(right.endpoint.peers[0].drain_live != 0U);
+        CHECK(right.endpoint.peers[0].drain_reservation_live != 0U);
         CHECK(right.app.unknowns == 1);
         CHECK(right.app.data_unknowns == 1);
         CHECK(right.app.data_unknown_service == 2U);
         CHECK(right.app.results == 0 && sample_state.synchronized == 0);
-        CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
-                                    span(READ_RSP, sizeof READ_RSP), now) == DMP_STALE_HANDLE);
+        {
+            dmp_status stale_result = dmp_endpoint_complete(
+                &left.endpoint, left.app.pending, false, 0U,
+                span(READ_RSP, sizeof READ_RSP), now);
+            CHECK(stale_result == DMP_STALE_HANDLE ||
+                  stale_result == DMP_DEADLINE_EXPIRED);
+        }
         CHECK(dmp_endpoint_abandon_request(&left.endpoint, left.app.pending, now) == DMP_OK);
         left.app.have_pending = 0;
         right.wire.n = 0;
@@ -4070,6 +6816,17 @@ static int test_rotation(void)
         CHECK(sample_state.synchronized == 1 && sample_state.epoch == 42U &&
               sample_state.index == 1U && sample_state.value == 900U &&
               sample_state.violations == 0);
+        {
+            dmp_time_ms lifecycle_at =
+                now + right.endpoint.profile.correlation_ms + 32U;
+            dmp_status lifecycle = dmp_endpoint_poll(&right.endpoint, lifecycle_at);
+            CHECK(lifecycle == DMP_OK || lifecycle == DMP_DEADLINE_EXPIRED);
+            lifecycle = dmp_endpoint_poll(&left.endpoint, lifecycle_at);
+            CHECK(lifecycle == DMP_OK || lifecycle == DMP_DEADLINE_EXPIRED);
+            CHECK(right.endpoint.peers[0].drain_live == 0U);
+            CHECK(right.endpoint.peers[0].drain_reservation_live == 0U);
+            CHECK(left.endpoint.peers[0].drain_live == 0U);
+        }
     }
     close_session(&env);
     return 0;
@@ -4216,6 +6973,11 @@ static int test_drain_retain(void)
     session env;
     port_ctx port;
     dmp_frame_spec spec;
+    dmp_frame_view reassembly_frame;
+    dmp_reassembly_input reassembly_input;
+    dmp_reassembly_handle rejected_handle;
+    dmp_reassembly_handle accepted_handle;
+    dmp_identity_handle rejected_context;
     dmp_identity_slot *draining;
     uint32_t index = 0U;
     uint32_t next_init = 0U;
@@ -4223,6 +6985,7 @@ static int test_drain_retain(void)
     uint32_t later_init = 0U;
     uint32_t later_resp = 0U;
     uint8_t body[16];
+    uint8_t rejected_body[32];
     uint8_t ext[3];
     uint8_t sealed[MTU];
     uint8_t wrapped[FRAME_CAP];
@@ -4233,6 +6996,7 @@ static int test_drain_retain(void)
     dmp_time_ms accept_at;
     dmp_time_ms drain_at;
     dmp_time_ms assembly_at;
+    dmp_time_ms later_drain_at;
     dmp_status status = DMP_OK;
 
     memset(&env, 0, sizeof env);
@@ -4253,9 +7017,9 @@ static int test_drain_retain(void)
         return 1;
     }
     CHECK(dmp_endpoint_rotate(&right.endpoint, next_resp, now) == DMP_OK);
-    CHECK(right.endpoint.drain_live == 1U);
-    CHECK(right.endpoint.drain_attempt == index);
-    drain_at = right.endpoint.drain_not_after;
+    CHECK(right.endpoint.peers[0].drain_live == 1U);
+    CHECK(right.endpoint.peers[0].drain_attempt == index);
+    drain_at = right.endpoint.peers[0].drain_not_after;
     accept_at = drain_at - 100U;
     assembly_at = accept_at + right.endpoint.profile.assembly_ms;
     CHECK(accept_at < drain_at);
@@ -4285,12 +7049,13 @@ static int test_drain_retain(void)
     CHECK(right.app.accepts == 0);
     note_provider("drain-overlap", &port, env.provider);
     CHECK(dmp_endpoint_poll(&right.endpoint, drain_at) == DMP_OK);
-    draining = &right.endpoint.identity.slots[right.endpoint.drain_context.slot];
-    CHECK(right.endpoint.drain_live == 1U);
+    draining = &right.endpoint.identity.slots[
+        right.endpoint.peers[0].drain_context.slot];
+    CHECK(right.endpoint.peers[0].drain_live == 1U);
     CHECK(draining->state == DMP_IDENTITY_SLOT_DRAINING);
     CHECK(draining->retained != 0U);
     CHECK(dmp_endpoint_poll(&right.endpoint, assembly_at) == DMP_OK);
-    CHECK(right.endpoint.drain_live == 0U);
+    CHECK(right.endpoint.peers[0].drain_live == 0U);
     CHECK(draining->state == DMP_IDENTITY_SLOT_UNUSED);
     if (!drive_rotation(&env, fixture, &later_init, &later_resp, 0xa5U) ||
         !activate_at(&env, later_init, later_resp)) {
@@ -4299,7 +7064,53 @@ static int test_drain_retain(void)
     }
     env.now = assembly_at;
     CHECK(dmp_endpoint_rotate(&right.endpoint, later_resp, assembly_at) == DMP_OK);
-    CHECK(right.endpoint.drain_live == 1U);
+    CHECK(right.endpoint.peers[0].drain_live == 1U);
+    rejected_context = right.endpoint.peers[0].drain_context;
+    later_drain_at = right.endpoint.peers[0].drain_not_after;
+
+    /* Keep a terminally rejected message on the old association without
+     * retaining its assembly. Retirement at the drain boundary must clear its
+     * tombstone before the active association admits a fresh assembly. */
+    memset(rejected_body, 0x6BU, sizeof rejected_body);
+    memset(&reassembly_frame, 0, sizeof reassembly_frame);
+    reassembly_frame.fields.type = (uint8_t)DMP_TYPE_REQ;
+    reassembly_frame.fields.options =
+        (uint8_t)(DMP_OPT_SEQ | DMP_OPT_FRAG | DMP_OPT_SECURITY);
+    reassembly_frame.fields.seq = 450U;
+    reassembly_frame.fields.fragment.chunk_size = 16U;
+    reassembly_frame.fields.fragment.total_size = sizeof rejected_body;
+    reassembly_input.frame = &reassembly_frame;
+    reassembly_input.context = rejected_context;
+    reassembly_input.service_id = 1U;
+    reassembly_input.plaintext = span(rejected_body, 16U);
+    reassembly_input.immutable_metadata = span(NULL, 0U);
+    CHECK(dmp_reassembly_on_fragment(&right.endpoint.reassembly, &reassembly_input,
+                                     assembly_at, &rejected_handle) == DMP_INCOMPLETE);
+    reassembly_frame.fields.fragment.index = 1U;
+    reassembly_input.plaintext = span(rejected_body + 16U, 16U);
+    CHECK(dmp_reassembly_on_fragment(&right.endpoint.reassembly, &reassembly_input,
+                                     assembly_at + 1U, &rejected_handle) == DMP_OK);
+    CHECK(dmp_reassembly_reject(&right.endpoint.reassembly, rejected_handle) == DMP_OK);
+    CHECK(right.endpoint.reassembly.storage.tombstones[0].state ==
+          DMP_REASSEMBLY_TOMBSTONE_REJECTED);
+    status = dmp_endpoint_poll(&right.endpoint, later_drain_at);
+    CHECK(status == DMP_OK || status == DMP_DEADLINE_EXPIRED);
+    CHECK(right.endpoint.peers[0].drain_live == 0U);
+    CHECK(right.endpoint.identity.slots[rejected_context.slot].state == DMP_IDENTITY_SLOT_UNUSED);
+    CHECK(right.endpoint.reassembly.storage.tombstones[0].state ==
+          DMP_REASSEMBLY_TOMBSTONE_UNUSED);
+
+    reassembly_frame.fields.seq = 451U;
+    reassembly_frame.fields.fragment.index = 0U;
+    reassembly_input.context = right.endpoint.peers[0].context;
+    reassembly_input.plaintext = span(rejected_body, 16U);
+    CHECK(dmp_reassembly_on_fragment(&right.endpoint.reassembly, &reassembly_input,
+                                     later_drain_at + 1U, &accepted_handle) == DMP_INCOMPLETE);
+    reassembly_frame.fields.fragment.index = 1U;
+    reassembly_input.plaintext = span(rejected_body + 16U, 16U);
+    CHECK(dmp_reassembly_on_fragment(&right.endpoint.reassembly, &reassembly_input,
+                                     later_drain_at + 2U, &accepted_handle) == DMP_OK);
+    CHECK(dmp_reassembly_release(&right.endpoint.reassembly, accepted_handle) == DMP_OK);
     close_session(&env);
     return 0;
 }
@@ -4517,7 +7328,9 @@ static int test_selective_repair(void)
     right.wire.now = now;
     left.wire.now = now;
     CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(body, sizeof body), now, &handle) == DMP_OK);
-    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    for (i = 0; i < 24 && right.wire.n < 8; i++) {
+        CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    }
     CHECK(right.wire.n == 8);
     for (i = 0; i < right.wire.n; i++) {
         CHECK(stream_fragment(right.wire.q[i].frame, right.wire.q[i].len, now, &frag_index, &tail_pn) ==
@@ -4661,6 +7474,27 @@ static int p23_drain_wire(p23_batch *batch) {
   }
   right.wire.n = 0;
   return 1;
+}
+
+/* Production poll accepts one TX at a time for cross-peer fairness. The P23
+ * process adapter represents one synchronous application action, so keep
+ * polling at the same simulated time until that action has no more immediately
+ * accepted TX frames to collect. Deferred completions still stop after one
+ * poll and follow the explicit completion operation. */
+static int p23_poll_sync_tx(uint64_t now) {
+  size_t polls;
+  for (polls = 0U; polls <= QUEUE; polls++) {
+    uint64_t accepted_before = right.endpoint.accepted_tx_generation;
+    p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, now);
+    if (p23_endpoint_status != DMP_OK) {
+      return 0;
+    }
+    if (!right.endpoint.profile.synchronous_completion ||
+        right.endpoint.accepted_tx_generation == accepted_before) {
+      return 1;
+    }
+  }
+  return 0;
 }
 
 static int p23_settle_wire(p23_batch *batch) {
@@ -4903,48 +7737,39 @@ static const uint8_t *p23_expected_profile_hash(uint8_t profile_id) {
   static const uint8_t radio_selective[32] = {
       0xa3, 0x88, 0x7c, 0x44, 0xb0, 0x6b, 0x4d, 0x2f, 0x90, 0x5f, 0x89,
       0xfa, 0xe4, 0xb2, 0x8b, 0x99, 0xc0, 0xf0, 0x0d, 0x93, 0xd7, 0x7c,
-      0x50, 0xb1, 0xf7, 0x52, 0xce, 0x77, 0xbd, 0xe4, 0x92, 0x2f
-  };
+      0x50, 0xb1, 0xf7, 0x52, 0xce, 0x77, 0xbd, 0xe4, 0x92, 0x2f};
   static const uint8_t radio_retry_all[32] = {
       0xb3, 0x3d, 0x39, 0xbf, 0xfc, 0xb7, 0xc2, 0x75, 0x0f, 0xbf, 0x86,
       0x0e, 0x4e, 0x04, 0x0c, 0xd5, 0xb4, 0xe2, 0x91, 0x01, 0xa6, 0xd6,
-      0xc0, 0xca, 0x60, 0x4f, 0xae, 0xf9, 0x71, 0x9c, 0xcf, 0x3f
-  };
+      0xc0, 0xca, 0x60, 0x4f, 0xae, 0xf9, 0x71, 0x9c, 0xcf, 0x3f};
   static const uint8_t stream_r[32] = {
       0x8d, 0xe5, 0x61, 0x92, 0xf7, 0x5e, 0x76, 0x77, 0x08, 0x1d, 0x70,
       0x4d, 0x56, 0x8d, 0xdb, 0x64, 0xb1, 0x29, 0x2c, 0x6d, 0xed, 0x72,
-      0x44, 0x96, 0x75, 0xeb, 0xce, 0xef, 0xd5, 0x3d, 0x9a, 0x1a
-  };
+      0x44, 0x96, 0x75, 0xeb, 0xce, 0xef, 0xd5, 0x3d, 0x9a, 0x1a};
   static const uint8_t mixed[32] = {
       0x2b, 0xc3, 0xc2, 0xee, 0x1c, 0x9e, 0x8f, 0x3a, 0xa8, 0x7a, 0xf4,
       0xaf, 0xd2, 0xf0, 0xca, 0xb9, 0x96, 0x09, 0x9f, 0xc6, 0x9d, 0xa1,
-      0xf0, 0x93, 0x8c, 0x23, 0xe0, 0x50, 0xc8, 0xc6, 0x8f, 0xaf
-  };
+      0xf0, 0x93, 0x8c, 0x23, 0xe0, 0x50, 0xc8, 0xc6, 0x8f, 0xaf};
   static const uint8_t stream_r_sample20[32] = {
       0xb8, 0x41, 0x32, 0xa0, 0x86, 0x32, 0x3d, 0x43, 0x24, 0x92, 0x96,
       0x77, 0x55, 0x24, 0x4b, 0x59, 0xa9, 0xa5, 0x34, 0x05, 0x88, 0x0d,
-      0x85, 0xf3, 0x54, 0xc2, 0x53, 0x53, 0x75, 0x7c, 0x6a, 0xa6
-  };
+      0x85, 0xf3, 0x54, 0xc2, 0x53, 0x53, 0x75, 0x7c, 0x6a, 0xa6};
   static const uint8_t direct_nnpsk0[32] = {
       0x40, 0xab, 0xed, 0xfb, 0xb1, 0x79, 0x9e, 0xa6, 0xcb, 0x71, 0x1f,
       0x73, 0x91, 0x01, 0xd4, 0x0b, 0xae, 0x64, 0x54, 0xea, 0xc7, 0x19,
-      0x85, 0x8c, 0x79, 0xb0, 0x66, 0xf2, 0x67, 0x0a, 0xd0, 0xc1
-  };
+      0x85, 0x8c, 0x79, 0xb0, 0x66, 0xf2, 0x67, 0x0a, 0xd0, 0xc1};
   static const uint8_t direct_xx[32] = {
       0x28, 0x9e, 0xd4, 0x44, 0xa4, 0x58, 0xbb, 0xa2, 0x80, 0x1f, 0xbc,
       0xeb, 0x68, 0x34, 0x6c, 0xfa, 0xe2, 0x3d, 0xe7, 0x9b, 0xea, 0xab,
-      0x2d, 0x34, 0x02, 0xa7, 0x55, 0x39, 0xe1, 0x1b, 0x23, 0xf9
-  };
+      0x2d, 0x34, 0x02, 0xa7, 0x55, 0x39, 0xe1, 0x1b, 0x23, 0xf9};
   static const uint8_t radio_xx[32] = {
       0xb2, 0x7b, 0x06, 0xee, 0x7a, 0xd0, 0xa0, 0xd5, 0x1e, 0x79, 0xcf,
       0x89, 0x4a, 0x37, 0x3b, 0xf2, 0xb7, 0x4d, 0x9f, 0x9b, 0x36, 0x74,
-      0xb2, 0x4b, 0x92, 0x56, 0x41, 0x8b, 0x91, 0x41, 0x64, 0x1a
-  };
+      0xb2, 0x4b, 0x92, 0x56, 0x41, 0x8b, 0x91, 0x41, 0x64, 0x1a};
   static const uint8_t retry_all_xx[32] = {
       0x36, 0x93, 0x14, 0xbd, 0x7d, 0xaf, 0x84, 0x0b, 0x22, 0xd3, 0x4e,
       0x10, 0xc4, 0x32, 0xfe, 0x08, 0x57, 0x5e, 0xcd, 0x9e, 0x1c, 0x56,
-      0x2c, 0xfd, 0x73, 0x0a, 0x34, 0x2b, 0xc5, 0xe1, 0x28, 0x6a
-  };
+      0x2c, 0xfd, 0x73, 0x0a, 0x34, 0x2b, 0xc5, 0xe1, 0x28, 0x6a};
   if (profile_id == P23_PROFILE_RADIO_SELECTIVE) {
     return radio_selective;
   }
@@ -5123,10 +7948,12 @@ static int p23_init(const uint8_t *profile_hash, const uint8_t *credential,
     }
   }
   p23_endpoint_status = DMP_OK;
-  {
+  if (p23_uses_packet_endpoint()) {
     const uint8_t sync = 0U;
     return p23_add_frame(batch, &sync, sizeof sync);
   }
+  p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, p23_env.now);
+  return p23_endpoint_status == DMP_OK && p23_drain_wire(batch);
 }
 
 static int p23_handshake_frame(const dmp_frame_view *frame, p23_batch *batch) {
@@ -5311,6 +8138,11 @@ static int p23_receive(const uint8_t *input, size_t input_size, uint64_t now,
     return 0;
   }
   if (input_size == 1U && input[0] == 0U) {
+    if (p23_uses_packet_endpoint()) {
+      p23_endpoint_status = DMP_OK;
+      p23_rx_status = DMP_OK;
+      return 1;
+    }
     p23_endpoint_status =
         dmp_endpoint_rx(&right.endpoint, span(input, input_size), now);
     p23_rx_status = p23_endpoint_status;
@@ -5345,15 +8177,17 @@ static int p23_receive(const uint8_t *input, size_t input_size, uint64_t now,
   if (!p23_bound) {
     return 0;
   }
-  p23_rx_status =
-      dmp_endpoint_rx(&right.endpoint, span(input, input_size), now);
+  p23_rx_status = p23_uses_packet_endpoint()
+                      ? dmp_endpoint_rx_packet(&right.endpoint,
+                                               span(core, core_size), now)
+                      : dmp_endpoint_rx(&right.endpoint,
+                                        span(input, input_size), now);
   p23_endpoint_status = p23_rx_status;
   if (p23_rx_status != DMP_OK && p23_rx_status != DMP_INCOMPLETE &&
       p23_rx_status != DMP_DUPLICATE) {
     return 0;
   }
-  p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, now);
-  return p23_endpoint_status == DMP_OK && p23_drain_wire(batch);
+  return p23_poll_sync_tx(now) && p23_drain_wire(batch);
 }
 
 static int p23_submit_req(uint32_t service_id, const uint8_t *payload,
@@ -5367,8 +8201,7 @@ static int p23_submit_req(uint32_t service_id, const uint8_t *payload,
     p23_endpoint_status = status;
     return 0;
   }
-  p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, now);
-  return p23_endpoint_status == DMP_OK;
+  return p23_poll_sync_tx(now);
 }
 
 static int p23_submit_fresh_req(uint32_t service_id, const uint8_t *payload,
@@ -5384,8 +8217,7 @@ static int p23_submit_fresh_req(uint32_t service_id, const uint8_t *payload,
     p23_endpoint_status = status;
     return 0;
   }
-  p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, now);
-  return p23_endpoint_status == DMP_OK;
+  return p23_poll_sync_tx(now);
 }
 
 static int p23_submit_data(uint32_t service_id, const uint8_t *payload,
@@ -5406,8 +8238,7 @@ static int p23_submit_data(uint32_t service_id, const uint8_t *payload,
     p23_endpoint_status = status;
     return 0;
   }
-  p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, now);
-  return p23_endpoint_status == DMP_OK;
+  return p23_poll_sync_tx(now);
 }
 
 static int p23_complete(uint64_t now) {
@@ -5424,8 +8255,7 @@ static int p23_complete(uint64_t now) {
     return 0;
   }
   right.app.have_pending = 0;
-  p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, now);
-  return p23_endpoint_status == DMP_OK;
+  return p23_poll_sync_tx(now);
 }
 
 static int p23_complete_sample(uint64_t now, const uint8_t *payload,
@@ -5446,8 +8276,7 @@ static int p23_complete_sample(uint64_t now, const uint8_t *payload,
     return 0;
   }
   right.app.have_pending = 0;
-  p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, now);
-  return p23_endpoint_status == DMP_OK;
+  return p23_poll_sync_tx(now);
 }
 
 static int p23_submit_telem(uint32_t service_id, const uint8_t *payload,
@@ -5465,8 +8294,7 @@ static int p23_submit_telem(uint32_t service_id, const uint8_t *payload,
     p23_endpoint_status = status;
     return 0;
   }
-  p23_endpoint_status = dmp_endpoint_poll(&right.endpoint, now);
-  return p23_endpoint_status == DMP_OK;
+  return p23_poll_sync_tx(now);
 }
 
 static int p23_poll(uint64_t now) {
@@ -5524,7 +8352,9 @@ static int p23_emit_response(uint8_t operation_status, p23_batch *batch,
                         dmp_hs_association_active(p23_env.responder));
   scalar[1] = (uint8_t)p23_bound;
   scalar[2] = (uint8_t)(right.app.have_pending != 0);
-  scalar[3] = right.endpoint.frag_live;
+  scalar[3] = p23_initialized != 0 && right.endpoint.peers != NULL
+                  ? right.endpoint.peers[0].frag_live
+                  : 0U;
   if (!p23_append(body, body_capacity, &length, scalar, 4U)) {
     return 0;
   }
@@ -5782,9 +8612,57 @@ static int p23_driver_main(void) {
   return ferror(stdin) ? 4 : 0;
 }
 
+static int profile_hash_nibble(char value, uint8_t *out)
+{
+  if (value >= '0' && value <= '9') {
+    *out = (uint8_t)(value - '0');
+    return 1;
+  }
+  if (value >= 'a' && value <= 'f') {
+    *out = (uint8_t)(value - 'a' + 10);
+    return 1;
+  }
+  if (value >= 'A' && value <= 'F') {
+    *out = (uint8_t)(value - 'A' + 10);
+    return 1;
+  }
+  return 0;
+}
+
+static int profile_hash_decode(const char *encoded, uint8_t out[32])
+{
+  size_t index;
+  if (encoded == NULL || strlen(encoded) != 64U) {
+    return 0;
+  }
+  for (index = 0U; index < 32U; ++index) {
+    uint8_t high;
+    uint8_t low;
+    if (!profile_hash_nibble(encoded[index * 2U], &high) ||
+        !profile_hash_nibble(encoded[index * 2U + 1U], &low)) {
+      return 0;
+    }
+    out[index] = (uint8_t)((high << 4U) | low);
+  }
+  return 1;
+}
+
 int main(int argc, char **argv) {
   const char *name = argc > 1 ? argv[1] : "all";
   int failed = 0;
+#ifdef DMP_MULTI_PEER_HASH
+  static uint8_t multi_peer_hash[32];
+  if (!profile_hash_decode(DMP_MULTI_PEER_HASH, multi_peer_hash)) {
+    return 2;
+  }
+#endif
+#ifdef DMP_SAMPLE_RETRY_HASH
+  static uint8_t retry_hash[32];
+  if (!profile_hash_decode(DMP_SAMPLE_RETRY_HASH, retry_hash)) {
+    return 2;
+  }
+  g_profile_hash_override = retry_hash;
+#endif
   if (strcmp(name, "p23-driver") == 0) {
     return p23_driver_main();
   }
@@ -5821,6 +8699,9 @@ int main(int argc, char **argv) {
   if (strcmp(name, "single_peer_bounds") == 0 || strcmp(name, "all") == 0) {
     failed |= test_protected_single_peer_service_and_bounds();
   }
+  if (strcmp(name, "different_sender") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_different_sender_not_dispatched();
+  }
   if (strcmp(name, "sample_late_assoc") == 0 || strcmp(name, "all") == 0) {
     failed |= test_protected_sample_late_assoc();
   }
@@ -5830,8 +8711,14 @@ int main(int argc, char **argv) {
   if (strcmp(name, "sample_init_timeout") == 0 || strcmp(name, "all") == 0) {
     failed |= test_protected_sample_init_timeout();
   }
+  if (strcmp(name, "sample_init_retry_two_attempts") == 0) {
+    failed |= test_protected_sample_init_retry_two_attempts();
+  }
   if (strcmp(name, "sample_invalid_result") == 0 || strcmp(name, "all") == 0) {
     failed |= test_protected_sample_invalid_result();
+  }
+  if (strcmp(name, "sample_invalid_status_result") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample_invalid_status_result();
   }
   if (strcmp(name, "sample_invalid_telem") == 0 || strcmp(name, "all") == 0) {
     failed |= test_protected_sample_invalid_telem();
@@ -5884,6 +8771,19 @@ int main(int argc, char **argv) {
   if (strcmp(name, "repair") == 0 || strcmp(name, "all") == 0) {
     failed |= test_selective_repair();
   }
+  if (strcmp(name, "multi_peer_routing") == 0 || strcmp(name, "all") == 0) {
+#ifdef DMP_MULTI_PEER_HASH
+    const uint8_t *previous_profile_hash = g_profile_hash_override;
+    g_profile_hash_override = multi_peer_hash;
+    failed |= test_protected_multi_peer_routing();
+    g_profile_hash_override = previous_profile_hash;
+#else
+    failed |= test_protected_multi_peer_routing();
+#endif
+  }
+  if (strcmp(name, "sample1_epoch_endpoint") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_sample1_epoch_endpoint();
+  }
   if (strcmp(name, "activation") != 0 && strcmp(name, "transport_reject_retry") != 0 &&
       strcmp(name, "alter") != 0 &&
       strcmp(name, "loss") != 0 && strcmp(name, "isolate") != 0 &&
@@ -5893,10 +8793,13 @@ int main(int argc, char **argv) {
       strcmp(name, "sample_initialization") != 0 &&
       strcmp(name, "service2_immediate") != 0 &&
       strcmp(name, "single_peer_bounds") != 0 &&
+      strcmp(name, "different_sender") != 0 &&
       strcmp(name, "sample_late_assoc") != 0 &&
       strcmp(name, "sample_superseded") != 0 &&
       strcmp(name, "sample_init_timeout") != 0 &&
+      strcmp(name, "sample_init_retry_two_attempts") != 0 &&
       strcmp(name, "sample_invalid_result") != 0 &&
+      strcmp(name, "sample_invalid_status_result") != 0 &&
       strcmp(name, "sample_invalid_telem") != 0 &&
       strcmp(name, "sample_fragmented_result") != 0 &&
       strcmp(name, "sample_invalid_fragmented_result") != 0 &&
@@ -5908,7 +8811,9 @@ int main(int argc, char **argv) {
       strcmp(name, "acl") != 0 && strcmp(name, "rotation") != 0 &&
       strcmp(name, "result") != 0 && strcmp(name, "fragdeny") != 0 &&
       strcmp(name, "drain") != 0 && strcmp(name, "context") != 0 &&
-      strcmp(name, "repair") != 0 && strcmp(name, "all") != 0) {
+      strcmp(name, "repair") != 0 &&
+      strcmp(name, "multi_peer_routing") != 0 &&
+      strcmp(name, "sample1_epoch_endpoint") != 0 && strcmp(name, "all") != 0) {
     (void)fprintf(stderr, "unknown test %s\n", name);
     return 2;
   }

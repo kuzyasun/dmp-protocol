@@ -31,6 +31,9 @@ extern "C" {
 
 #define DMP_PROVIDER_SCRATCH_MAX 16384u
 #define DMP_PROVIDER_RETAINED_MAX 131072u
+/* four_parallel endpoint envelope: 4 pending + 16 active/draining ciphers
+ * + 4 handshake-to-cipher Split overlap objects. */
+#define DMP_PROVIDER_CHILD_MAX 24u
 #define DMP_PROVIDER_ROLE_INITIATOR 1
 #define DMP_PROVIDER_ROLE_RESPONDER 2
 

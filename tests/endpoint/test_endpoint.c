@@ -80,6 +80,8 @@ typedef struct {
     dmp_tx_complete_fn complete;
     void *owner;
     dmp_tx_token token;
+    const uint8_t *borrowed_frame;
+    size_t borrowed_len;
 } wire;
 
 typedef struct {
@@ -146,10 +148,11 @@ typedef struct {
 
 struct node {
     dmp_endpoint endpoint;
+    dmp_endpoint_peer_state peer_states[1];
     dmp_transport transport;
     wire wire;
     app app;
-    dmp_identity_slot ids[1];
+    dmp_identity_slot ids[2];
     dmp_reliability_sender_slot senders[SENDERS];
     uint8_t sender_payload[SENDERS * MESSAGE];
     dmp_reliability_result_slot results[RESULTS];
@@ -460,6 +463,8 @@ static dmp_status wire_submit(void *context, const dmp_tx_submission *submission
             link->complete = submission->complete;
             link->owner = submission->owner;
             link->token = submission->token;
+            link->borrowed_frame = submission->frame.data;
+            link->borrowed_len = submission->frame.size;
             return DMP_OK;
         }
         submission->complete(submission->owner, submission->token, DMP_TX_TRANSMITTED, link->now);
@@ -485,6 +490,8 @@ static dmp_status wire_submit(void *context, const dmp_tx_submission *submission
         link->complete = submission->complete;
         link->owner = submission->owner;
         link->token = submission->token;
+        link->borrowed_frame = submission->frame.data;
+        link->borrowed_len = submission->frame.size;
         return DMP_OK;
     }
     submission->complete(submission->owner, submission->token, DMP_TX_TRANSMITTED, link->now);
@@ -510,10 +517,15 @@ static void wire_finish(wire *link, dmp_tx_outcome outcome)
     owner = link->owner;
     token = link->token;
     link->pending = 0;
+    link->borrowed_frame = NULL;
+    link->borrowed_len = 0U;
     complete(owner, token, outcome, link->now);
 }
 
-static int boot(node *self, int producer, dmp_time_ms now)
+static int boot_with_binding(node *self, int producer, dmp_time_ms now,
+                             dmp_endpoint_framing_mode framing_mode, uint32_t encoded_mtu,
+                             uint32_t transport_mtu, uint32_t fragments,
+                             dmp_status expected_init)
 {
     dmp_config input;
     dmp_admitted_profile admitted;
@@ -521,8 +533,13 @@ static int boot(node *self, int producer, dmp_time_ms now)
     dmp_identity_context_config identity;
     dmp_message_origin local;
     dmp_message_origin peer;
+    dmp_status init_status;
     memset(self, 0, sizeof *self);
     fill_direct(&input);
+    input.fragments = fragments;
+    if (encoded_mtu != 0U) {
+        input.encoded_mtu = encoded_mtu;
+    }
     CHECK(dmp_config_admit(&input, &admitted) == DMP_OK);
     memset(&local, 0, sizeof local);
     memset(&peer, 0, sizeof peer);
@@ -558,13 +575,16 @@ static int boot(node *self, int producer, dmp_time_ms now)
     self->transport.context = &self->wire;
     self->transport.submit = wire_submit;
     self->transport.cancel = wire_cancel;
-    self->transport.caps.max_frame_bytes = FRAME_CAP;
+    self->transport.caps.max_frame_bytes = transport_mtu;
     self->transport.caps.ownership = DMP_TX_BORROW;
     self->transport.caps.synchronous_completion = true;
     memset(&storage, 0, sizeof storage);
     storage.profile = &admitted;
+    storage.framing_mode = framing_mode;
+    storage.peer_states = self->peer_states;
+    storage.peer_state_capacity = sizeof self->peer_states / sizeof self->peer_states[0];
     storage.identity_slots = self->ids;
-    storage.identity_capacity = 1U;
+    storage.identity_capacity = sizeof self->ids / sizeof self->ids[0];
     storage.context = identity;
     storage.transport = &self->transport;
     storage.notice = on_notice;
@@ -609,16 +629,35 @@ static int boot(node *self, int producer, dmp_time_ms now)
     storage.telemetry_next_capacity = sizeof self->telemetry_next;
     storage.telemetry_frame = self->telemetry_frame;
     storage.telemetry_frame_capacity = sizeof self->telemetry_frame;
-    storage.stream_tx = self->stream_tx;
-    storage.stream_tx_capacity = sizeof self->stream_tx;
-    storage.stream_rx = self->stream_rx;
-    storage.stream_rx_capacity = sizeof self->stream_rx;
-    CHECK(dmp_endpoint_init(&self->endpoint, &storage, now) == DMP_OK);
+    if (framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        storage.stream_tx = self->stream_tx;
+        storage.stream_tx_capacity = sizeof self->stream_tx;
+        storage.stream_rx = self->stream_rx;
+        storage.stream_rx_capacity = sizeof self->stream_rx;
+    }
+    storage.peer_state_capacity = 0U;
+    CHECK(dmp_endpoint_init(&self->endpoint, &storage, now) == DMP_INVALID_ARGUMENT);
+    storage.peer_state_capacity = sizeof self->peer_states / sizeof self->peer_states[0];
+    init_status = dmp_endpoint_init(&self->endpoint, &storage, now);
+    if (init_status != expected_init) {
+        (void)fprintf(stderr, "endpoint init returned %d, expected %d\n", (int)init_status,
+                       (int)expected_init);
+    }
+    CHECK(init_status == expected_init);
+    if (expected_init != DMP_OK) {
+        return 0;
+    }
     CHECK(sizeof(dmp_reassembly_tombstone) == 48U);
     CHECK(self->endpoint.profile.assembly_tombstone_slots == TOMBSTONES);
     CHECK(self->endpoint.profile.control_slots == 2U);
     CHECK(self->endpoint.profile.adapter_slots == 3U);
     return 0;
+}
+
+static int boot(node *self, int producer, dmp_time_ms now)
+{
+    return boot_with_binding(self, producer, now, DMP_ENDPOINT_FRAMING_STREAM_R, 0U,
+                             FRAME_CAP, 16U, DMP_OK);
 }
 
 static int deliver(node *from, node *to, dmp_time_ms now, int limit)
@@ -789,6 +828,17 @@ static int pump(dmp_time_ms now, int rounds)
     CHECK(service(&right, now) == 0);
     close_init_attempt(&left.app, now);
     close_init_attempt(&right.app, now);
+    return 0;
+}
+
+/* Consume the coordinated Stream R open delimiter before tests count or inject
+ * application frames. Keep packet-mode tests on their separate path. */
+static int sync_stream_r_pair(dmp_time_ms now)
+{
+    CHECK(pump(now, 1) == 0);
+    CHECK(left.wire.n == 0 && right.wire.n == 0);
+    left.wire.submits = 0;
+    right.wire.submits = 0;
     return 0;
 }
 
@@ -1190,6 +1240,100 @@ static int test_sample1(void)
     return 0;
 }
 
+static int test_packet_endpoint(void)
+{
+    uint8_t telem[SAMPLE1_TELEM_BYTES];
+    uint8_t replacement[SAMPLE1_TELEM_BYTES];
+    uint8_t borrowed_snapshot[FRAME_CAP];
+    uint8_t too_large[257];
+    dmp_core_limits limits;
+    dmp_frame_view view;
+    dmp_parse_result parsed;
+    dmp_time_ms now = 1000U;
+    CHECK(boot_with_binding(&left, 1, now, DMP_ENDPOINT_FRAMING_PACKET, 256U,
+                            FRAME_CAP, 16U, DMP_OK) == 0);
+    CHECK(boot_with_binding(&right, 0, now, DMP_ENDPOINT_FRAMING_PACKET, 256U,
+                            FRAME_CAP, 16U, DMP_OK) == 0);
+    CHECK(left.endpoint.peers[0].sync_pending == 0U);
+    CHECK(sample1_telem(telem, 1U, 2U, 300U) == sizeof telem);
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    CHECK(left.wire.q[0].len > 0U);
+    limits.max_frame_bytes = 256U;
+    limits.max_message_bytes = MESSAGE;
+    limits.max_fragments = 16U;
+    parsed = dmp_core_parse(span(left.wire.q[0].frame, left.wire.q[0].len), &limits, &view);
+    if (parsed.status != DMP_OK) {
+        size_t i;
+        (void)fprintf(stderr, "packet frame len=%u status=%d bytes:",
+                       (unsigned)left.wire.q[0].len, (int)parsed.status);
+        for (i = 0U; i < left.wire.q[0].len && i < 12U; i++) {
+            (void)fprintf(stderr, " %02x", left.wire.q[0].frame[i]);
+        }
+        (void)fprintf(stderr, "\n");
+    }
+    CHECK(parsed.status == DMP_OK);
+    CHECK(dmp_endpoint_rx_packet(&right.endpoint,
+                                 span(left.wire.q[0].frame, left.wire.q[0].len), now) == DMP_OK);
+    CHECK(right.app.telem_n == sizeof telem);
+    CHECK(memcmp(right.app.telem, telem, sizeof telem) == 0);
+    CHECK(dmp_endpoint_rx(&right.endpoint,
+                          span(left.wire.q[0].frame, left.wire.q[0].len), now) == DMP_UNSUPPORTED);
+    left.wire.delay = 1;
+    CHECK(sample1_telem(replacement, 4U, 5U, 600U) == sizeof replacement);
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.pending == 1);
+    CHECK(left.wire.borrowed_frame == left.telemetry_frame);
+    CHECK(left.wire.borrowed_len <= sizeof borrowed_snapshot);
+    memcpy(borrowed_snapshot, left.wire.borrowed_frame, left.wire.borrowed_len);
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U,
+                                    span(replacement, sizeof replacement), now) == DMP_OK);
+    CHECK(memcmp(borrowed_snapshot, left.wire.borrowed_frame, left.wire.borrowed_len) == 0);
+    wire_finish(&left.wire, DMP_TX_TRANSMITTED);
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.n == 3);
+    CHECK(left.wire.q[2].len > 0U);
+    CHECK(dmp_endpoint_rx_packet(&right.endpoint,
+                                 span(left.wire.q[2].frame, left.wire.q[2].len), now) == DMP_OK);
+    CHECK(right.app.telem_n == sizeof replacement);
+    CHECK(memcmp(right.app.telem, replacement, sizeof replacement) == 0);
+    wire_finish(&left.wire, DMP_TX_TRANSMITTED);
+    memset(too_large, 0, sizeof too_large);
+    CHECK(dmp_endpoint_rx_packet(&right.endpoint, span(too_large, sizeof too_large), now) ==
+          DMP_LIMIT_EXHAUSTED);
+    CHECK(boot_with_binding(&left, 1, now, DMP_ENDPOINT_FRAMING_PACKET, 255U,
+                            FRAME_CAP, 16U, DMP_INVALID_ARGUMENT) == 0);
+    CHECK(boot_with_binding(&left, 1, now, DMP_ENDPOINT_FRAMING_PACKET, 256U,
+                            255U, 16U, DMP_INVALID_ARGUMENT) == 0);
+    CHECK(boot_with_binding(&left, 1, now, DMP_ENDPOINT_FRAMING_STREAM_R, 256U,
+                            FRAME_CAP, 16U, DMP_INVALID_ARGUMENT) == 0);
+    return 0;
+}
+
+static int test_single_frame_profile(void)
+{
+    uint8_t telem[SAMPLE1_TELEM_BYTES];
+    dmp_time_ms now = 1000U;
+    CHECK(boot_with_binding(&left, 1, now, DMP_ENDPOINT_FRAMING_PACKET, 256U,
+                            FRAME_CAP, 1U, DMP_OK) == 0);
+    CHECK(boot_with_binding(&right, 0, now, DMP_ENDPOINT_FRAMING_PACKET, 256U,
+                            FRAME_CAP, 1U, DMP_OK) == 0);
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(sample1_telem(telem, 1U, 2U, 300U) == sizeof telem);
+    CHECK(dmp_endpoint_submit_telem(&left.endpoint, 1U, span(telem, sizeof telem), now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    CHECK(dmp_endpoint_rx_packet(&right.endpoint,
+                                 span(left.wire.q[0].frame, left.wire.q[0].len), now) == DMP_OK);
+    CHECK(right.app.telem_n == sizeof telem);
+    CHECK(memcmp(right.app.telem, telem, sizeof telem) == 0);
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    return 0;
+}
+
 static void pattern(uint8_t *data, size_t n, uint8_t tag)
 {
     size_t i;
@@ -1204,11 +1348,12 @@ static int test_fragment(void)
     dmp_time_ms now = 1000U;
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
+    CHECK(sync_stream_r_pair(now) == 0);
     pattern(body, sizeof body, 0x40U);
     left.wire.duplicate_next = 1;
     CHECK(dmp_endpoint_submit_fragmented(&left.endpoint, 2U, span(body, sizeof body), now) ==
           DMP_OK);
-    CHECK(pump(now, 2) == 0);
+    CHECK(pump(now, 8) == 0);
     CHECK(left.wire.submits == 5);
     CHECK(right.app.duplicates >= 1);
     CHECK(right.app.assembled == 1);
@@ -1224,6 +1369,7 @@ static int test_retry(void)
     dmp_time_ms now = 1000U;
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
+    CHECK(sync_stream_r_pair(now) == 0);
     left.app.have_sample = 1;
     left.app.epoch = 1U;
     left.app.index = 2U;
@@ -1335,8 +1481,10 @@ static int test_quota(void)
     dmp_time_ms now = 1000U;
     uint32_t sentinel;
     int rc;
+    int i;
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
+    CHECK(sync_stream_r_pair(now) == 0);
     pattern(first, sizeof first, 0x40U);
     left.wire.delay = 1;
     CHECK(dmp_endpoint_submit_fragmented(&left.endpoint, 2U, span(first, sizeof first), now) ==
@@ -1356,6 +1504,7 @@ static int test_quota(void)
 
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
+    CHECK(sync_stream_r_pair(now) == 0);
     pattern(first, sizeof first, 0x40U);
     pattern(second, sizeof second, 0x80U);
     left.app.value = 300U;
@@ -1363,6 +1512,9 @@ static int test_quota(void)
     CHECK(dmp_endpoint_submit_fragmented(&left.endpoint, 2U, span(first, sizeof first), now) ==
           DMP_OK);
     CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    for (i = 1; i < 5; i++) {
+        CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    }
     CHECK(left.wire.submits == 5);
     CHECK(left.wire.n == 5);
     saved = left.wire.q[4];
@@ -1432,10 +1584,14 @@ static int test_fragment_replay(void)
     dmp_time_ms now = 1000U;
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
+    CHECK(sync_stream_r_pair(now) == 0);
     pattern(body, sizeof body, 0x40U);
     CHECK(dmp_endpoint_submit_fragmented(&left.endpoint, 2U, span(body, sizeof body), now) ==
           DMP_OK);
     CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    for (i = 1; i < 5; i++) {
+        CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    }
     CHECK(left.wire.n == 5);
     n = left.wire.n;
     for (i = 0; i < n; i++) {
@@ -1465,9 +1621,13 @@ static int core_of(const held *in, uint8_t *core, size_t cap, size_t *n, dmp_tim
 {
     dmp_stream_decoder decoder;
     uint8_t storage[STREAM_CAP];
+    uint8_t framed[FRAME_CAP];
     dmp_stream_config config;
     dmp_buffer buffer;
     dmp_stream_result fed;
+    CHECK(in->len + 1U <= sizeof framed);
+    framed[0] = 0U;
+    memcpy(framed + 1U, in->frame, in->len);
     memset(&decoder, 0, sizeof decoder);
     memset(&config, 0, sizeof config);
     config.mode = DMP_STREAM_R;
@@ -1476,7 +1636,7 @@ static int core_of(const held *in, uint8_t *core, size_t cap, size_t *n, dmp_tim
     buffer.data = storage;
     buffer.capacity = sizeof storage;
     CHECK(dmp_stream_init(&decoder, config, buffer, now) == DMP_OK);
-    fed = dmp_stream_feed(&decoder, span(in->frame, in->len), now);
+    fed = dmp_stream_feed(&decoder, span(framed, in->len + 1U), now);
     CHECK(fed.status == DMP_OK);
     CHECK(fed.event == DMP_STREAM_FRAME);
     CHECK(fed.frame.size <= cap);
@@ -1540,10 +1700,14 @@ static int test_fragment_tlv(void)
     dmp_time_ms now = 1000U;
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
+    CHECK(sync_stream_r_pair(now) == 0);
     pattern(body, sizeof body, 0x40U);
     CHECK(dmp_endpoint_submit_fragmented(&left.endpoint, 2U, span(body, sizeof body), now) ==
           DMP_OK);
     CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    for (i = 1; i < 5; i++) {
+        CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    }
     CHECK(left.wire.n == 5);
     n = left.wire.n;
     for (i = 0; i < n; i++) {
@@ -1677,6 +1841,60 @@ static int test_sample_init_budget(void)
     CHECK(right.app.live_index == 0U);
     CHECK(right.app.live_value == 0U);
     CHECK(right.app.init_reads == 1);
+    return 0;
+}
+
+/* The separately hashed two-attempt profile must fail closed after the second
+ * protected-policy READ expires. Advancing beyond both retry and init windows
+ * must not designate a third request. */
+static int test_sample_init_retry_budget(void)
+{
+    dmp_reliability_handle first;
+    dmp_time_ms now = 1000U;
+    dmp_time_ms first_deadline;
+    dmp_time_ms retry_at;
+    dmp_time_ms second_deadline;
+    dmp_time_ms init_deadline;
+
+    CHECK(SAMPLE_INIT_ATTEMPTS == 2U);
+    CHECK(SAMPLE_RESULT_DEADLINE_MS > 0U);
+    CHECK(boot(&left, 1, now) == 0);
+    CHECK(boot(&right, 0, now) == 0);
+    init_deadline = now + SAMPLE_INIT_DEADLINE_MS;
+    right.app.init_deadline = init_deadline;
+    left.app.have_sample = 1;
+    left.app.epoch = 1U;
+    left.app.index = 2U;
+    left.app.value = 300U;
+    left.app.hold_complete = 1;
+    CHECK(designate_read(&right, now, &first) == 0);
+    CHECK(pump(now, 4) == 0);
+    CHECK(left.app.accepts == 1 && right.app.init_reads == 1U);
+    CHECK(right.app.results == 0 && right.app.init_failed == 0);
+
+    first_deadline = now + SAMPLE_RESULT_DEADLINE_MS;
+    CHECK(first_deadline < init_deadline);
+    CHECK(pump(first_deadline, 4) == 0);
+    CHECK(right.app.init_used == 1 && right.app.want_retry == 1);
+    CHECK(right.app.init_failed == 0 && right.app.init_reads == 1U);
+
+    retry_at = first_deadline + SAMPLE_INIT_RETRY_MS;
+    CHECK(retry_at < init_deadline);
+    CHECK(pump(retry_at, 4) == 0);
+    CHECK(left.app.accepts == 2 && right.app.init_reads == 2U);
+    CHECK(right.app.init_used == 1 && right.app.have_designated == 1);
+    CHECK(right.app.results == 0 && right.app.synchronized == 0);
+
+    second_deadline = retry_at + SAMPLE_RESULT_DEADLINE_MS;
+    CHECK(pump(second_deadline < init_deadline ? second_deadline : init_deadline, 4) == 0);
+    CHECK(right.app.init_failed == 1 && right.app.init_used == 2);
+    CHECK(right.app.init_reads == 2U && left.app.accepts == 2);
+    CHECK(right.app.have_designated == 0 && right.app.want_retry == 0);
+    CHECK(right.app.results == 0 && right.app.synchronized == 0);
+
+    CHECK(pump(init_deadline + SAMPLE_INIT_RETRY_MS + 1U, 4) == 0);
+    CHECK(right.app.init_failed == 1 && right.app.init_reads == 2U);
+    CHECK(left.app.accepts == 2 && right.app.results == 0);
     return 0;
 }
 
@@ -1865,6 +2083,12 @@ int main(int argc, char **argv)
     if (strcmp(name, "sample1") == 0 || strcmp(name, "all") == 0) {
         failed |= test_sample1();
     }
+    if (strcmp(name, "packet") == 0 || strcmp(name, "all") == 0) {
+        failed |= test_packet_endpoint();
+    }
+    if (strcmp(name, "single_frame_profile") == 0 || strcmp(name, "all") == 0) {
+        failed |= test_single_frame_profile();
+    }
     if (strcmp(name, "sample_snapshot") == 0 || strcmp(name, "all") == 0) {
         failed |= test_sample_snapshot();
     }
@@ -1898,6 +2122,9 @@ int main(int argc, char **argv)
     if (strcmp(name, "sample_init_budget") == 0 || strcmp(name, "all") == 0) {
         failed |= test_sample_init_budget();
     }
+    if (strcmp(name, "sample_init_retry_budget") == 0) {
+        failed |= test_sample_init_retry_budget();
+    }
     if (strcmp(name, "sample_same_epoch") == 0 || strcmp(name, "all") == 0) {
         failed |= test_sample_same_epoch();
     }
@@ -1925,12 +2152,15 @@ int main(int argc, char **argv)
     if (strcmp(name, "sample_epoch_index_exhaustion") == 0 || strcmp(name, "all") == 0) {
         failed |= test_sample_epoch_index_exhaustion();
     }
-    if (strcmp(name, "sample1") != 0 && strcmp(name, "sample_snapshot") != 0 &&
+    if (strcmp(name, "sample1") != 0 && strcmp(name, "packet") != 0 &&
+        strcmp(name, "single_frame_profile") != 0 &&
+        strcmp(name, "sample_snapshot") != 0 &&
         strcmp(name, "fragment") != 0 && strcmp(name, "fragment_replay") != 0 &&
         strcmp(name, "fragment_tlv") != 0 && strcmp(name, "retry") != 0 &&
         strcmp(name, "result_loss") != 0 && strcmp(name, "receipt_loss") != 0 &&
         strcmp(name, "duplicate") != 0 && strcmp(name, "quota") != 0 &&
         strcmp(name, "sample_no_sample") != 0 && strcmp(name, "sample_init_budget") != 0 &&
+        strcmp(name, "sample_init_retry_budget") != 0 &&
         strcmp(name, "sample_same_epoch") != 0 && strcmp(name, "sample_new_epoch") != 0 &&
         strcmp(name, "sample_late_assoc") != 0 && strcmp(name, "sample_superseded") != 0 &&
         strcmp(name, "sample_invalid") != 0 && strcmp(name, "sample_epoch_restart") != 0 &&

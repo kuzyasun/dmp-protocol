@@ -14,8 +14,7 @@ add_dependencies(dmp_ram_measure dmp_test_provider)
 target_include_directories(dmp_ram_measure PRIVATE
     "${PROJECT_SOURCE_DIR}/src/security"
     "${CMAKE_BINARY_DIR}/tests/security")
-target_link_libraries(dmp_ram_measure PRIVATE
-    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+dmp_link_rescan(dmp_ram_measure libdmp dmp_p01b_noise dmp_p01b_sodium)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(dmp_ram_measure PRIVATE pthread)
 endif()
@@ -32,8 +31,7 @@ add_executable(dmp_ram_endpoint_initial ram_endpoint_measure.c)
 add_dependencies(dmp_ram_endpoint_initial dmp_test_provider)
 target_include_directories(dmp_ram_endpoint_initial PRIVATE
     "${PROJECT_SOURCE_DIR}/src/security")
-target_link_libraries(dmp_ram_endpoint_initial PRIVATE
-    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+dmp_link_rescan(dmp_ram_endpoint_initial libdmp dmp_p01b_noise dmp_p01b_sodium)
 set_target_properties(dmp_ram_endpoint_initial PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 dmp_strict_target(dmp_ram_endpoint_initial)
@@ -55,8 +53,7 @@ target_include_directories(dmp_ram_endpoint_process PRIVATE
     "${PROJECT_SOURCE_DIR}/src/security"
     "${PROJECT_SOURCE_DIR}/tests/harness"
     "${CMAKE_BINARY_DIR}/tests/security")
-target_link_libraries(dmp_ram_endpoint_process PRIVATE
-    "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+dmp_link_rescan(dmp_ram_endpoint_process libdmp dmp_p01b_noise dmp_p01b_sodium)
 if(WIN32)
     target_link_libraries(dmp_ram_endpoint_process PRIVATE ws2_32)
 endif()

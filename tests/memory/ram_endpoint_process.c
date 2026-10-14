@@ -71,6 +71,7 @@ typedef struct runtime_profile {
     size_t hs_replay_bits, hs_failed_aead, hs_association_ms, hs_global_crypto_ms;
     size_t hs_confirmation_timeout_ms, hs_confirmation_attempts;
     int selective_recovery;
+    int packet_binding;
 } runtime_profile;
 typedef struct peer_status {
     uint32_t requests, results, data_notices, assemblies;
@@ -87,6 +88,7 @@ typedef struct side side;
 typedef struct endpoint_bundle {
     dmp_endpoint endpoint;
     dmp_admitted_profile admitted;
+    dmp_endpoint_peer_state *peer_states;
     dmp_transport transport;
     dmp_identity_slot *identities;
     dmp_reliability_sender_slot *senders;
@@ -369,8 +371,8 @@ static void on_notice(void *ctx, const dmp_endpoint_notice *notice)
 }
 static int send_record(socket_t fd, uint8_t kind, const void *data, size_t size);
 
-static int frame_key_from_stream(const uint8_t *data, size_t size, uint64_t now,
-                                 logical_frame_key *key)
+static int frame_key_from_transport(const uint8_t *data, size_t size, uint64_t now,
+                                    logical_frame_key *key)
 {
     uint8_t storage[FRAME_CAP];
     dmp_stream_decoder decoder;
@@ -379,21 +381,29 @@ static int frame_key_from_stream(const uint8_t *data, size_t size, uint64_t now,
     dmp_core_limits limits;
     dmp_frame_view view;
     size_t bound;
-    if (data == NULL || key == NULL || size == 0U || size > FRAME_CAP ||
-        dmp_stream_encoded_bound(DMP_STREAM_R, active_profile.encoded_mtu, &bound) != DMP_OK ||
-        bound > sizeof storage) return 0;
-    stream_config.mode = DMP_STREAM_R;
-    stream_config.max_core_bytes = active_profile.encoded_mtu;
-    stream_config.partial_timeout_ms = active_profile.response_timeout_ms;
-    if (dmp_stream_init(&decoder, stream_config, (dmp_buffer){storage, bound}, now) != DMP_OK) return 0;
-    decoded = dmp_stream_feed(&decoder, (dmp_bytes){data, size}, now);
-    if (decoded.status != DMP_OK || decoded.event != DMP_STREAM_FRAME || decoded.consumed != size) return 0;
     limits.max_frame_bytes = active_profile.encoded_mtu;
     limits.max_message_bytes = (uint32_t)active_profile.message_bytes;
     limits.max_fragments = (uint32_t)active_profile.fragments;
     memset(&view, 0, sizeof view);
-    if (dmp_core_parse(decoded.frame, &limits, &view).status != DMP_OK ||
-        (view.fields.options & DMP_OPT_SECURITY) == 0U ||
+    if (data == NULL || key == NULL || size == 0U || size > FRAME_CAP) return 0;
+    if (active_profile.packet_binding) {
+        if (dmp_core_parse((dmp_bytes){data, size}, &limits, &view).status != DMP_OK) return 0;
+    } else {
+        static const uint8_t sync_marker = 0U;
+        if (dmp_stream_encoded_bound(DMP_STREAM_R, active_profile.encoded_mtu, &bound) != DMP_OK ||
+            bound > sizeof storage) return 0;
+        stream_config.mode = DMP_STREAM_R;
+        stream_config.max_core_bytes = active_profile.encoded_mtu;
+        stream_config.partial_timeout_ms = active_profile.response_timeout_ms;
+        if (dmp_stream_init(&decoder, stream_config, (dmp_buffer){storage, bound}, now) != DMP_OK) return 0;
+        decoded = dmp_stream_feed(&decoder, (dmp_bytes){&sync_marker, 1U}, now);
+        if (decoded.status != DMP_OK || decoded.event != DMP_STREAM_NONE || decoded.consumed != 1U)
+            return 0;
+        decoded = dmp_stream_feed(&decoder, (dmp_bytes){data, size}, now);
+        if (decoded.status != DMP_OK || decoded.event != DMP_STREAM_FRAME || decoded.consumed != size ||
+            dmp_core_parse(decoded.frame, &limits, &view).status != DMP_OK) return 0;
+    }
+    if ((view.fields.options & DMP_OPT_SECURITY) == 0U ||
         (view.fields.options & DMP_OPT_SEQ) == 0U) return 0;
     key->type = view.fields.type;
     key->seq = view.fields.seq;
@@ -421,6 +431,14 @@ static int route_matches_side(const side *s, const logical_frame_key *key, int o
         key->route.destination == active_profile.node_ids[peer_index];
 }
 
+static dmp_status receive_transport_frame(side *s, dmp_bytes frame, uint64_t now)
+{
+    if (s == NULL || s->bundle == NULL) return DMP_INVALID_ARGUMENT;
+    return active_profile.packet_binding
+        ? dmp_endpoint_rx_packet(&s->bundle->endpoint, frame, now)
+        : dmp_endpoint_rx(&s->bundle->endpoint, frame, now);
+}
+
 /* Local provider port queues owned copies; one client submission is deliberately
  * completed as transmitted and discarded to exercise libdmp's actual retry timer. */
 static dmp_status tx_submit(void *ctx, const dmp_tx_submission *submission)
@@ -429,22 +447,36 @@ static dmp_status tx_submit(void *ctx, const dmp_tx_submission *submission)
     logical_frame_key key;
     if (s == NULL || submission == NULL || submission->frame.data == NULL || submission->frame.size > FRAME_CAP || submission->complete == NULL) return DMP_INVALID_ARGUMENT;
     ++s->submissions;
-    if (!frame_key_from_stream(submission->frame.data, submission->frame.size, s->now, &key))
+    /* Stream-R's one-byte sync marker is a transport control frame, not a
+     * protected Core frame. Forward it unchanged and complete it normally. */
+    if (!active_profile.packet_binding && submission->frame.size == 1U &&
+        submission->frame.data[0] == 0U) {
+        if (!send_record(s->socket, REC_DATA, submission->frame.data, submission->frame.size)) return DMP_BUSY;
+        submission->complete(submission->owner, submission->token, DMP_TX_TRANSMITTED, s->now);
+        return DMP_OK;
+    }
+    if (!frame_key_from_transport(submission->frame.data, submission->frame.size, s->now, &key)) {
+        fprintf(stderr, "RAM transport rejected unparseable outbound frame size=%zu first=%02x\n",
+                submission->frame.size, submission->frame.data[0]);
         return DMP_MALFORMED;
+    }
     if (active_profile.origin_route != 0U) {
         ++s->origin_route_frames;
         if (route_matches_side(s, &key, 1)) {
             ++s->origin_route_frames_valid;
         } else {
+            fprintf(stderr, "RAM transport outbound route mismatch type=%u seq=%u\n",
+                    key.type, key.seq);
             return DMP_MALFORMED;
         }
     } else if (!route_matches_side(s, &key, 1)) {
+        fprintf(stderr, "RAM transport unexpected outbound route type=%u seq=%u\n",
+                key.type, key.seq);
         return DMP_MALFORMED;
     }
     if (s->capture_freshness_request_frames && key.type == DMP_TYPE_REQ)
         ++s->freshness_grant_request_frames;
-    if (s->drop_first && !s->dropped) {
-        if (key.type != DMP_TYPE_REQ) return DMP_MALFORMED;
+    if (s->drop_first && !s->dropped && key.type == DMP_TYPE_REQ) {
         s->dropped = 1U;
         s->dropped_request_key_valid = 1U;
         s->dropped_request_type = key.type;
@@ -735,6 +767,7 @@ static int manifest_parameters(const char *path, size_t *request)
         } else if (strcmp(binding_kind, "packet") == 0 &&
                    strcmp(context, "origin-explicit") == 0 &&
                    strcmp(active_profile.id, "RADIO-1") == 0) {
+            active_profile.packet_binding = 1;
             active_profile.origin_route = 1U;
             if (!json_number(binding, "ttl", &active_profile.origin_ttl)) return 0;
             if (active_profile.origin_ttl > 4U || active_profile.freshness_required_mask != 2U) return 0;
@@ -799,11 +832,21 @@ static int recv_record(socket_t fd, uint8_t *kind, uint8_t *data, size_t cap, si
     if (n != 0U && !socket_recv_all(fd, data, n)) return 0;
     *kind = h[0]; *size = n; return 1;
 }
+static int checked_size_product(size_t left, size_t right, size_t *out)
+{
+    if (out == NULL || (right != 0U && left > SIZE_MAX / right)) return 0;
+    *out = left * right;
+    return 1;
+}
 static int config_endpoint(side *s, size_t message, const uint8_t profile_digest[32])
 {
     dmp_config c; dmp_endpoint_storage st; dmp_identity_context_config identity; dmp_endpoint_grant grants[6];
     endpoint_bundle *b = (endpoint_bundle *)calloc(1U, sizeof *b);
-    size_t assemblies, tombstones, mtu, stream_capacity, stream_rx_capacity;
+    size_t assemblies, tombstones, identity_slots, peer_messages, mtu;
+    size_t stream_capacity, stream_rx_capacity, stream_rx_bytes;
+    size_t sender_payload_count, result_payload_count, history_metadata_count;
+    size_t correlation_metadata_count, frame_count, freshness_count;
+    size_t assembly_payload_count, assembly_metadata_count;
 #define BUNDLE_ALLOC(field, count, type, payload) do { \
     size_t _n = (count), _bytes; \
     if (_n == 0U || _n > SIZE_MAX / sizeof(type)) goto allocation_failed; \
@@ -813,39 +856,78 @@ static int config_endpoint(side *s, size_t message, const uint8_t profile_digest
 } while (0)
     if (b == NULL) return 0;
     b->message_bytes = message;
-    assemblies = active_profile.peers * active_profile.assemblies_per_peer;
-    tombstones = active_profile.peers * active_profile.tombstones_per_peer;
+    if (!checked_size_product(active_profile.peers, active_profile.assemblies_per_peer,
+                              &assemblies) ||
+        !checked_size_product(active_profile.peers, active_profile.tombstones_per_peer,
+                              &tombstones) ||
+        !checked_size_product(active_profile.peers, 2U, &identity_slots) ||
+        !checked_size_product(active_profile.peers, message, &peer_messages) ||
+        !checked_size_product(active_profile.sender_slots, message, &sender_payload_count) ||
+        !checked_size_product(active_profile.result_slots, message, &result_payload_count) ||
+        !checked_size_product(active_profile.history_slots, DMP_RELIABILITY_METADATA_BYTES,
+                              &history_metadata_count) ||
+        !checked_size_product(active_profile.correlation_slots, DMP_RELIABILITY_METADATA_BYTES,
+                              &correlation_metadata_count) ||
+        !checked_size_product(active_profile.adapter_slots, active_profile.encoded_mtu,
+                              &frame_count) ||
+        !checked_size_product(assemblies, message, &assembly_payload_count) ||
+        !checked_size_product(assemblies, DMP_REASSEMBLY_METADATA_BYTES,
+                              &assembly_metadata_count) ||
+        assemblies > UINT32_MAX || tombstones > UINT32_MAX || identity_slots > UINT32_MAX) {
+        goto allocation_failed;
+    }
     mtu = active_profile.encoded_mtu;
-    if (dmp_stream_encoded_bound(DMP_STREAM_R, mtu, &stream_rx_capacity) != DMP_OK) goto allocation_failed;
-    stream_capacity = stream_rx_capacity + 1U;
+    if (active_profile.packet_binding) {
+        stream_rx_capacity = 0U;
+        stream_rx_bytes = 0U;
+        stream_capacity = mtu;
+    } else {
+        if (dmp_stream_encoded_bound(DMP_STREAM_R, mtu, &stream_rx_capacity) != DMP_OK ||
+            stream_rx_capacity == SIZE_MAX ||
+            !checked_size_product(active_profile.peers, stream_rx_capacity, &stream_rx_bytes)) {
+            goto allocation_failed;
+        }
+        stream_capacity = stream_rx_capacity + 1U;
+    }
+    freshness_count = 0U;
+    if (active_profile.freshness_required_mask != 0U &&
+        (!checked_size_product(active_profile.peers,
+                               active_profile.freshness_tokens_per_association,
+                               &freshness_count) ||
+         !checked_size_product(freshness_count, 2U, &freshness_count))) {
+        goto allocation_failed;
+    }
     b->bundle_requested = sizeof *b;
-    BUNDLE_ALLOC(identities, active_profile.peers, dmp_identity_slot, 0);
+    BUNDLE_ALLOC(identities, identity_slots, dmp_identity_slot, 0);
+    BUNDLE_ALLOC(peer_states, active_profile.peers, dmp_endpoint_peer_state, 0);
     BUNDLE_ALLOC(senders, active_profile.sender_slots, dmp_reliability_sender_slot, 0);
-    BUNDLE_ALLOC(sender_payload, active_profile.sender_slots * message, uint8_t, 1);
+    BUNDLE_ALLOC(sender_payload, sender_payload_count, uint8_t, 1);
     BUNDLE_ALLOC(results, active_profile.result_slots, dmp_reliability_result_slot, 0);
-    BUNDLE_ALLOC(result_payload, active_profile.result_slots * message, uint8_t, 1);
+    BUNDLE_ALLOC(result_payload, result_payload_count, uint8_t, 1);
     BUNDLE_ALLOC(history, active_profile.history_slots, dmp_reliability_history_slot, 0);
     BUNDLE_ALLOC(correlations, active_profile.correlation_slots, dmp_reliability_correlation_slot, 0);
-    BUNDLE_ALLOC(history_metadata, active_profile.history_slots * DMP_RELIABILITY_METADATA_BYTES, uint8_t, 0);
-    BUNDLE_ALLOC(correlation_metadata, active_profile.correlation_slots * DMP_RELIABILITY_METADATA_BYTES, uint8_t, 0);
+    BUNDLE_ALLOC(history_metadata, history_metadata_count, uint8_t, 0);
+    BUNDLE_ALLOC(correlation_metadata, correlation_metadata_count, uint8_t, 0);
     BUNDLE_ALLOC(adapters, active_profile.adapter_slots, dmp_reliability_adapter_slot, 0);
-    BUNDLE_ALLOC(frames, active_profile.adapter_slots * mtu, uint8_t, 0);
+    BUNDLE_ALLOC(frames, frame_count, uint8_t, 0);
     BUNDLE_ALLOC(receive_payload, message, uint8_t, 1);
     BUNDLE_ALLOC(assemblies, assemblies, dmp_reassembly_slot, 0);
     BUNDLE_ALLOC(tombstones, tombstones, dmp_reassembly_tombstone, 0);
     if (active_profile.freshness_required_mask != 0U) {
-        BUNDLE_ALLOC(freshness_slots, 2U * active_profile.freshness_tokens_per_association,
+        BUNDLE_ALLOC(freshness_slots, freshness_count,
                      dmp_endpoint_freshness_slot, 0);
     }
-    BUNDLE_ALLOC(assembly_payload, assemblies * message, uint8_t, 1);
-    BUNDLE_ALLOC(assembly_metadata, assemblies * DMP_REASSEMBLY_METADATA_BYTES, uint8_t, 0);
-    BUNDLE_ALLOC(fragment_message, message, uint8_t, 1);
+    BUNDLE_ALLOC(assembly_payload, assembly_payload_count, uint8_t, 1);
+    BUNDLE_ALLOC(assembly_metadata, assembly_metadata_count, uint8_t, 0);
+    BUNDLE_ALLOC(fragment_message, peer_messages, uint8_t, 1);
     BUNDLE_ALLOC(fragment_frame, mtu, uint8_t, 0);
-    BUNDLE_ALLOC(telemetry_payload, message, uint8_t, 1);
-    BUNDLE_ALLOC(telemetry_next, message, uint8_t, 1);
+    BUNDLE_ALLOC(telemetry_payload, peer_messages, uint8_t, 1);
+    BUNDLE_ALLOC(telemetry_next, peer_messages, uint8_t, 1);
     BUNDLE_ALLOC(telemetry_frame, mtu, uint8_t, 0);
-    BUNDLE_ALLOC(stream_tx, stream_capacity, uint8_t, 0);
-    BUNDLE_ALLOC(stream_rx, stream_capacity, uint8_t, 0);
+    if (!active_profile.packet_binding) {
+        BUNDLE_ALLOC(stream_tx, stream_capacity, uint8_t, 0);
+        BUNDLE_ALLOC(stream_rx, stream_rx_bytes, uint8_t, 0);
+    }
     fill_config(&c, message, profile_digest);
     { dmp_status status = dmp_config_admit(&c, &b->admitted);
       if (status != DMP_OK) { fprintf(stderr, "dmp_config_admit status=%d senders=%u results=%u history=%u corr=%u adapters=%u message=%u fragments=%u\n", (int)status, c.sender_slots, c.result_slots, c.history_slots, c.correlation_slots, c.adapter_slots, c.message_bytes, c.fragments); goto allocation_failed; } }
@@ -855,27 +937,26 @@ static int config_endpoint(side *s, size_t message, const uint8_t profile_digest
     identity.peer.origin_id = (uint32_t)active_profile.node_ids[s->initiator ? 1 : 0]; identity.security = 1U;
     b->transport.context = s; b->transport.submit = tx_submit; b->transport.cancel = tx_cancel;
     b->transport.caps.max_frame_bytes = (uint32_t)stream_capacity; b->transport.caps.ownership = DMP_TX_BORROW; b->transport.caps.synchronous_completion = true;
-    memset(&st, 0, sizeof st); st.profile = &b->admitted; st.identity_slots = b->identities; st.identity_capacity = active_profile.peers; st.context = identity;
+    memset(&st, 0, sizeof st); st.profile = &b->admitted; st.framing_mode = active_profile.packet_binding ? DMP_ENDPOINT_FRAMING_PACKET : DMP_ENDPOINT_FRAMING_STREAM_R; st.peer_states = b->peer_states; st.peer_state_capacity = active_profile.peers; st.identity_slots = b->identities; st.identity_capacity = identity_slots; st.context = identity;
     st.transport = &b->transport; st.notice = on_notice; st.notice_user = s;
-    st.senders = b->senders; st.sender_capacity = active_profile.sender_slots; st.sender_payload = b->sender_payload; st.sender_payload_capacity = active_profile.sender_slots * message;
-    st.results = b->results; st.result_capacity = active_profile.result_slots; st.result_payload = b->result_payload; st.result_payload_capacity = active_profile.result_slots * message;
+    st.senders = b->senders; st.sender_capacity = active_profile.sender_slots; st.sender_payload = b->sender_payload; st.sender_payload_capacity = sender_payload_count;
+    st.results = b->results; st.result_capacity = active_profile.result_slots; st.result_payload = b->result_payload; st.result_payload_capacity = result_payload_count;
     st.history = b->history; st.history_capacity = active_profile.history_slots; st.correlations = b->correlations; st.correlation_capacity = active_profile.correlation_slots;
-    st.history_metadata = b->history_metadata; st.history_metadata_capacity = active_profile.history_slots * DMP_RELIABILITY_METADATA_BYTES;
-    st.correlation_metadata = b->correlation_metadata; st.correlation_metadata_capacity = active_profile.correlation_slots * DMP_RELIABILITY_METADATA_BYTES;
-    st.adapters = b->adapters; st.adapter_capacity = active_profile.adapter_slots; st.frames = b->frames; st.frame_capacity = active_profile.adapter_slots * mtu;
+    st.history_metadata = b->history_metadata; st.history_metadata_capacity = history_metadata_count;
+    st.correlation_metadata = b->correlation_metadata; st.correlation_metadata_capacity = correlation_metadata_count;
+    st.adapters = b->adapters; st.adapter_capacity = active_profile.adapter_slots; st.frames = b->frames; st.frame_capacity = frame_count;
     st.receive_payload = b->receive_payload; st.receive_payload_capacity = message;
     st.assemblies = b->assemblies; st.assembly_capacity = assemblies; st.tombstones = b->tombstones; st.tombstone_capacity = tombstones;
     st.freshness_slots = b->freshness_slots;
-    st.freshness_capacity = b->freshness_slots != NULL
-        ? 2U * active_profile.freshness_tokens_per_association : 0U;
-    st.assembly_payload = b->assembly_payload; st.assembly_payload_capacity = assemblies * message;
-    st.assembly_metadata = b->assembly_metadata; st.assembly_metadata_capacity = assemblies * DMP_REASSEMBLY_METADATA_BYTES;
-    st.fragment_message = b->fragment_message; st.fragment_message_capacity = message;
+    st.freshness_capacity = freshness_count;
+    st.assembly_payload = b->assembly_payload; st.assembly_payload_capacity = assembly_payload_count;
+    st.assembly_metadata = b->assembly_metadata; st.assembly_metadata_capacity = assembly_metadata_count;
+    st.fragment_message = b->fragment_message; st.fragment_message_capacity = peer_messages;
     st.fragment_frame = b->fragment_frame; st.fragment_frame_capacity = mtu;
-    st.telemetry_payload = b->telemetry_payload; st.telemetry_payload_capacity = message;
-    st.telemetry_next = b->telemetry_next; st.telemetry_next_capacity = message;
+    st.telemetry_payload = b->telemetry_payload; st.telemetry_payload_capacity = peer_messages;
+    st.telemetry_next = b->telemetry_next; st.telemetry_next_capacity = peer_messages;
     st.telemetry_frame = b->telemetry_frame; st.telemetry_frame_capacity = mtu;
-    st.stream_tx = b->stream_tx; st.stream_tx_capacity = stream_capacity; st.stream_rx = b->stream_rx; st.stream_rx_capacity = stream_rx_capacity;
+    st.stream_tx = b->stream_tx; st.stream_tx_capacity = active_profile.packet_binding ? 0U : stream_capacity; st.stream_rx = b->stream_rx; st.stream_rx_capacity = stream_rx_bytes;
     { dmp_status status = dmp_endpoint_init(&b->endpoint, &st, s->now);
       if (status != DMP_OK) { fprintf(stderr, "dmp_endpoint_init status=%d\n", (int)status); goto allocation_failed; } }
     memset(grants, 0, sizeof grants);
@@ -896,7 +977,7 @@ static int config_endpoint(side *s, size_t message, const uint8_t profile_digest
       if (status != DMP_OK) { fprintf(stderr, "dmp_endpoint_set_grants status=%d\n", (int)status); goto allocation_failed; } }
     s->bundle = b; return 1;
 allocation_failed:
-    free(b->identities); free(b->senders); free(b->sender_payload); free(b->results); free(b->result_payload);
+    free(b->identities); free(b->peer_states); free(b->senders); free(b->sender_payload); free(b->results); free(b->result_payload);
     free(b->history); free(b->correlations); free(b->history_metadata); free(b->correlation_metadata);
     free(b->adapters); free(b->frames); free(b->receive_payload); free(b->assemblies); free(b->tombstones);
     free(b->freshness_slots); free(b->assembly_payload); free(b->assembly_metadata); free(b->fragment_message); free(b->fragment_frame);
@@ -963,7 +1044,7 @@ static void close_side(side *s)
     }
     if (s->bundle != NULL) {
         endpoint_bundle *b = s->bundle;
-        free(b->identities); free(b->senders); free(b->sender_payload); free(b->results); free(b->result_payload);
+        free(b->identities); free(b->peer_states); free(b->senders); free(b->sender_payload); free(b->results); free(b->result_payload);
         free(b->history); free(b->correlations); free(b->history_metadata); free(b->correlation_metadata);
         free(b->adapters); free(b->frames); free(b->receive_payload); free(b->assemblies); free(b->tombstones);
         free(b->freshness_slots); free(b->assembly_payload); free(b->assembly_metadata); free(b->fragment_message); free(b->fragment_frame);
@@ -1109,7 +1190,7 @@ static int peer_main_loop(side *s, size_t message, const noise_fixture_probe_fix
             state.stale_requests_before = (uint32_t)s->app.requests;
             state.stale_data_before = (uint32_t)s->app.data_notices;
             state.stale_assemblies_before = (uint32_t)s->app.assemblies;
-            st = dmp_endpoint_rx(&s->bundle->endpoint, (dmp_bytes){buf, n}, s->now);
+            st = receive_transport_frame(s, (dmp_bytes){buf, n}, s->now);
             state.stale_status = (uint32_t)st;
             state.stale_requests_after = (uint32_t)s->app.requests;
             state.stale_data_after = (uint32_t)s->app.data_notices;
@@ -1125,7 +1206,7 @@ static int peer_main_loop(side *s, size_t message, const noise_fixture_probe_fix
             continue;
         }
         if (type == REC_DATA) {
-            dmp_status st = dmp_endpoint_rx(&s->bundle->endpoint, (dmp_bytes){buf, n}, s->now);
+            dmp_status st = receive_transport_frame(s, (dmp_bytes){buf, n}, s->now);
             if (st != DMP_OK && st != DMP_INCOMPLETE && st != DMP_DUPLICATE) { (void)send_record(s->socket, REC_ERROR, &st, sizeof st); fprintf(stderr, "peer endpoint rx status=%d\n", (int)st); return 0; }
             complete_request(s); continue;
         }
@@ -1156,7 +1237,7 @@ static socket_t listen_loopback(uint16_t *port)
 {
     socket_t fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); struct sockaddr_in addr; socklen_t n = (socklen_t)sizeof addr;
     if (fd == BAD_SOCKET) return BAD_SOCKET;
-    memset(&addr, 0, sizeof addr); addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); addr.sin_port = 0;
+    memset(&addr, 0, sizeof addr); addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(0x7f000001U); addr.sin_port = 0;
     if (bind(fd, (struct sockaddr *)&addr, sizeof addr) != 0 || listen(fd, 1) != 0 || getsockname(fd, (struct sockaddr *)&addr, &n) != 0) { CLOSE_SOCKET(fd); return BAD_SOCKET; }
     *port = ntohs(addr.sin_port); return fd;
 }
@@ -1164,7 +1245,7 @@ static socket_t connect_loopback(uint16_t port)
 {
     struct sockaddr_in addr; socket_t fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (fd == BAD_SOCKET) return BAD_SOCKET;
-    memset(&addr, 0, sizeof addr); addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); addr.sin_port = htons(port);
+    memset(&addr, 0, sizeof addr); addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(0x7f000001U); addr.sin_port = htons(port);
     if (connect(fd, (struct sockaddr *)&addr, sizeof addr) == 0) return fd;
     CLOSE_SOCKET(fd); return BAD_SOCKET;
 }
@@ -1238,14 +1319,37 @@ static int parent_tick(side *s, uint64_t now)
     if (dmp_endpoint_poll(&s->bundle->endpoint, now) != DMP_OK) { fputs("parent poll failed\n", stderr); return 0; }
     if (!send_record(s->socket, REC_TICK, &now, sizeof now)) { fputs("parent tick send failed\n", stderr); return 0; }
     for (;;) {
-        if (!recv_record(s->socket, &type, buf, sizeof buf, &n)) return 0;
+        if (!recv_record(s->socket, &type, buf, sizeof buf, &n)) {
+            fputs("parent tick receive failed\n", stderr);
+            return 0;
+        }
         if (type == REC_DONE) {
-            if (n != sizeof s->peer) return 0;
+            if (n != sizeof s->peer) {
+                fprintf(stderr, "parent tick completion size mismatch got=%zu expected=%zu\n",
+                        n, sizeof s->peer);
+                return 0;
+            }
             memcpy(&s->peer, buf, sizeof s->peer);
             break;
         }
-        if (type != REC_DATA) return 0;
-        if (!frame_key_from_stream(buf, n, now, &key)) return 0;
+        if (type != REC_DATA) {
+            fprintf(stderr, "parent tick unexpected record type=%u size=%zu\n", type, n);
+            return 0;
+        }
+        if (!active_profile.packet_binding && n == 1U && buf[0] == 0U) {
+            dmp_status sync_status = dmp_endpoint_rx(
+                &s->bundle->endpoint, (dmp_bytes){buf, n}, now);
+            if (sync_status != DMP_OK && sync_status != DMP_INCOMPLETE) {
+                fprintf(stderr, "parent tick peer sync status=%d\n", (int)sync_status);
+                return 0;
+            }
+            continue;
+        }
+        if (!frame_key_from_transport(buf, n, now, &key)) {
+            fprintf(stderr, "parent tick rejected peer frame size=%zu first=%02x\n",
+                    n, n != 0U ? buf[0] : 0U);
+            return 0;
+        }
         if (active_profile.origin_route != 0U) {
             ++s->origin_route_rx_frames;
             if (!route_matches_side(s, &key, 0)) return 0;
@@ -1253,7 +1357,7 @@ static int parent_tick(side *s, uint64_t now)
         } else if (!route_matches_side(s, &key, 0)) {
             return 0;
         }
-        { dmp_status st = dmp_endpoint_rx(&s->bundle->endpoint, (dmp_bytes){buf, n}, now); if (st != DMP_OK && st != DMP_INCOMPLETE && st != DMP_DUPLICATE) { fprintf(stderr, "measured endpoint rx status=%d\n", (int)st); return 0; } }
+        { dmp_status st = receive_transport_frame(s, (dmp_bytes){buf, n}, now); if (st != DMP_OK && st != DMP_INCOMPLETE && st != DMP_DUPLICATE) { fprintf(stderr, "measured endpoint rx status=%d\n", (int)st); return 0; } }
     }
     return 1;
 }
@@ -1306,10 +1410,42 @@ static int request_freshness_grant(side *s)
     return s->freshness_grant_request_frames != 0U &&
         s->app.freshness_grants == before_grants + 1 && s->app.freshness_grant_valid;
 }
+static int pump_round_limit(size_t *limit)
+{
+    size_t request_frames, result_frames, frame_rounds, retry_waits, timeout_rounds;
+    size_t base_rounds;
+    if (limit == NULL || active_profile.queue_ms == 0U || active_profile.max_bursts == 0U ||
+        active_profile.chunk_bytes == 0U || active_profile.request_bytes == 0U ||
+        active_profile.result_bytes == 0U) return 0;
+    request_frames = (active_profile.request_bytes + active_profile.chunk_bytes - 1U) /
+        active_profile.chunk_bytes;
+    result_frames = (active_profile.result_bytes + active_profile.chunk_bytes - 1U) /
+        active_profile.chunk_bytes;
+    retry_waits = active_profile.response_timeout_ms / active_profile.queue_ms;
+    if (active_profile.response_timeout_ms % active_profile.queue_ms != 0U) ++retry_waits;
+    if (request_frames > SIZE_MAX - result_frames) return 0;
+    frame_rounds = request_frames + result_frames;
+    if (frame_rounds > SIZE_MAX / active_profile.max_bursts ||
+        retry_waits > SIZE_MAX / active_profile.max_bursts) return 0;
+    frame_rounds *= active_profile.max_bursts;
+    timeout_rounds = retry_waits * active_profile.max_bursts;
+    if (frame_rounds > SIZE_MAX - timeout_rounds) return 0;
+    base_rounds = frame_rounds + timeout_rounds;
+    /* Leave a small bounded allowance for control and completion records. */
+    if (base_rounds > SIZE_MAX - 16U) return 0;
+    *limit = base_rounds + 16U;
+    return *limit <= 100000U;
+}
+
 static int pump_exchange(side *s)
 {
-    uint64_t now = s->now; unsigned rounds;
-    for (rounds = 0U; rounds < 64U; ++rounds) {
+    uint64_t now = s->now;
+    size_t rounds, round_limit;
+    if (!pump_round_limit(&round_limit)) {
+        fputs("pump bound invalid for manifest timing and frame geometry\n", stderr);
+        return 0;
+    }
+    for (rounds = 0U; rounds < round_limit; ++rounds) {
         if (!parent_tick(s, now)) return 0;
         if (s->app.results != 0) {
             if (!parent_tick(s, now)) return 0;
@@ -1317,8 +1453,8 @@ static int pump_exchange(side *s)
         }
         now += active_profile.queue_ms;
     }
-    fprintf(stderr, "pump exhausted: results=%d peer_requests=%u peer_assemblies=%u peer_bytes=%llu submissions=%zu retry=%u\n",
-            s->app.results, s->peer.requests, s->peer.assemblies,
+    fprintf(stderr, "pump exhausted after %zu derived rounds: results=%d peer_requests=%u peer_assemblies=%u peer_bytes=%llu submissions=%zu retry=%u\n",
+            round_limit, s->app.results, s->peer.requests, s->peer.assemblies,
             (unsigned long long)s->peer.assembled_bytes, s->submissions, s->retry_observed);
     return 0;
 }
@@ -1426,7 +1562,14 @@ static int parent_run(const char *exe, const char *manifest, size_t message, siz
     if (WaitForSingleObject(process.hProcess, 0) == WAIT_OBJECT_0) { DWORD exit_code = 0U; (void)GetExitCodeProcess(process.hProcess, &exit_code); fprintf(stderr,"peer exited immediately after handshake: code=%lu\n",(unsigned long)exit_code); return 0; }
 #endif
     capture(&phases[1], &target);
-    if (dmp_endpoint_poll(&target.bundle->endpoint, target.now) != DMP_OK) { fputs("RAM process probe: active endpoint poll failed\n", stderr); return 0; }
+    {
+        dmp_status poll_status = dmp_endpoint_poll(&target.bundle->endpoint, target.now);
+        if (poll_status != DMP_OK) {
+            fprintf(stderr, "RAM process probe: active endpoint poll failed status=%d\n",
+                    (int)poll_status);
+            return 0;
+        }
+    }
     capture(&phases[2], &target);
     if (active_profile.freshness_required_mask != 0U && !request_freshness_grant(&target)) {
         fputs("RAM process probe: protected S7 freshness grant transaction failed\n", stderr);
@@ -1437,6 +1580,9 @@ static int parent_run(const char *exe, const char *manifest, size_t message, siz
     target.drop_first = 1U;
     {
         dmp_status submit_status;
+        dmp_status poll_status = DMP_OK;
+        size_t before_submissions;
+        size_t poll_count;
         if (active_profile.freshness_required_mask != 0U) {
             submit_status = dmp_endpoint_submit_req_fresh(&target.bundle->endpoint, 2U,
                 (dmp_bytes){request,request_size},
@@ -1448,12 +1594,25 @@ static int parent_run(const char *exe, const char *manifest, size_t message, siz
             submit_status = dmp_endpoint_submit_req(&target.bundle->endpoint, 2U,
                 (dmp_bytes){request,request_size}, target.now, &handle);
         }
-        if (submit_status != DMP_OK || dmp_endpoint_poll(&target.bundle->endpoint, target.now) != DMP_OK ||
-            !target.dropped) { fputs("RAM process probe: request submit/initial injected loss failed\n", stderr); return 0; }
+        for (poll_count = 0U; submit_status == DMP_OK && !target.dropped &&
+             poll_count < 16U; ++poll_count) {
+            before_submissions = target.submissions;
+            poll_status = dmp_endpoint_poll(&target.bundle->endpoint, target.now);
+            if (poll_status != DMP_OK || target.submissions == before_submissions) break;
+        }
+        if (submit_status != DMP_OK || poll_status != DMP_OK || !target.dropped) {
+            fprintf(stderr,
+                    "RAM process probe: request submit/initial injected loss failed submit=%d poll=%d dropped=%u submissions=%u\n",
+                    (int)submit_status, (int)poll_status, (unsigned)target.dropped,
+                    (unsigned)target.submissions);
+            return 0;
+        }
     }
     target.local_requests = 1U;
     target.now += active_profile.response_timeout_ms; target.hsctx.now = target.now;
-    if (!pump_exchange(&target) || !target.retry_observed || !target.retry_distinct ||
+    {
+        int exchange_ok = pump_exchange(&target);
+        if (!exchange_ok || !target.retry_observed || !target.retry_distinct ||
         !target.dropped_request_key_valid || target.retry_request_pn == target.dropped_request_pn ||
         target.submissions < 2U || target.app.results != 1 || target.local_requests != 1U ||
         target.peer.requests != 1U || target.peer.request_payload_bytes != request_size ||
@@ -1461,8 +1620,21 @@ static int parent_run(const char *exe, const char *manifest, size_t message, siz
         !target.peer.request_payload_matches || target.app.result_payload_bytes != active_profile.result_bytes ||
         target.app.result_service_id != active_profile.service_ids[1] ||
         target.app.result_wire_status != 0U || !target.app.result_payload_matches) {
-        fputs("RAM process probe: exact reliable request/result and fresh-PN retry exchange failed\n", stderr);
-        return 0;
+            fprintf(stderr,
+                    "RAM process probe: reliable exchange failed pump=%u retry=%u distinct=%u key=%u pn=%llu/%llu tx=%zu results=%d local=%u peer=%u peer_bytes=%llu peer_service=%u peer_match=%u result_bytes=%zu result_service=%u result_status=%u result_match=%u\n",
+                    (unsigned)exchange_ok, (unsigned)target.retry_observed,
+                    (unsigned)target.retry_distinct, (unsigned)target.dropped_request_key_valid,
+                    (unsigned long long)target.dropped_request_pn,
+                    (unsigned long long)target.retry_request_pn, target.submissions,
+                    target.app.results, (unsigned)target.local_requests,
+                    target.peer.requests, (unsigned long long)target.peer.request_payload_bytes,
+                    target.peer.request_service_id,
+                    (unsigned)target.peer.request_payload_matches,
+                    target.app.result_payload_bytes, target.app.result_service_id,
+                    target.app.result_wire_status,
+                    (unsigned)target.app.result_payload_matches);
+            return 0;
+        }
     }
     request_frames = request_size <= 128U ? 1U : (request_size + chunk_bytes - 1U) / chunk_bytes;
     if (request_size <= 128U) {
@@ -1520,7 +1692,7 @@ static int parent_run(const char *exe, const char *manifest, size_t message, siz
         }
         {
             logical_frame_key captured_key;
-            if (!frame_key_from_stream(target.protected_data_frame,
+            if (!frame_key_from_transport(target.protected_data_frame,
                                        target.protected_data_frame_size,
                                        target.now, &captured_key) ||
                 captured_key.type != DMP_TYPE_DATA) {
@@ -1558,6 +1730,12 @@ static int parent_run(const char *exe, const char *manifest, size_t message, siz
         memcmp(old_init_ephemeral, target.hsctx.entropy.owned[1], old_init_ephemeral_size) != 0;
     target.socket = connection;
     if (!parent_handshake(&target, f)) return 0;
+    /* A fresh Stream-R decoder on each endpoint must see its sync marker
+     * before the saved old-association frame is replayed into the peer. */
+    if (!parent_tick(&target, target.now)) {
+        fputs("RAM process probe: reconnect Stream-R synchronization failed\n", stderr);
+        return 0;
+    }
     reconnect.current_epoch = target.association_epoch;
     if (!reconnect.attempt_id_changed || !reconnect.initiator_ephemeral_changed ||
         reconnect.current_epoch == 0U || reconnect.current_epoch == reconnect.prior_epoch) {

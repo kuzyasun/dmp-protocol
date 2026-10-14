@@ -2477,7 +2477,7 @@ done:
 static int test_split_partial_registration_cleanup(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
-    enum { FILLER_COUNT = 9 };
+    enum { FILLER_COUNT = DMP_PROVIDER_CHILD_MAX - 3U };
     port_ctx port;
     dmp_provider_ports ports;
     dmp_provider *provider;
@@ -2519,8 +2519,8 @@ static int test_split_partial_registration_cleanup(void)
     blocks_before_split = dmp_provider_block_count(provider);
     retained_before_split = dmp_provider_retained(provider);
     releases_before_split = port.release_calls;
-    /* The two exchange states plus nine filler ciphers occupy eleven of twelve
-     * child slots. Split can register its send child, then must unwind when
+    /* The two exchange states plus CHILD_MAX - 3 filler ciphers occupy all but
+     * one child slot. Split can register its send child, then must unwind when
      * registration of the receive child has no slot. */
     split_status = dmp_provider_handshake_split(provider, &initiator, &send, &receive);
     if (split_status != DMP_PROVIDER_NO_MEMORY ||
@@ -2630,7 +2630,7 @@ static int test_cipher_child_capacity_cleanup(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
     const noise_fixture_probe_packet_t *probe_packet;
-    enum { CIPHER_CAP = 16 };
+    enum { CIPHER_CAP = DMP_PROVIDER_CHILD_MAX + 1U };
     port_ctx port;
     dmp_provider_ports ports;
     dmp_provider *provider;
@@ -2706,8 +2706,10 @@ static int test_cipher_child_capacity_cleanup(void)
         }
         break;
     }
-    if (count == 0U || count == CIPHER_CAP || status != DMP_PROVIDER_NO_MEMORY) {
-        fprintf(stderr, "cipher child capacity was not reached within %d slots\n", CIPHER_CAP);
+    if (count != DMP_PROVIDER_CHILD_MAX || count == CIPHER_CAP ||
+        status != DMP_PROVIDER_NO_MEMORY) {
+        fprintf(stderr, "cipher child capacity reached %zu, expected %u\n", count,
+                DMP_PROVIDER_CHILD_MAX);
         goto done;
     }
 

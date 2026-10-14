@@ -187,9 +187,16 @@ reports do not establish runtime high-water or per-endpoint budgets.
 MEM-03 adds `dmp_noise_owners_probe`, a host-only test with one stable arena
 and serialized calls. Actual local NNpsk0/XX states replay prerecorded remote
 flights, transfer Split contexts and retain neighboring traffic while another
-owner is created, fails, is destroyed or reuses freed storage. Manifest-derived
-single/four_serial rows exercise logical provider quotas; the historical
-MEM-03 four_parallel row remains deferred. A separate
+owner is created, fails, is destroyed or reuses freed storage. The provider
+child-object sensitivity bound is derived per endpoint as
+`pending_attempts + 2 * (active_associations + draining_associations) + 2 * crypto_slots`:
+one registered Noise handshake object per pending attempt, two cipher children
+per active or draining association, and one handshake-to-two-cipher Split
+overlap per simultaneous crypto slot. The existing `single`, `four_serial`,
+and `four_parallel` rows therefore require 7, 22, and 24 child objects. These
+row counts are already endpoint totals; `peers` is not a multiplier. The
+provider enforces a fixed hard maximum of 24, and host capacity evidence does
+not qualify hardware resources or endpoint behavior. A separate
 `dmp_parallel_four_parallel` follow-up now holds four real pending Noise
 initiators and sixteen live cipher states across two workers, checks a
 two-worker overlap at the first Noise allocator callback, exercises fixture

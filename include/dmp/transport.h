@@ -24,6 +24,8 @@ typedef void (*dmp_tx_complete_fn)(void *owner, dmp_tx_token token,
                                   dmp_tx_outcome outcome, dmp_time_ms when);
 typedef struct {
     dmp_tx_token token;
+    /* Routing metadata only; it does not authenticate the DMP frame. */
+    dmp_peer_handle peer;
     dmp_bytes frame;
     dmp_time_ms not_after;
     dmp_tx_complete_fn complete;

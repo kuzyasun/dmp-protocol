@@ -1,8 +1,7 @@
 add_executable(dmp_test_relay test_relay.c ../harness/harness.c)
 target_link_libraries(dmp_test_relay PRIVATE dmp::dmp)
 if(TARGET dmp_p01b_noise AND TARGET dmp_p01b_sodium)
-    target_link_libraries(dmp_test_relay PRIVATE
-        "$<LINK_GROUP:RESCAN,libdmp,dmp_p01b_noise,dmp_p01b_sodium>")
+    dmp_link_rescan(dmp_test_relay libdmp dmp_p01b_noise dmp_p01b_sodium)
 endif()
 target_include_directories(dmp_test_relay PRIVATE
     "${CMAKE_SOURCE_DIR}/tests/harness"

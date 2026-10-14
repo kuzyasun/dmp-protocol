@@ -112,6 +112,8 @@ typedef struct {
 
 struct node {
     dmp_endpoint endpoint;
+    dmp_endpoint_framing_mode framing_mode;
+    dmp_endpoint_peer_state peer_states[DMP_PROFILE_MAX_PEERS];
     dmp_transport transport;
     wire wire;
     app app;
@@ -201,6 +203,7 @@ static uint32_t g_tx;
 static uint32_t g_rx;
 static size_t g_provider;
 static int g_hold;
+static dmp_endpoint_framing_mode g_framing_mode = DMP_ENDPOINT_FRAMING_STREAM_R;
 
 static const uint8_t RADIO_SHA[32] = {
     0xfe, 0x18, 0xd3, 0xc7, 0xfe, 0xe7, 0x63, 0x05,
@@ -500,11 +503,14 @@ static int allow_service1_request(node *self)
 {
     dmp_endpoint_grant grants[DMP_ENDPOINT_GRANT_MAX];
     size_t count;
-    if (self == NULL || self->endpoint.grant_count >= DMP_ENDPOINT_GRANT_MAX) {
+    if (self == NULL ||
+        self->endpoint.peers[self->endpoint.active_peer_slot].grant_count >=
+            DMP_ENDPOINT_GRANT_MAX) {
         return 1;
     }
-    count = self->endpoint.grant_count;
-    memcpy(grants, self->endpoint.grants, count * sizeof grants[0]);
+    count = self->endpoint.peers[self->endpoint.active_peer_slot].grant_count;
+    memcpy(grants, self->endpoint.peers[self->endpoint.active_peer_slot].grants,
+           count * sizeof grants[0]);
     grants[count].principal = ID_INIT;
     grants[count].service_id = 1U;
     grants[count].permit = DMP_ENDPOINT_PERMIT_REQ;
@@ -519,8 +525,9 @@ static int allow_service1_result(node *self)
     if (self == NULL) {
         return 1;
     }
-    count = self->endpoint.grant_count;
-    memcpy(grants, self->endpoint.grants, count * sizeof grants[0]);
+    count = self->endpoint.peers[self->endpoint.active_peer_slot].grant_count;
+    memcpy(grants, self->endpoint.peers[self->endpoint.active_peer_slot].grants,
+           count * sizeof grants[0]);
     for (i = 0U; i < count; i++) {
         if (grants[i].principal == ID_RESP && grants[i].service_id == 1U) {
             grants[i].permit |= DMP_ENDPOINT_PERMIT_RESULT;
@@ -577,6 +584,10 @@ static int boot_node(node *self, int producer, int profile, dmp_time_ms now, int
     if (dmp_config_admit(&input, &admitted) != DMP_OK) {
         return 1;
     }
+    g_framing_mode = (profile == PROF_DIRECT || profile == PROF_DIRECT_ASYNC)
+                         ? DMP_ENDPOINT_FRAMING_STREAM_R
+                         : DMP_ENDPOINT_FRAMING_PACKET;
+    self->framing_mode = g_framing_mode;
     memset(&identity, 0, sizeof identity);
     identity.local.namespace_id = LOCAL_NS;
     identity.peer.namespace_id = LOCAL_NS;
@@ -594,6 +605,9 @@ static int boot_node(node *self, int producer, int profile, dmp_time_ms now, int
     self->wire.defer_completion = admitted.synchronous_completion ? 0 : 1;
     memset(&storage, 0, sizeof storage);
     storage.profile = &admitted;
+    storage.framing_mode = g_framing_mode;
+    storage.peer_states = self->peer_states;
+    storage.peer_state_capacity = sizeof self->peer_states / sizeof self->peer_states[0];
     storage.identity_slots = self->ids;
     storage.identity_capacity = 2U;
     storage.context = identity;
@@ -671,8 +685,8 @@ static uint32_t retained_payload(const node *n)
             sum += n->assemblies[index].total_size;
         }
     }
-    if (n->endpoint.frag_live != 0U) {
-        sum += n->endpoint.frag_total;
+    if (n->endpoint.peers[n->endpoint.active_peer_slot].frag_live != 0U) {
+        sum += n->endpoint.peers[n->endpoint.active_peer_slot].frag_total;
     }
     return sum;
 }
@@ -1005,6 +1019,34 @@ static int activate(session *env, uint32_t index)
 
 static int bind_pair(session *env, uint32_t index)
 {
+    if (left.framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        dmp_status left_status;
+        dmp_status right_status;
+        dmp_time_ms now = left.wire.now;
+        left.wire.now = now;
+        right.wire.now = now;
+        if (dmp_endpoint_poll(&left.endpoint, now) != DMP_OK ||
+            dmp_endpoint_poll(&right.endpoint, now) != DMP_OK ||
+            left.wire.n != 1 || right.wire.n != 1 ||
+            left.wire.q[0].len != 1U || right.wire.q[0].len != 1U ||
+            left.wire.q[0].frame[0] != 0U || right.wire.q[0].frame[0] != 0U) {
+            return 0;
+        }
+        right.wire.rx_bytes++;
+        left.wire.rx_bytes++;
+        g_rx += 2U;
+        left_status = dmp_endpoint_rx(&right.endpoint,
+                                      span(left.wire.q[0].frame, left.wire.q[0].len), now);
+        right_status = dmp_endpoint_rx(&left.endpoint,
+                                       span(right.wire.q[0].frame, right.wire.q[0].len), now);
+        if ((left_status != DMP_OK && left_status != DMP_INCOMPLETE) ||
+            (right_status != DMP_OK && right_status != DMP_INCOMPLETE)) return 0;
+        (void)wire_complete_delayed(&left, now);
+        (void)wire_complete_delayed(&right, now);
+        if (left.endpoint.wire_busy != 0U || right.endpoint.wire_busy != 0U) return 0;
+        left.wire.n = 0;
+        right.wire.n = 0;
+    }
     return dmp_endpoint_bind(&left.endpoint, env->initiator, index) == DMP_OK &&
            dmp_endpoint_bind(&right.endpoint, env->responder, 0U) == DMP_OK;
 }
@@ -1058,7 +1100,17 @@ static int unwrap_core(const uint8_t *framed, size_t n, uint8_t *core, size_t ca
     dmp_stream_config config;
     dmp_buffer storage;
     uint8_t scratch[STREAM_CAP];
+    uint8_t prefixed[FRAME_CAP + 1U];
     dmp_bytes input;
+    dmp_stream_result fed;
+    if (g_framing_mode == DMP_ENDPOINT_FRAMING_PACKET) {
+        if (framed == NULL || core == NULL || core_n == NULL || n == 0U || n > cap) {
+            return 0;
+        }
+        memcpy(core, framed, n);
+        *core_n = n;
+        return 1;
+    }
     memset(&decoder, 0, sizeof decoder);
     memset(&config, 0, sizeof config);
     config.mode = DMP_STREAM_R;
@@ -1071,7 +1123,7 @@ static int unwrap_core(const uint8_t *framed, size_t n, uint8_t *core, size_t ca
     }
     input = span(framed, n);
     while (input.size != 0U) {
-        dmp_stream_result fed = dmp_stream_feed(&decoder, input, now);
+        fed = dmp_stream_feed(&decoder, input, now);
         if (fed.status != DMP_OK || fed.consumed == 0U || fed.consumed > input.size) {
             return 0;
         }
@@ -1088,6 +1140,26 @@ static int unwrap_core(const uint8_t *framed, size_t n, uint8_t *core, size_t ca
             return 1;
         }
     }
+    if (n + 1U > sizeof prefixed) return 0;
+    prefixed[0] = 0U;
+    memcpy(prefixed + 1U, framed, n);
+    memset(&decoder, 0, sizeof decoder);
+    if (dmp_stream_init(&decoder, config, storage, now) != DMP_OK) return 0;
+    input = span(prefixed, n + 1U);
+    while (input.size != 0U) {
+        fed = dmp_stream_feed(&decoder, input, now);
+        if (fed.status != DMP_OK || fed.consumed == 0U || fed.consumed > input.size) {
+            return 0;
+        }
+        input.data += fed.consumed;
+        input.size -= fed.consumed;
+        if (fed.event == DMP_STREAM_FRAME) {
+            if (fed.frame.size > cap) return 0;
+            if (fed.frame.size != 0U) memcpy(core, fed.frame.data, fed.frame.size);
+            *core_n = fed.frame.size;
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -1095,6 +1167,17 @@ static int wrap_core(const uint8_t *core, size_t n, uint8_t *out, size_t cap, si
 {
     dmp_buffer encoded;
     size_t written = 0U;
+    if (core == NULL || out == NULL || out_n == NULL || n == 0U) {
+        return 0;
+    }
+    if (g_framing_mode == DMP_ENDPOINT_FRAMING_PACKET) {
+        if (n > cap) {
+            return 0;
+        }
+        memcpy(out, core, n);
+        *out_n = n;
+        return 1;
+    }
     if (cap < 2U) {
         return 0;
     }
@@ -1365,7 +1448,9 @@ static int deliver_one(node *to, const captured *frame, dmp_time_ms now, dmp_sta
     to->wire.now = now;
     to->wire.rx_bytes += (uint32_t)frame->len;
     g_rx += (uint32_t)frame->len;
-    got = dmp_endpoint_rx(&to->endpoint, span(frame->frame, frame->len), now);
+    got = to->framing_mode == DMP_ENDPOINT_FRAMING_PACKET
+              ? dmp_endpoint_rx_packet(&to->endpoint, span(frame->frame, frame->len), now)
+              : dmp_endpoint_rx(&to->endpoint, span(frame->frame, frame->len), now);
     if (status != NULL) {
         *status = got;
     }
@@ -1378,16 +1463,20 @@ static int local_service_action(const node *self, uint32_t service, uint32_t act
     uint32_t principal;
     size_t i;
     const dmp_identity_slot *identity;
-    if (self->endpoint.context.slot >= self->endpoint.identity.capacity) {
+    if (self->endpoint.peers[self->endpoint.active_peer_slot].context.slot >=
+        self->endpoint.identity.capacity) {
         return 0;
     }
-    identity = &self->endpoint.identity.slots[self->endpoint.context.slot];
-    if (identity->generation != self->endpoint.context.generation) {
+    identity = &self->endpoint.identity.slots[
+        self->endpoint.peers[self->endpoint.active_peer_slot].context.slot];
+    if (identity->generation !=
+        self->endpoint.peers[self->endpoint.active_peer_slot].context.generation) {
         return 0;
     }
     principal = identity->local.origin_id;
-    for (i = 0U; i < self->endpoint.grant_count; i++) {
-        const dmp_endpoint_grant *grant = &self->endpoint.grants[i];
+    for (i = 0U; i < self->endpoint.peers[self->endpoint.active_peer_slot].grant_count; i++) {
+        const dmp_endpoint_grant *grant =
+            &self->endpoint.peers[self->endpoint.active_peer_slot].grants[i];
         if (grant->principal == principal && grant->service_id == service &&
             (grant->permit & action) == action) {
             return 1;
@@ -1741,7 +1830,9 @@ static int burn_to_pn(node *self, uint64_t target, uint8_t *out, size_t out_capa
     size_t written = 0U;
     static const uint8_t tiny = 0x5aU;
 
-    if (self == NULL || self->endpoint.association == NULL || out == NULL) {
+    if (self == NULL ||
+        self->endpoint.peers[self->endpoint.active_peer_slot].association == NULL ||
+        out == NULL) {
         return 0;
     }
     memset(&spec, 0, sizeof spec);
@@ -1750,18 +1841,24 @@ static int burn_to_pn(node *self, uint64_t target, uint8_t *out, size_t out_capa
     spec.fields.security.cipher = 1U;
     spec.fields.security.receive_cid = CID_RESP;
     spec.payload = span(&tiny, sizeof tiny);
-    next = dmp_hs_next_pn(self->endpoint.association, self->endpoint.association_attempt);
+    next = dmp_hs_next_pn(
+        self->endpoint.peers[self->endpoint.active_peer_slot].association,
+        self->endpoint.peers[self->endpoint.active_peer_slot].association_attempt);
     if (next > target) {
         return 0;
     }
     while (next < target) {
         spec.fields.seq = (uint32_t)next;
-        if (dmp_hs_seal_logical(self->endpoint.association,
-                                self->endpoint.association_attempt, &spec, out,
+        if (dmp_hs_seal_logical(
+                self->endpoint.peers[self->endpoint.active_peer_slot].association,
+                self->endpoint.peers[self->endpoint.active_peer_slot].association_attempt,
+                &spec, out,
                                 out_capacity, &written) != DMP_HS_OK) {
             return 0;
         }
-        next = dmp_hs_next_pn(self->endpoint.association, self->endpoint.association_attempt);
+        next = dmp_hs_next_pn(
+            self->endpoint.peers[self->endpoint.active_peer_slot].association,
+            self->endpoint.peers[self->endpoint.active_peer_slot].association_attempt);
     }
     return next == target;
 }
@@ -1791,7 +1888,9 @@ static int pn_reserve_boundary(session *env, port_ctx *port, dmp_time_ms now)
     CHECK(open_pair(env, port, PROF_RADIO_N2, now, 0, &index) == 0);
     CHECK(request_freshness_token(&left, now, 12000U, token, NULL, NULL, 1));
     CHECK(burn_to_pn(&left, 127U, burn, sizeof burn) == 1);
-    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) == 127U);
+    CHECK(dmp_hs_next_pn(
+              left.endpoint.peers[left.endpoint.active_peer_slot].association,
+              left.endpoint.peers[left.endpoint.active_peer_slot].association_attempt) == 127U);
     CHECK(dmp_endpoint_submit_req_fresh(&left.endpoint, 2U, span(tiny, sizeof tiny),
                                         span(token, sizeof token), now, &handle) == DMP_OK);
     memset(token, 0, sizeof token);
@@ -1811,7 +1910,9 @@ static int pn_reserve_boundary(session *env, port_ctx *port, dmp_time_ms now)
     CHECK(open_pair(env, port, PROF_RADIO_N2, now, 0, &index) == 0);
     CHECK(request_freshness_token(&left, now, 12000U, token, NULL, NULL, 1));
     CHECK(burn_to_pn(&left, 127U, burn, sizeof burn) == 1);
-    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) == 127U);
+    CHECK(dmp_hs_next_pn(
+              left.endpoint.peers[left.endpoint.active_peer_slot].association,
+              left.endpoint.peers[left.endpoint.active_peer_slot].association_attempt) == 127U);
     CHECK(dmp_endpoint_submit_req_fresh(&left.endpoint, 2U, span(body, max_pn_fit + 1U),
                                         span(token, sizeof token), now, &handle) == DMP_OK);
     memset(token, 0, sizeof token);
@@ -1878,11 +1979,15 @@ static int test_pn_limit(session *env, port_ctx *port)
      * internal state: every PN below 2^24 is actually sealed by SEC-1. */
     failed_before = dmp_hs_failed_aead(env->responder, 0U);
     CHECK(burn_to_pn(&left, pn_max, burn, sizeof burn) == 1);
-    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) ==
+    CHECK(dmp_hs_next_pn(
+              left.endpoint.peers[left.endpoint.active_peer_slot].association,
+              left.endpoint.peers[left.endpoint.active_peer_slot].association_attempt) ==
           pn_max);
     CHECK(reseal_new_pn(env, index, &initial[0], span(&telemetry, 1U), now + 1U, &valid_max));
     CHECK(frame_seq_pn(&valid_max, now + 1U, &seq, &pn) == 1 && seq == 1U && pn == pn_max);
-    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) ==
+    CHECK(dmp_hs_next_pn(
+              left.endpoint.peers[left.endpoint.active_peer_slot].association,
+              left.endpoint.peers[left.endpoint.active_peer_slot].association_attempt) ==
           pn_limit);
     CHECK(deliver_one(&right, &valid_max, now + 1U, &status) == 0);
     CHECK(status == DMP_OK);
@@ -1902,7 +2007,9 @@ static int test_pn_limit(session *env, port_ctx *port)
           DMP_OK);
     CHECK(dmp_endpoint_poll(&left.endpoint, now + 3U) == DMP_LIMIT_EXHAUSTED);
     CHECK(left.wire.n == 0);
-    CHECK(dmp_hs_next_pn(left.endpoint.association, left.endpoint.association_attempt) ==
+    CHECK(dmp_hs_next_pn(
+              left.endpoint.peers[left.endpoint.active_peer_slot].association,
+              left.endpoint.peers[left.endpoint.active_peer_slot].association_attempt) ==
           pn_limit);
     report("pn-valid-max-and-send-limit", port, "pass");
     close_session(env);
@@ -1924,7 +2031,9 @@ static int make_status_variant(node *sender, const dmp_frame_view *base, unsigne
     size_t wrapped_n = 0U;
 
     if (base->extensions.size > sizeof extensions ||
-        dmp_identity_next_seq(&sender->endpoint.identity, sender->endpoint.context, &seq) !=
+        dmp_identity_next_seq(
+            &sender->endpoint.identity,
+            sender->endpoint.peers[sender->endpoint.active_peer_slot].context, &seq) !=
             DMP_OK) {
         return 1;
     }
@@ -1969,8 +2078,10 @@ static int make_status_variant(node *sender, const dmp_frame_view *base, unsigne
     }
     spec.extensions = span(extensions, ext_n);
     spec.payload = span(received_mask, sizeof received_mask);
-    if (dmp_hs_seal_logical(sender->endpoint.association,
-                            sender->endpoint.association_attempt, &spec, core, sizeof core,
+    if (dmp_hs_seal_logical(
+            sender->endpoint.peers[sender->endpoint.active_peer_slot].association,
+            sender->endpoint.peers[sender->endpoint.active_peer_slot].association_attempt,
+            &spec, core, sizeof core,
                             &written) != DMP_HS_OK ||
         wrap_core(core, written, out->frame, sizeof out->frame, &wrapped_n) != 1) {
         return 1;
@@ -2079,11 +2190,12 @@ static int test_fragment_geometry_refusal(session *env, port_ctx *port, dmp_time
     CHECK(left.endpoint.profile.chunk_bytes == 98U);
     dmp_test_opaque_fill(body, sizeof body, 0x39U);
     {
-        size_t slot = left.endpoint.context.slot;
+        size_t slot = left.endpoint.peers[left.endpoint.active_peer_slot].context.slot;
         uint32_t seq_before = left.endpoint.identity.slots[slot].next_seq;
         CHECK(dmp_endpoint_submit_fragmented(&left.endpoint, 2U, span(body, 99U), now) ==
               DMP_LIMIT_EXHAUSTED);
-        CHECK(left.endpoint.frag_live == 0U && left.endpoint.frag_tx == 0U);
+        CHECK(left.endpoint.peers[left.endpoint.active_peer_slot].frag_live == 0U &&
+              left.endpoint.peers[left.endpoint.active_peer_slot].frag_tx == 0U);
         CHECK(left.endpoint.identity.slots[slot].next_seq == seq_before);
         CHECK(left.wire.n == 0 && left.wire.delayed_count == 0);
     }
@@ -2198,7 +2310,7 @@ static int test_geometry(session *env, port_ctx *port)
               DMP_LIMIT_EXHAUSTED);
     }
     CHECK(left.wire.n == 0);
-    CHECK(left.endpoint.frag_live == 0U);
+    CHECK(left.endpoint.peers[left.endpoint.active_peer_slot].frag_live == 0U);
     close_session(env);
     CHECK(d16 == 1024U);
     CHECK(d16s == 961U);
@@ -2261,7 +2373,9 @@ static int test_geometry(session *env, port_ctx *port)
     close_session(env);
     CHECK(fit_boundary(env, port, PROF_RADIO_N2, N2_MTU, 32U, now) == 0);
     CHECK(pn_reserve_boundary(env, port, now) == 0);
-    CHECK(fit_boundary(env, port, PROF_DIRECT, 263U, 64U, now) == 0);
+    /* The direct profile's 263-byte encoded cap carries Stream R framing;
+     * the Core frame itself is bounded at 256 decoded bytes. */
+    CHECK(fit_boundary(env, port, PROF_DIRECT, 256U, 64U, now) == 0);
     CHECK(test_fragment_geometry_refusal(env, port, now) == 0);
     note_peak();
     CHECK(g_provider > 0U && g_provider <= 3U * 12288U);
@@ -2584,7 +2698,9 @@ static int test_async_radio(session *env, port_ctx *port)
 
         CHECK(unwrap_core(first.frame, first.len, core, sizeof core, &core_n, case_now) == 1);
         CHECK(captured_view(&first, case_now, core, &core_n, &first_view));
-        CHECK(dmp_identity_next_seq(&left.endpoint.identity, left.endpoint.context, &second_seq) ==
+        CHECK(dmp_identity_next_seq(
+                  &left.endpoint.identity,
+                  left.endpoint.peers[left.endpoint.active_peer_slot].context, &second_seq) ==
               DMP_OK);
         CHECK(second_seq == first_view.fields.seq + 1U);
         CHECK(reseal_with_seq(env, index, &first, second_seq,
@@ -2911,7 +3027,7 @@ static int test_freshness(session *env, port_ctx *port)
     CHECK(dmp_endpoint_submit_req_fresh(&left.endpoint, 2U, span(fragmented_body, fragmented_size),
                                         span(token, sizeof token), now + 31U, &handle) == DMP_OK);
     CHECK(left.senders[handle.slot].frag_count == fragmented_count);
-    CHECK(pump_sender(&left, now + 31U, 1) == 0);
+    CHECK(pump_sender(&left, now + 31U, (int)fragmented_count) == 0);
     count = take_queue(&left, frames, QUEUE, now + 31U);
     CHECK(count == (int)fragmented_count);
     for (i = 0U; i < (size_t)count; i++) {
@@ -3516,7 +3632,7 @@ static int test_retry_all(session *env, port_ctx *port)
     CHECK(right.wire.n == 0);
     CHECK(count_type(burst, count, DMP_TYPE_FRAG_STATUS) == 0);
     left.wire.now = now + RADIO_RESPONSE_MS;
-    CHECK(dmp_endpoint_poll(&left.endpoint, now + RADIO_RESPONSE_MS) == DMP_OK);
+    CHECK(pump_sender(&left, now + RADIO_RESPONSE_MS, 8) == 0);
     nrepair = take_queue(&left, repair, QUEUE, now + RADIO_RESPONSE_MS);
     CHECK(nrepair == 8);
     CHECK(count_type(repair, nrepair, DMP_TYPE_FRAG_STATUS) == 0);
@@ -4305,9 +4421,12 @@ static int test_gaps(session *env, port_ctx *port)
         uint32_t emitted_seq = 0U;
         size_t i;
 
-        CHECK(left.endpoint.context.slot < left.endpoint.identity.capacity);
-        slot = &left.endpoint.identity.slots[left.endpoint.context.slot];
-        CHECK(slot->generation == left.endpoint.context.generation);
+        CHECK(left.endpoint.peers[left.endpoint.active_peer_slot].context.slot <
+              left.endpoint.identity.capacity);
+        slot = &left.endpoint.identity.slots[
+            left.endpoint.peers[left.endpoint.active_peer_slot].context.slot];
+        CHECK(slot->generation ==
+              left.endpoint.peers[left.endpoint.active_peer_slot].context.generation);
         CHECK(slot->state == DMP_IDENTITY_SLOT_ACTIVE);
         slot->next_seq = UINT32_MAX;
         slot->seq_exhausted = false;
@@ -4319,7 +4438,8 @@ static int test_gaps(session *env, port_ctx *port)
         CHECK(count == 1 && terminal.type == DMP_TYPE_TELEM);
         CHECK(captured_seq(&terminal, now, &emitted_seq) && emitted_seq == UINT32_MAX);
         CHECK(slot->seq_exhausted && slot->next_seq == UINT32_MAX);
-        CHECK(left.endpoint.telem_pending == 0U && left.endpoint.telem_tx == 0U);
+        CHECK(left.endpoint.peers[left.endpoint.active_peer_slot].telem_pending == 0U &&
+              left.endpoint.peers[left.endpoint.active_peer_slot].telem_tx == 0U);
         CHECK(left.wire.delayed_count == 0);
 
         /* A second staged telemetry remains unsent on repeated polls; it must

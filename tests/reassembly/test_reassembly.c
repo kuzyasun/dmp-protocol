@@ -249,6 +249,8 @@ static int gate_profile(void)
     memset(&out, 0, sizeof out);
     status = dmp_config_admit(&in, &out);
     if (status != DMP_OK) {
+        (void)fprintf(stderr, "reassembly fixture profile admission returned %d\n",
+                      (int)status);
         return 1;
     }
     g.profile = out;
@@ -263,6 +265,9 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
 {
     dmp_reassembly_storage storage;
 
+    if (assemblies == 0U || assemblies > MAX_ASM || tombstones > MAX_TOMB) {
+        return 1;
+    }
     memset(&g, 0, sizeof g);
     g.profile.namespace_id = 1U;
     g.profile.node_id[0] = LOCAL_ID;
@@ -273,6 +278,7 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
     /* Reassembly does not read peers. 1 keeps slots >= peers * per-peer for the
      * ordinary one-slot fixture. Assembly and tombstone quotas stay as passed. */
     g.profile.peers = 1U;
+    g.profile.operations_per_service = 1U;
     g.profile.assemblies_per_peer = per_asm;
     g.profile.assembly_tombstones_per_peer = per_tomb;
     g.profile.assembly_slots = assemblies;
@@ -280,6 +286,10 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
     g.profile.message_bytes = MAX_MSG;
     g.profile.fragments = fragments;
     g.profile.chunk_bytes = chunk_bytes;
+    /* Reassembly bounds decoded core frames, separately from encoded stream
+     * MTU. This fixture uses the same numerical ceiling for both directions. */
+    g.profile.forward_mtu = mtu;
+    g.profile.return_mtu = mtu;
     g.profile.encoded_mtu = mtu;
     g.profile.assembly_ms = assembly_ms;
     if (g_selective_boot) {
@@ -302,23 +312,38 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
     /* Admission uses the same control reserve as reliability. */
     g.profile.control_slots = 1U;
     g.profile.adapter_slots = 2U;
-    if (dmp_identity_table_init(&g.table, g.ids, 4U) != DMP_OK ||
-        !open_peer(PEER_ID, PEER_EPOCH, secured, &g.ctx)) {
-        return 1;
+    {
+        dmp_status status = dmp_identity_table_init(&g.table, g.ids, 4U);
+        if (status != DMP_OK) {
+            (void)fprintf(stderr, "reassembly fixture identity init returned %d\n",
+                          (int)status);
+            return 1;
+        }
+        if (!open_peer(PEER_ID, PEER_EPOCH, secured, &g.ctx)) {
+            (void)fprintf(stderr, "reassembly fixture peer context open failed\n");
+            return 1;
+        }
     }
     storage.profile = &g.profile;
     storage.identity = &g.table;
     storage.assemblies = g.assemblies;
-    storage.assembly_capacity = MAX_ASM;
+    storage.assembly_capacity = assemblies;
     storage.tombstones = g.tombstones;
-    storage.tombstone_capacity = MAX_TOMB;
+    storage.tombstone_capacity = tombstones;
     storage.payloads = g.payloads;
-    storage.payload_capacity = sizeof g.payloads;
+    storage.payload_capacity = (size_t)assemblies * MAX_MSG;
     storage.metadata = g.metadata;
-    storage.metadata_capacity = sizeof g.metadata;
-    if (gate_profile() != 0 ||
-        dmp_reassembly_init(&g.engine, &storage, &g.profile, &g.table) != DMP_OK) {
+    storage.metadata_capacity = (size_t)assemblies * DMP_REASSEMBLY_METADATA_BYTES;
+    if (gate_profile() != 0) {
         return 1;
+    }
+    {
+        dmp_status status = dmp_reassembly_init(&g.engine, &storage, &g.profile, &g.table);
+        if (status != DMP_OK) {
+            (void)fprintf(stderr, "reassembly fixture engine init returned %d\n",
+                          (int)status);
+            return 1;
+        }
     }
     return 0;
 }
@@ -416,6 +441,7 @@ static int test_extra_storage(void)
     g.profile.service_id[0] = 1U;
     g.profile.service_id[1] = 2U;
     g.profile.peers = 1U;
+    g.profile.operations_per_service = 1U;
     g.profile.assemblies_per_peer = 1U;
     g.profile.assembly_tombstones_per_peer = 1U;
     g.profile.assembly_slots = 1U;
@@ -423,6 +449,8 @@ static int test_extra_storage(void)
     g.profile.message_bytes = MAX_MSG;
     g.profile.fragments = 8U;
     g.profile.chunk_bytes = 16U;
+    g.profile.forward_mtu = MAX_MTU;
+    g.profile.return_mtu = MAX_MTU;
     g.profile.encoded_mtu = MAX_MTU;
     g.profile.assembly_ms = 1000U;
     g.profile.control_slots = 1U;
@@ -914,6 +942,7 @@ static int test_quotas(void)
     dmp_reassembly_handle handle = sentinel();
     dmp_reassembly_handle first = sentinel();
     dmp_identity_handle other;
+    dmp_identity_handle next_epoch;
 
     CHECK(boot(2U, 4U, 1U, 4U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
     pattern(body, sizeof body, 0x61);
@@ -978,6 +1007,32 @@ static int test_quotas(void)
     pattern(body, sizeof body, 0x63);
     CHECK(apply(&frame, 12U, &handle) == DMP_QUOTA_EXHAUSTED);
     CHECK(g.assemblies[1].source.seq == 1U);
+
+    /* Active and draining SEC-1 epochs for one principal share the same
+     * assembly budget, while message identity remains epoch-specific. */
+    CHECK(boot(2U, 4U, 1U, 2U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
+    CHECK(open_peer(PEER_ID, PEER_EPOCH + 1U, 0, &next_epoch));
+    frame = base_frag(1U, 0U, 16U, 32U, body, sizeof body);
+    frame.ctx = g.ctx;
+    CHECK(apply(&frame, 20U, &handle) == DMP_INCOMPLETE);
+    frame.ctx = next_epoch;
+    frame.seq = 2U;
+    CHECK(apply(&frame, 20U, &handle) == DMP_QUOTA_EXHAUSTED);
+
+    /* Tombstone quotas also aggregate across epochs when assembly capacity
+     * itself permits both incomplete messages. */
+    CHECK(boot(4U, 4U, 2U, 2U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
+    CHECK(open_peer(PEER_ID, PEER_EPOCH + 1U, 0, &next_epoch));
+    frame = base_frag(1U, 0U, 16U, 32U, body, sizeof body);
+    frame.ctx = g.ctx;
+    CHECK(apply(&frame, 30U, &handle) == DMP_INCOMPLETE);
+    frame.ctx = next_epoch;
+    frame.seq = 2U;
+    CHECK(apply(&frame, 30U, &handle) == DMP_INCOMPLETE);
+    CHECK(open_peer(PEER_ID, PEER_EPOCH + 2U, 0, &next_epoch));
+    frame.ctx = next_epoch;
+    frame.seq = 3U;
+    CHECK(apply(&frame, 31U, &handle) == DMP_QUOTA_EXHAUSTED);
 
     CHECK(boot(1U, 1U, 1U, 1U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
     pattern(body, sizeof body, 0x64);
@@ -1077,6 +1132,69 @@ static int test_expiry_and_fence(void)
     CHECK(dmp_reassembly_poll(&g.engine, 50U, &expired) == DMP_OK);
     CHECK(expired == 1U);
     CHECK(apply(&frame, 51U, &handle) == DMP_DEADLINE_EXPIRED);
+    return 0;
+}
+
+static int test_rejected_message_fence(void)
+{
+    uint8_t body[16];
+    uint8_t rest[16];
+    frag frame;
+    dmp_reassembly_handle rejected;
+    dmp_reassembly_handle accepted;
+    dmp_reassembly_handle replay = sentinel();
+    dmp_reassembly_message message;
+    size_t i;
+
+    CHECK(boot(1U, 2U, 1U, 2U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
+    pattern(body, sizeof body, 0xA1);
+    pattern(rest, sizeof rest, 0xA2);
+    frame = base_frag(1U, 0U, 16U, 32U, body, sizeof body);
+    CHECK(apply(&frame, 10U, &rejected) == DMP_INCOMPLETE);
+    frame.index = 1U;
+    frame.plain = rest;
+    CHECK(apply(&frame, 11U, &rejected) == DMP_OK);
+    CHECK(g.assemblies[0].live != 0U && g.ids[g.ctx.slot].retained == 1U);
+
+    CHECK(dmp_reassembly_reject(&g.engine, rejected) == DMP_OK);
+    CHECK(g.assemblies[0].live == 0U);
+    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
+    CHECK(g.ids[g.ctx.slot].retained == 0U);
+    for (i = 0U; i < MAX_MSG; i++) {
+        CHECK(g.payloads[i] == 0U);
+    }
+    for (i = 0U; i < DMP_REASSEMBLY_METADATA_BYTES; i++) {
+        CHECK(g.metadata[i] == 0U);
+    }
+    CHECK(dmp_reassembly_get(&g.engine, rejected, &message) == DMP_STALE_HANDLE);
+
+    frame.index = 0U;
+    frame.plain = body;
+    CHECK(apply(&frame, 12U, &replay) == DMP_DUPLICATE);
+    CHECK(untouched(replay));
+    CHECK(g.assemblies[0].live == 0U);
+    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
+
+    /* The sole assembly slot is reusable for a different message even though
+     * rejected identities remain fenced in the bounded tombstone pool. */
+    frame = base_frag(2U, 0U, 16U, 32U, body, sizeof body);
+    CHECK(apply(&frame, 13U, &accepted) == DMP_INCOMPLETE);
+    frame.index = 1U;
+    frame.plain = rest;
+    CHECK(apply(&frame, 14U, &accepted) == DMP_OK);
+    CHECK(dmp_reassembly_reject(&g.engine, accepted) == DMP_OK);
+    CHECK(g.assemblies[0].live == 0U);
+    CHECK(g.tombstones[1].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
+
+    frame = base_frag(3U, 0U, 16U, 32U, body, sizeof body);
+    CHECK(apply(&frame, 15U, &accepted) == DMP_QUOTA_EXHAUSTED);
+    CHECK(g.assemblies[0].live == 0U);
+
+    CHECK(dmp_identity_context_begin_drain(&g.table, g.ctx, 20U) == DMP_OK);
+    CHECK(dmp_identity_context_retire(&g.table, g.ctx, 20U) == DMP_OK);
+    CHECK(dmp_reassembly_context_retired(&g.engine, g.ctx) == DMP_OK);
+    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_UNUSED);
+    CHECK(g.tombstones[1].state == DMP_REASSEMBLY_TOMBSTONE_UNUSED);
     return 0;
 }
 
@@ -1346,69 +1464,6 @@ static int test_selective_tail(void)
     CHECK(memcmp(message.payload.data, joined, sizeof joined) == 0);
     CHECK(dmp_reassembly_get(&g.engine, handle, &message) == DMP_OK);
     CHECK(message.payload.size == sizeof joined);
-    return 0;
-}
-
-static int test_rejected_message_fence(void)
-{
-    uint8_t body[16];
-    uint8_t rest[16];
-    frag frame;
-    dmp_reassembly_handle rejected;
-    dmp_reassembly_handle accepted;
-    dmp_reassembly_handle replay = sentinel();
-    dmp_reassembly_message message;
-    size_t i;
-
-    CHECK(boot(1U, 2U, 1U, 2U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
-    pattern(body, sizeof body, 0xA1);
-    pattern(rest, sizeof rest, 0xA2);
-    frame = base_frag(1U, 0U, 16U, 32U, body, sizeof body);
-    CHECK(apply(&frame, 10U, &rejected) == DMP_INCOMPLETE);
-    frame.index = 1U;
-    frame.plain = rest;
-    CHECK(apply(&frame, 11U, &rejected) == DMP_OK);
-    CHECK(g.assemblies[0].live != 0U && g.ids[g.ctx.slot].retained == 1U);
-
-    CHECK(dmp_reassembly_reject(&g.engine, rejected) == DMP_OK);
-    CHECK(g.assemblies[0].live == 0U);
-    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
-    CHECK(g.ids[g.ctx.slot].retained == 0U);
-    for (i = 0U; i < MAX_MSG; i++) {
-        CHECK(g.payloads[i] == 0U);
-    }
-    for (i = 0U; i < DMP_REASSEMBLY_METADATA_BYTES; i++) {
-        CHECK(g.metadata[i] == 0U);
-    }
-    CHECK(dmp_reassembly_get(&g.engine, rejected, &message) == DMP_STALE_HANDLE);
-
-    frame.index = 0U;
-    frame.plain = body;
-    CHECK(apply(&frame, 12U, &replay) == DMP_DUPLICATE);
-    CHECK(untouched(replay));
-    CHECK(g.assemblies[0].live == 0U);
-    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
-
-    /* The sole assembly slot is reusable for a different message even though
-     * rejected identities remain fenced in the bounded tombstone pool. */
-    frame = base_frag(2U, 0U, 16U, 32U, body, sizeof body);
-    CHECK(apply(&frame, 13U, &accepted) == DMP_INCOMPLETE);
-    frame.index = 1U;
-    frame.plain = rest;
-    CHECK(apply(&frame, 14U, &accepted) == DMP_OK);
-    CHECK(dmp_reassembly_reject(&g.engine, accepted) == DMP_OK);
-    CHECK(g.assemblies[0].live == 0U);
-    CHECK(g.tombstones[1].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
-
-    frame = base_frag(3U, 0U, 16U, 32U, body, sizeof body);
-    CHECK(apply(&frame, 15U, &accepted) == DMP_QUOTA_EXHAUSTED);
-    CHECK(g.assemblies[0].live == 0U);
-
-    CHECK(dmp_identity_context_begin_drain(&g.table, g.ctx, 20U) == DMP_OK);
-    CHECK(dmp_identity_context_retire(&g.table, g.ctx, 20U) == DMP_OK);
-    CHECK(dmp_reassembly_context_retired(&g.engine, g.ctx) == DMP_OK);
-    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_UNUSED);
-    CHECK(g.tombstones[1].state == DMP_REASSEMBLY_TOMBSTONE_UNUSED);
     return 0;
 }
 

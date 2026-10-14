@@ -18,6 +18,67 @@
 #define DMP_HS_LIFETIME_DEFAULT_MS UINT64_C(86400000)
 #define DMP_HS_AEAD_CEILING 65536u
 #define DMP_HS_CONTEXT_TAG 0x0BU
+#define DMP_HS_ADMISSION_MAGIC 0xD313AD01u
+#define DMP_HS_ADMISSION_CID_MAX 32U
+#define DMP_HS_ADMISSION_KEY_MAX 64U
+#define DMP_HS_ADMISSION_TOKEN_MAX 256U
+#define DMP_HS_LOCAL_ADMISSION_TOKEN_MAX 48U
+
+typedef enum admission_kind {
+    ADMISSION_PENDING = 1,
+    ADMISSION_SCRATCH = 2,
+    ADMISSION_CID = 3,
+    ADMISSION_KEY = 4
+} admission_kind;
+
+/* The shared admission header contains pointers and uint64_t values. Keep the
+ * private inline backing aligned on both C11 libraries with max_align_t and
+ * MSVC's C11 library, which does not expose that typedef in C mode. */
+typedef union dmp_hs_storage_alignment {
+    void *pointer;
+    uint64_t integer;
+    long double extended;
+} dmp_hs_storage_alignment;
+
+struct admission_entry {
+    uint64_t generation;
+    uint64_t resource_generation;
+    uint64_t epoch;
+    uint32_t namespace_id;
+    uint32_t origin_id;
+    uint32_t cid;
+    uint32_t references;
+    uint32_t resource_slot;
+    uint8_t kind;
+    int used;
+    int token_live;
+};
+
+struct dmp_hs_admission {
+    uint32_t magic;
+    uint32_t pending_limit;
+    uint32_t scratch_limit;
+    uint32_t global_limit;
+    uint32_t ingress_limit;
+    uint32_t pending_used;
+    uint32_t scratch_used;
+    uint32_t global_work;
+    uint32_t ingress_work;
+    uint32_t entry_capacity;
+    uint64_t generation_clock;
+};
+
+static struct admission_entry *admission_entries(dmp_hs_admission *admission)
+{
+    return (struct admission_entry *)((uint8_t *)admission + sizeof(*admission));
+}
+
+static const struct admission_entry *admission_entries_const(
+    const dmp_hs_admission *admission)
+{
+    return (const struct admission_entry *)((const uint8_t *)admission +
+                                            sizeof(*admission));
+}
 
 struct hs_attempt {
     int used;
@@ -28,6 +89,14 @@ struct hs_attempt {
     int send_open;
     int recv_open;
     int scratch_held;
+    int pending_held;
+    int key_i_held;
+    int key_r_held;
+    dmp_hs_admission_token pending_token;
+    dmp_hs_admission_token scratch_token;
+    dmp_hs_admission_token cid_token;
+    dmp_hs_admission_token key_i_token;
+    dmp_hs_admission_token key_r_token;
     int candidate;
     int enrolled;
     int remote_public_valid;
@@ -67,6 +136,11 @@ struct hs_attempt {
     uint8_t cached[DMP_HS_PAYLOAD_MAX];
     uint16_t cached_len;
     uint8_t cached_flight;
+    uint16_t cached_tx_fragment_count;
+    uint8_t cached_tx_fragments[(DMP_HS_CACHED_FRAGMENT_MAX + 7U) / 8U];
+    uint8_t cached_tx_permit_open;
+    uint8_t cached_tx_retransmit;
+    uint8_t cached_tx_refunded;
     int active;
     int waiting_ready;
     int ready_sent;
@@ -92,6 +166,12 @@ struct hs_attempt {
 struct dmp_hs {
     uint32_t magic;
     dmp_provider *provider;
+    dmp_hs_admission *admission;
+    union {
+        dmp_hs_storage_alignment align;
+        uint8_t bytes[sizeof(dmp_hs_admission) +
+                      DMP_HS_LOCAL_ADMISSION_TOKEN_MAX * sizeof(struct admission_entry)];
+    } local_admission_storage;
     NoiseHashState *epoch_hash;
     dmp_hs_config config;
     dmp_hs_ports ports;
@@ -116,6 +196,8 @@ struct dmp_hs {
     int episode_open;
     struct hs_attempt attempts[DMP_HS_ATTEMPT_MAX];
     dmp_hs_retained retained[DMP_HS_ASSOCIATION_MAX];
+    dmp_hs_admission_token retained_cid_tokens[DMP_HS_ASSOCIATION_MAX];
+    dmp_hs_admission_token retained_epoch_tokens[DMP_HS_ASSOCIATION_MAX];
     int retained_used[DMP_HS_ASSOCIATION_MAX];
     uint8_t partial[DMP_HS_PAYLOAD_MAX];
     uint16_t partial_len;
@@ -138,6 +220,215 @@ static void wipe(void *data, size_t size)
 static int live(const dmp_hs *hs)
 {
     return hs != NULL && hs->magic == DMP_HS_MAGIC && hs->provider != NULL;
+}
+
+static int admission_live(const dmp_hs_admission *admission)
+{
+    return admission != NULL && admission->magic == DMP_HS_ADMISSION_MAGIC;
+}
+
+int dmp_hs_uses_admission(const dmp_hs *hs, const dmp_hs_admission *admission)
+{
+    return live(hs) && admission_live(admission) && hs->admission == admission;
+}
+
+static void admission_fail_closed(dmp_hs *hs)
+{
+    if (hs != NULL && hs->admission != NULL) hs->admission->magic = 0U;
+}
+
+size_t dmp_hs_admission_size(void)
+{
+    return sizeof(dmp_hs_admission) +
+           DMP_HS_ADMISSION_TOKEN_MAX * sizeof(struct admission_entry);
+}
+
+static dmp_hs_status admission_init_capacity(dmp_hs_admission *admission,
+                                             const dmp_hs_admission_limits *limits,
+                                             uint32_t entry_capacity)
+{
+    if (admission == NULL || limits == NULL || limits->max_pending == 0U ||
+        limits->max_scratch == 0U || limits->global_work == 0U || limits->ingress_work == 0U ||
+        limits->max_pending > DMP_HS_ATTEMPT_MAX || limits->max_scratch > DMP_HS_ATTEMPT_MAX ||
+        entry_capacity == 0U || entry_capacity > DMP_HS_ADMISSION_TOKEN_MAX) {
+        return DMP_HS_INVALID;
+    }
+    memset(admission, 0, sizeof(*admission) +
+                             entry_capacity * sizeof(struct admission_entry));
+    admission->pending_limit = limits->max_pending;
+    admission->scratch_limit = limits->max_scratch;
+    admission->global_limit = limits->global_work;
+    admission->ingress_limit = limits->ingress_work;
+    admission->entry_capacity = entry_capacity;
+    admission->magic = DMP_HS_ADMISSION_MAGIC;
+    return DMP_HS_OK;
+}
+
+dmp_hs_status dmp_hs_admission_init(dmp_hs_admission *admission,
+                                    const dmp_hs_admission_limits *limits)
+{
+    return admission_init_capacity(admission, limits, DMP_HS_ADMISSION_TOKEN_MAX);
+}
+
+static int admission_token_entry(dmp_hs_admission *admission, dmp_hs_admission_token token,
+                                 struct admission_entry **entry)
+{
+    if (!admission_live(admission) || token.slot >= admission->entry_capacity) {
+        return 0;
+    }
+    *entry = &admission_entries(admission)[token.slot];
+    return (*entry)->used && (*entry)->token_live && (*entry)->generation == token.generation;
+}
+
+static int admission_next_generation(dmp_hs_admission *admission, uint64_t *generation)
+{
+    if (admission->generation_clock == UINT64_MAX) {
+        admission->magic = 0U;
+        return 0;
+    }
+    *generation = ++admission->generation_clock;
+    return 1;
+}
+
+static int admission_reserve(dmp_hs_admission *admission, admission_kind kind,
+                             dmp_hs_admission_token *token)
+{
+    uint32_t index;
+    uint32_t *used = NULL;
+    uint32_t limit = 0U;
+
+    if (!admission_live(admission) || token == NULL) return 0;
+    if (kind == ADMISSION_PENDING) { used = &admission->pending_used; limit = admission->pending_limit; }
+    if (kind == ADMISSION_SCRATCH) { used = &admission->scratch_used; limit = admission->scratch_limit; }
+    if (used != NULL && *used >= limit) return 0;
+    for (index = 0U; index < admission->entry_capacity; ++index) {
+        struct admission_entry *entry = &admission_entries(admission)[index];
+        if (entry->used) continue;
+        memset(entry, 0, sizeof(*entry));
+        entry->used = 1;
+        entry->token_live = 1;
+        entry->kind = (uint8_t)kind;
+        entry->references = 1U;
+        if (!admission_next_generation(admission, &entry->generation)) {
+            memset(entry, 0, sizeof(*entry));
+            return 0;
+        }
+        entry->resource_slot = index;
+        entry->resource_generation = entry->generation;
+        if (used != NULL) (*used)++;
+        token->slot = index;
+        token->generation = entry->generation;
+        return 1;
+    }
+    return 0;
+}
+
+static int admission_reserve_cid(dmp_hs_admission *admission, uint32_t cid,
+                                 dmp_hs_admission_token *token)
+{
+    uint32_t index;
+    uint32_t count = 0U;
+    if (!admission_live(admission) || cid == 0U || token == NULL) return 0;
+    for (index = 0U; index < admission->entry_capacity; ++index) {
+        const struct admission_entry *entry = &admission_entries_const(admission)[index];
+        if (entry->used && entry->resource_slot == index && entry->kind == ADMISSION_CID) {
+            count++;
+            if (entry->cid == cid) return 0;
+        }
+    }
+    if (count >= DMP_HS_ADMISSION_CID_MAX) return 0;
+    if (!admission_reserve(admission, ADMISSION_CID, token)) return 0;
+    admission_entries(admission)[token->slot].cid = cid;
+    return 1;
+}
+
+static int admission_reserve_key(dmp_hs_admission *admission, uint32_t namespace_id,
+                                 uint32_t origin_id, uint64_t epoch,
+                                 dmp_hs_admission_token *token)
+{
+    uint32_t index;
+    uint32_t count = 0U;
+    if (!admission_live(admission) || token == NULL) return 0;
+    for (index = 0U; index < admission->entry_capacity; ++index) {
+        const struct admission_entry *entry = &admission_entries_const(admission)[index];
+        if (entry->used && entry->resource_slot == index && entry->kind == ADMISSION_KEY) {
+            count++;
+            if (entry->namespace_id == namespace_id && entry->origin_id == origin_id && entry->epoch == epoch) return 0;
+        }
+    }
+    if (count >= DMP_HS_ADMISSION_KEY_MAX) return 0;
+    if (!admission_reserve(admission, ADMISSION_KEY, token)) return 0;
+    admission_entries(admission)[token->slot].namespace_id = namespace_id;
+    admission_entries(admission)[token->slot].origin_id = origin_id;
+    admission_entries(admission)[token->slot].epoch = epoch;
+    return 1;
+}
+
+static int admission_release_one(dmp_hs_admission *admission, dmp_hs_admission_token token)
+{
+    struct admission_entry *token_entry;
+    struct admission_entry *resource;
+    uint32_t resource_slot;
+    if (!admission_token_entry(admission, token, &token_entry)) return 0;
+    resource_slot = token_entry->resource_slot;
+    if (resource_slot >= admission->entry_capacity) return 0;
+    resource = &admission_entries(admission)[resource_slot];
+    if (!resource->used || resource->generation != token_entry->resource_generation || resource->references == 0U) return 0;
+    token_entry->token_live = 0;
+    if (resource_slot != token.slot) memset(token_entry, 0, sizeof(*token_entry));
+    resource->references--;
+    if (resource->references == 0U) {
+        if (resource->kind == ADMISSION_PENDING && admission->pending_used != 0U) admission->pending_used--;
+        if (resource->kind == ADMISSION_SCRATCH && admission->scratch_used != 0U) admission->scratch_used--;
+        memset(resource, 0, sizeof(*resource));
+    }
+    return 1;
+}
+
+dmp_hs_status dmp_hs_admission_retain(dmp_hs_admission *admission,
+                                      dmp_hs_admission_token token,
+                                      dmp_hs_admission_token *retained_token)
+{
+    struct admission_entry *entry;
+    struct admission_entry *resource;
+    uint32_t resource_slot;
+    uint32_t index;
+    if (!admission_token_entry(admission, token, &entry) || retained_token == NULL) {
+        return DMP_HS_STALE;
+    }
+    resource_slot = entry->resource_slot;
+    if (resource_slot >= admission->entry_capacity) return DMP_HS_STALE;
+    resource = &admission_entries(admission)[resource_slot];
+    if (!resource->used || resource->generation != entry->resource_generation || resource->references == UINT32_MAX)
+        return DMP_HS_STALE;
+    for (index = 0U; index < admission->entry_capacity; ++index) {
+        struct admission_entry *copy = &admission_entries(admission)[index];
+        if (copy->used) continue;
+        memset(copy, 0, sizeof(*copy));
+        copy->used = 1;
+        copy->token_live = 1;
+        copy->kind = resource->kind;
+        copy->resource_slot = resource_slot;
+        copy->resource_generation = resource->generation;
+        if (!admission_next_generation(admission, &copy->generation)) {
+            memset(copy, 0, sizeof(*copy));
+            return DMP_HS_REFUSED;
+        }
+        resource->references++;
+        retained_token->slot = index;
+        retained_token->generation = copy->generation;
+        return DMP_HS_OK;
+    }
+    return DMP_HS_REFUSED;
+}
+
+dmp_hs_status dmp_hs_admission_release(dmp_hs_admission *admission,
+                                       dmp_hs_admission_token token)
+{
+    struct admission_entry *entry;
+    if (!admission_token_entry(admission, token, &entry) || entry->resource_slot == token.slot ||
+        !admission_release_one(admission, token)) return DMP_HS_STALE;
+    return DMP_HS_OK;
 }
 
 static uint32_t load_le32(const uint8_t *bytes)
@@ -324,47 +615,24 @@ static uint32_t pending_count(const dmp_hs *hs)
     uint32_t index;
 
     for (index = 0U; index < DMP_HS_ATTEMPT_MAX; ++index) {
-        /* max_pending limits in-progress handshakes. An established active
-         * association has its own manifest capacity and must not consume the
-         * slot needed to prepare one replacement candidate. */
-        if (hs->attempts[index].used && !hs->attempts[index].terminal &&
-            !hs->attempts[index].active) {
+        /* alloc_attempt() marks a slot used before reserve_pending(). Count
+         * only acquired reservations so a new slot does not count itself. */
+        if (hs->attempts[index].used && hs->attempts[index].pending_held &&
+            !hs->attempts[index].terminal && !hs->attempts[index].active) {
             count++;
         }
     }
     return count;
 }
 
-static int cid_in_use(const dmp_hs *hs, uint32_t cid)
-{
-    uint32_t index;
-
-    if (cid == 0U) {
-        return 1;
-    }
-    for (index = 0U; index < DMP_HS_ATTEMPT_MAX; ++index) {
-        const struct hs_attempt *attempt = &hs->attempts[index];
-
-        if (attempt->used && !attempt->terminal && attempt->local_rx_cid == cid) {
-            return 1;
-        }
-    }
-    for (index = 0U; index < DMP_HS_ASSOCIATION_MAX; ++index) {
-        if (hs->retained_used[index] && hs->retained[index].rx_cid == cid) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static int take_cid(dmp_hs *hs, uint32_t *cid)
+static int take_cid(dmp_hs *hs, struct hs_attempt *attempt)
 {
     uint32_t candidate = hs->next_cid == 0U ? 1U : hs->next_cid;
     uint32_t guard;
 
     for (guard = 0U; guard < 64U; ++guard) {
-        if (!cid_in_use(hs, candidate)) {
-            *cid = candidate;
+        if (admission_reserve_cid(hs->admission, candidate, &attempt->cid_token)) {
+            attempt->local_rx_cid = candidate;
             hs->next_cid = candidate + 1U;
             if (hs->next_cid == 0U) {
                 hs->next_cid = 1U;
@@ -379,11 +647,21 @@ static int take_cid(dmp_hs *hs, uint32_t *cid)
     return 0;
 }
 
+static int reserve_pending(dmp_hs *hs, struct hs_attempt *attempt)
+{
+    if (pending_count(hs) >= hs->config.budget.max_pending ||
+        !admission_reserve(hs->admission, ADMISSION_PENDING, &attempt->pending_token)) return 0;
+    attempt->pending_held = 1;
+    return 1;
+}
+
 static int work_room(const dmp_hs *hs)
 {
     const dmp_hs_budget *budget = &hs->config.budget;
 
-    if (hs->global_work >= budget->global_work || hs->ingress_work >= budget->ingress_work) {
+    if (!admission_live(hs->admission) || hs->global_work >= budget->global_work || hs->ingress_work >= budget->ingress_work ||
+        hs->admission->global_work >= hs->admission->global_limit ||
+        hs->admission->ingress_work >= hs->admission->ingress_limit) {
         return 0;
     }
     if (hs->episode_open && hs->episode_work >= budget->episode_work) {
@@ -399,6 +677,8 @@ static int charge(dmp_hs *hs)
     }
     hs->global_work++;
     hs->ingress_work++;
+    hs->admission->global_work++;
+    hs->admission->ingress_work++;
     if (hs->episode_open) {
         hs->episode_work++;
     }
@@ -430,14 +710,19 @@ static void add_traffic(dmp_hs *hs, size_t bytes)
     hs->episode_traffic += (uint32_t)bytes;
 }
 
-static void release_scratch(dmp_hs *hs, struct hs_attempt *attempt)
+static int release_scratch(dmp_hs *hs, struct hs_attempt *attempt)
 {
     if (attempt->scratch_held) {
         if (hs->scratch_held > 0U) {
             hs->scratch_held--;
         }
         attempt->scratch_held = 0;
+        if (!admission_release_one(hs->admission, attempt->scratch_token)) {
+            admission_fail_closed(hs);
+            return 0;
+        }
     }
+    return admission_live(hs->admission);
 }
 
 static int reserve_scratch(dmp_hs *hs, struct hs_attempt *attempt)
@@ -445,7 +730,8 @@ static int reserve_scratch(dmp_hs *hs, struct hs_attempt *attempt)
     if (attempt->scratch_held) {
         return 1;
     }
-    if (hs->scratch_held >= hs->config.budget.max_scratch) {
+    if (hs->scratch_held >= hs->config.budget.max_scratch ||
+        !admission_reserve(hs->admission, ADMISSION_SCRATCH, &attempt->scratch_token)) {
         return 0;
     }
     hs->scratch_held++;
@@ -507,8 +793,29 @@ static void abort_attempt(dmp_hs *hs, struct hs_attempt *attempt, dmp_hs_view vi
     attempt->expect_flight = 0U;
     attempt->cached_len = 0U;
     attempt->cached_flight = 0U;
-    release_scratch(hs, attempt);
+    attempt->cached_tx_fragment_count = 0U;
+    memset(attempt->cached_tx_fragments, 0, sizeof(attempt->cached_tx_fragments));
+    attempt->cached_tx_permit_open = 0U;
+    attempt->cached_tx_retransmit = 0U;
+    attempt->cached_tx_refunded = 0U;
     close_crypto(hs, attempt);
+    release_scratch(hs, attempt);
+    if (attempt->pending_held) {
+        attempt->pending_held = 0;
+        if (!admission_release_one(hs->admission, attempt->pending_token)) admission_fail_closed(hs);
+    }
+    if (attempt->cid_token.generation != 0U) {
+        if (!admission_release_one(hs->admission, attempt->cid_token)) admission_fail_closed(hs);
+        memset(&attempt->cid_token, 0, sizeof(attempt->cid_token));
+    }
+    if (attempt->key_i_held) {
+        if (!admission_release_one(hs->admission, attempt->key_i_token)) admission_fail_closed(hs);
+        attempt->key_i_held = 0;
+    }
+    if (attempt->key_r_held) {
+        if (!admission_release_one(hs->admission, attempt->key_r_token)) admission_fail_closed(hs);
+        attempt->key_r_held = 0;
+    }
     wipe(attempt->remote_public, sizeof(attempt->remote_public));
     wipe(attempt->handshake_hash, sizeof(attempt->handshake_hash));
     attempt->remote_public_valid = 0;
@@ -646,6 +953,43 @@ static int remember_seen(struct hs_attempt *attempt, uint8_t flight, const uint8
     return 1;
 }
 
+static void reset_cached_flight_tx(struct hs_attempt *attempt, int retransmit)
+{
+    attempt->cached_tx_fragment_count = 0U;
+    memset(attempt->cached_tx_fragments, 0, sizeof(attempt->cached_tx_fragments));
+    attempt->cached_tx_permit_open = 1U;
+    attempt->cached_tx_retransmit = retransmit != 0;
+    attempt->cached_tx_refunded = 0U;
+}
+
+static int cached_flight_tx_has_fragment(const struct hs_attempt *attempt,
+                                         uint32_t fragment_index)
+{
+    return (attempt->cached_tx_fragments[fragment_index / 8U] &
+            (uint8_t)(1U << (fragment_index % 8U))) != 0U;
+}
+
+static int cached_flight_tx_has_any_fragment(const struct hs_attempt *attempt)
+{
+    size_t index;
+
+    for (index = 0U; index < sizeof(attempt->cached_tx_fragments); ++index) {
+        if (attempt->cached_tx_fragments[index] != 0U) return 1;
+    }
+    return 0;
+}
+
+static int cached_flight_tx_all_fragments(const struct hs_attempt *attempt)
+{
+    uint32_t index;
+
+    if (attempt->cached_tx_fragment_count == 0U) return 0;
+    for (index = 0U; index < attempt->cached_tx_fragment_count; ++index) {
+        if (!cached_flight_tx_has_fragment(attempt, index)) return 0;
+    }
+    return 1;
+}
+
 static int write_flight(dmp_hs *hs, struct hs_attempt *attempt, uint8_t flight)
 {
     uint8_t noise[100];
@@ -685,6 +1029,7 @@ static int write_flight(dmp_hs *hs, struct hs_attempt *attempt, uint8_t flight)
     wipe(noise, sizeof(noise));
     attempt->cached_len = (uint16_t)total;
     attempt->cached_flight = flight;
+    reset_cached_flight_tx(attempt, 0);
     attempt->noise_writes++;
     add_traffic(hs, total);
     if (flight == 1U) {
@@ -724,10 +1069,19 @@ static dmp_hs_status finish_candidate(dmp_hs *hs, struct hs_attempt *attempt)
     attempt->hash_valid = 1;
     wipe(hash, sizeof(hash));
     if (epoch_collision(hs, attempt->initiator_id, attempt->epoch_i) ||
-        epoch_collision(hs, attempt->responder_id, attempt->epoch_r)) {
+        epoch_collision(hs, attempt->responder_id, attempt->epoch_r) ||
+        !admission_reserve_key(hs->admission, attempt->namespace_id, attempt->initiator_id,
+                               attempt->epoch_i, &attempt->key_i_token)) {
         abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
         return DMP_HS_ABORTED;
     }
+    attempt->key_i_held = 1;
+    if (!admission_reserve_key(hs->admission, attempt->namespace_id, attempt->responder_id,
+                               attempt->epoch_r, &attempt->key_r_token)) {
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_ABORTED;
+    }
+    attempt->key_r_held = 1;
     status = dmp_provider_handshake_split(hs->provider, &attempt->handshake, &attempt->send_cipher,
                                           &attempt->recv_cipher);
     if (status != DMP_PROVIDER_OK) {
@@ -821,10 +1175,28 @@ static int retransmit_cached(dmp_hs *hs, struct hs_attempt *attempt)
     if (attempt->cached_len == 0U || now_ms(hs) >= attempt->deadline_ms) {
         return 0;
     }
-    if (attempt->retransmits >= hs->config.budget.cached_responses) {
+    /* Do not start another logical flight while a fragmented flight is only
+     * partly accepted by the binding. Finish those slices under the existing
+     * permit first; after a complete flight the peer may request a retry. */
+    if (attempt->cached_tx_permit_open &&
+        cached_flight_tx_has_any_fragment(attempt) &&
+        !cached_flight_tx_all_fragments(attempt)) {
+        return 0;
+    }
+    /* A transport BUSY returned the unused send grant. Repeated retry requests
+     * keep using that same permit instead of charging a fresh response. */
+    if (attempt->cached_tx_permit_open && attempt->cached_tx_retransmit &&
+        attempt->cached_tx_refunded &&
+        !cached_flight_tx_has_any_fragment(attempt)) {
+        return 1;
+    }
+    if (attempt->retransmits >= hs->config.budget.cached_responses ||
+        !traffic_room(hs, attempt->cached_len)) {
         return 0;
     }
     attempt->retransmits++;
+    add_traffic(hs, attempt->cached_len);
+    reset_cached_flight_tx(attempt, 1);
     return 1;
 }
 
@@ -1003,7 +1375,8 @@ static dmp_hs_status admit_flight1(dmp_hs *hs, const dmp_hs_ingress *ingress, dm
         return DMP_HS_DROPPED;
     }
     if (pending_count(hs) >= hs->config.budget.max_pending ||
-        hs->scratch_held >= hs->config.budget.max_scratch || !traffic_room(hs, expect) ||
+        hs->scratch_held >= hs->config.budget.max_scratch ||
+        hs->admission->scratch_used >= hs->admission->scratch_limit || !traffic_room(hs, expect) ||
         !work_room(hs)) {
         return DMP_HS_REFUSED;
     }
@@ -1012,6 +1385,18 @@ static dmp_hs_status admit_flight1(dmp_hs *hs, const dmp_hs_ingress *ingress, dm
     }
     attempt = alloc_attempt(hs);
     if (attempt == NULL) {
+        return DMP_HS_REFUSED;
+    }
+    if (!reserve_pending(hs, attempt)) {
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_REFUSED;
+    }
+    if (!take_cid(hs, attempt)) {
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_REFUSED;
+    }
+    if (!reserve_scratch(hs, attempt)) {
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
         return DMP_HS_REFUSED;
     }
     copy_identity(hs, attempt, 0);
@@ -1027,9 +1412,7 @@ static dmp_hs_status admit_flight1(dmp_hs *hs, const dmp_hs_ingress *ingress, dm
         dmp_hs_status status = read_expected(hs, attempt, 1U, ingress, completion);
 
         if (status != DMP_HS_AWAITING && attempt->used && !attempt->terminal) {
-            release_scratch(hs, attempt);
-            close_crypto(hs, attempt);
-            memset(attempt, 0, sizeof(*attempt));
+            abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
         }
         return status;
     }
@@ -1139,8 +1522,9 @@ uint32_t dmp_hs_replay_width(const dmp_hs *hs)
     return live(hs) ? hs->replay_width : 0U;
 }
 
-dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_config *config,
-                          const dmp_hs_ports *ports)
+static dmp_hs_status hs_init_with_owner(dmp_hs *hs, dmp_provider *provider,
+                                        const dmp_hs_config *config, const dmp_hs_ports *ports,
+                                        dmp_hs_admission *admission, int local_owner)
 {
     if (hs == NULL || provider == NULL || config == NULL || ports == NULL || ports->now_ms == NULL ||
         ports->entropy == NULL) {
@@ -1152,7 +1536,7 @@ dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_confi
     if ((config->mode != 1U && config->mode != 2U) || config->cipher != 1U ||
         config->local_id == config->peer_id || config->budget.max_pending > DMP_HS_ATTEMPT_MAX ||
         config->budget.max_scratch > DMP_HS_ATTEMPT_MAX ||
-        config->confirmation_route_ttl > 15U) {
+        config->confirmation_route_ttl > 15U || (!local_owner && !admission_live(admission))) {
         return DMP_HS_INVALID;
     }
     if (config->mode == 1U && !config->has_psk) {
@@ -1175,6 +1559,21 @@ dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_confi
     }
     memset(hs, 0, sizeof(*hs));
     hs->provider = provider;
+    if (local_owner) {
+        dmp_hs_admission_limits limits;
+        limits.max_pending = config->budget.max_pending == 0U ? 1U : config->budget.max_pending;
+        limits.max_scratch = config->budget.max_scratch == 0U ? 1U : config->budget.max_scratch;
+        limits.global_work = config->budget.global_work == 0U ? 1U : config->budget.global_work;
+        limits.ingress_work = config->budget.ingress_work == 0U ? 1U : config->budget.ingress_work;
+        hs->admission = (dmp_hs_admission *)hs->local_admission_storage.bytes;
+        if (admission_init_capacity(hs->admission, &limits,
+                                    DMP_HS_LOCAL_ADMISSION_TOKEN_MAX) != DMP_HS_OK) {
+            wipe(hs, sizeof(*hs));
+            return DMP_HS_INVALID;
+        }
+    } else {
+        hs->admission = admission;
+    }
     hs->config = *config;
     hs->ports = *ports;
     hs->later_remaining = config->budget.later_episodes;
@@ -1195,6 +1594,20 @@ dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_confi
     return DMP_HS_OK;
 }
 
+dmp_hs_status dmp_hs_init_shared(dmp_hs *hs, dmp_provider *provider,
+                                 const dmp_hs_config *config, const dmp_hs_ports *ports,
+                                 dmp_hs_admission *admission)
+{
+    return hs_init_with_owner(hs, provider, config, ports, admission, 0);
+}
+
+dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider, const dmp_hs_config *config,
+                          const dmp_hs_ports *ports)
+{
+    /* Standalone compatibility path has an explicit per-instance registry. */
+    return hs_init_with_owner(hs, provider, config, ports, NULL, 1);
+}
+
 void dmp_hs_cleanup(dmp_hs *hs)
 {
     uint32_t index;
@@ -1203,7 +1616,19 @@ void dmp_hs_cleanup(dmp_hs *hs)
         return;
     }
     for (index = 0U; index < DMP_HS_ATTEMPT_MAX; ++index) {
-        close_crypto(hs, &hs->attempts[index]);
+        struct hs_attempt *attempt = &hs->attempts[index];
+        close_crypto(hs, attempt);
+        if (attempt->scratch_held && !admission_release_one(hs->admission, attempt->scratch_token)) admission_fail_closed(hs);
+        if (attempt->pending_held && !admission_release_one(hs->admission, attempt->pending_token)) admission_fail_closed(hs);
+        if (attempt->cid_token.generation != 0U && !admission_release_one(hs->admission, attempt->cid_token)) admission_fail_closed(hs);
+        if (attempt->key_i_held && !admission_release_one(hs->admission, attempt->key_i_token)) admission_fail_closed(hs);
+        if (attempt->key_r_held && !admission_release_one(hs->admission, attempt->key_r_token)) admission_fail_closed(hs);
+    }
+    for (index = 0U; index < DMP_HS_ASSOCIATION_MAX; ++index) {
+        if (hs->retained_used[index]) {
+            if (!admission_release_one(hs->admission, hs->retained_cid_tokens[index])) admission_fail_closed(hs);
+            if (!admission_release_one(hs->admission, hs->retained_epoch_tokens[index])) admission_fail_closed(hs);
+        }
     }
     if (hs->epoch_hash != NULL) {
         (void)noise_hashstate_free(hs->epoch_hash);
@@ -1234,7 +1659,6 @@ dmp_hs_status dmp_hs_begin_episode(dmp_hs *hs)
     hs->episode_attempts_used = 0U;
     hs->episode_work = 0U;
     hs->episode_traffic = 0U;
-    hs->next_attempt_ms = 0U;
     hs->episodes_started++;
     return DMP_HS_OK;
 }
@@ -1254,17 +1678,27 @@ dmp_hs_status dmp_hs_schedule(dmp_hs *hs, uint32_t *attempt_index_out)
         (hs->next_attempt_ms != 0U && now < hs->next_attempt_ms) ||
         hs->episode_attempts_used >= hs->config.budget.episode_attempts ||
         pending_count(hs) >= hs->config.budget.max_pending ||
+        hs->admission->pending_used >= hs->admission->pending_limit ||
         hs->global_work >= hs->config.budget.global_work || !traffic_room(hs, flight_bytes)) {
         return DMP_HS_REFUSED;
     }
     attempt = alloc_attempt(hs);
-    if (attempt == NULL || !take_cid(hs, &attempt->local_rx_cid)) {
-        if (attempt != NULL) {
-            attempt->used = 0;
-        }
+    if (attempt == NULL) {
+        return DMP_HS_REFUSED;
+    }
+    if (!reserve_pending(hs, attempt)) {
+        if (attempt->used) abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_REFUSED;
+    }
+    if (!take_cid(hs, attempt)) {
+        if (attempt != NULL && attempt->used) abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
         return DMP_HS_REFUSED;
     }
     hs->episode_attempts_used++;
+    if (!reserve_scratch(hs, attempt)) {
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_REFUSED;
+    }
     copy_identity(hs, attempt, 1);
     if (!fill_entropy(hs, attempt->attempt_id, 16U) || !fill_entropy(hs, attempt->ephemeral, 32U) ||
         !boot_epoch_of(hs->epoch_hash, attempt->attempt_id, &attempt->boot_epoch)) {
@@ -1273,6 +1707,10 @@ dmp_hs_status dmp_hs_schedule(dmp_hs *hs, uint32_t *attempt_index_out)
     }
     build_prefix(attempt);
     if (!open_handshake(hs, attempt) || !write_flight(hs, attempt, 1U)) {
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_ABORTED;
+    }
+    if (!release_scratch(hs, attempt)) {
         abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
         return DMP_HS_ABORTED;
     }
@@ -1287,7 +1725,7 @@ dmp_hs_status dmp_hs_offer(dmp_hs *hs, const dmp_hs_ingress *ingress, dmp_hs_com
     uint8_t attempt_id[16];
     struct hs_attempt *attempt;
 
-    if (!live(hs) || ingress == NULL) {
+    if (!live(hs) || !admission_live(hs->admission) || ingress == NULL) {
         return DMP_HS_INVALID;
     }
     if (completion != NULL) {
@@ -1348,7 +1786,7 @@ dmp_hs_status dmp_hs_accept(dmp_hs *hs, const dmp_hs_completion *completion)
     struct hs_attempt *attempt;
     dmp_hs_status status;
 
-    if (!live(hs) || completion == NULL || completion->attempt_index >= DMP_HS_ATTEMPT_MAX) {
+    if (!live(hs) || !admission_live(hs->admission) || completion == NULL || completion->attempt_index >= DMP_HS_ATTEMPT_MAX) {
         return DMP_HS_INVALID;
     }
     attempt = &hs->attempts[completion->attempt_index];
@@ -1363,26 +1801,44 @@ dmp_hs_status dmp_hs_accept(dmp_hs *hs, const dmp_hs_completion *completion)
         return fail_read(hs, attempt);
     }
     attempt->awaiting = 0;
-    release_scratch(hs, attempt);
     if (!attempt->initiator && attempt->read_flight == 1U) {
-        if (!take_cid(hs, &attempt->local_rx_cid) || !write_flight(hs, attempt, 2U)) {
+        if (!write_flight(hs, attempt, 2U)) {
             return fail_read(hs, attempt);
         }
         if (attempt->mode == 1U) {
-            return finish_candidate(hs, attempt);
+            status = finish_candidate(hs, attempt);
+            if (!release_scratch(hs, attempt)) {
+                abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+                return DMP_HS_ABORTED;
+            }
+            return status;
         }
         attempt->expect_flight = 3U;
+        if (!release_scratch(hs, attempt)) {
+            abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+            return DMP_HS_ABORTED;
+        }
         return DMP_HS_OK;
     }
     if (attempt->initiator && attempt->mode == 2U && attempt->read_flight == 2U) {
         if (!write_flight(hs, attempt, 3U)) {
             return fail_read(hs, attempt);
         }
-        return finish_candidate(hs, attempt);
+        status = finish_candidate(hs, attempt);
+        if (!release_scratch(hs, attempt)) {
+            abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+            return DMP_HS_ABORTED;
+        }
+        return status;
     }
     if ((attempt->initiator && attempt->mode == 1U && attempt->read_flight == 2U) ||
         (!attempt->initiator && attempt->mode == 2U && attempt->read_flight == 3U)) {
-        return finish_candidate(hs, attempt);
+        status = finish_candidate(hs, attempt);
+        if (!release_scratch(hs, attempt)) {
+            abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+            return DMP_HS_ABORTED;
+        }
+        return status;
     }
     status = DMP_HS_ABORTED;
     abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
@@ -1445,8 +1901,12 @@ static void end_traffic(dmp_hs *hs, struct hs_attempt *attempt)
     attempt->generation = ++hs->generation_clock;
     attempt->view = enrolled ? DMP_HS_VIEW_ENROLLED : DMP_HS_VIEW_EXPIRED;
     attempt->enrolled = enrolled;
-    release_scratch(hs, attempt);
     close_crypto(hs, attempt);
+    release_scratch(hs, attempt);
+    if (attempt->pending_held) {
+        attempt->pending_held = 0;
+        if (!admission_release_one(hs->admission, attempt->pending_token)) admission_fail_closed(hs);
+    }
     dmp_replay_window_clear(&attempt->replay);
     wipe(attempt->protected_frame, sizeof(attempt->protected_frame));
     wipe(attempt->accepted, sizeof(attempt->accepted));
@@ -1455,6 +1915,18 @@ static void end_traffic(dmp_hs *hs, struct hs_attempt *attempt)
     if (!enrolled) {
         wipe(attempt->remote_public, sizeof(attempt->remote_public));
         attempt->remote_public_valid = 0;
+    }
+    if (attempt->key_i_held) {
+        if (!admission_release_one(hs->admission, attempt->key_i_token)) admission_fail_closed(hs);
+        attempt->key_i_held = 0;
+    }
+    if (attempt->key_r_held) {
+        if (!admission_release_one(hs->admission, attempt->key_r_token)) admission_fail_closed(hs);
+        attempt->key_r_held = 0;
+    }
+    if (attempt->cid_token.generation != 0U) {
+        if (!admission_release_one(hs->admission, attempt->cid_token)) admission_fail_closed(hs);
+        memset(&attempt->cid_token, 0, sizeof(attempt->cid_token));
     }
     if (attempt->initiator) {
         schedule_restart(hs);
@@ -1483,7 +1955,7 @@ static size_t uleb_size(uint64_t value)
 
 static int traffic_authorized(const dmp_hs *hs, const struct hs_attempt *attempt)
 {
-    if (attempt->terminal || !attempt->recv_open || !attempt->send_open || !attempt->hash_valid) {
+    if (!admission_live(hs->admission) || attempt->terminal || !attempt->recv_open || !attempt->send_open || !attempt->hash_valid) {
         return 0;
     }
     if (attempt->view == DMP_HS_VIEW_AWAITING_VERIFICATION) {
@@ -1495,12 +1967,20 @@ static int traffic_authorized(const dmp_hs *hs, const struct hs_attempt *attempt
     return attempt->candidate || attempt->enrolled || attempt->active;
 }
 
-static void become_active(struct hs_attempt *attempt)
+static int become_active(dmp_hs *hs, struct hs_attempt *attempt)
 {
+    if (attempt->pending_held) {
+        attempt->pending_held = 0;
+        if (!admission_release_one(hs->admission, attempt->pending_token)) {
+            admission_fail_closed(hs);
+            return 0;
+        }
+    }
     attempt->active = 1;
     attempt->waiting_ready = 0;
     attempt->candidate = 0;
     attempt->view = DMP_HS_VIEW_ACTIVE;
+    return 1;
 }
 
 static int context_matches(const dmp_hs *hs, const struct hs_attempt *attempt,
@@ -1584,7 +2064,7 @@ static int seal_record(dmp_hs *hs, struct hs_attempt *attempt, uint8_t type, uin
     uint64_t pn;
     dmp_provider_status status;
 
-    if (!attempt->send_open || attempt->remote_rx_cid == 0U || plain_len > DMP_HS_APP_PLAIN_MAX ||
+    if (!admission_live(hs->admission) || !attempt->send_open || attempt->remote_rx_cid == 0U || plain_len > DMP_HS_APP_PLAIN_MAX ||
         (plain_len != 0U && plain == NULL) || lifetime_over(hs, attempt)) {
         return 0;
     }
@@ -1842,6 +2322,86 @@ dmp_hs_status dmp_hs_retransmit(dmp_hs *hs, uint32_t index)
     return DMP_HS_OK;
 }
 
+dmp_hs_status dmp_hs_cached_flight_tx_check(dmp_hs *hs, uint32_t index,
+                                             uint32_t fragment_count,
+                                             uint32_t fragment_index)
+{
+    struct hs_attempt *attempt;
+
+    if (!live(hs) || index >= DMP_HS_ATTEMPT_MAX || fragment_count == 0U ||
+        fragment_count > DMP_HS_CACHED_FRAGMENT_MAX || fragment_index >= fragment_count) {
+        return DMP_HS_INVALID;
+    }
+    attempt = &hs->attempts[index];
+    if (!attempt->used || attempt->terminal || attempt->cached_len == 0U) {
+        return DMP_HS_REFUSED;
+    }
+    if (!attempt->cached_tx_permit_open) return DMP_HS_REFUSED;
+    if (attempt->cached_tx_refunded &&
+        (attempt->retransmits >= hs->config.budget.cached_responses ||
+         !traffic_room(hs, attempt->cached_len))) {
+        return DMP_HS_REFUSED;
+    }
+    if (attempt->cached_tx_fragment_count == 0U) {
+        attempt->cached_tx_fragment_count = (uint16_t)fragment_count;
+    } else if (attempt->cached_tx_fragment_count != fragment_count) {
+        return DMP_HS_INVALID;
+    }
+    return cached_flight_tx_has_fragment(attempt, fragment_index) ?
+           DMP_HS_REFUSED : DMP_HS_OK;
+}
+
+dmp_hs_status dmp_hs_cached_flight_tx_accept(dmp_hs *hs, uint32_t index,
+                                              uint32_t fragment_count,
+                                              uint32_t fragment_index)
+{
+    struct hs_attempt *attempt;
+    dmp_hs_status status = dmp_hs_cached_flight_tx_check(hs, index, fragment_count,
+                                                          fragment_index);
+
+    if (status != DMP_HS_OK) return status;
+    attempt = &hs->attempts[index];
+    if (attempt->cached_tx_refunded) {
+        /* check() reserves this retry budget while handshake calls are serialized. */
+        if (attempt->retransmits >= hs->config.budget.cached_responses ||
+            !traffic_room(hs, attempt->cached_len)) {
+            return DMP_HS_REFUSED;
+        }
+        attempt->retransmits++;
+        add_traffic(hs, attempt->cached_len);
+        attempt->cached_tx_refunded = 0U;
+    }
+    attempt->cached_tx_fragments[fragment_index / 8U] |=
+        (uint8_t)(1U << (fragment_index % 8U));
+    if (cached_flight_tx_all_fragments(attempt)) {
+        attempt->cached_tx_permit_open = 0U;
+    }
+    return DMP_HS_OK;
+}
+
+dmp_hs_status dmp_hs_cached_flight_tx_reject(dmp_hs *hs, uint32_t index)
+{
+    struct hs_attempt *attempt;
+
+    if (!live(hs) || index >= DMP_HS_ATTEMPT_MAX) return DMP_HS_INVALID;
+    attempt = &hs->attempts[index];
+    if (!attempt->used || attempt->terminal || !attempt->cached_tx_permit_open) {
+        return DMP_HS_STALE;
+    }
+    if (attempt->cached_tx_retransmit &&
+        !cached_flight_tx_has_any_fragment(attempt) &&
+        !attempt->cached_tx_refunded) {
+        if (attempt->retransmits == 0U || hs->episode_traffic < attempt->cached_len) {
+            return DMP_HS_INVALID;
+        }
+        attempt->retransmits--;
+        hs->episode_traffic -= attempt->cached_len;
+        attempt->cached_tx_refunded = 1U;
+        attempt->cached_tx_fragment_count = 0U;
+    }
+    return DMP_HS_OK;
+}
+
 dmp_hs_status dmp_hs_approve(dmp_hs *hs, uint32_t index, const dmp_hs_approval *approval)
 {
     struct hs_attempt *attempt;
@@ -1974,7 +2534,7 @@ dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *incomin
     dmp_provider_status status;
     uint8_t opcode = 0x05U;
 
-    if (!live(hs) || incoming == NULL || incoming->frame == NULL || incoming->frame_len == 0U) {
+    if (!live(hs) || !admission_live(hs->admission) || incoming == NULL || incoming->frame == NULL || incoming->frame_len == 0U) {
         return DMP_HS_INVALID;
     }
     memset(&view, 0, sizeof(view));
@@ -2049,13 +2609,19 @@ dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *incomin
         if (attempt->next_seq == 0U) {
             attempt->next_seq = 1U;
         }
-        become_active(attempt);
+        if (!become_active(hs, attempt)) {
+            wipe(body, sizeof(body));
+            return DMP_HS_REFUSED;
+        }
         wipe(body, sizeof(body));
         return DMP_HS_OK;
     }
     if (attempt->initiator &&
         confirmation_hello(hs, attempt, incoming, &view, body, plain_len, 0x05U)) {
-        become_active(attempt);
+        if (!become_active(hs, attempt)) {
+            wipe(body, sizeof(body));
+            return DMP_HS_REFUSED;
+        }
         wipe(body, sizeof(body));
         return DMP_HS_OK;
     }
@@ -2066,7 +2632,10 @@ dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *incomin
     }
     remember_plain(attempt, body, plain_len);
     if (attempt->initiator && attempt->waiting_ready) {
-        become_active(attempt);
+        if (!become_active(hs, attempt)) {
+            wipe(body, sizeof(body));
+            return DMP_HS_REFUSED;
+        }
     }
     wipe(body, sizeof(body));
     if (!attempt->active) {
@@ -2342,18 +2911,107 @@ int dmp_hs_traffic_identity(const dmp_hs *hs, uint32_t index, uint32_t *namespac
 dmp_hs_status dmp_hs_retain_association(dmp_hs *hs, const dmp_hs_retained *retained)
 {
     uint32_t index;
+    dmp_hs_admission_token token = {0U, 0U};
+    dmp_hs_admission_token epoch_token = {0U, 0U};
+    uint32_t attempt_index;
 
     if (!live(hs) || retained == NULL || retained->rx_cid == 0U) {
         return DMP_HS_INVALID;
     }
     for (index = 0U; index < DMP_HS_ASSOCIATION_MAX; ++index) {
+        if (hs->retained_used[index] && hs->retained[index].namespace_id == retained->namespace_id &&
+            hs->retained[index].origin_id == retained->origin_id &&
+            hs->retained[index].epoch == retained->epoch && hs->retained[index].rx_cid == retained->rx_cid) {
+            if (dmp_hs_admission_retain(hs->admission, hs->retained_cid_tokens[index], &token) != DMP_HS_OK)
+                return DMP_HS_STALE;
+            if (dmp_hs_admission_retain(hs->admission, hs->retained_epoch_tokens[index], &epoch_token) != DMP_HS_OK) {
+                if (!admission_release_one(hs->admission, token)) admission_fail_closed(hs);
+                return DMP_HS_STALE;
+            }
+            break;
+        }
+    }
+    if (token.generation != 0U && epoch_token.generation != 0U) {
+        for (index = 0U; index < DMP_HS_ASSOCIATION_MAX; ++index) {
+            if (!hs->retained_used[index]) {
+                hs->retained[index] = *retained;
+                hs->retained_cid_tokens[index] = token;
+                hs->retained_epoch_tokens[index] = epoch_token;
+                hs->retained_used[index] = 1;
+                return DMP_HS_OK;
+            }
+        }
+        if (!admission_release_one(hs->admission, token)) admission_fail_closed(hs);
+        if (!admission_release_one(hs->admission, epoch_token)) admission_fail_closed(hs);
+        return DMP_HS_REFUSED;
+    }
+    for (index = 0U; index < DMP_HS_ASSOCIATION_MAX; ++index) {
+        const dmp_hs_retained *existing = &hs->retained[index];
+        if (!hs->retained_used[index]) continue;
+        if (token.generation == 0U && existing->rx_cid == retained->rx_cid) {
+            if (dmp_hs_admission_retain(hs->admission, hs->retained_cid_tokens[index], &token) != DMP_HS_OK)
+                return DMP_HS_STALE;
+        }
+        if (epoch_token.generation == 0U && existing->namespace_id == retained->namespace_id &&
+            existing->origin_id == retained->origin_id && existing->epoch == retained->epoch &&
+            existing->rx_cid == retained->rx_cid) {
+            if (dmp_hs_admission_retain(hs->admission, hs->retained_epoch_tokens[index], &epoch_token) != DMP_HS_OK) {
+                if (token.generation != 0U && !admission_release_one(hs->admission, token)) admission_fail_closed(hs);
+                return DMP_HS_STALE;
+            }
+        }
+    }
+    for (attempt_index = 0U; attempt_index < DMP_HS_ATTEMPT_MAX; ++attempt_index) {
+        const struct hs_attempt *attempt = &hs->attempts[attempt_index];
+        if (attempt->used && attempt->local_rx_cid == retained->rx_cid && attempt->cid_token.generation != 0U) {
+            if (dmp_hs_admission_retain(hs->admission, attempt->cid_token, &token) != DMP_HS_OK) return DMP_HS_STALE;
+        }
+        if (attempt->used && attempt->namespace_id == retained->namespace_id &&
+            ((attempt->initiator_id == retained->origin_id && attempt->epoch_i == retained->epoch && attempt->key_i_held) ||
+             (attempt->responder_id == retained->origin_id && attempt->epoch_r == retained->epoch && attempt->key_r_held))) {
+            dmp_hs_admission_token source = attempt->initiator_id == retained->origin_id
+                                                ? attempt->key_i_token : attempt->key_r_token;
+            if (dmp_hs_admission_retain(hs->admission, source, &epoch_token) != DMP_HS_OK) {
+                if (token.generation != 0U && !admission_release_one(hs->admission, token)) admission_fail_closed(hs);
+                return DMP_HS_STALE;
+            }
+        }
+    }
+    if (token.generation == 0U &&
+        !admission_reserve_cid(hs->admission, retained->rx_cid, &token)) return DMP_HS_REFUSED;
+    if (epoch_token.generation == 0U &&
+        !admission_reserve_key(hs->admission, retained->namespace_id, retained->origin_id,
+                               retained->epoch, &epoch_token)) {
+        if (!admission_release_one(hs->admission, token)) admission_fail_closed(hs);
+        return DMP_HS_REFUSED;
+    }
+    for (index = 0U; index < DMP_HS_ASSOCIATION_MAX; ++index) {
         if (!hs->retained_used[index]) {
             hs->retained[index] = *retained;
+            hs->retained_cid_tokens[index] = token;
+            hs->retained_epoch_tokens[index] = epoch_token;
             hs->retained_used[index] = 1;
             return DMP_HS_OK;
         }
     }
+    if (!admission_release_one(hs->admission, token)) admission_fail_closed(hs);
+    if (!admission_release_one(hs->admission, epoch_token)) admission_fail_closed(hs);
     return DMP_HS_REFUSED;
+}
+
+dmp_hs_status dmp_hs_association_tokens(const dmp_hs *hs, uint32_t attempt_index_in,
+                                         dmp_hs_admission_token *cid,
+                                         dmp_hs_admission_token *initiator_key,
+                                         dmp_hs_admission_token *responder_key)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, attempt_index_in);
+    if (attempt == NULL || cid == NULL || initiator_key == NULL || responder_key == NULL ||
+        attempt->cid_token.generation == 0U || !attempt->key_i_held || !attempt->key_r_held)
+        return DMP_HS_INVALID;
+    *cid = attempt->cid_token;
+    *initiator_key = attempt->key_i_token;
+    *responder_key = attempt->key_r_token;
+    return DMP_HS_OK;
 }
 
 int dmp_hs_association_active(const dmp_hs *hs)
@@ -2595,6 +3253,101 @@ uint64_t dmp_hs_boot_epoch(const dmp_hs *hs, uint32_t index)
     const struct hs_attempt *attempt = attempt_at(hs, index);
 
     return attempt == NULL ? 0U : attempt->boot_epoch;
+}
+
+int dmp_hs_bootstrap_context_of(const dmp_hs *hs, uint32_t index,
+                               dmp_hs_bootstrap_context *context)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+
+    if (attempt == NULL || context == NULL || attempt->terminal) {
+        return 0;
+    }
+    context->namespace_id = attempt->namespace_id;
+    context->origin_id = attempt->initiator ? attempt->initiator_id : attempt->responder_id;
+    context->destination_id = attempt->initiator ? attempt->responder_id : attempt->initiator_id;
+    context->provisional_epoch = attempt->boot_epoch;
+    context->route_ttl = hs->config.confirmation_route_ttl;
+    return 1;
+}
+
+dmp_hs_status dmp_hs_retain_tx_reservation(const dmp_hs *hs, uint32_t index,
+                                           dmp_hs_tx_reservation *reservation)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+    dmp_hs_tx_reservation retained;
+    dmp_hs_admission_token source[ DMP_HS_TX_RESERVATION_MAX ];
+    size_t count = 0U;
+    size_t i;
+
+    if (attempt == NULL || reservation == NULL || !admission_live(hs->admission)) {
+        return DMP_HS_INVALID;
+    }
+    memset(&retained, 0, sizeof(retained));
+    if (attempt->pending_held) source[count++] = attempt->pending_token;
+    if (attempt->cid_token.generation != 0U) source[count++] = attempt->cid_token;
+    if (attempt->key_i_held) source[count++] = attempt->key_i_token;
+    if (attempt->key_r_held) source[count++] = attempt->key_r_token;
+    if (count == 0U) return DMP_HS_STALE;
+    for (i = 0U; i < count; ++i) {
+        if (dmp_hs_admission_retain(hs->admission, source[i],
+                                    &retained.tokens[retained.count]) != DMP_HS_OK) {
+            size_t rollback;
+            for (rollback = 0U; rollback < retained.count; ++rollback) {
+                if (!admission_release_one(hs->admission, retained.tokens[rollback])) {
+                    admission_fail_closed((dmp_hs *)hs);
+                }
+            }
+            return DMP_HS_REFUSED;
+        }
+        retained.count++;
+    }
+    *reservation = retained;
+    return DMP_HS_OK;
+}
+
+dmp_hs_status dmp_hs_release_tx_reservation(dmp_hs *hs,
+                                            dmp_hs_tx_reservation *reservation)
+{
+    uint32_t i;
+
+    if (!live(hs) || reservation == NULL || reservation->count > DMP_HS_TX_RESERVATION_MAX ||
+        !admission_live(hs->admission)) {
+        return DMP_HS_INVALID;
+    }
+    for (i = 0U; i < reservation->count; ++i) {
+        if (dmp_hs_admission_release(hs->admission, reservation->tokens[i]) != DMP_HS_OK) {
+            admission_fail_closed(hs);
+            return DMP_HS_STALE;
+        }
+        memset(&reservation->tokens[i], 0, sizeof(reservation->tokens[i]));
+    }
+    reservation->count = 0U;
+    return DMP_HS_OK;
+}
+
+dmp_hs_status dmp_hs_retain_association_reservation(
+    const dmp_hs *hs, uint32_t index, dmp_hs_tx_reservation *reservation)
+{
+    const struct hs_attempt *attempt = attempt_at(hs, index);
+    dmp_hs_status status;
+
+    if (attempt == NULL || attempt->terminal || !attempt->active ||
+        attempt->pending_held || !attempt->key_i_held || !attempt->key_r_held ||
+        attempt->cid_token.generation == 0U || reservation == NULL) {
+        return DMP_HS_INVALID;
+    }
+    status = dmp_hs_retain_tx_reservation(hs, index, reservation);
+    if (status != DMP_HS_OK) {
+        return status;
+    }
+    if (reservation->count != 3U) {
+        if (dmp_hs_release_tx_reservation((dmp_hs *)hs, reservation) != DMP_HS_OK) {
+            return DMP_HS_STALE;
+        }
+        return DMP_HS_STALE;
+    }
+    return DMP_HS_OK;
 }
 
 uint8_t dmp_hs_expect_flight(const dmp_hs *hs, uint32_t index)

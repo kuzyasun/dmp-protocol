@@ -159,7 +159,7 @@ dmp_parse_result dmp_core_parse(dmp_bytes input, const dmp_core_limits *limits,
     if (out == NULL) { dmp_parse_result r = { DMP_INVALID_ARGUMENT, 0U }; return r; }
     memset(out, 0, sizeof *out);
     if (!valid_bytes(input) || limits == NULL || limits->max_frame_bytes < 2U ||
-        limits->max_message_bytes == 0U || limits->max_fragments < 2U) return parse_error(out, DMP_INVALID_ARGUMENT, 0U);
+        limits->max_message_bytes == 0U || limits->max_fragments == 0U) return parse_error(out, DMP_INVALID_ARGUMENT, 0U);
     if (input.size > limits->max_frame_bytes) return parse_error(out, DMP_LIMIT_EXHAUSTED, limits->max_frame_bytes);
     if (input.size < 2U) return parse_error(out, DMP_MALFORMED, input.size);
     vt = input.data[0]; hdr = input.data[1];
@@ -320,7 +320,7 @@ static dmp_status encode_preflight(const dmp_frame_spec *f, const dmp_core_limit
     uint32_t dummy[4] = {0U,0U,0U,0U}; int flags[3] = {0,0,0}; size_t bad = 0U;
     dmp_status st;
     if (!valid_bytes(f->extensions) ||
-        lim->max_frame_bytes < 2U || lim->max_message_bytes == 0U || lim->max_fragments < 2U) return DMP_INVALID_ARGUMENT;
+        lim->max_frame_bytes < 2U || lim->max_message_bytes == 0U || lim->max_fragments == 0U) return DMP_INVALID_ARGUMENT;
     if (f->fields.type > 31U) return DMP_INVALID_ARGUMENT;
     if (((opts & DMP_OPT_EXT) != 0U) != (f->extensions.size != 0U)) return DMP_MALFORMED;
     if ((opts & DMP_OPT_SEQ) != 0U && !add_size(h, uleb_size(f->fields.seq), &h)) return DMP_LIMIT_EXHAUSTED;

@@ -63,6 +63,7 @@ typedef struct {
         int used;
         int done;
         dmp_tx_token token;
+        dmp_peer_handle peer;
         dmp_tx_complete_fn complete;
         void *owner;
         uint8_t frame[WIDE_MTU];
@@ -348,6 +349,7 @@ static dmp_status fake_submit(void *context, const dmp_tx_submission *submission
     tx->hold[tx->n].used = 1;
     tx->hold[tx->n].done = 0;
     tx->hold[tx->n].token = submission->token;
+    tx->hold[tx->n].peer = submission->peer;
     tx->hold[tx->n].complete = submission->complete;
     tx->hold[tx->n].owner = submission->owner;
     tx->hold[tx->n].len = submission->frame.size;
@@ -457,6 +459,12 @@ static void bind_node(node *n)
     n->transport.submit = fake_submit;
     n->transport.cancel = fake_cancel;
     n->transport.caps.max_frame_bytes = n->profile.encoded_mtu;
+    if (n->transport.caps.max_frame_bytes < n->profile.forward_mtu) {
+        n->transport.caps.max_frame_bytes = n->profile.forward_mtu;
+    }
+    if (n->transport.caps.max_frame_bytes < n->profile.return_mtu) {
+        n->transport.caps.max_frame_bytes = n->profile.return_mtu;
+    }
     n->transport.caps.ownership = n->profile.tx_borrow ? DMP_TX_BORROW : DMP_TX_COPY;
     n->transport.caps.synchronous_completion = n->profile.synchronous_completion;
     n->enc.secured = n->ids[n->handle.slot].security == 1U;
@@ -584,6 +592,9 @@ static int deliver_index(node *src, int index, node *dst, uint32_t service, dmp_
 static int test_init_and_close(void)
 {
     dmp_reliability_handle stale;
+    dmp_config config;
+    dmp_admitted_profile admitted;
+    dmp_peer_handle route = {0U, 1U};
     CHECK(prepare(&side_a, 0, 0) == 0);
     side_a.profile.sender_slots = 4U;
     bind_node(&side_a);
@@ -593,10 +604,19 @@ static int test_init_and_close(void)
     CHECK(side_a.engine.initialized == 0U);
 
     CHECK(prepare(&side_a, 0, 0) == 0);
-    side_a.profile.peers = 2U;
+    config = side_a.profile;
+    config.peers = 2U;
+    config.assembly_slots = 2U;
+    config.assembly_tombstone_slots = 2U;
+    CHECK(dmp_config_admit(&config, &admitted) == DMP_OK);
+    side_a.profile = admitted;
     bind_node(&side_a);
-    CHECK(dmp_reliability_init(&side_a.engine, &side_a.storage) == DMP_INVALID_ARGUMENT);
+    CHECK(dmp_reliability_init(&side_a.engine, &side_a.storage) == DMP_OK);
     CHECK(side_a.ids[side_a.handle.slot].retained == 0U);
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING),
+                                     0U, 0U, &stale) == DMP_INVALID_ARGUMENT);
+    CHECK(dmp_reliability_select_route(&side_a.engine, route, side_a.handle) == DMP_OK);
+    CHECK(dmp_reliability_close(&side_a.engine, 0U) == DMP_OK);
 
     CHECK(prepare(&side_a, 0, 0) == 0);
     bind_node(&side_a);
@@ -668,7 +688,7 @@ static int test_init_and_close(void)
     CHECK(side_a.correlations[0].tombstone_deadline == 1000U + TOMB_MS);
     CHECK(side_a.senders[0].phase == DMP_REL_PHASE_QUEUED);
     CHECK(dmp_reliability_close(&side_a.engine, 1000U) == DMP_BUSY);
-    CHECK(side_a.ids[side_a.handle.slot].retained == 1U);
+    CHECK(side_a.ids[side_a.handle.slot].retained == 3U);
     CHECK(dmp_reliability_cancel(&side_a.engine, stale, 1000U) == DMP_OK);
     CHECK(event_count(&side_a.notes, DMP_REL_EVENT_LOCAL_UNSENT) == 1);
     CHECK(side_a.tx.submits == 0);
@@ -1980,6 +2000,168 @@ static int test_probe_rejection(void)
     return 0;
 }
 
+static int test_shared_engine_peer_routes(void)
+{
+    dmp_peer_handle peer_a = {0U, 17U};
+    dmp_peer_handle peer_b = {1U, 23U};
+    dmp_reliability_handle a;
+    dmp_reliability_handle b;
+    dmp_reliability_handle cross;
+    dmp_config config;
+    dmp_admitted_profile admitted;
+    dmp_identity_handle stale_context;
+    size_t i;
+
+    CHECK(boot(&side_a, 0, 0) == 0);
+    CHECK(dmp_reliability_close(&side_a.engine, 2000U) == DMP_OK);
+    config = side_a.profile;
+    config.peers = 2U;
+    config.operations_per_service = 1U;
+    config.assembly_slots = 2U;
+    config.assembly_tombstone_slots = 2U;
+    CHECK(dmp_config_admit(&config, &admitted) == DMP_OK);
+    side_a.profile = admitted;
+    bind_node(&side_a);
+    CHECK(dmp_reliability_init(&side_a.engine, &side_a.storage) == DMP_OK);
+
+    /* Multi-peer engines have no default route. */
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING),
+                                     2000U, 0U, &a) == DMP_INVALID_ARGUMENT);
+    stale_context = side_a.handle;
+    stale_context.generation++;
+    CHECK(dmp_reliability_select_route(&side_a.engine, peer_a, stale_context) == DMP_STALE_HANDLE);
+    CHECK(dmp_reliability_select_route(&side_a.engine, peer_a, side_a.handle) == DMP_OK);
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING),
+                                     2000U, 0U, &a) == DMP_OK);
+    CHECK(a.peer.slot == peer_a.slot && a.peer.generation == peer_a.generation);
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING),
+                                     2000U, 0U, &cross) == DMP_BUSY);
+
+    CHECK(dmp_reliability_select_route(&side_a.engine, peer_b, side_a.handle) == DMP_OK);
+    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING),
+                                     2000U, 0U, &b) == DMP_OK);
+    CHECK(b.peer.slot == peer_b.slot && b.peer.generation == peer_b.generation);
+    CHECK(dmp_reliability_poll(&side_a.engine, 2000U) == DMP_OK);
+    CHECK(dmp_reliability_poll(&side_a.engine, 2000U) == DMP_OK);
+    CHECK(side_a.tx.n == 2);
+    CHECK(side_a.tx.hold[0].peer.slot == peer_a.slot &&
+          side_a.tx.hold[0].peer.generation == peer_a.generation);
+    CHECK(side_a.tx.hold[1].peer.slot == peer_b.slot &&
+          side_a.tx.hold[1].peer.generation == peer_b.generation);
+
+    finish_all(&side_a, DMP_TX_TRANSMITTED, 2000U);
+    CHECK(dmp_reliability_poll(&side_a.engine, 2000U) == DMP_OK);
+    CHECK(dmp_reliability_poll(&side_a.engine, 2050U) == DMP_OK);
+    CHECK(dmp_reliability_poll(&side_a.engine, 2050U) == DMP_OK);
+    CHECK(side_a.tx.n == 4);
+    for (i = 0U; i < (size_t)side_a.tx.n; i++) {
+        dmp_peer_handle expected = i % 2U == 0U ? peer_a : peer_b;
+        CHECK(side_a.tx.hold[i].peer.slot == expected.slot &&
+              side_a.tx.hold[i].peer.generation == expected.generation);
+    }
+
+    cross = b;
+    cross.peer = peer_a;
+    CHECK(dmp_reliability_cancel(&side_a.engine, cross, 2050U) == DMP_STALE_HANDLE);
+    cross = b;
+    cross.peer.generation++;
+    CHECK(dmp_reliability_cancel(&side_a.engine, cross, 2050U) == DMP_STALE_HANDLE);
+    CHECK(dmp_reliability_cancel(&side_a.engine, a, 2050U) == DMP_OK);
+    CHECK(dmp_reliability_cancel(&side_a.engine, b, 2050U) == DMP_OK);
+    finish_all(&side_a, DMP_TX_CANCELLED_UNSENT, 2050U);
+    CHECK(dmp_reliability_poll(&side_a.engine, 2050U) == DMP_OK);
+
+    /* Inbound completion also follows the notice's original peer route. */
+    CHECK(boot(&side_b, 1, 0) == 0);
+    CHECK(dmp_reliability_submit_req(&side_b.engine, 1U, span(PING, sizeof PING),
+                                     3000U, 0U, &b) == DMP_OK);
+    CHECK(dmp_reliability_poll(&side_b.engine, 3000U) == DMP_OK);
+    CHECK(dmp_reliability_select_route(&side_a.engine, peer_b, side_a.handle) == DMP_OK);
+    CHECK(deliver_index(&side_b, 0, &side_a, 1U, span(NULL, 0U),
+                        span(PING, sizeof PING), 3000U, DMP_OK) == 0);
+    {
+        int notice_index = -1;
+        int j;
+        dmp_reliability_handle request;
+        for (j = 0; j < side_a.notes.count; j++) {
+            if (side_a.notes.items[j].event == DMP_REL_EVENT_REQUEST_ACCEPTED) {
+                notice_index = j;
+                break;
+            }
+        }
+        CHECK(notice_index >= 0);
+        CHECK(side_a.notes.items[notice_index].peer.slot == peer_b.slot);
+        request = side_a.notes.items[notice_index].handle;
+        cross = request;
+        cross.peer = peer_a;
+        CHECK(dmp_reliability_complete(&side_a.engine, cross, false, 0U,
+                                       span(PONG, sizeof PONG), 3000U) == DMP_STALE_HANDLE);
+        CHECK(dmp_reliability_complete(&side_a.engine, request, false, 0U,
+                                       span(PONG, sizeof PONG), 3000U) == DMP_OK);
+    }
+    {
+        int start = side_a.tx.n;
+        CHECK(dmp_reliability_poll(&side_a.engine, 3020U) == DMP_OK);
+        CHECK(side_a.tx.n >= start + 1);
+        for (i = (size_t)start; i < (size_t)side_a.tx.n; i++) {
+            CHECK(side_a.tx.hold[i].peer.slot == peer_b.slot &&
+                  side_a.tx.hold[i].peer.generation == peer_b.generation);
+        }
+    }
+    return 0;
+}
+
+static int test_shared_poll_peer_fairness(void)
+{
+    dmp_peer_handle peer_a = {0U, 31U};
+    dmp_peer_handle peer_b = {1U, 37U};
+    dmp_reliability_handle handles[4];
+    dmp_config config;
+    dmp_admitted_profile admitted;
+    size_t i;
+
+    CHECK(boot(&side_a, 0, 0) == 0);
+    CHECK(dmp_reliability_close(&side_a.engine, 4000U) == DMP_OK);
+    config = side_a.profile;
+    config.peers = 2U;
+    config.operations_per_service = 2U;
+    config.application_queue_slots = 4U;
+    config.correlation_slots = 4U;
+    config.assembly_slots = 2U;
+    config.assembly_tombstone_slots = 2U;
+    CHECK(dmp_config_admit(&config, &admitted) == DMP_OK);
+    side_a.profile = admitted;
+    bind_node(&side_a);
+    CHECK(dmp_reliability_init(&side_a.engine, &side_a.storage) == DMP_OK);
+
+    /* Give the lower peer two ready senders before admitting any work for B.
+     * Slot-order scheduling would therefore accept A repeatedly. */
+    for (i = 0U; i < 2U; i++) {
+        uint32_t service = (uint32_t)(i % 2U) + 1U;
+        CHECK(dmp_reliability_select_route(&side_a.engine, peer_a, side_a.handle) == DMP_OK);
+        CHECK(dmp_reliability_submit_req(&side_a.engine, service, span(PING, sizeof PING),
+                                         4000U, 0U, &handles[i]) == DMP_OK);
+    }
+    for (i = 2U; i < 4U; i++) {
+        uint32_t service = (uint32_t)(i % 2U) + 1U;
+        CHECK(dmp_reliability_select_route(&side_a.engine, peer_b, side_a.handle) == DMP_OK);
+        CHECK(dmp_reliability_submit_req(&side_a.engine, service, span(PING, sizeof PING),
+                                         4000U, 0U, &handles[i]) == DMP_OK);
+    }
+
+    for (i = 0U; i < 4U; i++) {
+        dmp_peer_handle expected = i % 2U == 0U ? peer_a : peer_b;
+        int before = side_a.tx.n;
+        CHECK(dmp_reliability_poll(&side_a.engine, 4000U + i) == DMP_OK);
+        CHECK(side_a.tx.n == before + 1);
+        CHECK(side_a.tx.hold[before].peer.slot == expected.slot &&
+              side_a.tx.hold[before].peer.generation == expected.generation);
+        finish_all(&side_a, DMP_TX_TRANSMITTED, 4000U + i);
+    }
+    CHECK(side_a.tx.n == 4);
+    return 0;
+}
+
 int main(void)
 {
     int failed = 0;
@@ -1996,6 +2178,8 @@ int main(void)
     failed |= test_selective_and_retry_all();
     failed |= test_large_result_slices();
     failed |= test_probe_rejection();
+    failed |= test_shared_engine_peer_routes();
+    failed |= test_shared_poll_peer_fairness();
     if (failed != 0) {
         (void)fprintf(stderr, "reliability tests failed\n");
         return 1;
