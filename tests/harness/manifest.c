@@ -433,9 +433,21 @@ static void check_identity(vstate *st, const json_value *m, int *direct_out, int
     if (st->failed) {
         return;
     }
-    direct = strcmp(pid, "DIRECT-1") == 0;
+    direct = strcmp(pid, "DIRECT-1") == 0 ||
+             strcmp(pid, "TEST-DIRECT-SAMPLE-RETRY-2") == 0;
     selective = strcmp(pid, "RADIO-1") == 0;
-    test = strcmp(pid, "TEST-RADIO-RETRY-ALL") == 0;
+    test = strcmp(pid, "TEST-RADIO-RETRY-ALL") == 0 ||
+           strcmp(pid, "TEST-DIRECT-SAMPLE-RETRY-2") == 0;
+    if (!need(st, direct || selective || strcmp(pid, "TEST-RADIO-RETRY-ALL") == 0,
+              "profile", "$.profile")) {
+        return;
+    }
+    if (json_object_get(m, "tcp_binding") != NULL ||
+        json_object_get(m, "mixed_path") != NULL ||
+        json_object_get(m, "multi_peer") != NULL) {
+        fail(st, "schema", "$.profile");
+        return;
+    }
     if (!need(st, (test ? strcmp(owner, "DMP-test") == 0 : strcmp(owner, "DMP-reference") == 0) &&
                      (test ? revision == 1U : revision == 4U),
               "profile", "$.profile")) {
@@ -470,6 +482,11 @@ static void check_identity(vstate *st, const json_value *m, int *direct_out, int
     producer = fu(st, ident, "sample_producer");
     if (st->failed || nodes == NULL || nodes->type != JSON_ARRAY) {
         fail(st, "internal", "$.identity");
+        return;
+    }
+    if (!need(st, nodes->count == 2U, "identity", "$.identity.nodes") ||
+        !need(st, fu(st, limits, "message_bytes") <= 1024U,
+              "geometry", "$.limits.message_bytes")) {
         return;
     }
     {
@@ -1424,7 +1441,7 @@ static uint64_t count_for(const char *key, int endpoint, uint64_t associations, 
         return associations;
     }
     if (strcmp(key, "association") == 0) {
-        return 1U;
+        return associations;
     }
     if (strcmp(key, "provider_scratch") == 0) {
         return crypto;
@@ -1483,6 +1500,7 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
     uint64_t associations;
     uint64_t operations;
     uint64_t grants;
+    uint64_t tokens;
     uint64_t message;
     uint64_t encoded;
     if (st->failed) {
@@ -1508,10 +1526,17 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
             return;
         }
     }
-    associations = fu(st, security, "pending_per_pair") + fu(st, security, "active_per_pair") +
-                   fu(st, security, "draining_per_pair");
-    operations = fu(st, limits, "sender_slots");
-    grants = fu(st, fresh, "grant_requests_per_pair");
+    associations = (fu(st, security, "pending_per_pair") + fu(st, security, "active_per_pair") +
+                    fu(st, security, "draining_per_pair")) * fu(st, limits, "peers");
+    operations = fu(st, limits, "peers") * fu(st, limits, "operations_per_service") * 2U;
+    if (operations < fu(st, limits, "sender_slots")) {
+        operations = fu(st, limits, "sender_slots");
+    }
+    grants = fu(st, fresh, "grant_requests_per_pair") * fu(st, limits, "peers");
+    tokens = fu(st, fresh, "tokens_per_principal") * fu(st, limits, "peers");
+    if (tokens == 0U) {
+        tokens = 1U;
+    }
     message = fu(st, limits, "message_bytes");
     encoded = d->encoded_frame_bytes;
     if (!need(st, fu(st, limits, "control_slots") >= fu(st, timing, "feedback_buffers") + grants + 1U,
@@ -1597,11 +1622,15 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
             seen[component_index] = 1;
             need_count = count_for(key, endpoint, associations, fu(st, security, "crypto_slots"),
                                    operations,
-                                   fu(st, limits, "assemblies_per_peer"),
+                                   fu(st, limits, "peers") * fu(st, limits, "assemblies_per_peer"),
                                    fu(st, limits, "peers") *
                                        fu(st, limits, "assembly_tombstones_per_peer"), grants,
                                    fu(st, limits, "control_slots"),
-                                   fu(st, limits, "adapter_slots"), fu(st, fresh, "tokens_per_principal"));
+                                   fu(st, limits, "adapter_slots"),
+                                   tokens);
+            if (endpoint && strcmp(key, "application_queue") == 0) {
+                need_count = fu(st, limits, "application_queue_slots");
+            }
             if (!endpoint && strcmp(key, "relay_cache") == 0) {
                 need_count = operations * (d->fragment_count + d->bootstrap_fragment_count) +
                              fu(st, timing, "max_status") + fu(st, timing, "receipt_limit");

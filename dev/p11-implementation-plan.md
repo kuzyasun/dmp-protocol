@@ -1,5 +1,9 @@
 # P11 bounded reassembly implementation
 
+> **Historical package plan:** this plan's manifest references predate the
+> 2026-10-14 consolidation. The current test manifest format is 1.0; P11's
+> reassembly requirements and evidence remain otherwise unchanged.
+
 ## Frozen contract
 
 - The engine accepts only structurally parsed FRAG frames after the caller has

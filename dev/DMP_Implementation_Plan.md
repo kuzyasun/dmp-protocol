@@ -53,6 +53,16 @@ Expose one logical receive/post-check/accept boundary, covering decrypted payloa
 
 ### Implementation-first provider and security acceptance
 
+**Owner scope update, 2026-10-13:** the accepted
+[continuation decisions](DMP_Continuation_Decisions_2026-10-13.md) require up to
+four authenticated peers on one endpoint and the specified retry, handshake
+transport and SAMPLE-1 epoch-owner integration. Final first-version physical
+qualification covers selected ESP32-S3/ESP32-C3 boards. The non-Espressif runtime
+requirement retained in item 5 below is **deferred to a future stage** and is not
+a first-version P01/P25 blocker for that explicitly limited supported scope.
+Keep non-Espressif compile/ABI checks and existing evidence; make no runtime
+support claim. Other target/resource/security acceptance requirements remain.
+
 The owner approved this scheduling correction on 2026-09-27. The original
 abort-first checklist is retained with explicit owners below. Implement each
 DMP behavior once in the library; its tests call that implementation. The
@@ -76,7 +86,7 @@ Use the already specified [SAMPLE-1 contract](../docs/DMP_v2_Reference_Applicati
 
 ### Shared manifest contract and test-tool boundary
 
-P02 must publish a versioned, implementation-independent manifest contract alongside its schema (planned `docs/DMP_Test_Manifest_Contract.md` and `profiles/schema/`). Specify encoding, field types/units, required/unknown/duplicate-field handling, cross-field constraints, exact digest input bytes and a valid/invalid interpretation corpus. This is the selected test-deployment contract, not a universal new DMP wire serialization. P03 freezes the exact common manifest bytes and expected interpreted values. The independent peer receives and independently parses those bytes under this contract; matching hashes alone does not prove matching configuration. Sharing the written schema/corpus is allowed; sharing primary parser/validator code is not.
+P02 publishes the single manifest format 1.0 in an implementation-independent contract and schema (planned `docs/DMP_Test_Manifest_Contract.md` and `profiles/schema/`). Specify encoding, field types/units, required/unknown/duplicate-field handling, cross-field constraints, exact digest input bytes and a valid/invalid interpretation corpus. This is the selected test-deployment contract, not a universal new DMP wire serialization. Until a first release exists, evolve this one format directly; do not retain prior manifest schemas or add compatibility parsing. P03 freezes the exact common manifest bytes and expected interpreted values. The independent peer receives and independently parses those bytes under this contract; matching hashes alone does not prove matching configuration. Sharing the written schema/corpus is allowed; sharing primary parser/validator code is not.
 
 The host harness is planned as C code linked with the actual C endpoints. Before P07, P04 freezes a bounded, versioned subprocess control/trace interface for a host executable; `tools/simulate.py` later supplies scenarios/seeds and launches that executable. Specify input bounds, virtual-time/event ordering, completion/cancellation handles, exit/error outcomes and redaction. Python does not implement DMP state machines or use wall-clock sleeps as protocol time. This small test interface does not become a public libdmp ABI.
 

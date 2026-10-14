@@ -2,18 +2,20 @@
   "algorithm": "SHA-256",
   "bytes": "original UTF-8, no BOM, LF, terminal LF; no JSON reserialization",
   "manifests": {
-    "direct-nnpsk0-async.json": "f39204f1340debf9da99fbf985dda7af7150d1b4ea5e92a7ebdf86fe7f2187c6",
-    "direct-nnpsk0.json": "29f7895ab3f8dadfbe7331f1981fa35dcad2bec59139464e29bddc4e841e5285",
-    "direct-xx.json": "075e8ed25f6011c7dc20c84789eb61dff4784af86413415ddbd4aede07bcfce3",
-    "radio-nnpsk0-n2.json": "1d11940b8905261bab2974d266435a04dcedac1a4775f5304406e59852e9bb96",
-    "radio-nnpsk0.json": "9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9",
-    "radio-xx.json": "8ddf226f205ac3e547b57858d6cd68aa960fab03f6462b9f27cca81c0822fe60",
-    "test-direct-minimal-128.json": "3bbcce998d664fa74970f503a39b28474de9291d453373810d641b2b662fb6e4",
-    "test-direct-minimal-256.json": "4dc75347343c209c1ed12ab67e60eba83ff974beaa9f351c121da87e7b18b946",
-    "test-radio-retry-all-nnpsk0.json": "bc8bba7c929c6d0fe9ad39dbe66a6699d342304ae8485ddf5cac9e32605b55f1",
-    "test-radio-retry-all-xx.json": "4aece0283e15774346dd2d0d73d45e8c496a4e91aec2ac2693a253e977c767c9",
-    "test-peer-tcp-stream-r-nnpsk0.json": "ae409bc0d46cda319f9e9861dcc3fbc6922d2ee6d35155ae61c329b79dc497cc",
-    "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json": "64363ad7c1f750409bad1b039509cfec4037a981fa760bbb4dce57bb50e5546d",
-    "test-peer-tcp-stream-r-sample20-nnpsk0.json": "514db4ae41fd8b2b1f4b4b7361cfb63e4b04ea095f33948f0e17e5a19bad9e2f"
+    "direct-nnpsk0-async.json": "5cb5603473be180c4b70502c7a93dfc0c725703ea3ed0e7481fa71f16798d390",
+    "direct-nnpsk0.json": "40abedfbb1799ea6cb711f739101d40bae6454eac719858c79b066f2670ad0c1",
+    "direct-xx.json": "289ed444a458bba2801fbceb68346cfae23de79beaab2d3402a75539e11b23f9",
+    "radio-nnpsk0-n2.json": "6753a738f003e9dc9f7dafdf24735ee907a3904576718d18709b751c88476873",
+    "radio-nnpsk0.json": "a3887c44b06b4d2f905f89fae4b28b99c0f00d93d77c50b1f752ce77bde4922f",
+    "radio-xx.json": "b27b06ee7ad0a0d51e79cf894a373bf2b74d9f9b3674b24b9256418b9141641a",
+    "test-direct-minimal-128.json": "d987dbae6d7490d98d45aaca7d7af13c600d4c3557b3453c3598e5ffec9c0fa1",
+    "test-direct-minimal-256.json": "9cc6d8ae95c5f241166c9af9edc70d12e61fdb4404c10479bb68de32d0d344ea",
+    "test-direct-multi-peer-nnpsk0.json": "001eb42d8f440e0ceaf1711e764ceacfc3c1dd034cfb2d7f320be7d877f7454f",
+    "test-radio-retry-all-nnpsk0.json": "b33d39bffcb7c2750fbf860e4e040cd5b4e29101a6d6c0ca604faef9719ccf3f",
+    "test-radio-retry-all-xx.json": "369314bd7daf840b22d34e10c432fe08575ecd9e1c562cfd730a342bc5e1286a",
+    "test-peer-tcp-stream-r-nnpsk0.json": "8de56192f75e7677081d704d568ddb64b1292c6ded72449675ebceefd53d9a1a",
+    "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json": "2bc3c2ee1c9e8f3aa87af4afd2f0cab996099fc69da1f0938c23e050c8c68faf",
+    "test-peer-tcp-stream-r-sample20-nnpsk0.json": "b84132a086323d432492967755244b59a9a53405880d85f354c25353757c6aa6",
+    "test-direct-sample-retry-2-nnpsk0.json": "478af0bc4912d0fc46ed76c249ec5f30f8f64bc89ed7411e9b9231bbf487db5c"
   }
 }

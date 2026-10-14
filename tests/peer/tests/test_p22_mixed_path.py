@@ -1,4 +1,4 @@
-"""Contract-3 Stream R/TCP to SIM-PACKET relay composition checks."""
+"""Format 1.0 Stream R/TCP to SIM-PACKET relay composition checks."""
 
 from __future__ import annotations
 

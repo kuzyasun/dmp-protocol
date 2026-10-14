@@ -17,6 +17,9 @@ class ManifestTests(unittest.TestCase):
             "radio-xx.json": ("RADIO-1", "packet", "selective-32"),
             "test-direct-minimal-128.json": ("TEST-DIRECT-MINIMAL-128", "stream-r", "retry-all"),
             "test-direct-minimal-256.json": ("TEST-DIRECT-MINIMAL-256", "stream-r", "retry-all"),
+            "test-direct-sample-retry-2-nnpsk0.json": (
+                "TEST-DIRECT-SAMPLE-RETRY-2", "stream-r", "retry-all"
+            ),
             "test-radio-retry-all-nnpsk0.json": ("TEST-RADIO-RETRY-ALL", "packet", "retry-all"),
             "test-radio-retry-all-xx.json": ("TEST-RADIO-RETRY-ALL", "packet", "retry-all"),
         }
@@ -32,6 +35,105 @@ class ManifestTests(unittest.TestCase):
                 self.assertEqual(identify_frozen_manifest(
                     (Path(__file__).parents[3] / "profiles" / "deployments" / name).read_bytes()
                 ), manifest)
+
+    def test_sample_retry_profile_has_two_distinct_initialization_attempts(self):
+        manifest = load_manifest("test-direct-sample-retry-2-nnpsk0.json")
+        sample = manifest.values["sample"]
+        timing = manifest.values["timing"]
+        self.assertEqual(2, sample["init_attempts"])
+        self.assertEqual(5, sample["init_retry_ms"])
+        self.assertGreaterEqual(
+            sample["init_deadline_ms"],
+            sample["init_attempts"] * timing["result_deadline_ms"]
+            + (sample["init_attempts"] - 1) * sample["init_retry_ms"],
+        )
+
+    def test_multi_peer_manifest_uses_single_format(self):
+        path = (Path(__file__).parents[3] / "profiles" / "deployments"
+                / "test-direct-multi-peer-nnpsk0.json")
+        manifest = load_manifest("test-direct-multi-peer-nnpsk0.json")
+        self.assertEqual(manifest.values["contract"], "DMP-test-manifest/1.0")
+        multi = manifest.values["multi_peer"]
+        self.assertEqual(multi["endpoint_node"], 20)
+        self.assertEqual(multi["peer_nodes"], [10, 35, 34, 36])
+        self.assertEqual([row["name"] for row in multi["sensitivity_rows"]],
+                         ["four_serial", "four_parallel"])
+
+    def test_multi_peer_rejects_duplicate_or_overlapping_peer_identities(self):
+        path = (Path(__file__).parents[3] / "profiles" / "deployments"
+                / "test-direct-multi-peer-nnpsk0.json")
+        original = json.loads(path.read_bytes())
+
+        value = json.loads(json.dumps(original))
+        value["multi_peer"]["peer_nodes"][1] = value["multi_peer"]["peer_nodes"][0]
+        with self.assertRaisesRegex(ManifestError, "peer IDs must be unique"):
+            parse_manifest(json.dumps(value).encode())
+
+        value = json.loads(json.dumps(original))
+        value["multi_peer"]["peer_nodes"][0] = value["multi_peer"]["endpoint_node"]
+        with self.assertRaisesRegex(ManifestError, "peer IDs must be unique"):
+            parse_manifest(json.dumps(value).encode())
+
+        value = json.loads(json.dumps(original))
+        value["identity"]["nodes"][4] = value["identity"]["nodes"][3]
+        with self.assertRaisesRegex(ManifestError, "exact endpoint count"):
+            parse_manifest(json.dumps(value).encode())
+
+        value = json.loads(json.dumps(original))
+        value["multi_peer"]["endpoint_node"] = 21
+        with self.assertRaisesRegex(ManifestError, "identity nodes must be exactly"):
+            parse_manifest(json.dumps(value).encode())
+
+    def test_multi_peer_rejects_inconsistent_per_peer_and_shared_quotas(self):
+        path = (Path(__file__).parents[3] / "profiles" / "deployments"
+                / "test-direct-multi-peer-nnpsk0.json")
+        original = json.loads(path.read_bytes())
+
+        value = json.loads(json.dumps(original))
+        value["security"]["active_per_pair"] = 2
+        with self.assertRaisesRegex(ManifestError, "per-peer quotas must match"):
+            parse_manifest(json.dumps(value).encode())
+
+        value = json.loads(json.dumps(original))
+        value["limits"]["peers"] = 3
+        with self.assertRaisesRegex(ManifestError, "shared endpoint quotas"):
+            parse_manifest(json.dumps(value).encode())
+
+        value = json.loads(json.dumps(original))
+        value["multi_peer"]["shared_endpoint"]["sender_slots"] = 3
+        with self.assertRaises(ManifestError):
+            parse_manifest(json.dumps(value).encode())
+
+    def test_multi_peer_rejects_undersized_peer_metadata_buffers(self):
+        path = (Path(__file__).parents[3] / "profiles" / "deployments"
+                / "test-direct-multi-peer-nnpsk0.json")
+        original = json.loads(path.read_bytes())
+        minima = {
+            "endpoint_metadata": 4096,
+            "peer_state": 2048,
+            "identity_context": 64,
+            "stream_decoder": 512,
+            "admission_owner": 8192,
+        }
+        for component, minimum in minima.items():
+            with self.subTest(component=component):
+                value = json.loads(json.dumps(original))
+                endpoint = next(resource for resource in value["resources"]
+                                if resource["role"] == "endpoint")
+                charge = next(item for item in endpoint["charges"]
+                              if item["component"] == component)
+                charge["bytes_each"] = minimum - 1
+                with self.assertRaisesRegex(ManifestError,
+                                            "metadata/state/decoder/admission buffers"):
+                    parse_manifest(json.dumps(value).encode())
+
+    def test_multi_peer_rejects_altered_sensitivity_row_values(self):
+        path = (Path(__file__).parents[3] / "profiles" / "deployments"
+                / "test-direct-multi-peer-nnpsk0.json")
+        value = json.loads(path.read_bytes())
+        value["multi_peer"]["sensitivity_rows"][0]["crypto_slots"] = 2
+        with self.assertRaisesRegex(ManifestError, "sensitivity rows must exactly match"):
+            parse_manifest(json.dumps(value).encode())
 
     def test_duplicate_escape_equivalent_key_is_rejected(self):
         raw = b'{"contract":"a","\\u0063ontract":"b"}'
@@ -69,11 +171,11 @@ class ManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ManifestError, "assembly lifetime"):
             parse_manifest(json.dumps(value).encode())
 
-    def test_schema_enum_comparison_preserves_json_types(self):
+    def test_schema_type_checks_precede_enum_checks(self):
         raw = (Path(__file__).parents[3] / "profiles" / "deployments" / "direct-nnpsk0.json").read_bytes()
         value = json.loads(raw)
         value["limits"]["peers"] = True
-        with self.assertRaisesRegex(ManifestError, "enum"):
+        with self.assertRaisesRegex(ManifestError, "expected integer"):
             parse_manifest(json.dumps(value).encode())
 
         value = json.loads(raw)

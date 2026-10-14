@@ -101,7 +101,7 @@
         }
       ],
       "expected_code": "identity",
-      "expected_path": "$.identity"
+      "expected_path": "$.identity.nodes"
     },
     {
       "name": "sample-producer-is-not-an-endpoint",

@@ -13,7 +13,7 @@ def encoded(value):
     return json.dumps(value, separators=(",", ":")).encode("utf-8")
 
 
-class ManifestV3Tests(unittest.TestCase):
+class HostBindingManifestTests(unittest.TestCase):
     def read(self, name):
         return json.loads((DEPLOYMENTS / name).read_bytes())
 
@@ -25,6 +25,14 @@ class ManifestV3Tests(unittest.TestCase):
             with self.assertRaisesRegex(ManifestError, pattern):
                 parse_manifest(encoded(value))
 
+    def test_peer_uses_the_single_published_format_schema(self):
+        project_schema = (DEPLOYMENTS.parent / "schema" / "manifest-v1.schema.json")
+        peer_schema = (Path(__file__).parents[1] / "dmp_peer" / "manifest-v1.schema.json")
+        self.assertEqual(json.loads(project_schema.read_text(encoding="utf-8")),
+                         json.loads(peer_schema.read_text(encoding="utf-8")))
+        self.assertEqual({"manifest-v1.schema.json"},
+                         {path.name for path in peer_schema.parent.glob("manifest-v*.schema.json")})
+
     def test_frozen_direct_and_mixed_profiles_parse_and_match_exact_hashes(self):
         cases = {
             "test-peer-tcp-stream-r-nnpsk0.json": "PEER-TCP-STREAM-R",
@@ -34,7 +42,7 @@ class ManifestV3Tests(unittest.TestCase):
             with self.subTest(name=name):
                 manifest = load_manifest(name)
                 raw = (DEPLOYMENTS / name).read_bytes()
-                self.assertEqual(manifest.values["contract"], "DMP-test-manifest/3")
+                self.assertEqual(manifest.values["contract"], "DMP-test-manifest/1.0")
                 self.assertEqual(manifest.values["profile"]["id"], profile_id)
                 identified = identify_frozen_manifest(raw)
                 self.assertEqual(identified, manifest)
@@ -108,16 +116,30 @@ class ManifestV3Tests(unittest.TestCase):
         with self.assertRaisesRegex(ManifestError, "SHA-256"):
             parse_manifest(raw, "0" * 64)
 
-    def test_contract2_frozen_bytes_and_contract_marker_are_unchanged(self):
-        legacy = load_manifest("direct-nnpsk0.json")
+    def test_all_profiles_use_the_single_manifest_format(self):
+        current = load_manifest("direct-nnpsk0.json")
         raw = (DEPLOYMENTS / "direct-nnpsk0.json").read_bytes()
-        self.assertEqual(legacy.sha256,
-                         "29f7895ab3f8dadfbe7331f1981fa35dcad2bec59139464e29bddc4e841e5285")
-        self.assertEqual(identify_frozen_manifest(raw), legacy)
+        self.assertEqual(current.values["contract"], "DMP-test-manifest/1.0")
+        self.assertEqual(identify_frozen_manifest(raw), current)
 
-        v3 = self.read("test-peer-tcp-stream-r-nnpsk0.json")
-        v3["contract"] = "DMP-test-manifest/2"
-        self.rejected(v3)
+        direct_tcp = self.read("test-peer-tcp-stream-r-nnpsk0.json")
+        direct_tcp["contract"] = "unsupported-manifest-format"
+        self.rejected(direct_tcp)
+
+    def test_single_peer_profiles_keep_exact_identity_acl_and_message_bounds(self):
+        original = self.read("direct-nnpsk0.json")
+        mutations = (
+            lambda value: value["identity"]["nodes"].append(30),
+            lambda value: value["identity"]["nodes"].__setitem__(1, value["identity"]["nodes"][0]),
+            lambda value: value["services"][0]["acl"].append(
+                copy.deepcopy(value["services"][0]["acl"][0])),
+            lambda value: value["limits"].update(message_bytes=2048),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                value = copy.deepcopy(original)
+                mutate(value)
+                self.rejected(value)
 
 
 if __name__ == "__main__":

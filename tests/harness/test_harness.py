@@ -152,6 +152,39 @@ class HarnessSubprocessTests(unittest.TestCase):
             with self.subTest(case=case["name"]):
                 self.assert_manifest_code(raw_case(case), case["expected_code"], case["expected_path"])
 
+    def test_c_harness_enforces_single_peer_format_profile_bounds(self):
+        direct = json.loads((DEPLOYMENTS / "direct-nnpsk0.json").read_bytes())
+        tcp = json.loads((DEPLOYMENTS / "test-peer-tcp-stream-r-nnpsk0.json").read_bytes())
+        mixed = json.loads((DEPLOYMENTS / "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json").read_bytes())
+        multi_peer = json.loads((DEPLOYMENTS / "test-direct-multi-peer-nnpsk0.json").read_bytes())
+        cases = []
+
+        value = json.loads(json.dumps(direct))
+        value["tcp_binding"] = tcp["tcp_binding"]
+        cases.append(("tcp fields", value))
+
+        value = json.loads(json.dumps(direct))
+        value["mixed_path"] = mixed["mixed_path"]
+        cases.append(("mixed fields", value))
+
+        value = json.loads(json.dumps(direct))
+        value["multi_peer"] = multi_peer["multi_peer"]
+        cases.append(("multi-peer fields", value))
+
+        value = json.loads(json.dumps(direct))
+        value["identity"]["nodes"].append(30)
+        cases.append(("extra endpoint", value))
+
+        value = json.loads(json.dumps(direct))
+        value["limits"]["message_bytes"] = 2048
+        cases.append(("message ceiling", value))
+
+        for name, value in cases:
+            with self.subTest(case=name):
+                raw = json.dumps(value, separators=(",", ":")).encode()
+                code, path = self.offline_failure(raw)
+                self.assert_manifest_code(raw, code, path)
+
     def assert_manifest_code(self, raw, code, path):
         digest = hashlib.sha256(raw).hexdigest()
         with tempfile.TemporaryDirectory() as directory:
@@ -167,7 +200,8 @@ class HarnessSubprocessTests(unittest.TestCase):
     def test_digest_mismatch_and_valid_deployments(self):
         for name in ("direct-nnpsk0.json", "direct-xx.json", "radio-nnpsk0.json",
                      "radio-xx.json", "test-radio-retry-all-nnpsk0.json",
-                     "test-radio-retry-all-xx.json"):
+                     "test-radio-retry-all-xx.json",
+                     "test-direct-sample-retry-2-nnpsk0.json"):
             with self.subTest(deployment=name):
                 raw = (DEPLOYMENTS / name).read_bytes()
                 digest = hashlib.sha256(raw).hexdigest()

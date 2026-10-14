@@ -1,4 +1,4 @@
-"""Contract-3 host binding validation and mixed-profile boundaries."""
+"""Host binding validation and mixed-profile boundaries."""
 import copy
 import hashlib
 import importlib.util
@@ -19,7 +19,7 @@ DIRECT = "test-peer-tcp-stream-r-nnpsk0.json"
 MIXED = "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json"
 
 
-class Contract3Tests(unittest.TestCase):
+class HostBindingManifestTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.digests = json.loads((DEPLOYMENTS / "digests.json").read_text(encoding="utf-8"))["manifests"]
@@ -37,10 +37,10 @@ class Contract3Tests(unittest.TestCase):
         if path is not None:
             self.assertEqual(path, raised.exception.path)
 
-    def test_frozen_v3_manifests_match_exact_digests_and_independent_bounds(self):
+    def test_frozen_tcp_manifests_match_exact_digests_and_independent_bounds(self):
         expected = {
-            DIRECT: ("PEER-TCP-STREAM-R", 16, 263, 60488),
-            MIXED: ("MIXED-TCP-STREAM-R-SIM-PACKET", 32, 256, 67180),
+            DIRECT: ("PEER-TCP-STREAM-R", 16, 263, 77398),
+            MIXED: ("MIXED-TCP-STREAM-R-SIM-PACKET", 32, 256, 85612),
         }
         for name, (profile_id, fragments, encoded, endpoint_ram) in expected.items():
             with self.subTest(manifest=name):
@@ -60,15 +60,15 @@ class Contract3Tests(unittest.TestCase):
                     self.assertEqual(endpoint_ram, result["derived"]["ram_reserved_bytes"]["endpoint"]["RAM"])
                     self.assertEqual(29441, result["derived"]["ram_reserved_bytes"]["relay"]["RAM"])
 
-    def test_v3_schema_is_generated_and_v2_schema_bytes_are_stable(self):
+    def test_single_schema_is_generated(self):
         module_spec = importlib.util.spec_from_file_location(
             "profile_schema_generator", SCHEMA_DIR / "build_schema.py")
         module = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(module)
         self.assertEqual(json.dumps(module.SCHEMA, indent=2) + "\n",
-                         (SCHEMA_DIR / "manifest-v2.schema.json").read_text(encoding="utf-8"))
-        self.assertEqual(json.dumps(module.SCHEMA_V3, indent=2) + "\n",
-                         (SCHEMA_DIR / "manifest-v3.schema.json").read_text(encoding="utf-8"))
+                         (SCHEMA_DIR / "manifest-v1.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual({"manifest-v1.schema.json"},
+                         {path.name for path in SCHEMA_DIR.glob("manifest-v*.schema.json")})
 
     def test_tcp_roles_caps_and_absolute_timeout_fail_closed(self):
         direct = self.values[DIRECT]
@@ -117,7 +117,7 @@ class Contract3Tests(unittest.TestCase):
 
     def test_unknown_profiles_fields_and_digest_mismatch_are_rejected(self):
         direct = copy.deepcopy(self.values[DIRECT])
-        direct["profile"]["id"] = "DIRECT-1"
+        direct["profile"]["id"] = "UNSUPPORTED-TCP-PROFILE"
         self.assert_rejected(direct, "schema", "$.profile.id")
 
         extra = copy.deepcopy(self.values[MIXED])
@@ -135,6 +135,11 @@ class Contract3Tests(unittest.TestCase):
             with self.subTest(marker=marker):
                 malformed = {"contract": marker}
                 self.assert_rejected(malformed, "schema", "$.contract")
+
+    def test_only_manifest_format_1_0_is_accepted(self):
+        direct = copy.deepcopy(self.values[DIRECT])
+        direct["contract"] = "unsupported-manifest-format"
+        self.assert_rejected(direct, "schema", "$.contract")
 
 
 if __name__ == "__main__":

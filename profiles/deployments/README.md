@@ -1,10 +1,12 @@
 # Frozen host development deployments
 
-Contract-2 P03 instances of [the test manifest contract](../../docs/DMP_Test_Manifest_Contract.md).
-These are complete configuration inputs for the future real library and its
-independent peer, not endpoint implementations or physical bindings. Contract-2
-manifest bytes and hashes remain unchanged. Changes require review and an explicit
-update of `digests.json`. Hash original bytes, without parsing/reserializing them.
+Every manifest in this directory uses the single format 1.0 described in
+[the test manifest contract](../../docs/DMP_Test_Manifest_Contract.md). Profile
+identities select their constraints; every profile uses the same format and
+parser. These are complete configuration inputs for host implementations and
+their independent peer, not physical bindings. Changes require review and an
+explicit update of `digests.json`. Hash original bytes, without parsing or
+reserializing them.
 Deployment instance owner is `DMP-test`, name is the manifest basename without
 `.json`, and instance revision is 1. This instance name is distinct from the
 reference-family identity inside the file. `digests.json` pins the exact
@@ -13,6 +15,8 @@ configuration for each name; SEC-1 binds those configuration bytes, not a filena
 | Files (suffix `-nnpsk0.json` or `-xx.json`) | Identity | Path | Recovery |
 |---|---|---|---|
 | `direct` | DMP-reference/DIRECT-1/4 | SIM-STREAM-R/1, nodes 10/20 | retry-all |
+| `test-direct-sample-retry-2-nnpsk0` | DMP-test/TEST-DIRECT-SAMPLE-RETRY-2/1 | SIM-STREAM-R/1, nodes 10/20 | retry-all; two SAMPLE-1 READ attempts |
+| `test-direct-multi-peer-nnpsk0` | DMP-test/TEST-DIRECT-MULTIPEER/1 | SIM-STREAM-R/1, one endpoint plus four peers | shared SEC-1 admission; `four_serial` / `four_parallel` sizing rows |
 | `radio` | DMP-reference/RADIO-1/4 | SIM-PACKET/1, 10/30/40/20 | selective-32 |
 | `test-radio-retry-all` | DMP-test/TEST-RADIO-RETRY-ALL/1 | same packet path | retry-all |
 
@@ -20,19 +24,34 @@ Each security mode has separate exact manifest bytes and PROFILE_HASH. Cipher 1
 is ChaChaPoly. Credentials are separately provisioned; these files contain no
 PSK, private key or implicit trust decision. NNpsk0 uses a pairwise PSK; XX needs
 authenticated OOB verification. One pending, one active and one draining
-association are admitted per pair, with one crypto slot. Capacity exhaustion
+association are admitted per pair, with one crypto slot. The endpoint resource
+template scales pair-scoped association, provider, bootstrap, assembly and
+expiry-tombstone pools by the configured peer count. Capacity exhaustion
 refuses new work; it never evicts live work or protected history.
+
+The separate multi-peer fixture fixes one endpoint-wide admission
+owner, four unique peer identities, one pending/active/draining association per
+peer, four shared lifecycle slots of each kind, four sender slots, two services,
+and four application operations. Its two sensitivity rows use one and two shared
+crypto slots respectively. The profile declares a 4096-byte message ceiling,
+128-byte chunks, 32 fragments, a 256-byte decoded Core MTU, a 263-byte maximum
+encoded Stream R frame, and a 1000/250 ms return schedule. Its separate 256 KiB
+`host-multipeer-sizing-only.v1` region is a host design reservation; it does not
+change the existing MCU experiment envelopes or qualify target hardware.
 
 SAMPLE-1/2 on default service 1 is unchanged. Service 2 is the contract's opaque,
 idempotent test workload, with up to 1024 request/result bytes. Only radio enables
 its S7 freshness requirement (12-second lease); SAMPLE-1 has no freshness token.
+The separate two-attempt SAMPLE-1 initialization profile reserves a 24010 ms
+absolute deadline (`2*12000 + 5 + 5`), leaving 5 ms after the second READ
+deadline for attempt exhaustion to be recorded. Both DIRECT-1 manifests retain
+their single-attempt 12000 ms deadline.
 Groups, AESGCM, dynamic routes, lower segmentation and physical bindings are
-outside these contract-2 instances.
+outside these simulation profiles.
 
-## P22 contract-3 host bindings
+## TCP Stream R host bindings
 
-These are separate contract-3 manifests and do not change the contract-2
-identities or hashes above:
+These are separate profile instances under the same format 1.0:
 
 | Manifest | Profile | TCP/packet path | Recovery |
 | --- | --- | --- | --- |
@@ -40,7 +59,7 @@ identities or hashes above:
 | `test-mixed-tcp-stream-r-sim-packet-nnpsk0.json` | `DMP-test/MIXED-TCP-STREAM-R-SIM-PACKET/1` | TCP Stream R from node 10 to bridge 30, then SIM-PACKET via relay 40 to node 20; reverse path uses packet then TCP | selective-32 |
 
 Both use the separately selected NNpsk0 provisioning mode and contain no key
-material. Contract-3 fields, strict-latest-start semantics, profile arithmetic,
+material. TCP binding fields, strict-latest-start semantics, profile arithmetic,
 resource caps, and digest rules are specified in the linked contract. These
 loopback/simulated profiles are not physical transport qualification.
 
@@ -97,6 +116,7 @@ explicit profile revision rather than silently dropping charges.
 |---|---:|---:|
 | Direct endpoint | 78720 / 131072 | 262144 / 524288 |
 | Radio endpoint (either recovery) | 83584 / 131072 | 262144 / 524288 |
+| Multi-peer host endpoint | 228173 / 262144 | 262144 / 524288 |
 | Each relay | 29441 / 65536 | 65536 / 131072 |
 
 Endpoint reserves apply to each endpoint separately; relay reserves to each of
@@ -148,7 +168,8 @@ All non-provider module sizes are unmeasured implementation reservations:
 - History/correlation records reserve 128 bytes each, freshness records 64.
   Admission refuses new work when protected retained records fill these pools.
 - Each endpoint reserves 16 expiry-tombstone records of 48 bytes per peer;
-  exhausted pools refuse new fragmented message identities until the context
+  the manifest resource charge covers that count for every configured peer.
+  Exhausted pools refuse new fragmented message identities until the context
   is retired. Tombstones contain no payload or application data.
 - Relay cache is 192 x 96 bytes, exceeding the common worst XX selective
   requirement `4*(32+2)+3+3+22*2 = 186` records. Each relay also reserves four

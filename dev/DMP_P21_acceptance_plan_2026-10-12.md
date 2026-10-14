@@ -1,5 +1,10 @@
 # P21 peer acceptance plan — 2026-10-12
 
+> **Superseded manifest direction (2026-10-14):** the historical P22 decision
+> below says to add contract 3 and preserve contract 2. The current owner
+> direction is one manifest format 1.0 with no compatibility paths; see
+> [the continuation decision record](DMP_Continuation_Decisions_2026-10-13.md#superseding-owner-decision--one-manifest-format-10-2026-10-14).
+
 ## Baseline and boundary
 
 - Repository: `C:\projects\gemslibe\dmp-protocol`

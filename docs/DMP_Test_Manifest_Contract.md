@@ -1,9 +1,11 @@
-# DMP test manifest contract 2
+# DMP test manifest format 1.0
 
-**Scope:** P02 configuration contract 2 for a two-endpoint host test deployment.
+**Scope:** every current deployment profile uses this single manifest format.
+The format supports direct, routed, host-bound, mixed-binding and shared-endpoint
+multi-peer test profiles. There is no older format to migrate or preserve.
 This selects a bounded subset of main document 10, SEC-1 revision 5,
 SELECTIVE-32 revision 1 and SAMPLE-1 revision 2. It changes no DMP wire rule.
-The [JSON Schema](../profiles/schema/manifest-v2.schema.json) supplies exact
+The marker is exactly `DMP-test-manifest/1.0`. The single [JSON Schema](../profiles/schema/manifest-v1.schema.json) supplies exact
 field names, types, required fields, enums and numerical bounds. This document
 supplies semantics and cross-field constraints. Neither part alone is sufficient.
 P03 separately freezes complete deployment instances and their evidence mapping.
@@ -35,22 +37,32 @@ memory charges are **bytes**; counts are integral finite admission caps. Zero is
 allowed only where the schema says so. Arithmetic in this contract is exact,
 without machine-integer wrap. A runtime must reject unrepresentable values.
 
-The contract admits exactly one peer pair and two application services, 1 and 2.
+The contract admits two application services, 1 and 2. All profiles except the
+dedicated shared-endpoint fixture admit exactly one peer pair. That fixture
+admits one endpoint and four distinct authenticated peers on a shared endpoint.
 Node IDs are distinct ULEB32 values; the namespace is ULEB32. Node order determines
 only stable configuration order. Exactly one node is the SAMPLE-1 producer.
 SEC-1 supplies association epochs; restart discards volatile traffic state and
 requires a fresh handshake. SAMPLE-1 separately persists its never-reused u64
 sample epoch. No state is restored from old traffic counters.
 
-Supported profile identities are `DMP-reference/DIRECT-1/4`,
-`DMP-reference/RADIO-1/4`, and `DMP-test/TEST-RADIO-RETRY-ALL/1`.
+The format supports the direct, radio, retry, asynchronous, minimal-resource,
+two-attempt SAMPLE-1, TCP Stream R, mixed TCP/packet, and shared-endpoint
+multi-peer profiles listed in the schema and deployment catalog. Each profile
+has its own fixed semantic constraints; none selects another manifest format.
 DIRECT uses `DMP-test/SIM-STREAM-R/1`, no ROUTE, association context, TTL=0 and
 no relays. Radio uses `DMP-test/SIM-PACKET/1`, static unicast TO_NODE and
 origin-supplied CONTEXT even when no relay is present. TTL covers every relay,
 at most four. There is no lower segmentation, dynamic routing, identity/security
 termination or automatic MTU adaptation. Route/MTU failure terminates an affected
-transfer with its possibly unknown application outcome. Physical transports and
-mixed bindings need a later contract revision; these IDs claim neither support.
+transfer with its possibly unknown application outcome. TCP and mixed bindings
+are defined below as host-test profiles; this does not claim physical transport
+qualification.
+
+The maximum logical message is 1024 bytes for the single-peer profiles. The
+shared-endpoint multi-peer host fixture is the only profile with a 4096-byte
+message ceiling. A wider schema bound permits that fixture; profile validation
+enforces the applicable ceiling for every manifest.
 
 These simulated bindings supply one core frame per packet or the exact main
 section 15 Stream R envelope. `forward_mtu`/`return_mtu` are minimum core-frame
@@ -229,7 +241,7 @@ origin/receiver airtime budget covers both application and worst complete
 bootstrap bursts plus status and receipts. Bootstrap count allowance is
 conservative; bootstrap still uses its own establishment retry/budget engine.
 `collect >= H+L`; `assembly >= max(H+L,collect)+M`, inactivity disabled.
-Manifest contract 2 also requires a per-peer expiry-tombstone count and a
+The manifest also requires a per-peer expiry-tombstone count and a
 matching endpoint `assembly_tombstone` resource charge. The admitted count is
 bounded by that charge. A new assembly reserves its future tombstone before
 the first accepted slice; expiry preserves the message/context key until the
@@ -370,17 +382,13 @@ that success object or raises `ProfileError` carrying `code`, `path`, `message`.
 and invalid mutations/raw encodings. These are P02 corpus inputs, not P03 accepted
 physical/product manifests. Runtime/startup parity remains P09's obligation.
 
-## Contract 3 — TCP Stream R and mixed host simulation
+## TCP Stream R and mixed host simulation
 
-Contract 3 is additive. It uses the same byte parsing, duplicate-member checks,
-integer rules, nesting limit, exact-original-bytes `PROFILE_HASH`, and closed
-schema behavior defined above. Its exact schema is
-[`manifest-v3.schema.json`](../profiles/schema/manifest-v3.schema.json); the
-contract-2 schema and P02 manifest files remain unchanged. The validator selects
-the schema from the exact `contract` value and never upgrades a contract-2
-manifest based on its fields.
+These binding fields are part of manifest format 1.0. The selected profile
+determines which fields are required; every profile is validated directly
+against the same closed schema.
 
-Contract 3 admits two DMP-test profiles:
+The format admits two DMP-test profiles for these bindings:
 
 - `DMP-test/PEER-TCP-STREAM-R/1` selects binding
   `DMP-test/TCP-STREAM-R/1` between the two peer processes.
@@ -432,7 +440,7 @@ expiry instant, including a delimiter, are processed first. Expiry and
 oversized/invalid candidates discard the candidate and ignore input through the
 next delimiter. Empty delimiters start no timer.
 
-The direct v3 profile keeps the reference direct workload bounds: 1024-byte
+The direct TCP profile keeps the reference direct workload bounds: 1024-byte
 maximum message, 64-byte chunks, 16 application fragments, 2 bootstrap
 fragments, 256-byte core capacity, 263-byte Stream R capacity, and a 26 ms
 partial-candidate timeout (`1+20+5`). Its no-relay `retry-all` policy is a
@@ -462,7 +470,7 @@ unknown application outcome.
 
 The mixed profile fixes `selective-32` for both services. A single serialized
 schedule covers both directions, services 1/2 and bootstrap, including reserved
-ACK/feedback opportunities. It uses the contract-2 static half-duplex rules and
+ACK/feedback opportunities. It uses the static half-duplex rules and
 finite queue/refusal semantics. The bridge and packet interfaces share one
 namespace mapping and one duplicate, cooldown, forwarding-count and airtime
 budget. Switching an incoming logical fragment between TCP and packet ingress
@@ -506,3 +514,64 @@ independent peer parser uses this schema and corpus but maintains its own parser
 and cross-field checks. Host loopback and simulated mixed-path results do not
 prove independent-peer interoperability (P23), MCU/runtime/RAM behavior, or
 physical transport.
+
+## One endpoint with four authenticated peers
+
+The multi-peer profile selects one Stream R endpoint (`endpoint_node`)
+with four distinct authenticated peer identities. `identity.nodes` is exactly
+that endpoint plus the four peers, each once; the endpoint is the SAMPLE-1
+producer. The binding topology is `shared-endpoint-multi-peer`, and each peer
+uses a generation-fenced handle and its own association state. Cross-peer
+receive, reply, retry, status, completion, or stale-callback routing is rejected.
+The four peers share endpoint reliability, identity/admission ownership,
+transport slots, and bounded application storage.
+
+The manifest keeps `security.pending_per_pair`, `active_per_pair`, and
+`draining_per_pair` as per-peer ceilings of one. `multi_peer.per_peer` must match
+those values. `multi_peer.shared_endpoint` states the derived total of four
+pending attempts, four active associations, and four draining associations,
+plus the four shared sender slots, two services, and four application
+operations. `security.crypto_slots` is the single endpoint-wide configured
+maximum (two); it is not multiplied by peers. Each `four_serial` run caps it at
+one and each `four_parallel` run uses two. A failed reservation rejects the
+new attempt; existing peers and accepted work are not evicted.
+
+`multi_peer.sensitivity_rows` repeats the exact fields and values from
+`tests/provider/experiment_manifest.json` for both named rows. Validation
+requires exact field equality with those declared experiment values, including
+four peers, both association lifecycle counts, pending attempts, services,
+application operations, crypto slots, MTU, message ceiling, and return
+schedule. The runtime acceptance tests must execute both rows on the same
+logical endpoint and real library sources. A provider-only stress test, four
+separate endpoints, or a manifest declaration alone does not prove either row.
+
+The profile uses a 256-byte decoded DMP Core frame MTU and a 263-byte
+maximum encoded Stream R frame, including the COBS delimiter. The initial
+synchronization delimiter is a separate open/reset action. The message ceiling
+is 4096 bytes with 128-byte chunks and up to 32 fragments; this payload size
+does not increase the decoded frame MTU. The binding schedule is 1000 ms per
+period with a 250 ms return window.
+
+The shared endpoint poller uses one round-robin cursor across reliable sends,
+sync, fragment status, endpoint fragments, and telemetry. For each selected
+peer it offers one reliable frame first, then that peer's endpoint-owned output
+classes. It admits at most one accepted peer transmission per poll call,
+including when the transport completes synchronously. If P live peers each
+have an eligible transmission and the transport accepts submissions, each peer
+gets one accepted service opportunity within P accepted poll submissions.
+BUSY, disconnect, terminal peer state, or an expired transfer can defer or
+cancel an opportunity; they do not advance the cursor on an unaccepted
+submission. This is a bounded progress rule under the stated availability
+conditions, not a wall-clock latency guarantee.
+
+The resource table charges endpoint metadata once, peer state and stream
+decoder storage once per peer, identity contexts for every admitted pending,
+active, and draining association, shared admission ownership, provider retained
+state, one scratch reserve per endpoint crypto slot, and all message, result,
+history, control, queue, stack, and adapter buffers. Every charge is summed;
+there is no exclusion for scratch or control. The manifest's 256 KiB region is
+named `host-multipeer-sizing-only.v1` and is a host-only reservation for this
+fixture. It does not change the 16/32/64 KiB per-target envelopes in the provider
+experiment manifest and does not qualify any MCU. These declared bounds still
+require actual host layout evidence and, later, separate ESP32-S3/ESP32-C3
+measurements.

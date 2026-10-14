@@ -1,5 +1,4 @@
 """Regenerate the portable JSON Schema. No third-party packages required."""
-from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -28,22 +27,29 @@ TEXT = {"type": "string", "minLength": 1, "maxLength": 96,
 BOOL = {"type": "boolean"}
 COMPONENTS = ("provider_retained", "provider_scratch", "association", "bootstrap",
               "sender", "assembly", "assembly_tombstone", "result", "history", "correlation", "control",
-              "application_queue", "adapter", "stacks", "relay_cache", "freshness_tokens")
+              "application_queue", "adapter", "stacks", "relay_cache", "freshness_tokens",
+              "endpoint_metadata", "peer_state", "identity_context", "stream_decoder",
+              "admission_owner")
 
 SCHEMA = obj(
-    contract=enum("DMP-test-manifest/2"),
+    contract=enum("DMP-test-manifest/1.0"),
     revisions=obj(core=enum(10), security=enum(5), bootstrap=enum(2),
                   recovery=enum(1), application=enum(2)),
     profile=obj(owner=enum("DMP-reference", "DMP-test"),
                 id=enum("DIRECT-1", "RADIO-1", "TEST-RADIO-RETRY-ALL",
                         "TEST-DIRECT-ASYNC", "TEST-RADIO-N2",
-                        "TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256"), revision=integer(1, 4)),
-    identity=obj(namespace=U32, nodes=array(U32, 2, 2), default_service=enum(1),
+                        "TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256",
+                        "TEST-DIRECT-SAMPLE-RETRY-2", "PEER-TCP-STREAM-R",
+                        "MIXED-TCP-STREAM-R-SIM-PACKET", "TEST-DIRECT-MULTIPEER"),
+                revision=integer(1, 4)),
+    identity=obj(namespace=U32, nodes=array(U32, 2, 5), default_service=enum(1),
                  epoch_source=enum("sec1-association"), restart=enum("fresh-handshake"),
                  sample_epoch=enum("persistent-never-reused-u64"), sample_producer=U32),
-    binding=obj(id=enum("DMP-test/SIM-STREAM-R", "DMP-test/SIM-PACKET"), revision=enum(1),
+    binding=obj(id=enum("DMP-test/SIM-STREAM-R", "DMP-test/SIM-PACKET",
+                        "DMP-test/TCP-STREAM-R"), revision=enum(1),
                 kind=enum("stream-r", "packet"), segmentation=enum("none"),
-                route_change=enum("fail-active-transfer"), topology=enum("point-to-point", "static-unicast"),
+                route_change=enum("fail-active-transfer"), topology=enum("point-to-point", "static-unicast",
+                                                                          "shared-endpoint-multi-peer"),
                 context=enum("association", "origin-explicit"), ttl=integer(0, 4),
                 forward_mtu=integer(32, 65535), return_mtu=integer(32, 65535),
                 encoded_mtu=integer(32, 66000), frame_tx_ms=POS,
@@ -60,12 +66,12 @@ SCHEMA = obj(
         schema=enum("DMP-reference/SAMPLE-1/2", "DMP-test/OPAQUE-1/1"),
         payload_desc=enum("omitted"), recovery=enum("retry-all", "selective-32"),
         security=enum("SEC-1"), freshness=BOOL, idempotent=enum(True),
-        request_bytes=integer(1, 1024), result_bytes=integer(1, 1024), processing_ms=POS,
-        acl=array(obj(node=U32, actions=array(enum("produce", "read", "status", "data", "result"), 1, 5)), 2, 2)), 2, 2),
-    limits=obj(message_bytes=integer(17, 1024), fragments=integer(2, 32), chunk_bytes=integer(1, 1023),
+        request_bytes=integer(1, 4096), result_bytes=integer(1, 4096), processing_ms=POS,
+        acl=array(obj(node=U32, actions=array(enum("produce", "read", "status", "data", "result"), 1, 5)), 2, 5)), 2, 2),
+    limits=obj(message_bytes=integer(17, 4096), fragments=integer(2, 32), chunk_bytes=integer(1, 1023),
                bootstrap_chunk_bytes=integer(1, 119), bootstrap_fragments=integer(2, 120),
-               peers=enum(1), assemblies_per_peer=enum(1),
-               assembly_tombstones_per_peer=integer(1, 64), operations_per_service=enum(1),
+               peers=integer(1, 4), assemblies_per_peer=integer(1, 64),
+               assembly_tombstones_per_peer=integer(1, 64), operations_per_service=integer(1, 64),
                sender_slots=integer(1, 64),
                control_slots=integer(2, 64), application_queue_slots=POS, adapter_slots=POS),
     security=obj(mode=enum("NNpsk0", "XX"), cipher=enum(1),
@@ -118,23 +124,11 @@ SCHEMA = obj(
                         flash_limit_bytes=POS, flash_reserved_bytes=POS,
                         regions=array(obj(id=TEXT, limit_bytes=POS), 1, 8),
                         charges=array(obj(component=enum(*COMPONENTS), region=TEXT,
-                                          count=integer(0), bytes_each=integer(0)), 1, 112)), 1, 2),
+                                          count=integer(0), bytes_each=integer(0)), 1, 128)), 1, 2),
 )
 SCHEMA = {"$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "urn:dmp:test-manifest:2", **SCHEMA}
-
-# Contract 3 is an additive host-binding contract. Keep the v2 schema object
-# above untouched so regeneration preserves every P02 contract-2 byte and rule.
-SCHEMA_V3 = deepcopy(SCHEMA)
-SCHEMA_V3["$id"] = "urn:dmp:test-manifest:3"
-SCHEMA_V3["required"].append("tcp_binding")
-SCHEMA_V3["properties"]["contract"]["enum"] = ["DMP-test-manifest/3"]
-SCHEMA_V3["properties"]["profile"]["properties"]["id"]["enum"] = [
-    "PEER-TCP-STREAM-R", "MIXED-TCP-STREAM-R-SIM-PACKET",
-]
-SCHEMA_V3["properties"]["binding"]["properties"]["id"]["enum"].append(
-    "DMP-test/TCP-STREAM-R")
-SCHEMA_V3["properties"]["tcp_binding"] = obj(
+          "$id": "urn:dmp:test-manifest:1.0", **SCHEMA}
+SCHEMA["properties"]["tcp_binding"] = obj(
     id=enum("DMP-test/TCP-STREAM-R"), revision=enum(1),
     placement=enum("peer-pair", "endpoint-to-relay"),
     listener_node=U32, connector_node=U32,
@@ -152,7 +146,7 @@ SCHEMA_V3["properties"]["tcp_binding"] = obj(
     disconnect=enum("settle-exactly-once-possibly-transmitted-after-start"),
     reconnect=enum("new-generation-drop-partial-require-fresh-sec1"),
 )
-SCHEMA_V3["properties"]["mixed_path"] = obj(
+SCHEMA["properties"]["mixed_path"] = obj(
     id=enum("DMP-test/MIXED-TCP-STREAM-R-SIM-PACKET"), revision=enum(1),
     stream_endpoint=U32, bridge_node=U32, packet_endpoint=U32,
     forward_relays=array(U32, 2, 2), return_relays=array(U32, 2, 2),
@@ -162,9 +156,25 @@ SCHEMA_V3["properties"]["mixed_path"] = obj(
     shared_state=enum("namespace-duplicate-cooldown-count-airtime"),
     recovery=enum("selective-32"),
 )
-
+SCHEMA["properties"]["multi_peer"] = obj(
+    endpoint_node=U32,
+    peer_nodes=array(U32, 4, 4),
+    peer_isolation=enum("peer-handle-and-bound-association-generation"),
+    response_routing=enum("reply-via-origin-peer-handle"),
+    transport_lifetime=enum("pinned-until-each-peers-terminal-callbacks-settle"),
+    per_peer=obj(pending_attempts=enum(1), active_associations=enum(1),
+                 draining_associations=enum(1)),
+    shared_endpoint=obj(pending_attempts=enum(4), active_associations=enum(4),
+                        draining_associations=enum(4), sender_slots=enum(4),
+                        services=enum(2), application_operations=enum(4)),
+    sensitivity_rows=array(obj(
+        name=enum("four_serial", "four_parallel"), peers=enum(4), services=enum(2),
+        active_associations=enum(4), draining_associations=enum(4),
+        pending_attempts=enum(4), crypto_slots=enum(1, 2),
+        application_operations=enum(4), mtu_bytes=enum(256),
+        max_message_bytes=enum(4096), return_period_ms=enum(1000),
+        return_window_ms=enum(250)), 2, 2),
+)
 if __name__ == "__main__":
-    Path(__file__).with_name("manifest-v2.schema.json").write_text(
+    Path(__file__).with_name("manifest-v1.schema.json").write_text(
         json.dumps(SCHEMA, indent=2) + "\n", encoding="utf-8", newline="\n")
-    Path(__file__).with_name("manifest-v3.schema.json").write_text(
-        json.dumps(SCHEMA_V3, indent=2) + "\n", encoding="utf-8", newline="\n")

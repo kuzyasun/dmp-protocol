@@ -1,5 +1,5 @@
 {
-  "contract": "DMP-test-manifest/3",
+  "contract": "DMP-test-manifest/1.0",
   "revisions": {
     "core": 10,
     "security": 5,

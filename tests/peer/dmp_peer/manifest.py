@@ -23,19 +23,21 @@ class Manifest:
 
 
 _FROZEN = {
-    "direct-nnpsk0-async.json": "f39204f1340debf9da99fbf985dda7af7150d1b4ea5e92a7ebdf86fe7f2187c6",
-    "direct-nnpsk0.json": "29f7895ab3f8dadfbe7331f1981fa35dcad2bec59139464e29bddc4e841e5285",
-    "direct-xx.json": "075e8ed25f6011c7dc20c84789eb61dff4784af86413415ddbd4aede07bcfce3",
-    "radio-nnpsk0-n2.json": "1d11940b8905261bab2974d266435a04dcedac1a4775f5304406e59852e9bb96",
-    "radio-nnpsk0.json": "9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9",
-    "radio-xx.json": "8ddf226f205ac3e547b57858d6cd68aa960fab03f6462b9f27cca81c0822fe60",
-    "test-direct-minimal-128.json": "3bbcce998d664fa74970f503a39b28474de9291d453373810d641b2b662fb6e4",
-    "test-direct-minimal-256.json": "4dc75347343c209c1ed12ab67e60eba83ff974beaa9f351c121da87e7b18b946",
-    "test-radio-retry-all-nnpsk0.json": "bc8bba7c929c6d0fe9ad39dbe66a6699d342304ae8485ddf5cac9e32605b55f1",
-    "test-radio-retry-all-xx.json": "4aece0283e15774346dd2d0d73d45e8c496a4e91aec2ac2693a253e977c767c9",
-    "test-peer-tcp-stream-r-nnpsk0.json": "ae409bc0d46cda319f9e9861dcc3fbc6922d2ee6d35155ae61c329b79dc497cc",
-    "test-peer-tcp-stream-r-sample20-nnpsk0.json": "514db4ae41fd8b2b1f4b4b7361cfb63e4b04ea095f33948f0e17e5a19bad9e2f",
-    "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json": "64363ad7c1f750409bad1b039509cfec4037a981fa760bbb4dce57bb50e5546d",
+    "direct-nnpsk0-async.json": "5cb5603473be180c4b70502c7a93dfc0c725703ea3ed0e7481fa71f16798d390",
+    "direct-nnpsk0.json": "40abedfbb1799ea6cb711f739101d40bae6454eac719858c79b066f2670ad0c1",
+    "direct-xx.json": "289ed444a458bba2801fbceb68346cfae23de79beaab2d3402a75539e11b23f9",
+    "radio-nnpsk0-n2.json": "6753a738f003e9dc9f7dafdf24735ee907a3904576718d18709b751c88476873",
+    "radio-nnpsk0.json": "a3887c44b06b4d2f905f89fae4b28b99c0f00d93d77c50b1f752ce77bde4922f",
+    "radio-xx.json": "b27b06ee7ad0a0d51e79cf894a373bf2b74d9f9b3674b24b9256418b9141641a",
+    "test-direct-minimal-128.json": "d987dbae6d7490d98d45aaca7d7af13c600d4c3557b3453c3598e5ffec9c0fa1",
+    "test-direct-minimal-256.json": "9cc6d8ae95c5f241166c9af9edc70d12e61fdb4404c10479bb68de32d0d344ea",
+    "test-direct-sample-retry-2-nnpsk0.json": "478af0bc4912d0fc46ed76c249ec5f30f8f64bc89ed7411e9b9231bbf487db5c",
+    "test-radio-retry-all-nnpsk0.json": "b33d39bffcb7c2750fbf860e4e040cd5b4e29101a6d6c0ca604faef9719ccf3f",
+    "test-radio-retry-all-xx.json": "369314bd7daf840b22d34e10c432fe08575ecd9e1c562cfd730a342bc5e1286a",
+    "test-peer-tcp-stream-r-nnpsk0.json": "8de56192f75e7677081d704d568ddb64b1292c6ded72449675ebceefd53d9a1a",
+    "test-peer-tcp-stream-r-sample20-nnpsk0.json": "b84132a086323d432492967755244b59a9a53405880d85f354c25353757c6aa6",
+    "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json": "2bc3c2ee1c9e8f3aa87af4afd2f0cab996099fc69da1f0938c23e050c8c68faf",
+    "test-direct-multi-peer-nnpsk0.json": "001eb42d8f440e0ceaf1711e764ceacfc3c1dd034cfb2d7f320be7d877f7454f",
 }
 
 
@@ -134,10 +136,8 @@ def _schema_check(value: Any, schema: dict, path: str = "$") -> None:
             _schema_check(item, properties[key], f"{path}.{key}")
 
 
-_SCHEMA_PATH = Path(__file__).with_name("manifest-v2.schema.json")
+_SCHEMA_PATH = Path(__file__).with_name("manifest-v1.schema.json")
 _SCHEMA = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-_SCHEMA_V3_PATH = Path(__file__).with_name("manifest-v3.schema.json")
-_SCHEMA_V3 = json.loads(_SCHEMA_V3_PATH.read_text(encoding="utf-8"))
 
 
 def parse_manifest(raw: bytes, expected_sha256: str | None = None) -> Manifest:
@@ -162,10 +162,7 @@ def parse_manifest(raw: bytes, expected_sha256: str | None = None) -> Manifest:
         raise ManifestError("schema", "$", "top-level value must be an object")
     _depth(value)
     _check_text(value)
-    # The explicit contract marker selects the closed schema. Unknown markers
-    # remain on v2 and fail its enum; fields never cause an implicit upgrade.
-    schema = _SCHEMA_V3 if value.get("contract") == "DMP-test-manifest/3" else _SCHEMA
-    _schema_check(value, schema)
+    _schema_check(value, _SCHEMA)
     digest = hashlib.sha256(raw).hexdigest()
     if expected_sha256 is not None and digest != expected_sha256:
         raise ManifestError("digest", "$", "SHA-256 of original bytes does not match")
@@ -181,10 +178,25 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     def width(value: int) -> int:
         return max(1, (value.bit_length() + 6) // 7)
 
-    contract3 = value["contract"] == "DMP-test-manifest/3"
+    profile = value["profile"]
+    profile_id = profile["id"]
+    tcp_profile = profile_id in {"PEER-TCP-STREAM-R", "MIXED-TCP-STREAM-R-SIM-PACKET"}
+    multi_peer_profile = profile_id == "TEST-DIRECT-MULTIPEER"
+    require(("tcp_binding" in value) == tcp_profile, "profile", "$.tcp_binding",
+            "TCP binding settings must appear only on TCP Stream R profiles")
+    require(("mixed_path" in value) == (profile_id == "MIXED-TCP-STREAM-R-SIM-PACKET"),
+            "profile", "$.mixed_path", "mixed path settings must appear only on the mixed profile")
+    require(("multi_peer" in value) == multi_peer_profile, "profile", "$.multi_peer",
+            "multi-peer settings must appear only on the shared-endpoint profile")
     identity = value["identity"]
-    require(len(set(identity["nodes"])) == 2, "identity", "$.identity.nodes",
-            "contract 2 requires two distinct endpoint IDs")
+    expected_node_count = 5 if multi_peer_profile else 2
+    require(len(identity["nodes"]) == expected_node_count
+            and len(set(identity["nodes"])) == expected_node_count,
+            "identity", "$.identity.nodes",
+            "selected profile requires an exact endpoint count with distinct IDs")
+    message_ceiling = 4096 if multi_peer_profile else 1024
+    require(value["limits"]["message_bytes"] <= message_ceiling,
+            "geometry", "$.limits.message_bytes", "selected profile exceeds its logical message ceiling")
     require(identity["sample_producer"] in identity["nodes"], "identity",
             "$.identity.sample_producer", "SAMPLE producer must be an endpoint")
     require(identity["default_service"] == 1, "service", "$.identity.default_service",
@@ -194,13 +206,13 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
             and identity["sample_epoch"] == "persistent-never-reused-u64",
             "identity", "$.identity", "unsupported identity lifecycle")
 
-    profile = value["profile"]
     profile_key = (profile["owner"], profile["id"], profile["revision"])
     direct_profiles = {
         ("DMP-reference", "DIRECT-1", 4),
         ("DMP-test", "TEST-DIRECT-ASYNC", 1),
         ("DMP-test", "TEST-DIRECT-MINIMAL-128", 1),
         ("DMP-test", "TEST-DIRECT-MINIMAL-256", 1),
+        ("DMP-test", "TEST-DIRECT-SAMPLE-RETRY-2", 1),
     }
     radio_profiles = {
         ("DMP-reference", "RADIO-1", 4),
@@ -209,22 +221,29 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     }
     tcp_direct = ("DMP-test", "PEER-TCP-STREAM-R", 1)
     tcp_mixed = ("DMP-test", "MIXED-TCP-STREAM-R-SIM-PACKET", 1)
-    allowed_profiles = direct_profiles | radio_profiles
-    if contract3:
-        allowed_profiles |= {tcp_direct, tcp_mixed}
+    multi_peer = ("DMP-test", "TEST-DIRECT-MULTIPEER", 1)
+    allowed_profiles = direct_profiles | radio_profiles | {tcp_direct, tcp_mixed, multi_peer}
     require(profile_key in allowed_profiles, "profile", "$.profile",
             "profile family, owner, or revision is not admitted by this contract")
     direct = profile_key in direct_profiles
     binding, limits, security = value["binding"], value["limits"], value["security"]
     timing, freshness, services = value["timing"], value["freshness"], value["services"]
-    if contract3 and profile_key == tcp_direct:
+    if multi_peer_profile and profile_key == multi_peer:
+        direct = True
+        require((binding["id"], binding["kind"], binding["topology"], binding["context"],
+                 binding["ttl"], value["relays"]) ==
+                ("DMP-test/SIM-STREAM-R", "stream-r", "shared-endpoint-multi-peer",
+                 "association", 0, []),
+                "profile", "$.binding", "multi-peer profile binding/topology/context is inconsistent")
+        expected_recovery = "retry-all"
+    elif tcp_profile and profile_key == tcp_direct:
         direct = True
         require((binding["id"], binding["kind"], binding["topology"], binding["context"],
                  binding["ttl"], value["relays"]) ==
                 ("DMP-test/TCP-STREAM-R", "stream-r", "point-to-point", "association", 0, []),
                 "profile", "$.binding", "peer TCP profile binding/topology/context is inconsistent")
         expected_recovery = "retry-all"
-    elif contract3 and profile_key == tcp_mixed:
+    elif tcp_profile and profile_key == tcp_mixed:
         require((binding["id"], binding["kind"], binding["topology"], binding["context"]) ==
                 ("DMP-test/SIM-PACKET", "packet", "static-unicast", "origin-explicit"),
                 "profile", "$.binding", "mixed profile packet binding is inconsistent")
@@ -254,9 +273,12 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
         require(binding["ttl"] >= len(relay_ids),
                 "profile", "$.binding.ttl", "RADIO TTL must cover its relay path")
 
+    if multi_peer_profile:
+        _check_multi_peer_profile(value, require)
+
     services = value["services"]
     require([service["id"] for service in services] == [1, 2], "service", "$.services",
-            "contract 2 requires services 1 and 2 in order")
+            "the manifest requires services 1 and 2 in order")
     sample_service, opaque_service = services
     require(all(service["reply_service"] == service["id"]
                 and service["security"] == "SEC-1"
@@ -273,10 +295,18 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
              opaque_service["idempotent"]) ==
             ("DMP-test/OPAQUE-1/1", "explicit", True),
             "service", "$.services[1]", "service 2 must use the idempotent opaque test service")
+    for service in services:
+        acl_nodes = [entry["node"] for entry in service["acl"]]
+        require(len(acl_nodes) == len(identity["nodes"])
+                and len(set(acl_nodes)) == len(acl_nodes)
+                and set(acl_nodes) == set(identity["nodes"]),
+                "service", "$.services.acl", "ACL must cover every endpoint exactly once")
     sample_acl = {entry["node"]: entry["actions"] for entry in sample_service["acl"]}
     producer = identity["sample_producer"]
-    consumer = next(node for node in identity["nodes"] if node != producer)
-    require(sample_acl == {producer: ["produce", "result"], consumer: ["read", "status"]},
+    consumers = set(identity["nodes"]) - {producer}
+    expected_sample_acl = ({producer: ["produce", "result"]}
+                           | {node: ["read", "status"] for node in consumers})
+    require(sample_acl == expected_sample_acl,
             "service", "$.services[0].acl", "SAMPLE-1 producer/consumer ACL is inconsistent")
     opaque_acl = {entry["node"]: entry["actions"] for entry in opaque_service["acl"]}
     require(opaque_acl == {node: ["data", "result"] for node in identity["nodes"]},
@@ -303,6 +333,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     require(all(service["security"] == "SEC-1" for service in services),
             "security", "$.services", "both application services require SEC-1")
     require(security["crypto_slots"] <= security["pending_per_pair"]
+            * (limits["peers"] if multi_peer_profile else 1)
             and security["pending_per_pair"] >= 1
             and security["active_per_pair"] >= 1,
             "security", "$.security", "crypto/pending/active admission limits are infeasible")
@@ -319,7 +350,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     require(0 < chunk_bytes < message_bytes, "geometry", "$.limits.chunk_bytes",
             "application chunk must be positive and smaller than the message bound")
     fragments = (message_bytes + chunk_bytes - 1) // chunk_bytes
-    family_cap = 16 if direct else 32
+    family_cap = 32 if multi_peer_profile else (16 if direct else 32)
     require(2 <= fragments <= limits["fragments"] <= family_cap,
             "geometry", "$.limits.fragments", "message geometry exceeds its profile or manifest fragment cap")
     bootstrap_chunk = limits["bootstrap_chunk_bytes"]
@@ -374,7 +405,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     require(binding["encoded_mtu"] >= encoded_cap, "mtu", "$.binding.encoded_mtu",
             "encoded MTU does not hold the complete declared core-frame bound")
 
-    # Contract-2 pair scheduling and history lifetimes.
+    # Pair scheduling and history lifetimes.
     longest = max(timing["forward_delay_ms"], timing["return_delay_ms"])
     traversal = binding["frame_tx_ms"] + longest
     require(binding["return_slot_width_ms"] >= 2 * traversal, "schedule",
@@ -580,9 +611,8 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
                 "relay", "$.relays.max_forwards_per_key",
                 "relay per-key cap cannot cover application and establishment identities")
 
-    if contract3:
-        _check_v3_topology(value, require)
-
+    if tcp_profile:
+        _check_tcp_topology(value, require)
     # Resource templates must be unique, finite, internally summed, and sized for their pools.
     resources = value["resources"]
     roles = [resource["role"] for resource in resources]
@@ -593,6 +623,9 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
         "assembly", "assembly_tombstone", "result", "history", "correlation", "control",
         "application_queue", "adapter", "stacks", "relay_cache", "freshness_tokens",
     }
+    if multi_peer_profile:
+        components |= {"endpoint_metadata", "peer_state", "identity_context",
+                       "stream_decoder", "admission_owner"}
     for resource in resources:
         role = resource["role"]
         require(resource["flash_reserved_bytes"] <= resource["flash_limit_bytes"],
@@ -621,27 +654,52 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
         charge = by_component
         if role == "endpoint":
             # The contract's simultaneous sender/result/history minima are enforced here.
-            service_concurrency = 2 * len(services)
-            grant_count = freshness["grant_requests_per_pair"]
+            service_concurrency = (value["multi_peer"]["shared_endpoint"]["application_operations"]
+                                   if multi_peer_profile else
+                                   limits["peers"] * limits["operations_per_service"]
+                                   * len(services))
+            operation_slots = max(service_concurrency, limits["sender_slots"])
+            grant_count = freshness["grant_requests_per_pair"] * limits["peers"]
             provider_slots = (security["pending_per_pair"] + security["active_per_pair"]
-                              + security["draining_per_pair"])
+                              + security["draining_per_pair"]) * limits["peers"]
             require(charge["provider_retained"]["count"] >= provider_slots
                     and charge["provider_scratch"]["count"] >= security["crypto_slots"]
                     and charge["association"]["count"] >= provider_slots
                     and charge["bootstrap"]["count"] >= security["preauth_slots"],
                     "resources", "$.resources", "endpoint crypto/association/bootstrap reserves are too small")
-            require(charge["sender"]["count"] >= max(service_concurrency, limits["sender_slots"])
-                    and charge["result"]["count"] >= service_concurrency + grant_count
-                    and charge["correlation"]["count"] >= service_concurrency + grant_count
-                    and charge["history"]["count"] >= 2 * (service_concurrency + grant_count),
+            require(charge["sender"]["count"] >= operation_slots
+                    and charge["result"]["count"] >= operation_slots + grant_count
+                    and charge["correlation"]["count"] >= operation_slots + grant_count
+                    and charge["history"]["count"] >= 2 * (operation_slots + grant_count),
                     "resources", "$.resources", "endpoint sender/result/correlation/history slots are insufficient")
-            require(charge["assembly"]["count"] >= limits["assemblies_per_peer"]
-                    and charge["assembly_tombstone"]["count"] >= limits["assembly_tombstones_per_peer"]
+            require(charge["assembly"]["count"] >= limits["peers"] * limits["assemblies_per_peer"]
+                    and charge["assembly_tombstone"]["count"] >= limits["peers"]
+                    * limits["assembly_tombstones_per_peer"]
                     and charge["control"]["count"] >= timing["feedback_buffers"] + grant_count + 1
                     and charge["application_queue"]["count"] >= limits["application_queue_slots"]
                     and charge["adapter"]["count"] >= limits["adapter_slots"]
-                    and charge["freshness_tokens"]["count"] >= max(1, freshness["tokens_per_principal"]),
+                    and charge["freshness_tokens"]["count"] >= max(
+                        1, limits["peers"] * freshness["tokens_per_principal"]),
                     "resources", "$.resources", "endpoint assembly, control, queue, adapter, or token pool is insufficient")
+            if multi_peer_profile:
+                require(charge["endpoint_metadata"]["count"] == 1
+                        and charge["peer_state"]["count"] >= limits["peers"]
+                        and charge["identity_context"]["count"] >= provider_slots
+                        and charge["stream_decoder"]["count"] >= limits["peers"]
+                        and charge["admission_owner"]["count"] == 1,
+                        "resources", "$.resources.charges",
+                        "multi-peer metadata, per-peer state/decoder, identity, or admission reserves are too small")
+                metadata_minima = {
+                    "endpoint_metadata": 4096,
+                    "peer_state": 2048,
+                    "identity_context": 64,
+                    "stream_decoder": 512,
+                    "admission_owner": 8192,
+                }
+                require(all(charge[name]["bytes_each"] >= minimum
+                            for name, minimum in metadata_minima.items()),
+                        "resources", "$.resources.charges",
+                        "multi-peer metadata/state/decoder/admission buffers are undersized")
             require(charge["sender"]["bytes_each"] >= message_bytes
                     and charge["assembly"]["bytes_each"] >= message_bytes
                     and charge["result"]["bytes_each"] >= max(
@@ -663,7 +721,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
                     "resources", "$.resources", "relay role requires minimal endpoint-only design reserves")
 
 
-def _check_v3_topology(value: dict[str, Any], require) -> None:
+def _check_tcp_topology(value: dict[str, Any], require) -> None:
     """Validate TCP placement and the mixed transparent bridge independently."""
     profile = value["profile"]["id"]
     nodes = value["identity"]["nodes"]
@@ -736,6 +794,81 @@ def _check_v3_topology(value: dict[str, Any], require) -> None:
         require(adapter is not None and adapter["bytes_each"] >= tcp["encoded_mtu"],
                 "resources", "$.resources",
                 f"{tcp_role} adapter slot must hold a complete TCP envelope")
+
+
+def _check_multi_peer_profile(value: dict[str, Any], require) -> None:
+    """Validate the four-peer shared-endpoint profile independently of its schema."""
+    identity = value["identity"]
+    binding = value["binding"]
+    limits = value["limits"]
+    security = value["security"]
+    multi = value["multi_peer"]
+    peers = multi["peer_nodes"]
+    endpoint = multi["endpoint_node"]
+    peer_count = 4
+
+    require(len(peers) == peer_count and len(set(peers)) == peer_count
+            and endpoint not in peers,
+            "identity", "$.multi_peer.peer_nodes", "four peer IDs must be unique and distinct from the endpoint")
+    require(len(identity["nodes"]) == peer_count + 1
+            and len(set(identity["nodes"])) == peer_count + 1
+            and set(identity["nodes"]) == {endpoint, *peers}
+            and identity["sample_producer"] == endpoint,
+            "identity", "$.identity.nodes", "identity nodes must be exactly the endpoint and four distinct peers")
+    require(multi["peer_isolation"] == "peer-handle-and-bound-association-generation"
+            and multi["response_routing"] == "reply-via-origin-peer-handle"
+            and multi["transport_lifetime"] == "pinned-until-each-peers-terminal-callbacks-settle",
+            "profile", "$.multi_peer", "multi-peer isolation, routing, or transport lifetime is noncanonical")
+    require(multi["per_peer"] == {
+                "pending_attempts": security["pending_per_pair"],
+                "active_associations": security["active_per_pair"],
+                "draining_associations": security["draining_per_pair"],
+            }
+            and all(value == 1 for value in multi["per_peer"].values()),
+            "security", "$.multi_peer.per_peer", "per-peer quotas must match the one-slot security ceilings")
+    shared = multi["shared_endpoint"]
+    expected_shared = {
+        "pending_attempts": security["pending_per_pair"] * peer_count,
+        "active_associations": security["active_per_pair"] * peer_count,
+        "draining_associations": security["draining_per_pair"] * peer_count,
+        "sender_slots": limits["sender_slots"],
+        "services": len(value["services"]),
+        "application_operations": peer_count,
+    }
+    require(limits["peers"] == peer_count
+            and shared == expected_shared
+            and expected_shared == {
+                "pending_attempts": 4,
+                "active_associations": 4,
+                "draining_associations": 4,
+                "sender_slots": 4,
+                "services": 2,
+                "application_operations": 4,
+            },
+            "quota", "$.multi_peer.shared_endpoint", "shared endpoint quotas must be the derived four-peer totals")
+    require(limits["peers"] == peer_count
+            and limits["message_bytes"] == 4096
+            and limits["chunk_bytes"] == 128
+            and limits["fragments"] == 32
+            and binding["forward_mtu"] == binding["return_mtu"] == 256
+            and binding["encoded_mtu"] == 263
+            and binding["return_slot_period_ms"] == 1000
+            and binding["return_slot_width_ms"] == 250
+            and security["crypto_slots"] == 2,
+            "profile", "$.limits", "multi-peer message geometry, Stream R capacity, schedule, or crypto slots changed")
+
+    serial = {
+        "name": "four_serial", "peers": 4, "services": 2,
+        "active_associations": 4, "draining_associations": 4,
+        "pending_attempts": 4, "crypto_slots": 1,
+        "application_operations": 4, "mtu_bytes": 256,
+        "max_message_bytes": 4096, "return_period_ms": 1000,
+        "return_window_ms": 250,
+    }
+    parallel = {**serial, "name": "four_parallel", "crypto_slots": 2}
+    require(multi["sensitivity_rows"] == [serial, parallel],
+            "quota", "$.multi_peer.sensitivity_rows",
+            "sensitivity rows must exactly match the four_serial and four_parallel contracts")
 
 def load_manifest(name: str, root: str | Path | None = None) -> Manifest:
     if name not in _FROZEN:

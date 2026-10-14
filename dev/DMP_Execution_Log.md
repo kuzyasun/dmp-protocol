@@ -2738,3 +2738,149 @@ provider resource counters remain unchanged. The same cipher then emits exact
 fixture PN0 ciphertext/tag and closes cleanly. Provider build was current,
 focused CTest passed 1/1, and independent review found no actionable issue.
 This is a provider-boundary host case only.
+
+## 2026-10-13 — Owner-approved D1-D6 continuation checkpoint
+
+The owner-approved continuation adds bounded four-peer routing/lifecycle on a
+single endpoint, a separate two-attempt SAMPLE-1 initialization profile,
+negative delivery from a different authenticated SEC-1 sender, production
+handshake-to-transport composition, and a SAMPLE-1 epoch owner above the
+payload-agnostic core. Exact implementation files and the minimum multi-peer
+contracts are listed in `dev/DMP_Multi_Peer_Contract_2026-10-13.md`.
+
+The existing focused current-tree host CTest filter passed 6/6:
+`application.sample1_epoch_owner`, `security.handshake_transport`,
+`endpoint.protected_different_sender`,
+`endpoint.protected_multi_peer_routing`,
+`endpoint.protected_sample1_epoch_endpoint`, and
+`endpoint.protected_sample_retry_two_attempts`. This recorded focused run
+does not replace the required fresh full CTest gate. Peer handshakes in the
+four-peer endpoint case are sequential, so integrated `four_parallel` remains
+unproven; retain its required four simultaneous endpoint attempts and two
+concurrent crypto scratch slots. `four_serial` remains preserved.
+
+The new retry manifest is
+`profiles/deployments/test-direct-sample-retry-2-nnpsk0.json`, SHA-256
+`62a713ab046b3f57d255a7b3c0f329de4148f167795b9d5b758e6a83a1be0a87`;
+existing DIRECT-1 manifests are unchanged. Decoded Core MTU remains 256 bytes
+and encoded Stream R MTU 263 bytes. Host ports for epoch persistence and
+lifecycle do not prove a target storage adapter or hardware behavior.
+
+RBO full gate `job_01M4V87JHR1QG42C46CYNEDCV8` on snapshot
+`snp_01M4V87JTGFQY8TNV1NCB3XPH4` was canceled before execution after no
+matching Bash agent was found. A zsh-routed replacement could not capture a
+snapshot because RBO reported no connected agent; the latest agent listing is
+empty. The operator asked to wait for RBO. No local full build/CTest, board
+operation, stage, commit, or push was performed. Final independent review and
+current full host gate remain pending.
+
+## 2026-10-13 — SEC-1 bounded drain decision and regression
+
+The owner selected the bounded-drain behavior: after local rotation, newly
+originated API messages use the active association; the old association remains
+valid for authenticated inbound retries and delayed first deliveries until its
+configured deadline. Because SEC-1 has no drain-boundary marker, previously
+unseen work from a peer still using the old association is also accepted during
+that interval, under ordinary peer/service quotas, ACLs and message deadlines.
+The security profile and multi-peer contract now state this limitation.
+
+`endpoint.protected_rotation` adds a real handshake-derived service-2 REQ sent
+on the old association after the receiving endpoint has rotated, checks the
+draining identity on dispatch, keeps the existing active-route/retry checks,
+and tests an independently sealed old-SA packet with an unused PN after drain
+expiry. Final focused RBO job `job_01M4VFY3H5ZWQN08HMB1JHFDK4` passed both
+`endpoint.protected_rotation` and `endpoint.protected_drain` (2/2), after
+building `dmp_test_endpoint_sec` on the macOS worker.
+
+The broader RBO host gate `job_01M4VF3G79Y9083FA5PMNWB3QQ` built all 166 targets,
+then CTest reported 115/142 passed and 27 failed. Failures remain in handshake,
+multi-peer routing, endpoint repair, peer interop, P24 benchmark, retry-all and
+freshness scenarios, and endpoint RAM lifecycle/report/layout checks; the full
+host gate is therefore still open. This update is host evidence only; target
+qualification and physical behavior remain unproven. The user requested a
+pause for a computer restart after this bounded package.
+
+Independent read-only follow-up of the security-profile text, multi-peer
+contract, and rotation test found no remaining actionable findings. It confirms
+the approved old-SA receive behavior and the fresh-unused-PN expiry assertion;
+it does not review the whole multi-peer implementation or prove target behavior.
+
+## 2026-10-14 — Integrated four_parallel source regression
+
+The endpoint-owned shared-admission test now prepares two scheduled local
+initiator handshakes before it holds two asynchronous inbound responder reads.
+It checks four endpoint-total pending reservations, two occupied scratch slots,
+refusal of another real handshake read without disturbing pending work,
+capacity recovery after accepting a read, binding all four authenticated
+candidates to peer handles, and refusal of a fifth pending attempt. The parent
+endpoint test still runs its routing/lifecycle scenario with both
+four_parallel (two scratch slots) and four_serial (one scratch slot).
+
+An independent GPT-6.1-sol High review found and helped catch the original
+ordering error; after the fix, the reviewer found no actionable source-level
+issue. git diff --check -- tests/endpoint/test_endpoint_sec.c passed. No build
+or test was run. On 2026-10-14, RBO agents_list, job_get, and job_logs returned
+fetch failed; the focused RBO build and CTest remain required. No local
+substitute was started.
+
+## 2026-10-14 — RBO full host gate and RADIO RAM refresh
+
+RBO agent `agt_01M3BXVR9A72WFMTYCFS4ZEK67` completed full host job
+`job_01M4VNEW5PSA337VT0PA715CMY` from snapshot
+`snp_01M4VNEWDFEZSR3CAFGBQ5P2VN`. CMake configure and build succeeded. CTest
+ran 142 cases: 135 passed and seven profile RAM layout checks failed because
+the Cortex-M ABI report had no required records. The failed tests were
+`memory.direct-nnpsk0.layout`, `memory.direct-nnpsk0-async.layout`,
+`memory.radio-nnpsk0.layout`, `memory.radio-nnpsk0-n2.layout`,
+`memory.test-radio-retry-all-nnpsk0.layout`,
+`memory.test-direct-minimal-128.layout`, and
+`memory.test-direct-minimal-256.layout`. The worker lacks
+`arm-none-eabi-gcc`; the current `memory.mcu_abi` script intentionally exits
+zero when that compiler is unavailable, so its CTest pass does not close the
+cross-compile evidence gap. All other registered tests passed, including P23
+C/Python interop. No checks were skipped or suppressed.
+
+The focused endpoint lifecycle filter passed all four profiles (minimal-128,
+minimal-256, DIRECT-1 and RADIO-1), 4/4. Independent final review of the
+packet-framing RX dispatch and bounded pump found no actionable issue.
+
+RBO job `job_01M4VNT0DN9C77R7FV7JYVBYH4` refreshed RADIO-1 endpoint memory after
+the packet RX correction. Build targets `dmp_ram_endpoint_process` and
+`dmp_ram_measure` succeeded; lifecycle, measurement, merge and report CTests
+passed 4/4. The same manifest SHA-256
+`9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9` measured
+47,146 B host requested-byte high-water. This is not a physical MCU peak.
+
+The normative-reference audit checked 137 rows and 510 exact file/symbol
+references (317 primary, 112 peer, 4 profile, 77 interop); zero files or named
+symbols were missing. Whole-row outcomes remain 74 passed, 62 partial and 1
+not-run. This audit verifies links, not complete normative behavior or a
+disposition refresh. P12/P01/P25 and final S3/C3 hardware qualification remain
+open. No stage, commit, push, local full build, or board operation occurred.
+
+## 2026-10-14 — Native and ESP32 gate with ARM cases deferred
+
+The owner directed that ARM tests be skipped for now while continuing with
+ordinary native tests and ESP32 targets. Final RBO job
+`job_01M4VXMPM95Q2AR8ZER5D091KM` used snapshot
+`snp_01M4VXMPXC9BDN5X3Z462R7E6Z` on the macOS arm64 worker. Recursive submodules
+were initialized; the pinned Noise-C/libsodium host setup, root CMake
+configuration and build succeeded. CTest command
+`ctest --test-dir build/host --output-on-failure --parallel 1 -E
+'^(memory\.mcu_abi|memory\..*\.layout)$'` passed 134/134 with 0 failures.
+The filter omitted the ARM ABI probe and seven dependent RAM-layout checks.
+
+The final focused continuation selection passed 4/4: `endpoint.protected_sample1_epoch_endpoint`,
+`endpoint.protected_transport_reject_retry`, `security.handshake_transport`,
+and `application.sample1_epoch_owner`. Independent GPT-6.1-sol High source
+review found no actionable findings; the reviewer did not run tests.
+
+EIM ESP-IDF 6.1 build commands succeeded for
+`idf.py -C tests/embedded/esp32s3 -B <build-dir> -DIDF_TARGET=esp32s3 build`
+and `idf.py -C tests/embedded/esp32c3 -B <build-dir>
+-DIDF_TARGET=esp32c3 build`. These are compile/link-only probes, not board
+runtime evidence. Logs contain Apple ld duplicate-library warnings and
+ESP-IDF component include-validation warnings; exit status was 0 throughout.
+No repository files were modified by the remote job, no test was run on a
+board, and no stage/commit/push occurred. P12 and 137-row statuses were not
+promoted solely from the suite result; see the updated P25 report for open work.

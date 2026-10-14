@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:dmp:test-manifest:3",
+  "$id": "urn:dmp:test-manifest:1.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,13 +16,12 @@
     "freshness",
     "sample",
     "relays",
-    "resources",
-    "tcp_binding"
+    "resources"
   ],
   "properties": {
     "contract": {
       "enum": [
-        "DMP-test-manifest/3"
+        "DMP-test-manifest/1.0"
       ]
     },
     "revisions": {
@@ -80,8 +79,17 @@
         },
         "id": {
           "enum": [
+            "DIRECT-1",
+            "RADIO-1",
+            "TEST-RADIO-RETRY-ALL",
+            "TEST-DIRECT-ASYNC",
+            "TEST-RADIO-N2",
+            "TEST-DIRECT-MINIMAL-128",
+            "TEST-DIRECT-MINIMAL-256",
+            "TEST-DIRECT-SAMPLE-RETRY-2",
             "PEER-TCP-STREAM-R",
-            "MIXED-TCP-STREAM-R-SIM-PACKET"
+            "MIXED-TCP-STREAM-R-SIM-PACKET",
+            "TEST-DIRECT-MULTIPEER"
           ]
         },
         "revision": {
@@ -112,7 +120,7 @@
         "nodes": {
           "type": "array",
           "minItems": 2,
-          "maxItems": 2,
+          "maxItems": 5,
           "items": {
             "type": "integer",
             "minimum": 0,
@@ -206,7 +214,8 @@
         "topology": {
           "enum": [
             "point-to-point",
-            "static-unicast"
+            "static-unicast",
+            "shared-endpoint-multi-peer"
           ]
         },
         "context": {
@@ -368,12 +377,12 @@
           "request_bytes": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 1024
+            "maximum": 4096
           },
           "result_bytes": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 1024
+            "maximum": 4096
           },
           "processing_ms": {
             "type": "integer",
@@ -383,7 +392,7 @@
           "acl": {
             "type": "array",
             "minItems": 2,
-            "maxItems": 2,
+            "maxItems": 5,
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -439,7 +448,7 @@
         "message_bytes": {
           "type": "integer",
           "minimum": 17,
-          "maximum": 1024
+          "maximum": 4096
         },
         "fragments": {
           "type": "integer",
@@ -462,14 +471,14 @@
           "maximum": 120
         },
         "peers": {
-          "enum": [
-            1
-          ]
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
         },
         "assemblies_per_peer": {
-          "enum": [
-            1
-          ]
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
         },
         "assembly_tombstones_per_peer": {
           "type": "integer",
@@ -477,9 +486,9 @@
           "maximum": 64
         },
         "operations_per_service": {
-          "enum": [
-            1
-          ]
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
         },
         "sender_slots": {
           "type": "integer",
@@ -1250,7 +1259,7 @@
           "charges": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 112,
+            "maxItems": 128,
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -1278,7 +1287,12 @@
                     "adapter",
                     "stacks",
                     "relay_cache",
-                    "freshness_tokens"
+                    "freshness_tokens",
+                    "endpoint_metadata",
+                    "peer_state",
+                    "identity_context",
+                    "stream_decoder",
+                    "admission_owner"
                   ]
                 },
                 "region": {
@@ -1519,6 +1533,209 @@
           "enum": [
             "selective-32"
           ]
+        }
+      }
+    },
+    "multi_peer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "endpoint_node",
+        "peer_nodes",
+        "peer_isolation",
+        "response_routing",
+        "transport_lifetime",
+        "per_peer",
+        "shared_endpoint",
+        "sensitivity_rows"
+      ],
+      "properties": {
+        "endpoint_node": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "peer_nodes": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        "peer_isolation": {
+          "enum": [
+            "peer-handle-and-bound-association-generation"
+          ]
+        },
+        "response_routing": {
+          "enum": [
+            "reply-via-origin-peer-handle"
+          ]
+        },
+        "transport_lifetime": {
+          "enum": [
+            "pinned-until-each-peers-terminal-callbacks-settle"
+          ]
+        },
+        "per_peer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pending_attempts",
+            "active_associations",
+            "draining_associations"
+          ],
+          "properties": {
+            "pending_attempts": {
+              "enum": [
+                1
+              ]
+            },
+            "active_associations": {
+              "enum": [
+                1
+              ]
+            },
+            "draining_associations": {
+              "enum": [
+                1
+              ]
+            }
+          }
+        },
+        "shared_endpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pending_attempts",
+            "active_associations",
+            "draining_associations",
+            "sender_slots",
+            "services",
+            "application_operations"
+          ],
+          "properties": {
+            "pending_attempts": {
+              "enum": [
+                4
+              ]
+            },
+            "active_associations": {
+              "enum": [
+                4
+              ]
+            },
+            "draining_associations": {
+              "enum": [
+                4
+              ]
+            },
+            "sender_slots": {
+              "enum": [
+                4
+              ]
+            },
+            "services": {
+              "enum": [
+                2
+              ]
+            },
+            "application_operations": {
+              "enum": [
+                4
+              ]
+            }
+          }
+        },
+        "sensitivity_rows": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "peers",
+              "services",
+              "active_associations",
+              "draining_associations",
+              "pending_attempts",
+              "crypto_slots",
+              "application_operations",
+              "mtu_bytes",
+              "max_message_bytes",
+              "return_period_ms",
+              "return_window_ms"
+            ],
+            "properties": {
+              "name": {
+                "enum": [
+                  "four_serial",
+                  "four_parallel"
+                ]
+              },
+              "peers": {
+                "enum": [
+                  4
+                ]
+              },
+              "services": {
+                "enum": [
+                  2
+                ]
+              },
+              "active_associations": {
+                "enum": [
+                  4
+                ]
+              },
+              "draining_associations": {
+                "enum": [
+                  4
+                ]
+              },
+              "pending_attempts": {
+                "enum": [
+                  4
+                ]
+              },
+              "crypto_slots": {
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "application_operations": {
+                "enum": [
+                  4
+                ]
+              },
+              "mtu_bytes": {
+                "enum": [
+                  256
+                ]
+              },
+              "max_message_bytes": {
+                "enum": [
+                  4096
+                ]
+              },
+              "return_period_ms": {
+                "enum": [
+                  1000
+                ]
+              },
+              "return_window_ms": {
+                "enum": [
+                  250
+                ]
+              }
+            }
+          }
         }
       }
     }

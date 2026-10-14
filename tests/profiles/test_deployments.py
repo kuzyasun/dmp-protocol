@@ -62,6 +62,12 @@ class DeploymentTests(unittest.TestCase):
             "radio-nnpsk0-n2.json": ("DMP-test", "TEST-RADIO-N2", 1, "NNpsk0"),
             "test-direct-minimal-128.json": ("DMP-test", "TEST-DIRECT-MINIMAL-128", 1, "NNpsk0"),
             "test-direct-minimal-256.json": ("DMP-test", "TEST-DIRECT-MINIMAL-256", 1, "NNpsk0"),
+            "test-direct-sample-retry-2-nnpsk0.json": (
+                "DMP-test", "TEST-DIRECT-SAMPLE-RETRY-2", 1, "NNpsk0"
+            ),
+            "test-direct-multi-peer-nnpsk0.json": (
+                "DMP-test", "TEST-DIRECT-MULTIPEER", 1, "NNpsk0"
+            ),
             "test-peer-tcp-stream-r-sample20-nnpsk0.json": (
                 "DMP-test", "PEER-TCP-STREAM-R", 1, "NNpsk0"
             ),
@@ -87,12 +93,128 @@ class DeploymentTests(unittest.TestCase):
                 self.assertEqual(4, manifest["limits"]["sender_slots"])
                 expected_fragments = (maximum + manifest["limits"]["chunk_bytes"] - 1) // manifest["limits"]["chunk_bytes"]
                 self.assertEqual(expected_fragments, manifest["limits"]["fragments"])
+                peers = manifest["limits"].get("peers", 1)
                 self.assertEqual(16, manifest["limits"]["assembly_tombstones_per_peer"])
                 endpoint = next(resource for resource in manifest["resources"]
                                 if resource["role"] == "endpoint")
                 tombstones = next(charge for charge in endpoint["charges"]
                                   if charge["component"] == "assembly_tombstone")
-                self.assertEqual((16, 48), (tombstones["count"], tombstones["bytes_each"]))
+                self.assertEqual((16 * peers, 48),
+                                 (tombstones["count"], tombstones["bytes_each"]))
+
+    def test_sample_retry_profile_is_separate_and_timing_bounded(self):
+        retry = self.manifests["test-direct-sample-retry-2-nnpsk0.json"]
+        direct = self.manifests["direct-nnpsk0.json"]
+        self.assertEqual((1, 12000), (direct["sample"]["init_attempts"],
+                                     direct["sample"]["init_deadline_ms"]))
+        self.assertEqual(2, retry["sample"]["init_attempts"])
+        minimum = (2 * retry["timing"]["result_deadline_ms"]
+                   + retry["sample"]["init_retry_ms"])
+        self.assertEqual(24005, minimum)
+        self.assertEqual(retry["sample"]["init_retry_ms"],
+                         retry["sample"]["init_deadline_ms"] - minimum)
+        self.assertGreaterEqual(retry["sample"]["init_deadline_ms"], minimum)
+        self.assertEqual(direct["resources"], retry["resources"])
+        self.assertEqual({"/profile/owner", "/profile/id", "/profile/revision",
+                          "/sample/init_attempts", "/sample/init_deadline_ms"},
+                         self.differing_paths(direct, retry))
+        for name, digest in {
+                "direct-nnpsk0.json": "40abedfbb1799ea6cb711f739101d40bae6454eac719858c79b066f2670ad0c1",
+                "direct-xx.json": "289ed444a458bba2801fbceb68346cfae23de79beaab2d3402a75539e11b23f9",
+        }.items():
+            with self.subTest(manifest=name):
+                self.assertEqual(digest, hashlib.sha256(self.raw[name]).hexdigest())
+
+        too_short = copy.deepcopy(retry)
+        too_short["sample"]["init_deadline_ms"] = minimum - 1
+        self.assert_rejected(too_short, "timing", "$.sample.init_deadline_ms")
+
+    def test_multi_peer_profile_matches_both_sensitivity_rows(self):
+        manifest = copy.deepcopy(self.manifests["test-direct-multi-peer-nnpsk0.json"])
+        self.assertEqual("DMP-test-manifest/1.0", manifest["contract"])
+        self.assertEqual("shared-endpoint-multi-peer", manifest["binding"]["topology"])
+        self.assertEqual((256, 263), (manifest["binding"]["forward_mtu"],
+                                      manifest["binding"]["encoded_mtu"]))
+        self.assertEqual((4, 4096, 128, 32), (
+            manifest["limits"]["peers"], manifest["limits"]["message_bytes"],
+            manifest["limits"]["chunk_bytes"], manifest["limits"]["fragments"],
+        ))
+        self.assertEqual((1000, 250), (
+            manifest["binding"]["return_slot_period_ms"],
+            manifest["binding"]["return_slot_width_ms"],
+        ))
+        self.assertEqual({20, 10, 35, 34, 36}, set(manifest["identity"]["nodes"]))
+        self.assertEqual([10, 35, 34, 36], manifest["multi_peer"]["peer_nodes"])
+        self.assertEqual({
+            "pending_attempts": 4, "active_associations": 4,
+            "draining_associations": 4, "sender_slots": 4, "services": 2,
+            "application_operations": 4,
+        }, manifest["multi_peer"]["shared_endpoint"])
+        self.assertEqual([
+            {"name": "four_serial", "peers": 4, "services": 2,
+             "active_associations": 4, "draining_associations": 4,
+             "pending_attempts": 4, "crypto_slots": 1,
+             "application_operations": 4, "mtu_bytes": 256,
+             "max_message_bytes": 4096, "return_period_ms": 1000,
+             "return_window_ms": 250},
+            {"name": "four_parallel", "peers": 4, "services": 2,
+             "active_associations": 4, "draining_associations": 4,
+             "pending_attempts": 4, "crypto_slots": 2,
+             "application_operations": 4, "mtu_bytes": 256,
+             "max_message_bytes": 4096, "return_period_ms": 1000,
+             "return_window_ms": 250},
+        ], manifest["multi_peer"]["sensitivity_rows"])
+        self.assertTrue(validator.validate_bytes(self.encode(manifest))[
+            "valid"])
+
+        duplicate = copy.deepcopy(manifest)
+        duplicate["multi_peer"]["peer_nodes"][1] = duplicate["multi_peer"]["peer_nodes"][0]
+        self.assert_rejected(duplicate, "identity", "$.multi_peer")
+
+        overlapping = copy.deepcopy(manifest)
+        overlapping["multi_peer"]["peer_nodes"][0] = overlapping["multi_peer"]["endpoint_node"]
+        self.assert_rejected(overlapping, "identity", "$.multi_peer")
+
+        per_peer_mismatch = copy.deepcopy(manifest)
+        per_peer_mismatch["multi_peer"]["per_peer"]["active_associations"] = 2
+        self.assert_rejected(per_peer_mismatch, "schema")
+
+        shared_mismatch = copy.deepcopy(manifest)
+        shared_mismatch["multi_peer"]["shared_endpoint"]["pending_attempts"] = 3
+        self.assert_rejected(shared_mismatch, "schema")
+
+        altered_row = copy.deepcopy(manifest)
+        altered_row["multi_peer"]["sensitivity_rows"][0]["crypto_slots"] = 2
+        self.assert_rejected(altered_row, "resources", "$.multi_peer.sensitivity_rows")
+
+    def test_per_peer_resources_scale_with_admitted_peer_count(self):
+        multi_peer = copy.deepcopy(self.manifests["direct-nnpsk0.json"])
+        multi_peer["limits"]["peers"] = 2
+        endpoint = next(resource for resource in multi_peer["resources"]
+                        if resource["role"] == "endpoint")
+        expected_counts = {
+            "provider_retained": 6,
+            "provider_scratch": 2,
+            "association": 6,
+            "bootstrap": 2,
+            "assembly": 2,
+            "assembly_tombstone": 32,
+        }
+        charges = {item["component"]: item for item in endpoint["charges"]}
+        for component, count in expected_counts.items():
+            charges[component]["count"] = count
+        self.assertTrue(validator.validate_bytes(self.encode(multi_peer))["valid"])
+
+        for component, count in expected_counts.items():
+            with self.subTest(component=component):
+                underfunded = copy.deepcopy(multi_peer)
+                endpoint = next(resource for resource in underfunded["resources"]
+                                if resource["role"] == "endpoint")
+                charge = next(item for item in endpoint["charges"]
+                              if item["component"] == component)
+                charge["count"] = count - 1
+                self.assert_rejected(underfunded, "resources",
+                                     f"$.resources[endpoint].{component}")
 
     def test_async_and_n2_are_separate_exact_profiles(self):
         direct = self.manifests["direct-nnpsk0.json"]

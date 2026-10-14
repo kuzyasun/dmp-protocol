@@ -1,5 +1,10 @@
 # DMP validation results
 
+> **Historical snapshot:** this report records the 2026-10-04 checkout, whose
+> manifests used the then-current development marker. It is not the current
+> manifest contract. All current profiles use format 1.0 as specified in
+> `docs/DMP_Test_Manifest_Contract.md`.
+
 Status: stage-1 consolidation of already recorded results. This file is not an
 acceptance ledger. Case status stays in `dev/DMP_Normative_Cases.json`. Raw
 traces removed from the worktree remain in commit

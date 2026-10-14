@@ -14,10 +14,9 @@ import sys
 MAX_BYTES = 262144
 MAX_DEPTH = 24
 SCHEMA_DIR = Path(__file__).resolve().parents[1] / "profiles/schema"
-SCHEMA_PATHS = {
-    "DMP-test-manifest/2": SCHEMA_DIR / "manifest-v2.schema.json",
-    "DMP-test-manifest/3": SCHEMA_DIR / "manifest-v3.schema.json",
-}
+SCHEMA_PATH = SCHEMA_DIR / "manifest-v1.schema.json"
+TCP_PROFILES = {"PEER-TCP-STREAM-R", "MIXED-TCP-STREAM-R-SIM-PACKET"}
+MULTI_PEER_PROFILE = "TEST-DIRECT-MULTIPEER"
 
 
 class ProfileError(ValueError):
@@ -88,7 +87,8 @@ def _schema(value, spec, path="$"):
     """
     supported = {"$schema", "$id", "type", "enum", "minimum", "maximum",
                  "minLength", "maxLength", "pattern", "additionalProperties",
-                 "required", "properties", "minItems", "maxItems", "items"}
+                 "required", "properties", "minItems", "maxItems", "items",
+                 "uniqueItems"}
     if set(spec) - supported:
         raise RuntimeError("unsupported schema keyword")
     if "enum" in spec:
@@ -108,6 +108,11 @@ def _schema(value, spec, path="$"):
             _schema(item, spec["properties"][key], path + "." + key)
     elif kind == "array":
         require(spec["minItems"] <= len(value) <= spec["maxItems"], "schema", path, "array size outside bounds")
+        if spec.get("uniqueItems", False):
+            for index, item in enumerate(value):
+                require(not any(type(item) is type(previous) and item == previous
+                                for previous in value[:index]),
+                        "schema", path, "array items must be unique")
         for index, item in enumerate(value):
             _schema(item, spec["items"], f"{path}[{index}]")
     elif kind == "integer":
@@ -147,18 +152,23 @@ def origin_ttl_of(document):
 def _identity_and_services(m):
     p, b, ident, services = m["profile"], m["binding"], m["identity"], m["services"]
     direct = p["id"] in {"DIRECT-1", "TEST-DIRECT-ASYNC", "TEST-DIRECT-MINIMAL-128",
-                          "TEST-DIRECT-MINIMAL-256", "PEER-TCP-STREAM-R"}
+                          "TEST-DIRECT-MINIMAL-256", "TEST-DIRECT-SAMPLE-RETRY-2",
+                          "TEST-DIRECT-MULTIPEER",
+                          "PEER-TCP-STREAM-R"}
     selective = p["id"] in {"RADIO-1", "TEST-RADIO-N2",
                              "MIXED-TCP-STREAM-R-SIM-PACKET"}
     retry_all_test = p["id"] == "TEST-RADIO-RETRY-ALL"
     test_families = {"TEST-RADIO-RETRY-ALL", "TEST-RADIO-N2", "TEST-DIRECT-ASYNC",
                      "TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256",
-                     "PEER-TCP-STREAM-R", "MIXED-TCP-STREAM-R-SIM-PACKET"}
+                     "TEST-DIRECT-SAMPLE-RETRY-2", "TEST-DIRECT-MULTIPEER", "PEER-TCP-STREAM-R",
+                     "MIXED-TCP-STREAM-R-SIM-PACKET"}
     test = p["id"] in test_families
     require((p["id"] in {"DIRECT-1", "RADIO-1"} or test) and
             p["owner"] == ("DMP-test" if test else "DMP-reference") and
             p["revision"] == (1 if test else 4), "profile", "$.profile", "family owner/revision mismatch")
-    if p["id"] == "PEER-TCP-STREAM-R":
+    if p["id"] == "TEST-DIRECT-MULTIPEER":
+        expected = ("DMP-test/SIM-STREAM-R", "stream-r", "shared-endpoint-multi-peer", "association")
+    elif p["id"] == "PEER-TCP-STREAM-R":
         expected = ("DMP-test/TCP-STREAM-R", "stream-r", "point-to-point", "association")
     elif p["id"] == "MIXED-TCP-STREAM-R-SIM-PACKET":
         expected = ("DMP-test/SIM-PACKET", "packet", "static-unicast", "origin-explicit")
@@ -170,9 +180,15 @@ def _identity_and_services(m):
     require((not direct or (not m["relays"] and b["ttl"] == 0)) and b["ttl"] >= len(m["relays"]),
             "profile", "$.binding.ttl", "route/TTL does not cover the selected path")
     nodes = ident["nodes"]
+    expected_node_count = 5 if p["id"] == "TEST-DIRECT-MULTIPEER" else 2
+    require(len(nodes) == expected_node_count and len(set(nodes)) == expected_node_count,
+            "identity", "$.identity.nodes", "selected profile has an invalid endpoint count or duplicate IDs")
     all_nodes = nodes + [relay["node"] for relay in m["relays"]]
     require(len(set(all_nodes)) == len(all_nodes) and ident["sample_producer"] in nodes,
             "identity", "$.identity", "node identities must be unique and producer must be an endpoint")
+    message_ceiling = 4096 if p["id"] == "TEST-DIRECT-MULTIPEER" else 1024
+    require(m["limits"]["message_bytes"] <= message_ceiling,
+            "geometry", "$.limits.message_bytes", "selected profile exceeds its logical message ceiling")
     require({s["id"] for s in services} == {1, 2}, "service", "$.services", "require services 1 and 2 exactly once")
     for index, service in enumerate(services):
         path = f"$.services[{index}]"
@@ -184,7 +200,10 @@ def _identity_and_services(m):
                 "profile", path + ".recovery", "recovery cannot change within the selected profile")
         require(service["schema"] == ("DMP-reference/SAMPLE-1/2" if sid == 1 else "DMP-test/OPAQUE-1/1"),
                 "service", path, "service/schema mismatch")
-        require({a["node"] for a in service["acl"]} == set(nodes), "service", path + ".acl", "ACL must cover both nodes once")
+        acl_nodes = [acl["node"] for acl in service["acl"]]
+        require(len(acl_nodes) == len(nodes) and len(set(acl_nodes)) == len(acl_nodes)
+                and set(acl_nodes) == set(nodes),
+                "service", path + ".acl", "ACL must cover every endpoint exactly once")
         for acl in service["acl"]:
             expected_actions = ({"produce", "result"} if acl["node"] == ident["sample_producer"] else {"read", "status"}) if sid == 1 else {"data", "result"}
             require(set(acl["actions"]) == expected_actions and len(acl["actions"]) == len(expected_actions),
@@ -221,9 +240,17 @@ def _identity_and_services(m):
     return direct, selective
 
 
-def _contract3_bindings(m):
-    """Validate the v3 host binding topology without changing contract 2."""
-    profile, binding, tcp = m["profile"], m["binding"], m["tcp_binding"]
+def _tcp_bindings(m):
+    """Validate TCP binding semantics for the corresponding profile family."""
+    profile, binding = m["profile"], m["binding"]
+    if profile["id"] not in TCP_PROFILES:
+        require("tcp_binding" not in m and "mixed_path" not in m,
+                "schema", "$.profile", "non-TCP profile cannot contain TCP binding fields")
+        return
+
+    require("tcp_binding" in m, "profile", "$.tcp_binding",
+            "TCP Stream R profiles require their transport binding settings")
+    tcp = m["tcp_binding"]
     nodes = m["identity"]["nodes"]
     stream_cap = max(tcp["forward_mtu"], tcp["return_mtu"])
     n = stream_cap + 4
@@ -238,7 +265,7 @@ def _contract3_bindings(m):
             "absolute Stream R candidate timeout must equal the derived bound")
 
     if profile["id"] == "PEER-TCP-STREAM-R":
-        require(m["contract"] == "DMP-test-manifest/3" and not m["relays"] and
+        require(not m["relays"] and
                 "mixed_path" not in m, "profile", "$.profile",
                 "direct TCP profile cannot include relays or mixed-path fields")
         require(tcp["placement"] == "peer-pair" and
@@ -274,16 +301,81 @@ def _contract3_bindings(m):
                 "profile", "$.services", "mixed profile fixes SELECTIVE-32 for both services")
         return
 
-    require(m["contract"] == "DMP-test-manifest/2" and "tcp_binding" not in m and
-            "mixed_path" not in m, "schema", "$.contract", "unknown contract-3 profile")
+    require(False, "profile", "$.profile", "unknown TCP binding profile")
+
+
+def _multi_peer_profile(m):
+    """Validate one authenticated four-peer endpoint and both D1 sensitivity rows."""
+    require("multi_peer" in m, "profile", "$.multi_peer",
+            "multi-peer profile requires its shared-endpoint settings")
+    ident, binding, limits = m["identity"], m["binding"], m["limits"]
+    security, multi = m["security"], m["multi_peer"]
+    endpoint = multi["endpoint_node"]
+    peers = multi["peer_nodes"]
+    require(m["profile"]["id"] == "TEST-DIRECT-MULTIPEER" and
+            binding["topology"] == "shared-endpoint-multi-peer" and
+            binding["kind"] == "stream-r" and binding["context"] == "association" and
+            binding["forward_mtu"] == binding["return_mtu"] == 256 and
+            binding["encoded_mtu"] == 263,
+            "profile", "$.binding", "multi-peer fixture requires the 256-byte core / 263-byte Stream R profile")
+    require(len(set(peers)) == 4 and endpoint not in peers and
+            set(ident["nodes"]) == {endpoint, *peers} and len(ident["nodes"]) == 5 and
+            ident["sample_producer"] == endpoint,
+            "identity", "$.multi_peer", "endpoint plus four distinct peer identities must match identity.nodes; endpoint is the SAMPLE-1 producer")
+    require(limits["peers"] == 4 and limits["operations_per_service"] == 1 and
+            limits["sender_slots"] == 4 and limits["message_bytes"] == 4096 and
+            limits["fragments"] == 32 and limits["chunk_bytes"] == 128 and
+            m["services"][1]["request_bytes"] == m["services"][1]["result_bytes"] == 4096,
+            "resources", "$.limits", "D1 endpoint limits must cover the four-peer 4096-byte sensitivity rows")
+    per_peer = multi["per_peer"]
+    shared = multi["shared_endpoint"]
+    require(per_peer == {"pending_attempts": security["pending_per_pair"],
+                         "active_associations": security["active_per_pair"],
+                         "draining_associations": security["draining_per_pair"]} and
+            shared["pending_attempts"] == limits["peers"] * per_peer["pending_attempts"] and
+            shared["active_associations"] == limits["peers"] * per_peer["active_associations"] and
+            shared["draining_associations"] == limits["peers"] * per_peer["draining_associations"] and
+            shared["sender_slots"] == limits["sender_slots"] == 4 and
+            shared["services"] == len(m["services"]) == 2 and
+            shared["application_operations"] == 4,
+            "resources", "$.multi_peer", "per-peer lifecycle quotas and endpoint-wide storage quotas disagree")
+    require(security["pending_per_pair"] == security["active_per_pair"] ==
+            security["draining_per_pair"] == 1 and security["crypto_slots"] == 2,
+            "security", "$.security", "D1 admits one pending/active/draining association per peer and two endpoint crypto slots")
+    require(binding["return_slot_period_ms"] == 1000 and
+            binding["return_slot_width_ms"] == 250,
+            "schedule", "$.binding", "D1 sensitivity rows require the 1000/250 ms return schedule")
+    expected_rows = {
+        "four_serial": {"peers": 4, "services": 2, "active_associations": 4,
+                        "draining_associations": 4, "pending_attempts": 4,
+                        "crypto_slots": 1, "application_operations": 4,
+                        "mtu_bytes": 256, "max_message_bytes": 4096,
+                        "return_period_ms": 1000, "return_window_ms": 250},
+        "four_parallel": {"peers": 4, "services": 2, "active_associations": 4,
+                           "draining_associations": 4, "pending_attempts": 4,
+                           "crypto_slots": 2, "application_operations": 4,
+                           "mtu_bytes": 256, "max_message_bytes": 4096,
+                           "return_period_ms": 1000, "return_window_ms": 250},
+    }
+    actual_rows = {row["name"]: {key: value for key, value in row.items() if key != "name"}
+                   for row in multi["sensitivity_rows"]}
+    require(actual_rows == expected_rows,
+            "resources", "$.multi_peer.sensitivity_rows", "four_serial/four_parallel must exactly match experiment_manifest.json")
+    return True
 
 
 def _security(m):
     s, t = m["security"], m["timing"]
     require(s["credential"] == ("provisioned-pairwise-psk" if s["mode"] == "NNpsk0" else "authenticated-oob-xx"),
             "security", "$.security.credential", "credential/mode mismatch")
-    require(s["crypto_slots"] <= s["pending_per_pair"] <= s["preauth_slots"],
-            "security", "$.security", "crypto/pending/preauth admission mismatch")
+    if m["profile"]["id"] == MULTI_PEER_PROFILE:
+        pending = m["multi_peer"]["shared_endpoint"]["pending_attempts"]
+        require(s["crypto_slots"] <= pending and
+                s["pending_per_pair"] <= s["preauth_slots"],
+                "security", "$.security", "endpoint crypto/pending or per-peer pending/preauth admission mismatch")
+    else:
+        require(s["crypto_slots"] <= s["pending_per_pair"] <= s["preauth_slots"],
+                "security", "$.security", "crypto/pending/preauth admission mismatch")
     require(s["preauth_bytes"] >= 120 * s["preauth_slots"], "security", "$.security.preauth_bytes", "whole bootstrap flights must be reserved")
     require(s["drain_ms"] < s["association_ms"] and (s["draining_per_pair"] > 0 or s["drain_ms"] == 0),
             "security", "$.security.drain_ms", "draining exceeds association policy")
@@ -312,7 +404,8 @@ def _frames(m, direct):
     count = (size + chunk - 1) // chunk
     boot_chunk = l["bootstrap_chunk_bytes"]
     boot_count = (120 + boot_chunk - 1) // boot_chunk
-    require(count <= l["fragments"] <= (16 if direct else 32), "geometry", "$.limits.fragments", "fragment geometry exceeds family capacity")
+    fragment_limit = 32 if not direct or m["profile"]["id"] == MULTI_PEER_PROFILE else 16
+    require(count <= l["fragments"] <= fragment_limit, "geometry", "$.limits.fragments", "fragment geometry exceeds family capacity")
     require(boot_count <= l["bootstrap_fragments"], "geometry", "$.limits.bootstrap_fragments", "bootstrap requires its own sufficient fragment quota")
     node_width = max(width(n) for n in ident["nodes"])
     context = 2 + width(ident["namespace"]) + 8
@@ -475,27 +568,34 @@ def _relays(m, derived):
 
 def _resources(m, derived):
     s, l = m["security"], m["limits"]
+    multi_peer = m["profile"]["id"] == MULTI_PEER_PROFILE
     roles = {r["role"] for r in m["resources"]}
     expected = {"endpoint", "relay"} if m["relays"] else {"endpoint"}
     require(roles == expected and len(roles) == len(m["resources"]), "resources", "$.resources", "resource roles missing or duplicated")
-    associations = s["pending_per_pair"] + s["active_per_pair"] + s["draining_per_pair"]
+    peers = l["peers"]
+    associations = peers * (s["pending_per_pair"] + s["active_per_pair"] + s["draining_per_pair"])
     operations = l["sender_slots"]
     require(operations <= 2 * len(m["services"]) * l["peers"] * l["operations_per_service"],
             "resources", "$.limits.sender_slots",
             "sender capacity exceeds the simultaneous per-service operation ceiling")
     fresh = m["freshness"]
-    grants = fresh["grant_requests_per_pair"]
+    grants = peers * fresh["grant_requests_per_pair"]
     require(l["assembly_tombstones_per_peer"] >= l["assemblies_per_peer"],
             "resources", "$.limits.assembly_tombstones_per_peer",
             "each active assembly must reserve its future expiry tombstone")
-    minimum_counts = {"provider_retained": associations, "provider_scratch": s["crypto_slots"],
-                      "association": associations, "bootstrap": 1,
-                      "sender": operations, "assembly": l["assemblies_per_peer"],
-                      "assembly_tombstone": l["peers"] * l["assembly_tombstones_per_peer"],
+    minimum_counts = {"provider_retained": associations,
+                      "provider_scratch": s["crypto_slots"] if multi_peer else peers * s["crypto_slots"],
+                      "association": associations, "bootstrap": peers * s["preauth_slots"],
+                      "sender": operations, "assembly": peers * l["assemblies_per_peer"],
+                      "assembly_tombstone": peers * l["assembly_tombstones_per_peer"],
                       "result": operations + grants, "history": 2*(operations + grants), "correlation": operations + grants,
                       "control": l["control_slots"], "application_queue": 1,
                       "adapter": l["adapter_slots"], "stacks": 1, "relay_cache": 1,
                       "freshness_tokens": max(1, fresh["tokens_per_principal"] if grants else 0)}
+    if multi_peer:
+        minimum_counts.update(endpoint_metadata=1, peer_state=peers,
+                              identity_context=associations, stream_decoder=peers,
+                              admission_owner=1)
     minimum_bytes = {key: l["message_bytes"] for key in ("sender", "assembly", "result", "application_queue")}
     minimum_bytes["assembly_tombstone"] = 48
     encoded_reserve = derived["encoded_frame_bytes"]
@@ -505,6 +605,10 @@ def _resources(m, derived):
                          adapter=encoded_reserve, relay_cache=1)
     minimum_bytes["result"] = max(l["message_bytes"], 21 if grants else 1)
     minimum_bytes["freshness_tokens"] = max(16 if grants else 0, 1)
+    if multi_peer:
+        minimum_bytes.update(endpoint_metadata=4096, peer_state=2048,
+                             identity_context=64, stream_decoder=512,
+                             admission_owner=8192)
     require(l["control_slots"] >= m["timing"]["feedback_buffers"] + grants + 1,
             "resources", "$.limits.control_slots", "grant requests cannot consume receipt/feedback reservation")
     # Same reserve as dmp_reliability_init / dmp_config_admit. Not a stricter policy.
@@ -533,8 +637,7 @@ def _resources(m, derived):
                 count += derived["establishment_frame_reserve"]*s["episode_attempts"]
             require(charge["count"] >= count and charge["bytes_each"] >= size,
                     "resources", path + "." + key, "component pool cannot cover admitted concurrency or whole buffers")
-            if not (resource["role"] == "endpoint" and key in ("provider_scratch", "control")):
-                used[charge["region"]] += charge["count"] * charge["bytes_each"]
+            used[charge["region"]] += charge["count"] * charge["bytes_each"]
         require(all(used[k] <= regions[k] for k in regions), "resources", path, "aggregate simultaneous RAM charges exceed a region limit")
         totals[resource["role"]] = used
     derived["ram_reserved_bytes"] = totals
@@ -557,17 +660,19 @@ def validate_bytes(raw, expected_sha256=None):
     contract = m.get("contract") if isinstance(m, dict) else None
     if isinstance(m, dict) and "contract" in m and not isinstance(contract, str):
         raise ProfileError("schema", "$.contract", "contract must be a string")
-    schema_key = contract if isinstance(contract, str) else "DMP-test-manifest/2"
-    schema_path = SCHEMA_PATHS.get(schema_key, SCHEMA_PATHS["DMP-test-manifest/2"])
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     _schema(m, schema)
     digest = hashlib.sha256(raw).hexdigest()
     if expected_sha256 is not None:
         require(isinstance(expected_sha256, str) and re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is not None and
                 digest == expected_sha256, "digest", "$", "exact manifest SHA256 mismatch")
     direct, selective = _identity_and_services(m)
-    if contract == "DMP-test-manifest/3":
-        _contract3_bindings(m)
+    _tcp_bindings(m)
+    if m["profile"]["id"] == MULTI_PEER_PROFILE:
+        _multi_peer_profile(m)
+    else:
+        require("multi_peer" not in m, "schema", "$.profile",
+                "only the multi-peer profile may contain multi_peer settings")
     _security(m)
     derived = _frames(m, direct)
     _timing(m, selective, derived)

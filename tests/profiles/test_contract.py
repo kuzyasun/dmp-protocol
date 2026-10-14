@@ -89,7 +89,7 @@ class ManifestContractTests(unittest.TestCase):
         schema_generator = importlib.util.module_from_spec(schema_module)
         schema_module.loader.exec_module(schema_generator)
         generated = json.dumps(schema_generator.SCHEMA, indent=2) + "\n"
-        self.assertEqual(generated, (ROOT / "profiles/schema/manifest-v2.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(generated, (ROOT / "profiles/schema/manifest-v1.schema.json").read_text(encoding="utf-8"))
 
     def test_mutation_corpus_rejects_contract_violations_at_declared_location(self):
         self.assertGreaterEqual(len(self.corpus["mutation_cases"]), 31)
@@ -119,8 +119,29 @@ class ManifestContractTests(unittest.TestCase):
         self.assertEqual(263, direct["encoded_frame_bytes"])
         self.assertEqual(430, radio["response_floor_ms"])
         self.assertEqual(1144, radio["freshness_required_ms"])
-        self.assertEqual(5305, radio["ram_reserved_bytes"]["endpoint"]["RAM"])
+        self.assertEqual(6457, radio["ram_reserved_bytes"]["endpoint"]["RAM"])
         self.assertEqual(2317, radio["ram_reserved_bytes"]["relay"]["RAM"])
+
+    def test_single_peer_profiles_keep_exact_identity_acl_and_message_bounds(self):
+        direct = json.loads(_read_fixture("direct.json"))
+        mutations = (
+            ("identity.nodes", lambda value: value["identity"]["nodes"].append(30),
+             "identity", "$.identity.nodes"),
+            ("duplicate identity", lambda value: value["identity"]["nodes"].__setitem__(1, value["identity"]["nodes"][0]),
+             "identity", "$.identity.nodes"),
+            ("duplicate ACL", lambda value: value["services"][0]["acl"].append(
+                dict(value["services"][0]["acl"][0])), "service", "$.services[0].acl"),
+            ("message ceiling", lambda value: value["limits"].update(message_bytes=2048),
+             "geometry", "$.limits.message_bytes"),
+        )
+        for name, mutate, code, path in mutations:
+            with self.subTest(mutation=name):
+                value = json.loads(json.dumps(direct))
+                mutate(value)
+                with self.assertRaises(validator.ProfileError) as raised:
+                    validator.validate_bytes(json.dumps(value, separators=(",", ":")).encode())
+                self.assertEqual(code, raised.exception.code)
+                self.assertEqual(path, raised.exception.path)
 
     def test_grant_result_pool_has_independent_21_byte_floor(self):
         radio = json.loads(_read_fixture("radio.json"))

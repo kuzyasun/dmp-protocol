@@ -174,7 +174,7 @@ def manifest(kind):
                                     1, relay_cache_count))
 
     return {
-        "contract": "DMP-test-manifest/2",
+        "contract": "DMP-test-manifest/1.0",
         "revisions": {"core": 10, "security": 5, "bootstrap": 2,
                       "recovery": 1, "application": 2},
         "profile": profile,

@@ -15,7 +15,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 60488
+        "RAM": 77398
       }
     }
   },
@@ -35,7 +35,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 60488
+        "RAM": 77398
       }
     }
   },
@@ -55,7 +55,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 72576
+        "RAM": 78720
       }
     }
   },
@@ -75,7 +75,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 64555
+        "RAM": 81415
       },
       "relay": {
         "RAM": 29441
@@ -98,7 +98,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 66340
+        "RAM": 83748
       },
       "relay": {
         "RAM": 29441
@@ -121,7 +121,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 77440
+        "RAM": 83584
       },
       "relay": {
         "RAM": 29441
@@ -144,7 +144,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 38167
+        "RAM": 55077
       }
     }
   },
@@ -164,7 +164,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 39959
+        "RAM": 56869
       }
     }
   },
@@ -184,7 +184,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 67180
+        "RAM": 85612
       },
       "relay": {
         "RAM": 29441
@@ -207,7 +207,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 60488
+        "RAM": 77398
       }
     }
   },
@@ -227,7 +227,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 60488
+        "RAM": 77398
       }
     }
   },
@@ -247,7 +247,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 66340
+        "RAM": 83748
       },
       "relay": {
         "RAM": 29441
@@ -270,10 +270,50 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 77440
+        "RAM": 83584
       },
       "relay": {
         "RAM": 29441
+      }
+    }
+  },
+  "test-direct-multi-peer-nnpsk0.json": {
+    "fragment_count": 32,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 184,
+    "status_frame_bytes": 48,
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 1540,
+    "freshness_required_ms": 121020,
+    "transfer_frame_reserve": 105,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 39500,
+    "bootstrap_flight_span_ms": 2000,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 228173
+      }
+    }
+  },
+  "test-direct-sample-retry-2-nnpsk0.json": {
+    "fragment_count": 16,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 48,
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 150,
+    "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 57,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 77398
       }
     }
   }

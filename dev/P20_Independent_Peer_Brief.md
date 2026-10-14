@@ -1,5 +1,10 @@
 # P20 independent peer brief — accepted contract
 
+> **Historical manifest input (superseded 2026-10-14):** the contract-2/3
+> instructions below predate the owner decision to use one manifest format
+> 1.0 without compatibility paths. The current peer parses the single
+> `DMP-test-manifest/1.0` schema and retains independent cross-field validation.
+
 **Status:** P19 is accepted for host/simulation scope. The owner confirmed the
 peer language/toolchain and first concrete P22 host binding. This brief freezes
 those choices and the independent test interface before P21 implementation.

@@ -2,17 +2,9 @@
 
 DMP is a compact, transport-independent device messaging protocol under development. It carries opaque payloads over explicitly specified bindings, with optional routing, reliability, fragmentation and pairwise end-to-end encryption.
 
-**Current contract:** document revision 10, SEC-1 profile revision 5, BOOT_VERSION 2, SELECTIVE-32 recovery revision 1. Wire major version remains 2; peers must agree on exact profile/manifests. The portable C11 `libdmp` implements the foundation, structural codec, CRC32C and Stream L/R framing, alongside offline manifest validation and provider experiments. It is **not yet an endpoint library**.
+**Current contract:** manifest format 1.0, document revision 10, SEC-1 profile revision 5, BOOT_VERSION 2, SELECTIVE-32 recovery revision 1. Wire major version remains 2; peers must agree on the exact profile and manifest bytes. The portable C11 `libdmp` now includes bounded endpoint, peer-owned SEC-1 association lifecycle, reliability, reassembly, Stream L/R framing, transparent relay, profile admission, and an application-side SAMPLE-1 epoch owner. The latest RBO host gate passed 134/134 native CTests, excluding the Cortex-M ABI probe and seven dependent `memory.*.layout` checks; those ARM cases remain deferred. ESP-IDF 6.1 compile/link probes passed for ESP32-S3 and ESP32-C3. Target runtime and physical qualification remain open. This is host/simulation progress, not a product release claim. DIRECT-1 uses a 256-byte decoded Core frame ceiling and a 263-byte encoded Stream R ceiling.
 
-The library sources are [base.c](src/core/base.c), [codec.c](src/core/codec.c),
-[crc32c.c](src/integrity/crc32c.c) and [stream.c](src/stream/stream.c), with
-[public headers](include/dmp/core.h) and linked tests under `tests/core/` and
-`tests/stream/`. P04 supplies checked views/time/generations; P05/P06 implement
-canonical headers/extensions, structural role checks and bounded stream codecs.
-Tests exercise these same library objects, including 64 published packet bytes;
-parsing does not authenticate ciphertext or admit messages. See
-[interface scope](dev/DMP_Core_Interfaces.md) and
-[P05/P06 evidence](dev/evidence/codec-framing-20260927/README.md).
+The public API is under [include/dmp/](include/dmp/); implementation layers live in `src/`, including the payload-agnostic endpoint/security core and the separate [SAMPLE-1 application component](src/application/). Tests link the same C sources. Host CTest and the independent Python peer cover scoped protocol, security lifecycle, profile, and interop behavior. See the [multi-peer continuation contract](dev/DMP_Multi_Peer_Contract_2026-10-13.md) and the [P25 host/simulation report](dev/DMP_P25_Host_Simulation_Report.md) for current acceptance boundaries.
 
 ```text
 cmake -S . -B build/host -DDMP_BUILD_TESTS=ON
@@ -54,7 +46,7 @@ Compactness, low memory use and reduced airtime are design goals. Whether this c
 | [SELECTIVE-32](docs/DMP_v2_Selective_Recovery.md) | Authenticated missing-fragment feedback and bounded recovery on expensive links |
 | [Deployment profiles](docs/DMP_v2_Deployment_Profiles.md) | DIRECT-1 and RADIO-1 choices, ceilings and mandatory site-specific parameters |
 | [Reference application](docs/DMP_v2_Reference_Application.md) | Exact small SAMPLE-1 telemetry/read/status schema |
-| [Test manifest contract](docs/DMP_Test_Manifest_Contract.md) | Versioned configuration bytes, schema, offline constraints and independent-peer input boundary |
+| [Test manifest format](docs/DMP_Test_Manifest_Contract.md) | Single format 1.0 configuration bytes, schema, offline constraints and independent-peer input boundary |
 | [Design tradeoffs](docs/DMP_v2_Design_Tradeoffs.md) | Rationale, prior art and measurement boundaries |
 | [Implementation and tooling plan](dev/DMP_Implementation_Plan.md) | Portable core, profile validator, simulator, decoder, benchmarks and release gates |
 | [Agent workflow](AGENTS.md) | Coordinator, bounded worker assignments, ownership and review rules |
@@ -78,9 +70,9 @@ python dev/dmp_generate_security_vectors.py --upstream <verified-cacophony.txt>
 node dev/dmp_verify_security_vectors.cjs
 ```
 
-The upstream file is an external input, not bundled here. Its recorded SHA-256 is `3bde7c09a6f349ee11c825c50fcc02649f8f02a47c857a459206b357f9386cae`. Review regenerated output and provenance before replacing vectors. Public deterministic keys are test-only. The generator is not production cryptographic code, and the verifier is a fixture parser, not the future library parser. Existing checks do not implement the SELECTIVE-32 state machine or prove endpoint interoperability, BLE/radio timing or production security.
+The upstream file is an external input, not bundled here. Its recorded SHA-256 is `3bde7c09a6f349ee11c825c50fcc02649f8f02a47c857a459206b357f9386cae`. Review regenerated output and provenance before replacing vectors. Public deterministic keys are test-only. The generator and Node verifier validate public fixtures; they do not replace the linked endpoint, recovery or interoperability tests, and they do not prove physical binding timing or production security.
 
-P00 preparation is accepted: the host scaffold, declared MCU configurations and finite experimental resource envelopes are recorded. P01 has accepted bounded PN-01 receive, DH-01 strict X25519 and RNG-01 post-initialization entropy-failure host checks using the [fork submodule and opt-in probes](tests/provider/README.md). [INIT-01](dev/evidence/noise-init-20260927/README.md) fixes returned initialization errors and reproduces the original backend's abort on OS entropy failure. [BINIT-01](dev/evidence/noise-backend-init-20260927/README.md) accepts a separate checked backend's serialized host startup: entropy failures return, partial canary bytes are erased and an explicit later call can retry. [MEM-01](dev/evidence/noise-memory-20260927/README.md) fixes a dangling output on partial constructor failure and verifies allocation errors and owned-heap cleanup in ordinary and optimized host builds. [MEM-02](dev/evidence/noise-arena-20260927/README.md) accepts the host bounded-storage port and selected compile-only layouts after independent review. [MCU-01](dev/evidence/noise-mcu-20260927/README.md) accepts complete selected Cortex-M4 archives and an isolated ESP-IDF test-image link, with map/symbol evidence. [MEM-03](dev/evidence/noise-owners-20260927/README.md) accepts serialized multi-owner host quota/OOM/reuse checks after independent review. [MCU-02](dev/evidence/noise-mcu-console-20260927/physical/README.md), [MCU-03](dev/evidence/noise-mcu-pressure-20260927/README.md) and [MCU-04](dev/evidence/noise-mcu-parallel-20260927/README.md) accept bounded physical S3/C3 provider operation, heap/stack/timing, quota pressure and two independent concurrent workers. Entropy quality, non-Espressif runtime, Cortex board linking, complete secret-copy cleanup and aggregate resource gates remain open. The owner-approved [implementation transition](dev/evidence/implementation-transition-20260927/README.md) now assigns these checks to actual library work: P01A development feasibility, P01B provider adapter, P13/P15 SEC-1 behavior and P01C target qualification. P01 remains open; P02 is accepted as an offline validator and P03 has accepted six development manifests and the normative case ledger. P04-P06 implement the portable archive, structural codec and framing; their tests link the library sources. P07 supplies the next deterministic harness; P01B will connect the provider to the library. The unvalidated BOUNDARY-01 draft remains excluded from builds. No endpoint or production crypto provider is accepted. The offline profile validator now exists; simulator and benchmark commands remain proposed interfaces. No DTrack firmware, web UI or mobile client is moved here.
+The implementation has progressed beyond the original codec scaffold. P00 and P02-P11 are accepted for their recorded scopes; P13-P20, P21 and P22-P24 have recorded host/simulation acceptance, with P21 retaining its documented historical provenance limitation. The approved P12 continuation code has passed its focused and full non-ARM host gates, including four-peer admission/lifecycle, the two-attempt SAMPLE-1 profile, rejection of a different authenticated sender, handshake transport composition and the application-side epoch owner. P12 remains open while the six partial SAMPLE-1 ledger rows are reconciled and production target storage/lifecycle adapters remain unqualified. P01 remains an umbrella gate for provider evidence and final target qualification; P25 remains pending. The owner scheduled hardware qualification at the end for ESP32-S3 and ESP32-C3; non-Espressif physical qualification remains explicitly deferred. See the [work package board](dev/DMP_Work_Packages.md), [owner decisions](dev/DMP_Continuation_Decisions_2026-10-13.md), and [P25 report](dev/DMP_P25_Host_Simulation_Report.md).
 
 ## Offline profile validation
 
@@ -94,13 +86,18 @@ python -m unittest discover -s tests/profiles -p "test_*.py" -v
 
 The CLI returns the SHA256 of the exact original manifest bytes and conservative
 derived bounds. `--expect-sha256 HEX` additionally checks provisioning agreement.
-The [schema](profiles/schema/manifest-v2.schema.json) and
+The [schema](profiles/schema/manifest-v1.schema.json) and
 [written contract](docs/DMP_Test_Manifest_Contract.md) define the selected
-two-endpoint simulation scope. Corpus files are not physical/product profiles.
+format 1.0. Corpus files are not physical/product profiles.
 [P03 deployment instances](profiles/deployments/README.md) are frozen, including a
 separately identified radio retry-all comparison. P09 implements startup
-enforcement in libdmp; the [137-case ledger](dev/DMP_Normative_Cases.md) tracks
-future implementation checks, all initially not run.
+enforcement in libdmp. The [137-case ledger](dev/DMP_Normative_Cases.md) now
+records concrete test references and separate whole-row, primary, peer, profile
+and interop evidence: 74 passed, 62 partial and 1 not run for whole-row status.
+A 2026-10-14 source audit checked all 510 linked file/symbol references with no
+missing entries; this verifies the crosswalk, not each row's result. Those counts
+do not include physical S3/C3 qualification or convert P21 provenance limitations
+into independent-proof claims.
 See [P02 evidence](dev/evidence/profile-validator-20260927/README.md) for actual
 checks and limits, and [P03 evidence](dev/evidence/profile-freeze-20260927/README.md)
 for the six profiles, resource rationale and early independent review. Simulator
