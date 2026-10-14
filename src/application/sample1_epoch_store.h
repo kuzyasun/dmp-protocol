@@ -78,7 +78,7 @@ typedef bool (*dmp_sample1_reprovision_cb)(void *user,
                                            uint64_t committed_epoch,
                                            uint64_t pending_epoch);
 
-/* Durable status of the trusted monotonic anchor port. */
+/* Durable status of an epoch-anchor implementation. */
 typedef struct {
     bool has_floor;         /* True if a committed monotonic floor exists */
     uint64_t floor;         /* Committed monotonic floor value */
@@ -86,16 +86,17 @@ typedef struct {
     uint64_t pending_epoch; /* Candidate epoch currently marked pending */
 } dmp_sample1_anchor_status;
 
-/* Injected trusted monotonic epoch-anchor operations table.
- * Used to detect rollback, guarantee freshness independently of NVS CRC,
- * and maintain fail-stop durability across restarts. */
+/* Injected epoch-anchor operations table. The NVS adapter stores this record in
+ * ordinary NVS and detects malformed or inconsistent records, but it cannot
+ * detect restoring a complete older flash/NVS image. A stronger adapter must
+ * keep its monotonic high-water mark outside restorable flash, bind it to the
+ * producer principal, preserve pending reservations across reset, and fail
+ * closed on loss or exhaustion (for example, using a qualified secure-element
+ * counter). No such hardware adapter is provided here. */
 typedef struct {
-    /* Read durable status for principal.
-     * On success, return true and populate *status.
-     * On any operational failure, return false only after durably preserving an
-     * existing pending reservation or latching a pending/fault state that a later
-     * successful get_status reports as pending. This must also hold when the
-     * status read itself fails; otherwise a later reopen could silently continue. */
+    /* Read the stored status for principal. On success, return true and populate
+     * *status. On a read error or invalid record, return false; the caller fails
+     * the current reservation before exposing a new epoch. */
     bool (*get_status)(void *user,
                        dmp_sample1_principal principal,
                        dmp_sample1_anchor_status *status);
@@ -110,8 +111,8 @@ typedef struct {
      *   - Anchor's pending_epoch must equal expected_pending.
      *   - candidate_epoch must be strictly greater than expected_pending.
      * Return true when candidate_epoch is durably marked pending. On mismatch or
-     * operational failure, return false only after preserving an existing pending
-     * reservation or durably latching a pending/fault state for later reopens. */
+     * operational failure, return false and do not allow the caller to write or
+     * expose that candidate epoch. */
     bool (*begin_reservation)(void *user,
                               dmp_sample1_principal principal,
                               bool has_expected_floor,
@@ -121,13 +122,10 @@ typedef struct {
                               uint64_t candidate_epoch);
 
     /* Atomically clear pending flag and advance committed floor to committed_epoch.
-     * Called only after NVS set_blob AND commit succeed.
-     * Returning true means durable state is complete and protected independently
-     * from NVS rollback.
-     * Returning false MUST leave the same durable pending reservation intact
-     * (or otherwise durably faulted) so subsequent reopens fail closed and require
-     * explicit reprovision authorization; it must never revert to the prior
-     * committed floor as clean. */
+     * Called only after the epoch record's set_blob AND commit succeed. A false
+     * result fails the current operation and withholds the reserved epoch from
+     * the application. Ordinary NVS detects torn/invalid records but does not
+     * protect against restoring a complete older flash/NVS image. */
     bool (*complete_reservation)(void *user,
                                  dmp_sample1_principal principal,
                                  uint64_t committed_epoch);
@@ -171,8 +169,9 @@ void dmp_sample1_nvs_epoch_store_init(
     void *anchor_user);
 
 /* Compatible with sample1_endpoint_hooks.reserve_next and
- * dmp_sample1_epoch_owner_ports.reserve_next.
- * Atomically reserves and durably commits the next never-reused epoch. */
+ * dmp_sample1_epoch_owner_ports.reserve_next. Atomically reserves and durably
+ * commits the next epoch under the configured anchor's rollback guarantees.
+ * The bundled NVS anchor does not detect restoration of a complete older image. */
 dmp_sample1_port_result dmp_sample1_nvs_reserve_next(
     void *user,
     dmp_sample1_principal principal,

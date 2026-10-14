@@ -188,7 +188,7 @@ dmp_sample1_port_result dmp_sample1_nvs_reserve_next(
         return DMP_SAMPLE1_PORT_FAILED;
     }
 
-    /* Trusted monotonic epoch-anchor operations table is required */
+    /* Epoch-anchor operations are required to gate every reservation. */
     if (store->anchor_ops == NULL ||
         store->anchor_ops->get_status == NULL ||
         store->anchor_ops->begin_reservation == NULL ||

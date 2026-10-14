@@ -54,13 +54,16 @@ typedef struct {
     bool (*try_enter)(void *user);
     void (*leave)(void *user);
 
-    /* Atomically reserve and durably commit a never-reused nonzero epoch.
+    /* Atomically reserve and durably commit a nonzero epoch under the backing
+     * store's rollback guarantees. Ordinary NVS cannot detect restoration of a
+     * complete older flash image; use a separately protected monotonic counter
+     * if that threat must be covered.
      * On ACCEPTED, set has_previous and previous_epoch to the prior durable
      * value (or false/0 for first provisioning), and reserved_epoch to the new
      * committed value. BUSY must have no durable side effect and leaves outputs
      * unchanged; the owner may retry. Crashes may skip a committed value. The
-     * adapter must detect inaccessible, rolled-back, or corrupt durable state
-     * and must not guess an epoch. FAILED and UNKNOWN are fail-closed outcomes. */
+     * adapter must fail closed on inaccessible or corrupt durable state and
+     * must not guess an epoch. FAILED and UNKNOWN are fail-closed outcomes. */
     dmp_sample1_port_result (*reserve_next)(void *user,
                                             dmp_sample1_principal principal,
                                             bool *has_previous,

@@ -50,7 +50,8 @@ endfunction()
 add_library(libdmp_sample1 STATIC
     src/application/sample1_epoch_owner.c
     src/application/sample1_endpoint.c
-    src/application/sample1_epoch_store.c)
+    src/application/sample1_epoch_store.c
+    src/application/sample1_epoch_anchor_nvs.c)
 add_library(dmp::sample1 ALIAS libdmp_sample1)
 set_target_properties(libdmp_sample1 PROPERTIES
     OUTPUT_NAME dmp_sample1
