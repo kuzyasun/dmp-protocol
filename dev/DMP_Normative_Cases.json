@@ -2888,7 +2888,7 @@
       "expected": "Independent expected bytes match; invalid mask/reference and protected-field mutations reject.",
       "primary_test_id": "tests/security/test_provider.c::test_recovery_protected_vectors",
       "primary_gate": "P18",
-      "peer_test_id": "planned/p21d/sel-r7-protected-vector",
+      "peer_test_id": "tests/peer/tests/test_recovery_vectors.py::RecoveryVectorsRegressionTests.test_valid_cipher1_vectors_aad_and_peer_crypto",
       "peer_gate": "P21D",
       "interop_gate": "P23",
       "scope": "RADIO-1 SELECTIVE-32 host simulation; retry-all comparison uses its own behavior and never emits FRAG_STATUS.",
@@ -2903,7 +2903,17 @@
       "primary_checks": [
         "tests/security/test_provider.c::test_recovery_protected_vectors"
       ],
-      "primary_evidence": "C provider opens the published valid cipher-1 frames, accepts the authenticated ttl_only mutation, and rejects the seven AEAD-invalid mutations; this does not exercise production endpoint frame generation or establish peer parity."
+      "primary_evidence": "C provider opens the published valid cipher-1 frames, accepts the authenticated ttl_only mutation, and rejects the seven AEAD-invalid mutations; this does not exercise production endpoint frame generation or establish peer parity.",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_recovery_vectors.py::RecoveryVectorsRegressionTests.test_vector_provenance_and_security_vector_link",
+        "tests/peer/tests/test_recovery_vectors.py::RecoveryVectorsRegressionTests.test_valid_cipher1_vectors_aad_and_peer_crypto",
+        "tests/peer/tests/test_recovery_vectors.py::RecoveryVectorsRegressionTests.test_ttl_only_authenticated_mutation",
+        "tests/peer/tests/test_recovery_vectors.py::RecoveryVectorsRegressionTests.test_all_seven_aead_invalid_mutations_rejected_without_replay_advance",
+        "tests/peer/tests/test_p21d_selective_state.py::SelectiveTransferTests.test_rejects_invalid_masks_and_nonadvancing_or_invalid_sequences",
+        "tests/peer/tests/test_p21d_selective_edges.py::P21DSelectiveEdgeTests.test_wrong_service_and_reference_leave_recovery_state_unchanged"
+      ],
+      "peer_evidence": "The independent Python peer derives AAD from the SEC-1 canonical header and reproduces exact supported cipher-1 FRAG_STATUS bytes. It accepts the authenticated TTL-only mutation and rejects seven invalid mutations without replay-window advance. Existing peer state and endpoint tests reject invalid masks and wrong service or reference; this is host evidence."
     },
     {
       "id": "sel-r7-type8",
