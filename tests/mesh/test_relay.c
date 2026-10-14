@@ -86,6 +86,7 @@ static void fill_profile(dmp_config *in)
     in->fragments = 32U;
     in->chunk_bytes = 32U;
     in->encoded_mtu = RADIO_MTU;
+    in->frame_tx_ms = RADIO_FRAME_TX_MS;
     in->forward_mtu = RADIO_MTU;
     in->return_mtu = RADIO_MTU;
     in->queue_ms = RADIO_QUEUE_MS;
@@ -714,6 +715,47 @@ static int run(void)
 
     CHECK(dmp_mesh_relay_init(&relay) == DMP_OK);
     CHECK(build_integrity(frame, sizeof frame, &frame_n, 30U, 2U));
+    {
+        dmp_mesh_cache_slot cache_before[8];
+        dmp_mesh_forward_out fwd_before;
+        size_t ttl_offset = 4U;
+        uint8_t original_ttl_byte = frame[ttl_offset];
+
+        CHECK(original_ttl_byte == (uint8_t)((2U << 4) | 1U));
+        slots_before = occupied(cache, 8U);
+        memcpy(cache_before, cache, sizeof cache_before);
+        memcpy(outbuf, sentinel, sizeof outbuf);
+        memset(&fwd, 0, sizeof fwd);
+        fwd.written = 55U;
+        fwd.transmit_at = 77U;
+        fwd.next_hop = 99U;
+        fwd_before = fwd;
+
+        /* Mutate encoded TTL while keeping original CRC-32C trailer intact. */
+        frame[ttl_offset] = (uint8_t)((3U << 4) | 1U);
+        result = dmp_core_parse((dmp_bytes){frame, frame_n}, &limits, &parsed);
+        CHECK(result.status == DMP_OK);
+        CHECK(parsed.fields.route.ttl == 3U);
+        CHECK(!crc_matches(frame, frame_n));
+
+        req.frame.data = frame;
+        req.frame.size = frame_n;
+        req.now = 192U;
+        req.tx_complete_at = 192U + RADIO_FRAME_TX_MS;
+        CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) ==
+              DMP_INTEGRITY_FAILURE);
+        CHECK(fwd.written == fwd_before.written);
+        CHECK(fwd.transmit_at == fwd_before.transmit_at);
+        CHECK(fwd.next_hop == fwd_before.next_hop);
+        CHECK(memcmp(&fwd, &fwd_before, sizeof fwd) == 0);
+        CHECK(memcmp(outbuf, sentinel, sizeof outbuf) == 0);
+        CHECK(occupied(cache, 8U) == slots_before);
+        CHECK(memcmp(cache, cache_before, sizeof cache) == 0);
+
+        /* Restore original valid frame and confirm positive relay forward. */
+        frame[ttl_offset] = original_ttl_byte;
+        CHECK(crc_matches(frame, frame_n));
+    }
     req.frame.data = frame;
     req.frame.size = frame_n;
     req.now = 192U;
@@ -805,11 +847,174 @@ static int run(void)
     return failures;
 }
 
+static int test_unknown_safe_extension_forwarding(void)
+{
+    static const uint8_t isolated_vector[] = {0x47, 0x08, 0x80, 0x81, 0x02, 0x02, 0xDE, 0xAD};
+    dmp_config input;
+    dmp_admitted_profile admitted;
+    dmp_mesh_route routes[1];
+    dmp_mesh_cache_slot cache[2];
+    dmp_mesh_airtime airtime[2];
+    dmp_mesh_relay relay;
+    dmp_mesh_forward_in req;
+    dmp_mesh_forward_out fwd;
+    dmp_core_limits limits;
+    dmp_frame_spec spec;
+    dmp_frame_view parsed;
+    dmp_frame_view isolated_view;
+    dmp_role_policy role_policy;
+    dmp_parse_result result;
+    uint8_t ext[32];
+    uint8_t payload[4] = {0x01U, 0x02U, 0x03U, 0x04U};
+    uint8_t tag[16];
+    uint8_t frame[RADIO_MTU];
+    uint8_t outbuf[RADIO_MTU];
+    uint8_t sentinel[RADIO_MTU];
+    size_t frame_n = 0U;
+    size_t ext_n = 0U;
+    unsigned i;
+
+    memset(sentinel, 0xCC, sizeof sentinel);
+    for (i = 0U; i < sizeof tag; i++) {
+        tag[i] = (uint8_t)(0xC0U + i);
+    }
+
+    fill_profile(&input);
+    CHECK(dmp_config_admit(&input, &admitted) == DMP_OK);
+
+    routes[0].destination = 20U;
+    routes[0].next_hop = 40U;
+    memset(&relay, 0, sizeof relay);
+    relay.profile = &admitted;
+    relay.self_node = 30U;
+    relay.pn_filter = DMP_MESH_PN_REJECT_GE_2POW24;
+    relay.cooldown_ms = RADIO_COOLDOWN_MS;
+    relay.expiry_ms = RADIO_EXPIRY_MS;
+    relay.max_forwards_per_key = RADIO_MAX_FORWARDS;
+    relay.frame_tx_ms = RADIO_FRAME_TX_MS;
+    relay.per_origin_airtime_ms = RADIO_ORIGIN_AIRTIME_MS;
+    relay.global_airtime_ms = RADIO_GLOBAL_AIRTIME_MS;
+    relay.return_period_ms = RADIO_PERIOD_MS;
+    relay.return_width_ms = RADIO_WIDTH_MS;
+    relay.routes = routes;
+    relay.route_count = 1U;
+    relay.cache = cache;
+    relay.cache_count = 2U;
+    relay.airtime = airtime;
+    relay.airtime_count = 2U;
+    CHECK(dmp_mesh_relay_init(&relay) == DMP_OK);
+
+    limits.max_frame_bytes = RADIO_MTU;
+    limits.max_message_bytes = RADIO_MESSAGE;
+    limits.max_fragments = 32U;
+
+    /* Verify the isolated §22.6 vector:
+     * 1) Parses structurally.
+     * 2) Endpoint role policy rejects local delivery due to unknown C=1/U=0.
+     * 3) Forwarder role policy permits unknown safe extension.
+     * 4) Relay forward rejects it as malformed (lacks ROUTE and SEQ), not falsely treated as relay path. */
+    result = dmp_core_parse((dmp_bytes){isolated_vector, sizeof isolated_vector}, &limits, &isolated_view);
+    CHECK(result.status == DMP_OK && result.offset == sizeof isolated_vector);
+
+    role_policy = (dmp_role_policy){DMP_ROLE_ENDPOINT, 1U, false};
+    CHECK(dmp_core_check_role(&isolated_view, &role_policy) == DMP_UNSUPPORTED);
+
+    role_policy.role = DMP_ROLE_FORWARDER;
+    CHECK(dmp_core_check_role(&isolated_view, &role_policy) == DMP_OK);
+
+    memset(&req, 0, sizeof req);
+    req.direction = DMP_MESH_FORWARD;
+    req.now = 0U;
+    req.tx_complete_at = RADIO_FRAME_TX_MS;
+    req.frame.data = isolated_vector;
+    req.frame.size = sizeof isolated_vector;
+    req.limits = limits;
+    memcpy(outbuf, sentinel, sizeof outbuf);
+    fwd.written = 77U;
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) == DMP_MALFORMED);
+    CHECK(fwd.written == 77U);
+    CHECK(memcmp(outbuf, sentinel, sizeof outbuf) == 0);
+
+    /* Build a valid routed frame with SEQ, ROUTE=TO_NODE, valid CONTEXT, and
+     * unknown experimental extension ID 64 with C=1/U=0, value DE AD. */
+    /* 1. CONTEXT: ID=2, C=1, U=1 -> tag = (2<<2)|(1<<1)|1 = 11. len = 9 (ns=1, epoch=8). */
+    ext_n = put_uleb(ext, sizeof ext, 0U, 11U);
+    ext_n = put_uleb(ext, sizeof ext, ext_n, 9U);
+    ext[ext_n++] = 1U;
+    memset(ext + ext_n, 0, 8U);
+    ext[ext_n] = 0x08U;
+    ext_n += 8U;
+    /* 2. Unknown experimental ID 64: C=1, U=0 -> tag = (64<<2)|(0<<1)|1 = 257. len = 2. */
+    ext_n = put_uleb(ext, sizeof ext, ext_n, 257U);
+    ext_n = put_uleb(ext, sizeof ext, ext_n, 2U);
+    ext[ext_n++] = 0xDEU;
+    ext[ext_n++] = 0xADU;
+
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_DATA;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_SECURITY | DMP_OPT_EXT);
+    spec.fields.seq = 42U;
+    spec.fields.route.ttl = 3U;
+    spec.fields.route.mode = 1U;
+    spec.fields.route.source = 10U;
+    spec.fields.route.destination = 20U;
+    spec.fields.security.cipher = 1U;
+    spec.fields.security.receive_cid = 7U;
+    spec.fields.security.pn = 1U;
+    spec.extensions.data = ext;
+    spec.extensions.size = ext_n;
+    spec.payload.data = payload;
+    spec.payload.size = sizeof payload;
+    spec.trailer.data = tag;
+    spec.trailer.size = sizeof tag;
+
+    CHECK(dmp_core_encode(&spec, &limits, (dmp_buffer){frame, sizeof frame}, &frame_n) == DMP_OK);
+
+    /* Relay forward through configured route destination 20 -> next hop 40. */
+    req.frame.data = frame;
+    req.frame.size = frame_n;
+    req.now = 64U;
+    req.tx_complete_at = 64U + RADIO_FRAME_TX_MS;
+    memcpy(outbuf, sentinel, sizeof outbuf);
+    memset(&fwd, 0, sizeof fwd);
+    CHECK(dmp_mesh_relay_forward(&relay, &req, (dmp_buffer){outbuf, sizeof outbuf}, &fwd) == DMP_OK);
+
+    /* Acceptance checks:
+     * - Returns expected next hop.
+     * - Decrements only ROUTE.TTL (differs_only_by_ttl checks exact 1-byte diff in TTL).
+     * - Preserves the exact extension bytes byte-for-byte.
+     * - Payload and security trailer are unchanged.
+     * - The frame parses after forwarding. */
+    CHECK(fwd.next_hop == 40U);
+    CHECK(fwd.written == frame_n);
+    CHECK(differs_only_by_ttl(frame, outbuf, frame_n));
+
+    result = dmp_core_parse((dmp_bytes){outbuf, fwd.written}, &limits, &parsed);
+    CHECK(result.status == DMP_OK && result.offset == fwd.written);
+    CHECK(parsed.fields.route.ttl == 2U);
+    CHECK(parsed.fields.route.mode == 1U);
+    CHECK(parsed.fields.route.source == 10U);
+    CHECK(parsed.fields.route.destination == 20U);
+    CHECK(parsed.extensions.size == ext_n);
+    CHECK(memcmp(parsed.extensions.data, ext, ext_n) == 0);
+    CHECK(parsed.payload.size == sizeof payload);
+    CHECK(memcmp(parsed.payload.data, payload, sizeof payload) == 0);
+    CHECK(parsed.trailer.size == sizeof tag);
+    CHECK(memcmp(parsed.trailer.data, tag, sizeof tag) == 0);
+
+    return failures;
+}
+
 int main(void)
 {
     int result = run();
     if (result != 0) {
         fprintf(stderr, "relay failures %d\n", result);
+        return 1;
+    }
+    result = test_unknown_safe_extension_forwarding();
+    if (result != 0) {
+        fprintf(stderr, "unknown safe extension forwarding failures %d\n", result);
         return 1;
     }
     return 0;

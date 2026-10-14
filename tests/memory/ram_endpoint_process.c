@@ -59,7 +59,7 @@ typedef struct runtime_profile {
     size_t peers, operations_per_service, assemblies_per_peer, tombstones_per_peer;
     size_t sender_slots, result_slots, history_slots, correlation_slots, adapter_slots;
     size_t application_queue_slots, control_slots;
-    size_t encoded_mtu, forward_mtu, return_mtu;
+    size_t encoded_mtu, frame_tx_ms, forward_mtu, return_mtu;
     size_t queue_ms, response_timeout_ms, send_horizon_ms, max_bursts;
     size_t receipt_delay_ms, receipt_limit, dedup_ms, rejection_ms, result_cache_ms;
     size_t result_deadline_ms, correlation_ms, tombstone_ms, late_result_ms;
@@ -394,7 +394,10 @@ static int frame_key_from_transport(const uint8_t *data, size_t size, uint64_t n
             bound > sizeof storage) return 0;
         stream_config.mode = DMP_STREAM_R;
         stream_config.max_core_bytes = active_profile.encoded_mtu;
-        stream_config.partial_timeout_ms = active_profile.response_timeout_ms;
+        stream_config.partial_timeout_ms = (uint64_t)active_profile.frame_tx_ms +
+            (active_profile.forward_delay_ms > active_profile.return_delay_ms
+                 ? active_profile.forward_delay_ms
+                 : active_profile.return_delay_ms) + active_profile.record_margin_ms;
         if (dmp_stream_init(&decoder, stream_config, (dmp_buffer){storage, bound}, now) != DMP_OK) return 0;
         decoded = dmp_stream_feed(&decoder, (dmp_bytes){&sync_marker, 1U}, now);
         if (decoded.status != DMP_OK || decoded.event != DMP_STREAM_NONE || decoded.consumed != 1U)
@@ -571,6 +574,7 @@ static void fill_config(dmp_config *c, size_t message, const uint8_t profile_dig
     c->message_bytes = (uint32_t)message; c->fragments = (uint32_t)active_profile.fragments;
     c->chunk_bytes = (uint32_t)active_profile.chunk_bytes;
     c->encoded_mtu = (uint32_t)active_profile.encoded_mtu;
+    c->frame_tx_ms = (uint32_t)active_profile.frame_tx_ms;
     c->forward_mtu = (uint32_t)active_profile.forward_mtu;
     c->return_mtu = (uint32_t)active_profile.return_mtu;
     c->queue_ms = (uint32_t)active_profile.queue_ms;
@@ -695,6 +699,7 @@ static int manifest_parameters(const char *path, size_t *request)
     JNUM(active_profile.request_bytes, service, "request_bytes");
     JNUM(active_profile.result_bytes, service, "result_bytes");
     JNUM(active_profile.encoded_mtu, binding, "encoded_mtu");
+    JNUM(active_profile.frame_tx_ms, binding, "frame_tx_ms");
     JNUM(active_profile.forward_mtu, binding, "forward_mtu");
     JNUM(active_profile.return_mtu, binding, "return_mtu");
     JNUM(active_profile.queue_ms, timing, "queue_ms");
@@ -1282,7 +1287,8 @@ static int connect_peer_process(const char *exe, const char *manifest, socket_t 
 {
     uint16_t port = 0U; socket_t listener = listen_loopback(&port); struct sockaddr_in peer; socklen_t length = (socklen_t)sizeof peer;
     if (listener == BAD_SOCKET || !start_peer(exe, manifest, port, process)) { if (listener != BAD_SOCKET) CLOSE_SOCKET(listener); return 0; }
-    *connection = accept(listener, (struct sockaddr *)&peer, &length); CLOSE_SOCKET(listener); return *connection != BAD_SOCKET;
+    *connection = accept(listener, (struct sockaddr *)&peer, &length);
+    CLOSE_SOCKET(listener); return *connection != BAD_SOCKET;
 }
 static int peer_process_succeeded(
 #ifdef _WIN32

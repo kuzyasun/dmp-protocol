@@ -967,9 +967,15 @@ static int test_duplicate_metadata_and_service(void)
 {
     dmp_reliability_handle req;
     dmp_frame_view view;
+    dmp_frame_view ack_view;
+    dmp_message_key original_key;
+    dmp_message_key reply_key;
     dmp_reliability_input input;
     uint8_t mutated[MAX_MTU];
     dmp_bytes meta = span(META1, sizeof META1);
+    dmp_bytes reply;
+    uint8_t expect_reply[32];
+    size_t expect_n = 0U;
     dmp_time_ms deadline;
     enc_ctx craft;
     dmp_reliability_logical logical;
@@ -980,6 +986,11 @@ static int test_duplicate_metadata_and_service(void)
     CHECK(boot(&side_b, 1, 0) == 0);
     CHECK(submit_and_air(&side_a, 2U, span(PING, sizeof PING), 0U, &req) == 0);
     CHECK(parse_hold(&side_a, 0, &view) == 0);
+    CHECK(dmp_identity_source_key(&view, &side_b.table, side_b.handle, 0U, &original_key) == DMP_OK);
+    CHECK(original_key.origin.namespace_id == 1U);
+    CHECK(original_key.origin.origin_id == 10U);
+    CHECK(original_key.origin.epoch == 7U);
+    CHECK(original_key.seq == 0U);
     CHECK(extension_value(&view, 4U, &meta) == 0);
     CHECK(meta.size == 1U && meta.data[0] == 2U);
     CHECK(deliver_index(&side_a, 0, &side_b, 2U, span(META1, sizeof META1), span(NULL, 0), 0U,
@@ -1002,6 +1013,21 @@ static int test_duplicate_metadata_and_service(void)
     }
     CHECK(event_count(&side_b.notes, DMP_REL_EVENT_REQUEST_ACCEPTED) == 1);
     CHECK(side_b.history[0].deadline == deadline);
+    CHECK(side_b.tx.n == 1);
+    CHECK(parse_hold(&side_b, 0, &ack_view) == 0);
+    CHECK(ack_view.fields.type == DMP_TYPE_ACK);
+    CHECK(extension_value(&ack_view, 1U, &reply) == 0);
+    add_uleb(expect_reply, &expect_n, sizeof expect_reply, original_key.origin.namespace_id);
+    add_uleb(expect_reply, &expect_n, sizeof expect_reply, original_key.origin.origin_id);
+    add_u64le(expect_reply, &expect_n, sizeof expect_reply, original_key.origin.epoch);
+    add_uleb(expect_reply, &expect_n, sizeof expect_reply, original_key.seq);
+    CHECK(reply.size == expect_n);
+    CHECK(memcmp(reply.data, expect_reply, expect_n) == 0);
+    CHECK(dmp_identity_reply_to(&ack_view, &side_a.table, side_a.handle, 10U, &reply_key) == DMP_OK);
+    CHECK(reply_key.origin.namespace_id == original_key.origin.namespace_id);
+    CHECK(reply_key.origin.origin_id == original_key.origin.origin_id);
+    CHECK(reply_key.origin.epoch == original_key.origin.epoch);
+    CHECK(reply_key.seq == original_key.seq);
     input.immutable_metadata = span(META2, sizeof META2);
     CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 11U) == DMP_MALFORMED);
     CHECK(event_count(&side_b.notes, DMP_REL_EVENT_REQUEST_ACCEPTED) == 1);

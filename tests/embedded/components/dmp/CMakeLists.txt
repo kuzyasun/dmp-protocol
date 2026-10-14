@@ -19,10 +19,12 @@ idf_component_register(
         "${DMP_ROOT}/src/security/handshake_transport.c"
         "${DMP_ROOT}/src/application/sample1_epoch_owner.c"
         "${DMP_ROOT}/src/application/sample1_endpoint.c"
+        "${DMP_ROOT}/src/application/sample1_epoch_store.c"
     INCLUDE_DIRS "${DMP_ROOT}/include" "${DMP_ROOT}/src/application"
     PRIV_INCLUDE_DIRS
         "${DMP_ROOT}/third_party/noise-c/include"
-        "${DMP_ROOT}/tests/provider/backend")
+        "${DMP_ROOT}/tests/provider/backend"
+    REQUIRES nvs_flash)
 
 target_compile_features(${COMPONENT_LIB} PRIVATE c_std_11)
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Wpedantic -Werror)

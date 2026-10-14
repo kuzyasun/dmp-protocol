@@ -350,6 +350,75 @@ static int test_retryable_fence_busy_reserves_once(void)
     return 0;
 }
 
+static int test_read_during_epoch_transition_is_retried_after_activation(void)
+{
+    const dmp_sample1_transition_state transition_states[] = {
+        DMP_SAMPLE1_TRANSITION_RESERVED,
+        DMP_SAMPLE1_TRANSITION_FENCED,
+    };
+    dmp_identity_handle association = {1U, 2U};
+    dmp_reliability_handle request_handle = {3U, 4U, {0U, 1U}};
+    dmp_message_key request = {{7U, 10U, 3U}, 41U};
+    size_t i;
+
+    for (i = 0U; i < sizeof transition_states / sizeof transition_states[0]; ++i) {
+        dmp_sample1_epoch_owner owner;
+        dmp_sample1_epoch_owner_ports ports;
+        test_ports test;
+
+        initialize_test(&test);
+        test.has_previous = true;
+        test.previous = 12U;
+        test.next = 13U;
+        test.fence_result = transition_states[i] == DMP_SAMPLE1_TRANSITION_RESERVED
+                                ? DMP_SAMPLE1_PORT_BUSY
+                                : DMP_SAMPLE1_PORT_ACCEPTED;
+        test.activate_result = transition_states[i] == DMP_SAMPLE1_TRANSITION_FENCED
+                                   ? DMP_SAMPLE1_PORT_BUSY
+                                   : DMP_SAMPLE1_PORT_ACCEPTED;
+        ports = make_ports(&test);
+        CHECK(dmp_sample1_epoch_owner_init(&owner, principal(), &ports) ==
+              DMP_SAMPLE1_OWNER_OK);
+
+        CHECK(dmp_sample1_epoch_owner_begin_epoch(&owner, 1U) == DMP_SAMPLE1_OWNER_BUSY);
+        CHECK(!owner.stopped && !owner.active && owner.epoch == 0U &&
+              owner.transition_state == transition_states[i] &&
+              owner.transition_reserved_epoch == 13U);
+        CHECK(test.read_calls == 0U && !test.entered);
+
+        CHECK(dmp_sample1_epoch_owner_accept_read(&owner, association, request_handle,
+                                                  request, 2U) ==
+              DMP_SAMPLE1_OWNER_NOT_READY);
+        CHECK(dmp_sample1_epoch_owner_activate_association(&owner, association) ==
+              DMP_SAMPLE1_OWNER_NOT_READY);
+        CHECK(!owner.stopped && !owner.active && owner.epoch == 0U &&
+              owner.transition_state == transition_states[i] &&
+              owner.transition_reserved_epoch == 13U);
+        CHECK(test.read_calls == 0U && test.association_calls == 0U && !test.entered);
+
+        test.fence_result = DMP_SAMPLE1_PORT_ACCEPTED;
+        test.activate_result = DMP_SAMPLE1_PORT_ACCEPTED;
+        CHECK(dmp_sample1_epoch_owner_begin_epoch(&owner, 3U) == DMP_SAMPLE1_OWNER_OK);
+        CHECK(owner.active && !owner.stopped && owner.epoch == 13U &&
+              owner.transition_state == DMP_SAMPLE1_TRANSITION_IDLE);
+        CHECK(dmp_sample1_epoch_owner_activate_association(&owner, association) ==
+              DMP_SAMPLE1_OWNER_OK);
+        CHECK(test.association_calls == 1U && test.association_epoch == 13U);
+        CHECK(dmp_sample1_epoch_owner_publish(&owner, UINT32_C(0xAABBCCDD), 4U) ==
+              DMP_SAMPLE1_OWNER_OK);
+        CHECK(dmp_sample1_epoch_owner_accept_read(&owner, association, request_handle,
+                                                  request, 5U) == DMP_SAMPLE1_OWNER_OK);
+        CHECK(test.read_calls == 1U && test.read_status == 0U &&
+              test.read_len == DMP_SAMPLE1_READ_BYTES);
+        CHECK(test.read_payload[0] == DMP_SAMPLE1_READ_OPCODE &&
+              test.read_payload[1] == 13U && test.read_payload[9] == 1U &&
+              test.read_payload[13] == 0xDDU && test.read_payload[14] == 0xCCU &&
+              test.read_payload[15] == 0xBBU && test.read_payload[16] == 0xAAU);
+        CHECK(!test.entered);
+    }
+    return 0;
+}
+
 static int test_retryable_read_results_do_not_stop_owner(void)
 {
     const dmp_sample1_port_result outcomes[] = {
@@ -556,6 +625,7 @@ int main(void)
         test_first_boot_no_sample_read() != 0 ||
         test_fence_failure_stops_before_activation() != 0 ||
         test_retryable_fence_busy_reserves_once() != 0 ||
+        test_read_during_epoch_transition_is_retried_after_activation() != 0 ||
         test_retryable_read_results_do_not_stop_owner() != 0 ||
         test_rollback_and_exhaustion_fail_closed() != 0 ||
         test_uncertain_reserve_activation_read_and_publish_stop() != 0 ||

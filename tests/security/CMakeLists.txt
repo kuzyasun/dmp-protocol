@@ -215,6 +215,12 @@ foreach(name activation transport_reject_retry alter loss result_loss receipt_lo
     set_tests_properties(endpoint.protected_${name} PROPERTIES TIMEOUT 60 LABELS "endpoint")
 endforeach()
 
+add_test(NAME endpoint.security.ttl COMMAND dmp_test_endpoint_sec ttl)
+set_tests_properties(endpoint.security.ttl PROPERTIES TIMEOUT 60 LABELS "endpoint;security")
+
+add_test(NAME endpoint.security.control_reserve COMMAND dmp_test_endpoint_sec control_reserve)
+set_tests_properties(endpoint.security.control_reserve PROPERTIES TIMEOUT 60 LABELS "endpoint;security")
+
 # Reuse the SEC-1 endpoint scenarios with the separately hashed two-attempt
 # SAMPLE-1 test manifest. DIRECT-1 remains compiled and exercised above.
 set(_sample_retry_manifest

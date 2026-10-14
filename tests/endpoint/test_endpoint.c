@@ -229,8 +229,12 @@ static void fill_direct(dmp_config *config)
     config->fragments = 16U;
     config->chunk_bytes = 64U;
     config->encoded_mtu = MTU;
+    config->frame_tx_ms = 1U;
     config->forward_mtu = 256U;
     config->return_mtu = 256U;
+    config->forward_delay_ms = 20U;
+    config->return_delay_ms = 20U;
+    config->record_margin_ms = 5U;
     config->queue_ms = 64U;
     config->response_timeout_ms = 1280U;
     config->jitter_ms = 0U;
@@ -522,10 +526,11 @@ static void wire_finish(wire *link, dmp_tx_outcome outcome)
     complete(owner, token, outcome, link->now);
 }
 
-static int boot_with_binding(node *self, int producer, dmp_time_ms now,
-                             dmp_endpoint_framing_mode framing_mode, uint32_t encoded_mtu,
-                             uint32_t transport_mtu, uint32_t fragments,
-                             dmp_status expected_init)
+static int boot_with_binding_profile(node *self, int producer, dmp_time_ms now,
+                                     dmp_endpoint_framing_mode framing_mode,
+                                     uint32_t encoded_mtu, uint32_t transport_mtu,
+                                     uint32_t fragments, const dmp_config *profile_override,
+                                     int skip_admission, dmp_status expected_init)
 {
     dmp_config input;
     dmp_admitted_profile admitted;
@@ -540,7 +545,14 @@ static int boot_with_binding(node *self, int producer, dmp_time_ms now,
     if (encoded_mtu != 0U) {
         input.encoded_mtu = encoded_mtu;
     }
-    CHECK(dmp_config_admit(&input, &admitted) == DMP_OK);
+    if (profile_override != NULL) {
+        input = *profile_override;
+    }
+    if (skip_admission) {
+        admitted = input;
+    } else {
+        CHECK(dmp_config_admit(&input, &admitted) == DMP_OK);
+    }
     memset(&local, 0, sizeof local);
     memset(&peer, 0, sizeof peer);
     local.namespace_id = 1U;
@@ -635,8 +647,10 @@ static int boot_with_binding(node *self, int producer, dmp_time_ms now,
         storage.stream_rx = self->stream_rx;
         storage.stream_rx_capacity = sizeof self->stream_rx;
     }
-    storage.peer_state_capacity = 0U;
-    CHECK(dmp_endpoint_init(&self->endpoint, &storage, now) == DMP_INVALID_ARGUMENT);
+    if (expected_init == DMP_OK) {
+        storage.peer_state_capacity = 0U;
+        CHECK(dmp_endpoint_init(&self->endpoint, &storage, now) == DMP_INVALID_ARGUMENT);
+    }
     storage.peer_state_capacity = sizeof self->peer_states / sizeof self->peer_states[0];
     init_status = dmp_endpoint_init(&self->endpoint, &storage, now);
     if (init_status != expected_init) {
@@ -645,6 +659,9 @@ static int boot_with_binding(node *self, int producer, dmp_time_ms now,
     }
     CHECK(init_status == expected_init);
     if (expected_init != DMP_OK) {
+        CHECK(self->endpoint.initialized == 0U);
+        CHECK(self->endpoint.peer_count == 0U);
+        CHECK(self->endpoint.profile.peers == 0U);
         return 0;
     }
     CHECK(sizeof(dmp_reassembly_tombstone) == 48U);
@@ -654,10 +671,96 @@ static int boot_with_binding(node *self, int producer, dmp_time_ms now,
     return 0;
 }
 
+static int boot_with_binding(node *self, int producer, dmp_time_ms now,
+                             dmp_endpoint_framing_mode framing_mode, uint32_t encoded_mtu,
+                             uint32_t transport_mtu, uint32_t fragments,
+                             dmp_status expected_init)
+{
+    return boot_with_binding_profile(self, producer, now, framing_mode, encoded_mtu,
+                                     transport_mtu, fragments, NULL, 0, expected_init);
+}
+
 static int boot(node *self, int producer, dmp_time_ms now)
 {
     return boot_with_binding(self, producer, now, DMP_ENDPOINT_FRAMING_STREAM_R, 0U,
                              FRAME_CAP, 16U, DMP_OK);
+}
+
+static int test_runtime_selective_profile_validation(void)
+{
+    dmp_config profile;
+
+    fill_direct(&profile);
+    profile.recovery[0] = DMP_PROFILE_RECOVERY_SELECTIVE32;
+    CHECK(boot_with_binding_profile(&left, 1, 100U, DMP_ENDPOINT_FRAMING_STREAM_R,
+                                   0U, FRAME_CAP, 16U, &profile, 1,
+                                   DMP_UNSUPPORTED) == 0);
+
+    fill_direct(&profile);
+    profile.recovery[0] = DMP_PROFILE_RECOVERY_SELECTIVE32;
+    profile.burst_span_ms = 1U;
+    profile.forward_delay_ms = 1U;
+    profile.return_delay_ms = 1U;
+    profile.feedback_guard_ms = 1U;
+    profile.feedback_delay_ms = 1U;
+    profile.record_margin_ms = 1U;
+    profile.max_probes = 1U;
+    profile.max_status = 1U;
+    profile.max_bursts = 2U;
+    profile.response_timeout_ms = 1U;
+    profile.send_horizon_ms = 10U;
+    profile.collect_ms = 4U;
+    profile.assembly_ms = 12U;
+    CHECK(boot_with_binding_profile(&left, 1, 100U, DMP_ENDPOINT_FRAMING_STREAM_R,
+                                   0U, FRAME_CAP, 16U, &profile, 1,
+                                   DMP_UNSUPPORTED) == 0);
+
+    profile.response_timeout_ms = 6U;
+    profile.max_probes = 2U;
+    CHECK(boot_with_binding_profile(&left, 1, 100U, DMP_ENDPOINT_FRAMING_STREAM_R,
+                                   0U, FRAME_CAP, 16U, &profile, 1,
+                                   DMP_UNSUPPORTED) == 0);
+
+    profile.max_probes = 1U;
+    CHECK(boot_with_binding_profile(&left, 1, 100U, DMP_ENDPOINT_FRAMING_STREAM_R,
+                                   0U, FRAME_CAP, 16U, &profile, 1, DMP_OK) == 0);
+    return 0;
+}
+
+static int test_stream_partial_timeout_profile(void)
+{
+    dmp_config profile;
+    uint8_t partial[] = {0U, 0x01U};
+    uint8_t continuation = 0x02U;
+    dmp_stream_result expired;
+
+    fill_direct(&profile);
+    profile.collect_ms = 980U;
+    CHECK(boot_with_binding_profile(&left, 1, 100U, DMP_ENDPOINT_FRAMING_STREAM_R,
+                                    0U, FRAME_CAP, 16U, &profile, 0, DMP_OK) == 0);
+    CHECK(left.endpoint.profile.collect_ms == 980U);
+    CHECK(left.endpoint.peers[0].decoder.config.partial_timeout_ms == 26U);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(partial, sizeof partial), 100U) == DMP_OK);
+    CHECK(left.endpoint.peers[0].decoder.timer_armed);
+    CHECK(left.endpoint.peers[0].decoder.deadline == 126U);
+    CHECK(dmp_endpoint_rx(&left.endpoint, span(&continuation, 1U), 110U) == DMP_OK);
+    CHECK(left.endpoint.peers[0].decoder.deadline == 126U);
+    expired = dmp_stream_poll(&left.endpoint.peers[0].decoder, 126U);
+    CHECK(expired.status == DMP_DEADLINE_EXPIRED);
+    CHECK(expired.event == DMP_STREAM_DISCARDED);
+
+    profile.frame_tx_ms = 2U;
+    profile.forward_delay_ms = 17U;
+    profile.return_delay_ms = 23U;
+    CHECK(boot_with_binding_profile(&left, 1, 100U, DMP_ENDPOINT_FRAMING_STREAM_R,
+                                    0U, FRAME_CAP, 16U, &profile, 0, DMP_OK) == 0);
+    CHECK(left.endpoint.peers[0].decoder.config.partial_timeout_ms == 30U);
+
+    profile.frame_tx_ms = 0U;
+    CHECK(boot_with_binding_profile(&left, 1, 100U, DMP_ENDPOINT_FRAMING_STREAM_R,
+                                    0U, FRAME_CAP, 16U, &profile, 0,
+                                    DMP_INVALID_ARGUMENT) == 0);
+    return 0;
 }
 
 static int deliver(node *from, node *to, dmp_time_ms now, int limit)
@@ -2089,6 +2192,12 @@ int main(int argc, char **argv)
     if (strcmp(name, "single_frame_profile") == 0 || strcmp(name, "all") == 0) {
         failed |= test_single_frame_profile();
     }
+    if (strcmp(name, "selective_profile_runtime") == 0) {
+        failed |= test_runtime_selective_profile_validation();
+    }
+    if (strcmp(name, "stream_timeout_profile") == 0 || strcmp(name, "all") == 0) {
+        failed |= test_stream_partial_timeout_profile();
+    }
     if (strcmp(name, "sample_snapshot") == 0 || strcmp(name, "all") == 0) {
         failed |= test_sample_snapshot();
     }
@@ -2154,6 +2263,8 @@ int main(int argc, char **argv)
     }
     if (strcmp(name, "sample1") != 0 && strcmp(name, "packet") != 0 &&
         strcmp(name, "single_frame_profile") != 0 &&
+        strcmp(name, "selective_profile_runtime") != 0 &&
+        strcmp(name, "stream_timeout_profile") != 0 &&
         strcmp(name, "sample_snapshot") != 0 &&
         strcmp(name, "fragment") != 0 && strcmp(name, "fragment_replay") != 0 &&
         strcmp(name, "fragment_tlv") != 0 && strcmp(name, "retry") != 0 &&

@@ -148,6 +148,10 @@ typedef struct dmp_config {
     uint32_t fragments;
     uint32_t chunk_bytes;
     uint32_t encoded_mtu;
+    /* Stream R candidate timeout derives from this complete-frame bound plus
+     * max(forward_delay_ms, return_delay_ms) and record_margin_ms. Packet mode
+     * ignores this binding field. */
+    uint32_t frame_tx_ms;
     uint32_t forward_mtu;
     uint32_t return_mtu;
     uint32_t queue_ms;

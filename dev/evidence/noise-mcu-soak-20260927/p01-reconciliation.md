@@ -152,6 +152,18 @@ and leaves both output objects zeroed. Its remote-public probes verify the
 NULL-pointer preserve and closed-handshake wipe cases. The existing authentication-failure
 decrypt case continues to assert zeroed plaintext output.
 
+On 2026-10-14, `output-contract` added sentinel checks for null DH key inputs
+and an invalid key length. `null-provider-output` now checks 11 output APIs with
+`provider == NULL`, asserting `INVALID` and unchanged output buffers, wrappers,
+and lengths. It also checks early `cipher_decrypt` rejection for NULL AAD with
+nonzero length, `packet_number == UINT64_MAX`, and NULL `cipher`, `buffer`, or
+`out_len`. Reachable caller outputs and provider accounting stay unchanged, then
+the valid PN0 fixture decrypts on that same cipher. `dmp_test_provider` built;
+`security.provider_adapter` passed 1/1. Independent GPT-6.1-sol High review found
+no issue.
+These close the checked host validation branches only; exhaustive secret-copy
+mapping and target qualification remain open.
+
 `security.handshake` mutates the caller's RX storage after partial admission and
 after an `AWAITING` offer, then verifies owner-held processing still succeeds.
 It saves flight 2 before mutation, accepts the owner-held copy, and re-submits

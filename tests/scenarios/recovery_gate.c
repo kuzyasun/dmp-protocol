@@ -395,6 +395,10 @@ static void fill_common(dmp_config *config)
     config->correlation_slots = CORRELATIONS;
     config->application_queue_slots = 2U;
     config->message_bytes = MESSAGE;
+    config->frame_tx_ms = 1U;
+    config->forward_delay_ms = 20U;
+    config->return_delay_ms = 20U;
+    config->record_margin_ms = 5U;
     config->queue_ms = 64U;
     config->jitter_ms = 0U;
     config->receipt_delay_ms = RADIO_RECEIPT_MS;
@@ -429,13 +433,13 @@ static void fill_radio_numbers(dmp_config *config, int retry_all)
     config->collect_ms = 10772U;
     config->assembly_ms = RADIO_ASSEMBLY_MS;
     config->burst_span_ms = retry_all ? 0U : 2048U;
-    config->forward_delay_ms = retry_all ? 0U : 20U;
-    config->return_delay_ms = retry_all ? 0U : 20U;
+    config->forward_delay_ms = 20U;
+    config->return_delay_ms = 20U;
     config->feedback_guard_ms = retry_all ? 0U : 4U;
     config->feedback_delay_ms = retry_all ? 0U : 110U;
     config->max_probes = retry_all ? 0U : 2U;
     config->max_status = retry_all ? 0U : 3U;
-    config->record_margin_ms = retry_all ? 0U : 5U;
+    config->record_margin_ms = 5U;
     config->origin_route = 1U;
     config->origin_ttl = 2U;
     config->freshness_required_mask = 2U;

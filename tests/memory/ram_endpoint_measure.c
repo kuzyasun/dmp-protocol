@@ -106,7 +106,10 @@ static void fill_config(dmp_config *c, size_t message)
     c->adapter_slots = SLOTS; c->application_queue_slots = 1U; c->control_slots = 2U;
     c->message_bytes = (uint32_t)message; c->fragments = (uint32_t)(message / CHUNK);
     c->chunk_bytes = CHUNK; c->encoded_mtu = MTU;
+    c->frame_tx_ms = 1U;
     c->forward_mtu = 256U; c->return_mtu = 256U;
+    c->forward_delay_ms = 20U; c->return_delay_ms = 20U;
+    c->record_margin_ms = 5U;
     c->queue_ms = 64U; c->response_timeout_ms = 1280U;
     c->send_horizon_ms = 5632U; c->max_bursts = 3U;
     c->receipt_delay_ms = 110U; c->receipt_limit = 3U;

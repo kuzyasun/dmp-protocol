@@ -92,9 +92,9 @@ typedef enum {
 } dmp_endpoint_framing_mode;
 
 /* Every buffer and peer-state slot is caller-owned for the whole endpoint
- * lifetime. peer_state_capacity must cover admitted profile.peers; the
- * endpoint initializes only those admitted slots. Other slot counts must be
- * at least the admitted profile. Extra bytes do not raise quotas.
+ * lifetime. peer_state_capacity must cover profile.peers; the endpoint
+ * revalidates the profile before initializing those slots. Other slot counts
+ * must be at least the admitted profile. Extra bytes do not raise quotas.
  * fragment_message, telemetry_payload, and telemetry_next each hold one
  * message_bytes region per admitted peer. fragment_frame/telemetry_frame hold
  * decoded Core frames (the larger directional MTU). In Stream R mode, stream_tx
@@ -322,9 +322,13 @@ typedef struct {
     uint8_t ext_scratch[DMP_MAX_HEADER_BYTES];
 } dmp_endpoint;
 
-/* In Stream R mode, now is the first monotonic time the decoder may observe.
- * Failure leaves *endpoint uninitialized only when the caller zeros it before
- * retry; a context may already be open in the caller table. */
+/* In Stream R mode, profile.frame_tx_ms and profile.record_margin_ms must be
+ * nonzero. The endpoint derives each decoder's fixed partial-candidate timeout
+ * as frame_tx_ms + max(forward_delay_ms, return_delay_ms) + record_margin_ms;
+ * collect_ms remains the independent application collection bound. `now` is
+ * the first monotonic time the decoder may observe. Failure leaves *endpoint
+ * uninitialized only when the caller zeros it before retry; a context may
+ * already be open in the caller table. */
 dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage *storage,
                              dmp_time_ms now);
 

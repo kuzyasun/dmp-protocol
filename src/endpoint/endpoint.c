@@ -1,4 +1,5 @@
 #include "dmp/endpoint.h"
+#include "dmp/identity.h"
 
 #include "../security/handshake.h"
 
@@ -128,6 +129,21 @@ static uint32_t max_core_mtu(const dmp_admitted_profile *profile)
 {
     return profile->forward_mtu > profile->return_mtu ? profile->forward_mtu
                                                       : profile->return_mtu;
+}
+
+static dmp_status stream_partial_timeout(const dmp_admitted_profile *profile,
+                                        uint64_t *out)
+{
+    uint32_t path_delay;
+    if (profile == NULL || out == NULL || profile->frame_tx_ms == 0U ||
+        profile->record_margin_ms == 0U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    path_delay = profile->forward_delay_ms > profile->return_delay_ms
+                     ? profile->forward_delay_ms
+                     : profile->return_delay_ms;
+    *out = (uint64_t)profile->frame_tx_ms + path_delay + profile->record_margin_ms;
+    return DMP_OK;
 }
 
 static uint8_t *peer_fragment_buffer(dmp_endpoint *endpoint)
@@ -1098,23 +1114,31 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     dmp_reassembly_storage assembly;
     dmp_stream_config stream;
     dmp_buffer stream_storage;
+    dmp_admitted_profile admitted_profile;
+    const dmp_admitted_profile *profile;
     dmp_hs_admission_limits hs_limits;
     size_t stream_bound = 0U;
     size_t stream_rx_need = 0U;
     size_t peer_message_need = 0U;
     uint64_t required_freshness = 0U;
+    uint64_t stream_timeout_ms = 0U;
     dmp_status status;
     if (endpoint == NULL || storage == NULL || storage->profile == NULL ||
         storage->transport == NULL || storage->notice == NULL || storage->context.security > 1U) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (storage->profile->peers == 0U || storage->profile->peers > DMP_PROFILE_MAX_PEERS ||
+    status = dmp_config_admit(storage->profile, &admitted_profile);
+    if (status != DMP_OK) {
+        return status;
+    }
+    profile = &admitted_profile;
+    if (profile->peers == 0U || profile->peers > DMP_PROFILE_MAX_PEERS ||
         storage->peer_states == NULL ||
-        storage->peer_state_capacity < storage->profile->peers ||
-        storage->identity_capacity < (size_t)storage->profile->peers * 2U) {
+        storage->peer_state_capacity < profile->peers ||
+        storage->identity_capacity < (size_t)profile->peers * 2U) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (storage->profile->peers > 1U &&
+    if (profile->peers > 1U &&
         (storage->context.security != 1U || storage->handshake_admission == NULL ||
          storage->handshake_admission_capacity < dmp_hs_admission_size() ||
          storage->handshake_max_pending == 0U || storage->handshake_max_scratch == 0U ||
@@ -1122,40 +1146,44 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
         return DMP_UNSUPPORTED;
     }
     if (storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R) {
-        status = dmp_stream_encoded_bound(DMP_STREAM_R, max_core_mtu(storage->profile),
+        status = stream_partial_timeout(profile, &stream_timeout_ms);
+        if (status != DMP_OK) {
+            return status;
+        }
+        status = dmp_stream_encoded_bound(DMP_STREAM_R, max_core_mtu(profile),
                                           &stream_bound);
         if (status != DMP_OK) {
             return status;
         }
     } else if (storage->framing_mode == DMP_ENDPOINT_FRAMING_PACKET) {
         stream_bound = 0U;
-        if (storage->profile->encoded_mtu < max_core_mtu(storage->profile)) {
+        if (profile->encoded_mtu < max_core_mtu(profile)) {
             return DMP_INVALID_ARGUMENT;
         }
     } else {
         return DMP_INVALID_ARGUMENT;
     }
-    if (stream_bound != 0U && storage->profile->peers > SIZE_MAX / stream_bound) {
+    if (stream_bound != 0U && profile->peers > SIZE_MAX / stream_bound) {
         return DMP_LIMIT_EXHAUSTED;
     }
-    stream_rx_need = (size_t)storage->profile->peers * stream_bound;
-    if (storage->profile->message_bytes == 0U ||
-        storage->profile->peers > SIZE_MAX / storage->profile->message_bytes) {
+    stream_rx_need = (size_t)profile->peers * stream_bound;
+    if (profile->message_bytes == 0U ||
+        profile->peers > SIZE_MAX / profile->message_bytes) {
         return DMP_LIMIT_EXHAUSTED;
     }
-    peer_message_need = (size_t)storage->profile->peers * storage->profile->message_bytes;
+    peer_message_need = (size_t)profile->peers * profile->message_bytes;
     if (storage->transport->submit == NULL || storage->transport->cancel == NULL ||
         (storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R &&
-         storage->profile->encoded_mtu < stream_bound) ||
-        storage->transport->caps.max_frame_bytes < storage->profile->encoded_mtu ||
-        (storage->profile->tx_borrow ? 1 : 0) !=
+         profile->encoded_mtu < stream_bound) ||
+        storage->transport->caps.max_frame_bytes < profile->encoded_mtu ||
+        (profile->tx_borrow ? 1 : 0) !=
             (storage->transport->caps.ownership == DMP_TX_BORROW ? 1 : 0) ||
-        storage->profile->synchronous_completion != storage->transport->caps.synchronous_completion) {
+        profile->synchronous_completion != storage->transport->caps.synchronous_completion) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (storage->profile->freshness_required_mask != 0U) {
-        required_freshness = (uint64_t)storage->profile->freshness_tokens_per_association * 2U *
-                             storage->profile->peers;
+    if (profile->freshness_required_mask != 0U) {
+        required_freshness = (uint64_t)profile->freshness_tokens_per_association * 2U *
+                             profile->peers;
         if (storage->context.security != 1U) {
             return DMP_UNSUPPORTED;
         }
@@ -1167,25 +1195,25 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
     if (require_span(1U, storage->identity_slots, storage->identity_capacity) != DMP_OK ||
         require_span(peer_message_need, storage->fragment_message,
                      storage->fragment_message_capacity) != DMP_OK ||
-        require_span(max_core_mtu(storage->profile), storage->fragment_frame,
+        require_span(max_core_mtu(profile), storage->fragment_frame,
                      storage->fragment_frame_capacity) != DMP_OK ||
         require_span(peer_message_need, storage->telemetry_payload,
                      storage->telemetry_payload_capacity) != DMP_OK ||
         require_span(peer_message_need, storage->telemetry_next,
                      storage->telemetry_next_capacity) != DMP_OK ||
-        require_span(max_core_mtu(storage->profile), storage->telemetry_frame,
+        require_span(max_core_mtu(profile), storage->telemetry_frame,
                      storage->telemetry_frame_capacity) != DMP_OK ||
         (storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R &&
-         require_span(storage->profile->encoded_mtu, storage->stream_tx,
+         require_span(profile->encoded_mtu, storage->stream_tx,
                       storage->stream_tx_capacity) != DMP_OK) ||
         (storage->framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R &&
          require_span(stream_rx_need, storage->stream_rx, storage->stream_rx_capacity) != DMP_OK) ||
-        storage->assembly_capacity < storage->profile->assembly_slots ||
-        storage->tombstone_capacity < storage->profile->assembly_tombstone_slots) {
+        storage->assembly_capacity < profile->assembly_slots ||
+        storage->tombstone_capacity < profile->assembly_tombstone_slots) {
         return DMP_INVALID_ARGUMENT;
     }
     memset(endpoint, 0, sizeof *endpoint);
-    endpoint->profile = *storage->profile;
+    endpoint->profile = admitted_profile;
     endpoint->mem = *storage;
     endpoint->mem.profile = &endpoint->profile;
     endpoint->peers = storage->peer_states;
@@ -1308,8 +1336,7 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
         memset(&stream, 0, sizeof stream);
         stream.mode = DMP_STREAM_R;
         stream.max_core_bytes = receive_core_mtu(endpoint);
-        stream.partial_timeout_ms =
-            endpoint->profile.collect_ms != 0U ? endpoint->profile.collect_ms : 1U;
+        stream.partial_timeout_ms = stream_timeout_ms;
         stream_storage.data = storage->stream_rx;
         stream_storage.capacity = endpoint->stream_rx_stride;
         status = dmp_stream_init(&PEER(endpoint, decoder), stream, stream_storage, now);
@@ -1332,6 +1359,7 @@ dmp_status dmp_endpoint_add_peer(dmp_endpoint *endpoint,
     dmp_identity_handle identity;
     uint32_t slot;
     uint64_t generation;
+    uint64_t stream_timeout_ms = 0U;
     dmp_status status;
     if (!ready(endpoint) || context == NULL || out == NULL ||
         endpoint->profile.peers <= 1U || endpoint->peer_count >= endpoint->profile.peers ||
@@ -1341,6 +1369,12 @@ dmp_status dmp_endpoint_add_peer(dmp_endpoint *endpoint,
         context->peer.origin_id == 0U || context->peer.origin_id == context->local.origin_id ||
         context->local.origin_id != endpoint->mem.context.local.origin_id) {
         return DMP_INVALID_ARGUMENT;
+    }
+    if (endpoint->mem.framing_mode == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        status = stream_partial_timeout(&endpoint->profile, &stream_timeout_ms);
+        if (status != DMP_OK) {
+            return status;
+        }
     }
     /* Check every live identity before choosing a reusable slot. Otherwise an
      * early free slot can hide a duplicate principal in a later slot. */
@@ -1400,8 +1434,7 @@ dmp_status dmp_endpoint_add_peer(dmp_endpoint *endpoint,
         memset(&stream, 0, sizeof stream);
         stream.mode = DMP_STREAM_R;
         stream.max_core_bytes = receive_core_mtu(endpoint);
-        stream.partial_timeout_ms =
-            endpoint->profile.collect_ms != 0U ? endpoint->profile.collect_ms : 1U;
+        stream.partial_timeout_ms = stream_timeout_ms;
         stream_storage.data = endpoint->mem.stream_rx + (size_t)slot * endpoint->stream_rx_stride;
         stream_storage.capacity = endpoint->stream_rx_stride;
         status = dmp_stream_init(&peer->decoder, stream, stream_storage, now);

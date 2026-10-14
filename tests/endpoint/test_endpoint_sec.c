@@ -287,8 +287,11 @@ static uint32_t g_endpoint_test_encoded_mtu;
 static uint32_t g_endpoint_test_sender_id;
 static uint32_t g_endpoint_test_peer_count;
 static uint32_t g_endpoint_test_scratch_slots;
+static uint32_t g_endpoint_test_operations_per_service;
+static uint32_t g_endpoint_test_queue_ms;
 static uint32_t g_endpoint_test_result_slots;
 static uint32_t g_endpoint_test_handshake_pending;
+static uint32_t g_endpoint_test_next_rx_cid;
 static struct dmp_hs_admission *g_endpoint_test_admission;
 static void *g_endpoint_test_admission_storage;
 static int g_endpoint_test_responder_admission_only;
@@ -738,8 +741,12 @@ static void p23_apply_profile_config(dmp_config *config) {
   config->fragments = 32U;
   config->chunk_bytes = 32U;
   config->encoded_mtu = 256U;
+  config->frame_tx_ms = 1U;
   config->forward_mtu = 256U;
   config->return_mtu = 256U;
+  config->forward_delay_ms = 20U;
+  config->return_delay_ms = 20U;
+  config->record_margin_ms = 5U;
   config->response_timeout_ms = 2304U;
   config->send_horizon_ms = 10752U;
   config->receipt_delay_ms = 110U;
@@ -793,7 +800,9 @@ static void p23_apply_direct_profile_config(dmp_config *config) {
   config->peers = g_endpoint_test_peer_count != 0U
                        ? g_endpoint_test_peer_count
                        : 1U;
-  config->operations_per_service = 1U;
+  config->operations_per_service = g_endpoint_test_operations_per_service != 0U
+                                       ? g_endpoint_test_operations_per_service
+                                       : 1U;
   config->assemblies_per_peer = 1U;
   config->assembly_tombstones_per_peer = 16U;
   config->sender_slots = 4U;
@@ -811,7 +820,9 @@ static void p23_apply_direct_profile_config(dmp_config *config) {
   config->encoded_mtu = 263U;
   config->forward_mtu = 256U;
   config->return_mtu = 256U;
-  config->queue_ms = 64U;
+  config->queue_ms = g_endpoint_test_queue_ms != 0U
+                         ? g_endpoint_test_queue_ms
+                         : 64U;
   config->response_timeout_ms = 1280U;
   config->send_horizon_ms = 5632U;
   config->max_bursts = 3U;
@@ -856,7 +867,9 @@ static void fill_direct(dmp_config *config, uint32_t chunk,
   config->peers = g_endpoint_test_peer_count != 0U
                        ? g_endpoint_test_peer_count
                        : 1U;
-  config->operations_per_service = 1U;
+  config->operations_per_service = g_endpoint_test_operations_per_service != 0U
+                                       ? g_endpoint_test_operations_per_service
+                                       : 1U;
   config->assemblies_per_peer = 1U;
   config->assembly_tombstones_per_peer = TOMBSTONES;
   config->sender_slots = SENDERS;
@@ -878,9 +891,15 @@ static void fill_direct(dmp_config *config, uint32_t chunk,
   config->encoded_mtu = g_endpoint_test_encoded_mtu != 0U
                             ? g_endpoint_test_encoded_mtu
                             : MTU;
+  config->frame_tx_ms = 1U;
   config->forward_mtu = 256U;
   config->return_mtu = 256U;
-  config->queue_ms = 64U;
+  config->forward_delay_ms = 20U;
+  config->return_delay_ms = 20U;
+  config->record_margin_ms = 5U;
+  config->queue_ms = g_endpoint_test_queue_ms != 0U
+                         ? g_endpoint_test_queue_ms
+                         : 64U;
   config->response_timeout_ms = 1280U;
   config->jitter_ms = 0U;
   config->send_horizon_ms = 5632U;
@@ -1491,6 +1510,15 @@ static void tune_test_sender_identity(dmp_hs_config *initiator,
     initiator->peer_id = ID_RESP;
     responder->local_id = ID_RESP;
     responder->peer_id = g_endpoint_test_sender_id;
+}
+
+static void tune_control_reserve_sender_cid(dmp_hs_config *initiator,
+                                            dmp_hs_config *responder)
+{
+    (void)responder;
+    if (initiator != NULL && g_endpoint_test_next_rx_cid != 0U) {
+        initiator->next_rx_cid = g_endpoint_test_next_rx_cid;
+    }
 }
 
 static void tune_test_local_initiator_identity(dmp_hs_config *initiator,
@@ -2269,6 +2297,246 @@ static int test_result_loss(void)
     return 0;
 }
 
+static int test_control_reserve_under_hello_flood(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    session flood_peer;
+    port_ctx port;
+    port_ctx flood_port;
+    uint32_t index = 0U;
+    dmp_time_ms now = 20000U;
+    uint8_t req[1];
+    uint8_t s2_req[4] = {0x11, 0x22, 0x33, 0x44};
+    dmp_reliability_handle h1, h2, h3, h_busy, h_left;
+    dmp_status status;
+    dmp_hs_status hs_status;
+    uint32_t initial_pending;
+    uint32_t flood_pending;
+    uint8_t hello_core[64];
+    size_t hello_core_n = 0U;
+    dmp_frame_spec spec;
+    dmp_core_limits limits;
+    dmp_buffer out;
+    uint32_t crc = 0U;
+    uint8_t wrapped[128];
+    size_t wrapped_n = 0U;
+    uint8_t flood_attempt_ids[3][16];
+    uint8_t flood_ephemerals[3][32];
+    uint8_t flood_responder_ephemerals[2][32];
+    uint8_t flood_payloads[3][DMP_HS_PAYLOAD_MAX];
+    size_t flood_lengths[3] = {0U, 0U, 0U};
+    dmp_hs_ingress ingress;
+    dmp_hs_completion completion;
+    const uint8_t *cached;
+    size_t cached_len;
+    uint64_t boot_epoch;
+    uint32_t flood_index;
+    uint32_t flood_count = 0U;
+    uint32_t attempt_number;
+    size_t i;
+    int initial_right_submits;
+    uint8_t trailer[4] = {0};
+
+    g_endpoint_test_operations_per_service = 4U;
+    g_endpoint_test_queue_ms = 1000U;
+    memset(&flood_peer, 0, sizeof flood_peer);
+    memset(&flood_port, 0, sizeof flood_port);
+    memset(&env, 0, sizeof env);
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        close_session(&env);
+        g_endpoint_test_operations_per_service = 0U;
+        g_endpoint_test_queue_ms = 0U;
+        return 1;
+    }
+    CHECK(boot_node_slots(&left, 1, 64U, 16U, now, 2U) == 0);
+    CHECK(boot_node_slots(&right, 0, 64U, 16U, now, 2U) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+
+    /* Phase 1: Saturate application and retry queues on the responder ('right'). */
+    sample1_read_req(req);
+    right.wire.drop_remaining = 1;
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &h1) == DMP_OK);
+    right.wire.now = now;
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &h2) == DMP_OK);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 2U, span(s2_req, sizeof s2_req), now, &h3) == DMP_OK);
+
+    /* Application queue on 'right' is now full (queued_application == 2 == application_queue_slots). */
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &h_busy) == DMP_BUSY);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 2U, span(s2_req, sizeof s2_req), now, &h_busy) == DMP_BUSY);
+
+    /* Phase 2: Inbound request from 'left' admitted on 'right', establishing an ACK obligation. */
+    left.wire.now = now;
+    CHECK(dmp_endpoint_submit_req(&left.endpoint, 2U, span(s2_req, sizeof s2_req), now, &h_left) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&left.endpoint, now) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    CHECK(deliver_all(&left, &right, now) == 0);
+    CHECK(right.app.accepts == 1);
+
+    /* App queue remains saturated on 'right'. */
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &h_busy) == DMP_BUSY);
+
+    /* Phase 3: Flood with unauthenticated HELLO frames and bootstrap attempts. */
+    initial_pending = dmp_hs_pending(env.responder);
+    CHECK(initial_pending == 0U);
+
+    /* 3A: Wire-level unauthenticated HELLO frames. */
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = DMP_TYPE_HELLO;
+    spec.fields.options = DMP_OPT_SEQ | DMP_OPT_INTEGRITY;
+    spec.fields.seq = 1U;
+    spec.fields.integrity = 1U;
+    spec.trailer = span(trailer, sizeof trailer);
+    limits.max_frame_bytes = MTU;
+    limits.max_message_bytes = MESSAGE;
+    limits.max_fragments = 32U;
+    out.data = hello_core;
+    out.capacity = sizeof hello_core;
+    CHECK(dmp_core_encode(&spec, &limits, out, &hello_core_n) == DMP_OK);
+    crc = 0U;
+    CHECK(dmp_crc32c(span(hello_core, hello_core_n - 4U), &crc) == DMP_OK);
+    hello_core[hello_core_n - 4U] = (uint8_t)crc;
+    hello_core[hello_core_n - 3U] = (uint8_t)(crc >> 8);
+    hello_core[hello_core_n - 2U] = (uint8_t)(crc >> 16);
+    hello_core[hello_core_n - 1U] = (uint8_t)(crc >> 24);
+    CHECK(wrap_core(hello_core, hello_core_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+
+    for (i = 0U; i < 20U; i++) {
+        status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now);
+        CHECK(status == DMP_AUTHENTICATION_FAILURE);
+    }
+
+    /* 3B: Offer real, distinct Noise flight-1 payloads to the live SEC-1
+     * responder. Hold the first two completions so they consume the fixture's
+     * exact max_pending=2 admission bound; a third valid offer must be refused. */
+    env.now = now;
+    for (attempt_number = 0U; attempt_number < 2U; attempt_number++) {
+        uint8_t salt = (uint8_t)(0x51U + attempt_number);
+
+        memcpy(flood_attempt_ids[attempt_number], fixture->attempt_id.data, 16U);
+        flood_attempt_ids[attempt_number][0] ^= salt;
+        memcpy(flood_ephemerals[attempt_number], fixture->init_ephemeral.data,
+               32U);
+        /* Match the established rotation fixture convention: change an
+         * unclamped scalar byte as well as the attempt identifier. */
+        flood_ephemerals[attempt_number][8] ^= salt;
+        memcpy(flood_responder_ephemerals[attempt_number],
+               fixture->resp_ephemeral.data, 32U);
+        flood_responder_ephemerals[attempt_number][8] ^= salt;
+        script_add(&env.init_script, flood_attempt_ids[attempt_number], 16U);
+        script_add(&env.init_script, flood_ephemerals[attempt_number], 32U);
+        script_add(&env.resp_script,
+                   flood_responder_ephemerals[attempt_number], 32U);
+
+        CHECK(dmp_hs_schedule(env.initiator, &flood_index) == DMP_HS_OK);
+        cached = dmp_hs_cached_flight(env.initiator, flood_index, &cached_len);
+        CHECK(cached != NULL && cached_len <= sizeof flood_payloads[0]);
+        memcpy(flood_payloads[flood_count], cached, cached_len);
+        flood_lengths[flood_count] = cached_len;
+        boot_epoch = dmp_hs_boot_epoch(env.initiator, flood_index);
+        CHECK(boot_epoch != 0U);
+
+        memset(&ingress, 0, sizeof ingress);
+        memset(&completion, 0, sizeof completion);
+        ingress.payload = flood_payloads[flood_count];
+        ingress.payload_len = flood_lengths[flood_count];
+        ingress.origin_id = ID_INIT;
+        ingress.destination_id = ID_RESP;
+        ingress.namespace_id = LOCAL_NS;
+        ingress.seq = 1U;
+        ingress.context_epoch = boot_epoch;
+        hs_status = dmp_hs_offer(env.responder, &ingress, &completion);
+        if (hs_status != DMP_HS_AWAITING) {
+            (void)fprintf(stderr,
+                          "bootstrap offer %u returned %d (pending=%u, bytes=%zu)\n",
+                          flood_count, (int)hs_status,
+                          dmp_hs_pending(env.responder), flood_lengths[flood_count]);
+        }
+        CHECK(hs_status == DMP_HS_AWAITING);
+        CHECK(completion.generation != 0U);
+        flood_count++;
+        CHECK(dmp_hs_pending(env.responder) == flood_count);
+    }
+
+    /* Use the same process-wide Noise provider for an additional attacker
+     * instance; the fixture's allocator/entropy hooks are serialized. */
+    g_endpoint_test_next_rx_cid = CID_INIT + 0x100U;
+    CHECK(make_pair(&flood_peer, &flood_port, fixture,
+                    tune_control_reserve_sender_cid, env.provider, 0));
+    g_endpoint_test_next_rx_cid = 0U;
+    flood_peer.now = now;
+    memcpy(flood_attempt_ids[2], fixture->attempt_id.data, 16U);
+    flood_attempt_ids[2][0] ^= 0x53U;
+    memcpy(flood_ephemerals[2], fixture->init_ephemeral.data, 32U);
+    flood_ephemerals[2][8] ^= 0x53U;
+    flood_peer.init_script.data[0] = flood_attempt_ids[2];
+    flood_peer.init_script.len[0] = 16U;
+    flood_peer.init_script.data[1] = flood_ephemerals[2];
+    flood_peer.init_script.len[1] = 32U;
+    CHECK(dmp_hs_schedule(flood_peer.initiator, &flood_index) == DMP_HS_OK);
+    cached = dmp_hs_cached_flight(flood_peer.initiator, flood_index, &cached_len);
+    CHECK(cached != NULL && cached_len <= sizeof flood_payloads[0]);
+    memcpy(flood_payloads[2], cached, cached_len);
+    flood_lengths[2] = cached_len;
+    boot_epoch = dmp_hs_boot_epoch(flood_peer.initiator, flood_index);
+    CHECK(boot_epoch != 0U);
+    memset(&ingress, 0, sizeof ingress);
+    memset(&completion, 0, sizeof completion);
+    ingress.payload = flood_payloads[2];
+    ingress.payload_len = flood_lengths[2];
+    ingress.origin_id = ID_INIT;
+    ingress.destination_id = ID_RESP;
+    ingress.namespace_id = LOCAL_NS;
+    ingress.seq = 1U;
+    ingress.context_epoch = boot_epoch;
+    hs_status = dmp_hs_offer(env.responder, &ingress, &completion);
+    CHECK(hs_status == DMP_HS_REFUSED);
+    flood_count++;
+    CHECK(flood_count == 3U);
+    close_session(&flood_peer);
+
+    /* Assert the exact configured handshake bound and preserve the established
+     * association while unauthenticated bootstrap work is present. */
+    flood_pending = dmp_hs_pending(env.responder);
+    CHECK(flood_pending == 2U);
+    CHECK(dmp_hs_association_active(env.responder) == 1);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now, &h_busy) == DMP_BUSY);
+
+    /* Phase 4: Advance time past receipt_delay_ms and verify ACK transmission. */
+    now += 120U;
+    right.wire.now = now;
+    left.wire.now = now;
+    CHECK(right.endpoint.profile.queue_ms == 1000U);
+    CHECK(right.endpoint.reliability.storage.senders[h2.slot].live);
+    CHECK(right.endpoint.reliability.storage.senders[h2.slot].phase ==
+          DMP_REL_PHASE_QUEUED);
+    CHECK(right.endpoint.reliability.storage.senders[h2.slot].queue_deadline > now);
+    CHECK(right.endpoint.reliability.storage.senders[h3.slot].live);
+    CHECK(right.endpoint.reliability.storage.senders[h3.slot].phase ==
+          DMP_REL_PHASE_QUEUED);
+    CHECK(right.endpoint.reliability.storage.senders[h3.slot].queue_deadline > now);
+    CHECK(dmp_endpoint_submit_req(&right.endpoint, 1U, span(req, 1U), now,
+                                  &h_busy) == DMP_BUSY);
+    initial_right_submits = right.wire.submits;
+
+    CHECK(dmp_endpoint_poll(&right.endpoint, now) == DMP_OK);
+    CHECK(right.wire.submits > initial_right_submits);
+    CHECK(right.wire.n > 0);
+
+    /* Deliver the ACK to left and verify receipt. */
+    CHECK(deliver_all(&right, &left, now) == 0);
+    CHECK(left.endpoint.reliability.storage.senders[h_left.slot].receipt_seen == true);
+    CHECK(left.endpoint.reliability.storage.senders[h_left.slot].phase == DMP_REL_PHASE_AWAIT_RESULT);
+
+    close_session(&env);
+    g_endpoint_test_operations_per_service = 0U;
+    g_endpoint_test_queue_ms = 0U;
+    return 0;
+}
+
 static int test_receipt_loss(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -2556,7 +2824,7 @@ static int test_ttl(void)
     CHECK(status == DMP_AUTHENTICATION_FAILURE);
     CHECK(right.app.telems == 0);
     ttl_only[at + 2U] ^= 0x01U;
-    ttl_only[at] = (uint8_t)((9U << 4) | (ttl_only[at] & 0x0fU));
+    ttl_only[at] = (uint8_t)(ttl_only[at] & 0x0fU);
     CHECK(wrap_core(ttl_only, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
     status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now);
     CHECK(status == DMP_OK);
@@ -8684,6 +8952,9 @@ int main(int argc, char **argv) {
   if (strcmp(name, "receipt_loss") == 0 || strcmp(name, "all") == 0) {
     failed |= test_receipt_loss();
   }
+  if (strcmp(name, "control_reserve") == 0) {
+    failed |= test_control_reserve_under_hello_flood();
+  }
   if (strcmp(name, "sample_invalid_request") == 0 || strcmp(name, "all") == 0) {
     failed |= test_sample_invalid_request();
   }
@@ -8788,6 +9059,7 @@ int main(int argc, char **argv) {
       strcmp(name, "alter") != 0 &&
       strcmp(name, "loss") != 0 && strcmp(name, "isolate") != 0 &&
       strcmp(name, "result_loss") != 0 && strcmp(name, "receipt_loss") != 0 &&
+      strcmp(name, "control_reserve") != 0 &&
       strcmp(name, "sample_invalid_request") != 0 &&
       strcmp(name, "sample_no_sample") != 0 &&
       strcmp(name, "sample_initialization") != 0 &&

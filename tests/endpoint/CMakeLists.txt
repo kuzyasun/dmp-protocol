@@ -24,7 +24,10 @@ if(MSVC)
     target_compile_definitions(dmp_test_endpoint PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
-foreach(name sample1 packet single_frame_profile sample_snapshot fragment fragment_replay fragment_tlv retry result_loss receipt_loss duplicate quota sample_no_sample sample_init_budget sample_same_epoch sample_new_epoch sample_late_assoc sample_superseded sample_invalid sample_epoch_restart sample_epoch_fail sample_epoch_indeterminate sample_epoch_index_exhaustion)
+foreach(name sample1 packet single_frame_profile selective_profile_runtime stream_timeout_profile sample_snapshot fragment fragment_replay fragment_tlv retry result_loss receipt_loss duplicate quota sample_no_sample sample_init_budget sample_same_epoch sample_new_epoch sample_late_assoc sample_superseded sample_invalid sample_epoch_restart sample_epoch_fail sample_epoch_indeterminate sample_epoch_index_exhaustion)
     add_test(NAME endpoint.${name} COMMAND dmp_test_endpoint ${name})
     set_tests_properties(endpoint.${name} PROPERTIES TIMEOUT 30 LABELS "endpoint")
 endforeach()
+
+add_test(NAME mesh.relay COMMAND dmp_test_relay)
+set_tests_properties(mesh.relay PROPERTIES TIMEOUT 60 LABELS "relay;mesh")

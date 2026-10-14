@@ -454,14 +454,14 @@
       "interop_gate": "P23",
       "scope": "Unit/independent-codec golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; bytes and identity",
       "status": "partial",
-      "primary_result": "partial",
+      "primary_result": "passed",
       "primary_checks": [
-        "tests/core/test_codec.c::test_independent_golden_vectors"
+        "tests/core/test_codec.c::test_independent_golden_vectors",
+        "tests/identity/test_identity.c::test_normative_v2_2_vectors"
       ],
-      "primary_evidence": "dev/evidence/codec-framing-20260927/README.md",
+      "primary_evidence": "The exact §22.2 REQ bytes parse and resolve through the configured responder-side identity context to (1,10,7,42).",
       "peer_result": "not-run",
       "interop_result": "not-applicable",
-      "primary_remaining": "P09 configured identity resolution remains unimplemented.",
       "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites."
     },
     {
@@ -476,15 +476,15 @@
       "interop_gate": "P23",
       "scope": "Unit/independent-codec golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; bytes and identity",
       "status": "partial",
-      "primary_result": "partial",
+      "primary_result": "passed",
       "primary_checks": [
         "tests/core/test_codec.c::test_independent_golden_vectors",
-        "tests/core/test_codec.c::test_reply_status_and_control_shapes"
+        "tests/core/test_codec.c::test_reply_status_and_control_shapes",
+        "tests/identity/test_identity.c::test_normative_v2_2_vectors"
       ],
-      "primary_evidence": "dev/evidence/codec-framing-20260927/README.md",
+      "primary_evidence": "The exact §22.2 ACK bytes resolve their own key to (1,20,9,8) and the full REPLY_TO to (1,10,7,42).",
       "peer_result": "not-run",
       "interop_result": "not-applicable",
-      "primary_remaining": "P09 own/referenced identity resolution remains unimplemented.",
       "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites."
     },
     {
@@ -492,21 +492,21 @@
       "normative_ref": "Main \u00a722.3",
       "scenario": "Routed telemetry with explicit CONTEXT",
       "expected": "Exact bytes; identity (1,27,7,81)",
-      "primary_test_id": "planned/p05-p09/v223-explicit",
+      "primary_test_id": "tests/identity/test_identity.c::test_normative_v2_3_vectors",
       "primary_gate": "P05/P09",
       "peer_test_id": "planned/p21a-p21b/v223-explicit",
       "peer_gate": "P21A/P21B",
       "interop_gate": "P23",
       "scope": "Unit/independent-codec golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; static host route",
       "status": "partial",
-      "primary_result": "partial",
+      "primary_result": "passed",
       "primary_checks": [
-        "tests/core/test_codec.c::test_independent_golden_vectors"
+        "tests/core/test_codec.c::test_independent_golden_vectors",
+        "tests/identity/test_identity.c::test_normative_v2_3_vectors"
       ],
-      "primary_evidence": "dev/evidence/codec-framing-20260927/README.md",
+      "primary_evidence": "The exact §22.3 bytes parse and resolve through the configured peer identity context to (1,27,7,81).",
       "peer_result": "not-run",
       "interop_result": "not-applicable",
-      "primary_remaining": "P09 identity/context resolution remains unimplemented.",
       "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites."
     },
     {
@@ -514,13 +514,18 @@
       "normative_ref": "Main \u00a722.3",
       "scenario": "Same preconfigured CONTEXT omitted",
       "expected": "Identity remains unambiguous; six-byte header",
-      "primary_test_id": "planned/p05-p09/v223-implicit",
+      "primary_test_id": "tests/identity/test_identity.c::test_normative_v2_3_vectors",
       "primary_gate": "P05/P09",
       "peer_test_id": "planned/p21a-p21b/v223-implicit",
       "peer_gate": "P21A/P21B",
       "interop_gate": "P23",
-      "scope": "Unit/independent-codec golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; not implementation in this assignment",
+      "scope": "Unit identity-resolution vector, not application traffic admitted by the six SEC-1-only manifests; host simulation",
       "status": "partial",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/identity/test_identity.c::test_normative_v2_3_vectors"
+      ],
+      "primary_evidence": "The six-byte header parses and resolves to (1,27,7,81) from the preconfigured peer identity context.",
       "interop_result": "not-applicable",
       "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites.",
       "peer_checks": [
@@ -528,8 +533,8 @@
       ],
       "peer_result": "partial",
       "peer_evidence": "Checks the six-byte header with CONTEXT omitted.",
-      "peer_remaining": "The source test does not assert resolved identity remains unambiguous; no matching C identity test found.",
-      "reference_scope_limit": "Partial: checks the six-byte header with CONTEXT omitted."
+      "peer_remaining": "Independent peer test checks the six-byte header but does not assert resolved identity.",
+      "reference_scope_limit": "Partial: peer checks the six-byte header only; primary C identity resolution is covered separately."
     },
     {
       "id": "v224-fragments",
@@ -610,8 +615,13 @@
       "peer_test_id": "planned/p21d/v226-relay",
       "peer_gate": "P21D",
       "interop_gate": "P23",
-      "scope": "Unit/independent-codec golden fixture, not application traffic admitted by the six SEC-1-only manifests; host simulation; host relay; not implementation in this assignment",
+      "scope": "Host unit test; synthetic protected frame/trailer is not AEAD-verified; not application traffic admitted by the six SEC-1-only manifests; no peer/interop claim",
       "status": "partial",
+      "primary_result": "passed",
+      "primary_checks": [
+        "tests/mesh/test_relay.c::test_unknown_safe_extension_forwarding"
+      ],
+      "primary_evidence": "RBO macOS arm64: dmp_test_relay built; mesh.relay passed 1/1; path-limited diff check passed.",
       "interop_result": "not-applicable",
       "interop_evidence": "P23 does not replay this published codec/cryptographic vector through two live endpoints. Preserve its existing primary/peer result fields; vectors and mutations are verified by their dedicated fixture suites.",
       "peer_checks": [
@@ -619,7 +629,7 @@
       ],
       "peer_result": "partial",
       "peer_evidence": "The linked test forwards a routed frame with an unknown extension and verifies TTL-only mutation. It does not exercise the isolated unknown-extension vector with no ROUTE required by this row.",
-      "reference_scope_limit": "Related test only: it forwards a routed frame with an unknown extension and verifies TTL-only mutation; it does not exercise the isolated unknown-extension vector without ROUTE required by the row."
+      "reference_scope_limit": "The peer case does not exercise the isolated vector; the primary C test now covers both the isolated role-policy vector and a valid routed relay frame."
     },
     {
       "id": "v227-crc32c",
@@ -1233,24 +1243,24 @@
       "interop_result": "not-applicable",
       "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row\u2019s separate primary/peer status.",
       "primary_checks": [
-        "tests/mesh/test_relay.c::run"
+        "tests/mesh/test_relay.c::run",
+        "tests/endpoint/test_endpoint_sec.c::test_ttl"
       ],
       "peer_checks": [
         "tests/peer/tests/test_p21d_relay.py::TransparentRelayTests.test_ttl_mtu_and_protected_frame_bytes_are_bounded"
       ],
-      "primary_result": "partial",
+      "primary_result": "passed",
       "peer_result": "partial",
-      "primary_evidence": "C relay rejects TTL-zero forwarding and permits TTL-one to zero forwarding.",
+      "primary_evidence": "C relay rejects TTL-zero forwarding and permits TTL-one to zero forwarding; C endpoint accepts and locally delivers authenticated routed frame with TTL zero.",
       "peer_evidence": "Python relay rejects TTL zero and forwards TTL one to zero.",
-      "primary_remaining": "Neither source test exercises eligible local consumption at TTL zero.",
-      "reference_scope_limit": "Partial: rejects TTL zero and forwards TTL one to zero."
+      "reference_scope_limit": "Peer scope remains partial: it rejects TTL zero and forwards TTL one to zero, but does not exercise local consumption at TTL zero."
     },
     {
       "id": "main228-crc-ttl",
       "normative_ref": "Main spec \u00a722.8 \u2014 Corrupted core CRC after TTL mutation",
       "scenario": "Corrupted core CRC after TTL mutation",
       "expected": "Reject invalid CRC; relay changes no protected field",
-      "primary_test_id": "planned/p06-p17/main228-crc-ttl",
+      "primary_test_id": "tests/mesh/test_relay.c::run",
       "primary_gate": "P06/P17",
       "peer_test_id": "planned/p21a-p21d/main228-crc-ttl",
       "peer_gate": "P21A/P21D",
@@ -1262,9 +1272,8 @@
       "primary_checks": [
         "tests/mesh/test_relay.c::run"
       ],
-      "primary_result": "partial",
-      "primary_evidence": "C relay harness checks CRC is valid after TTL mutation and that CRC bytes changed.",
-      "primary_remaining": "No current source test corrupts CRC after TTL mutation and asserts relay rejection."
+      "primary_result": "passed",
+      "primary_evidence": "C relay rejects stale CRC after TTL mutation with DMP_INTEGRITY_FAILURE leaving output bytes, forward result and relay cache unchanged, and verifies recalculated CRC on valid forward."
     },
     {
       "id": "main228-stream-read-recovery",
@@ -1543,7 +1552,7 @@
       "normative_ref": "Main spec \u00a722.8 \u2014 Full app queues permit admitted ACK; HELLO flood cannot consume reserves",
       "scenario": "Full app queues permit admitted ACK; HELLO flood cannot consume reserves",
       "expected": "Bound flood; preserve admitted control progress",
-      "primary_test_id": "planned/p14-p19/main228-control-reserve",
+      "primary_test_id": "tests/endpoint/test_endpoint_sec.c::test_control_reserve_under_hello_flood",
       "primary_gate": "P14/P19",
       "peer_test_id": "planned/p21c-p21d/main228-control-reserve",
       "peer_gate": "P21C/P21D",
@@ -1553,11 +1562,12 @@
       "interop_result": "not-applicable",
       "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row\u2019s separate primary/peer status.",
       "primary_checks": [
-        "tests/reliability/test_reliability.c::test_gate_queue_and_ack_bypass"
+        "tests/reliability/test_reliability.c::test_gate_queue_and_ack_bypass",
+        "tests/endpoint/test_endpoint_sec.c::test_control_reserve_under_hello_flood"
       ],
-      "primary_result": "partial",
-      "primary_evidence": "C reliability test checks ACK progress while application requests are queued.",
-      "primary_remaining": "No source test floods HELLO/bootstrap traffic while checking that reserved control capacity remains available."
+      "primary_result": "passed",
+      "primary_evidence": "Local Windows Debug host: dmp_test_endpoint_sec built successfully; the control_reserve selector passed; CTest endpoint.protected_receipt_loss, endpoint.security.ttl and endpoint.security.control_reserve passed 3/3. Two real SEC-1 flight-1 offers occupied max_pending=2, a third was refused, h2/h3 remained queued at the delayed ACK deadline, and h_left received the ACK.",
+      "primary_remaining": "No independent peer test exercises this endpoint-specific flood/ACK interaction; peer evidence remains pending."
     },
     {
       "id": "main228-borrowed-buffer",
@@ -1719,17 +1729,17 @@
       "interop_result": "not-applicable",
       "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row\u2019s separate primary/peer status.",
       "primary_checks": [
-        "tests/reliability/test_reliability.c::test_duplicate_metadata_and_service"
+        "tests/reliability/test_reliability.c::test_duplicate_metadata_and_service",
+        "tests/reassembly/test_reassembly.c::test_conflicts_and_retries"
       ],
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_main228_accepted_changed_payload"
       ],
-      "primary_result": "partial",
+      "primary_result": "passed",
       "peer_result": "partial",
-      "primary_evidence": "C reliability test changes payload under the same identity and prevents a second acceptance.",
+      "primary_evidence": "Reliability C test rejects the changed-payload duplicate without redispatch, preserves its deadline, and verifies ACK REPLY_TO equals the original identity; reassembly C test rejects conflicting bytes for an incomplete slice.",
       "peer_evidence": "Python normative case checks changed-payload duplicate suppression.",
-      "primary_remaining": "Neither source test asserts that the duplicate receipt retains the original identity.",
-      "reference_scope_limit": "Partial: checks changed-payload duplicate suppression."
+      "reference_scope_limit": "Partial: the peer case does not verify the original receipt identity; primary C covers that assertion."
     },
     {
       "id": "main228-immediate-rule",
@@ -1823,22 +1833,22 @@
       "normative_ref": "Main spec \u00a715.2; Test Manifest Contract, SIM-STREAM-R partial-candidate timeout",
       "scenario": "Before/at/after deadline; later byte must not renew timer.",
       "expected": "Timer = frame_tx_ms + max(forward_delay_ms,return_delay_ms) + record_margin_ms from first nonzero byte; process already-available bytes incl delimiter at equal time; expiry discards through next delimiter.",
-      "primary_test_id": "planned/p06/stream-r-timeout-boundary",
+      "primary_test_id": "tests/endpoint/test_endpoint.c::test_stream_partial_timeout_profile",
       "primary_gate": "P06",
       "peer_test_id": "planned/p21a/stream-r-timeout-boundary",
       "peer_gate": "P21A",
       "interop_gate": "P23",
       "scope": "host simulation; Stream R",
       "status": "partial",
-      "primary_result": "partial",
+      "primary_result": "passed",
       "primary_checks": [
         "tests/stream/test_stream.c::test_r_deadline_overflow_and_canaries",
-        "tests/stream/test_stream.c::test_r_malformed_and_late_feed"
+        "tests/stream/test_stream.c::test_r_malformed_and_late_feed",
+        "tests/endpoint/test_endpoint.c::test_stream_partial_timeout_profile"
       ],
-      "primary_evidence": "dev/evidence/codec-framing-20260927/README.md",
+      "primary_evidence": "Endpoint derives 26 ms from frame_tx_ms=1, max directional delay=20, and record_margin_ms=5 despite collect_ms=980; a byte at 110 ms does not renew the 126 ms deadline. An asymmetric 2+23+5 profile yields 30 ms. Existing Stream R tests cover delimiter-at-deadline and discard-through-delimiter behavior.",
       "peer_result": "not-run",
       "interop_result": "not-applicable",
-      "primary_remaining": "Generic injected absolute deadline tested; manifest-derived timeout formula and scheduling integration remain to exercise in P07/P08.",
       "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row\u2019s separate primary/peer status."
     },
     {
@@ -2939,20 +2949,25 @@
       "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Profile MTU, return schedule and repair/probe constraints",
       "scenario": "Validate manifest MTU, feedback/repair/probe limits and return opportunities.",
       "expected": "Missing or impossible required schedule/MTU rejects before enable/admission; no implicit retry-all fallback.",
-      "primary_test_id": "planned/p09/sel-r7-profile",
+      "primary_test_id": "tests/endpoint/test_endpoint.c::test_runtime_selective_profile_validation",
       "primary_gate": "P09",
       "peer_test_id": "planned/p21a/sel-r7-profile",
       "peer_gate": "P21A",
       "interop_gate": "P23",
       "scope": "Future runtime startup parity; P02/P03 offline validator checks are recorded separately and are not an endpoint pass.",
-      "status": "not-run",
+      "status": "partial",
       "related_cases": [
         "sel-r6-mtu-return"
       ],
       "interop_result": "not-applicable",
       "interop_evidence": "Future endpoint startup parity is outside P23. P23 binds only accepted frozen manifests; offline manifest validation is not represented as endpoint interop.",
-      "primary_remaining": "No endpoint-runtime startup parity test found; offline profile validator checks are explicitly outside this row endpoint-pass scope.",
-      "primary_checks": []
+      "primary_result": "passed",
+      "primary_scope_limit": "Primary C endpoint startup revalidates profiles; independent Python peer runtime startup parity remains unverified.",
+      "peer_result": "not-run",
+      "peer_remaining": "No independent peer runtime startup parity test found.",
+      "primary_checks": [
+        "tests/endpoint/test_endpoint.c::test_runtime_selective_profile_validation"
+      ]
     },
     {
       "id": "sel-r7-full-loss",

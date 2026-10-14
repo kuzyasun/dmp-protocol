@@ -214,7 +214,7 @@ static int test_resolution(void)
     CHECK(key.origin.origin_id == 20U);
     CHECK(key.origin.epoch == 9U);
     CHECK(key.seq == 4U);
-    frame.fields.route.mode = 0U;
+    frame.fields.route.mode = 2U;
     key = sentinel;
     CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_MALFORMED);
     CHECK(memcmp(&key, &sentinel, sizeof key) == 0);
@@ -353,6 +353,140 @@ static int test_authenticated_compact(void)
     return 0;
 }
 
+static int test_normative_v2_2_vectors(void)
+{
+    static const uint8_t request[] = {0x40U, 0x04U, 0x03U, 0x2aU, 0xaaU};
+    static const uint8_t ack[] = {0x46U, 0x11U, 0x81U, 0x08U, 0x05U, 0x0bU,
+                                  0x01U, 0x0aU, 0x07U, 0x00U, 0x00U, 0x00U,
+                                  0x00U, 0x00U, 0x00U, 0x00U, 0x2aU};
+    dmp_core_limits limits = {256U, 1024U, 16U};
+    dmp_identity_slot slots[1];
+    dmp_identity_table table;
+    dmp_identity_context_config config = sample_config(0U);
+    dmp_identity_handle handle;
+    dmp_message_key key;
+    dmp_frame_view frame;
+    dmp_parse_result parsed;
+
+    /* The responder resolves the incoming REQ from its configured peer. */
+    config.local.origin_id = 20U;
+    config.local.epoch = 9U;
+    config.peer.origin_id = 10U;
+    config.peer.epoch = 7U;
+    CHECK(dmp_identity_table_init(&table, slots, 1U) == DMP_OK);
+    CHECK(dmp_identity_context_open(&table, &config, &handle) == DMP_OK);
+    parsed = dmp_core_parse((dmp_bytes){request, sizeof request}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof request);
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
+    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 10U &&
+          key.origin.epoch == 7U && key.seq == 42U);
+
+    /* The original requester resolves the ACK's own key and full REPLY_TO. */
+    config = sample_config(0U);
+    CHECK(dmp_identity_table_init(&table, slots, 1U) == DMP_OK);
+    CHECK(dmp_identity_context_open(&table, &config, &handle) == DMP_OK);
+    parsed = dmp_core_parse((dmp_bytes){ack, sizeof ack}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof ack);
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
+    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 20U &&
+          key.origin.epoch == 9U && key.seq == 8U);
+    CHECK(dmp_identity_reply_to(&frame, &table, handle, 0U, &key) == DMP_OK);
+    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 10U &&
+          key.origin.epoch == 7U && key.seq == 42U);
+    return 0;
+}
+
+static int test_normative_v2_3_vectors(void)
+{
+    /* Main §22.3 explicit CONTEXT vector:
+     * 45 11 85 51 30 1B 0B 09 01 07 00 00 00 00 00 00 00 AA */
+    static const uint8_t explicit_vector[] = {
+        0x45U, 0x11U, 0x85U, 0x51U, 0x30U, 0x1bU, 0x0bU, 0x09U,
+        0x01U, 0x07U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+        0x00U, 0xaaU
+    };
+    /* Main §22.3 equivalent omitted CONTEXT vector (6-byte header):
+     * 45 06 05 51 30 1B AA */
+    static const uint8_t implicit_vector[] = {
+        0x45U, 0x06U, 0x05U, 0x51U, 0x30U, 0x1bU, 0xaaU
+    };
+    dmp_core_limits limits = {256U, 1024U, 16U};
+    dmp_identity_slot slots[1];
+    dmp_identity_table table;
+    dmp_identity_context_config config = sample_config(0U);
+    dmp_identity_handle handle;
+    dmp_message_key key;
+    dmp_message_key sentinel;
+    dmp_frame_view frame;
+    dmp_parse_result parsed;
+
+    memset(&sentinel, 0x5a, sizeof sentinel);
+
+    /* 1. Unprotected §22.3 TO_ROOT frame with explicit CONTEXT resolves (1,27,7,81). */
+    config.peer.namespace_id = 1U;
+    config.peer.origin_id = 27U;
+    config.peer.epoch = 7U;
+    CHECK(dmp_identity_table_init(&table, slots, 1U) == DMP_OK);
+    CHECK(dmp_identity_context_open(&table, &config, &handle) == DMP_OK);
+    parsed = dmp_core_parse((dmp_bytes){explicit_vector, sizeof explicit_vector}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof explicit_vector);
+    key = sentinel;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
+    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 27U &&
+          key.origin.epoch == 7U && key.seq == 81U);
+
+    /* 2. Equivalent unprotected TO_ROOT frame with CONTEXT omitted resolves the same key. */
+    parsed = dmp_core_parse((dmp_bytes){implicit_vector, sizeof implicit_vector}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof implicit_vector);
+    key = sentinel;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
+    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 27U &&
+          key.origin.epoch == 7U && key.seq == 81U);
+
+    /* 3. Rejection leaves output key unchanged. */
+    frame.fields.route.mode = 2U;
+    key = sentinel;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_MALFORMED);
+    CHECK(memcmp(&key, &sentinel, sizeof key) == 0);
+
+    /* 4. Protected routed frames retain strict SEC-1 requirements:
+     * TO_NODE, destination bound to local origin, and explicit CONTEXT. */
+    config.security = 1U;
+    CHECK(dmp_identity_table_init(&table, slots, 1U) == DMP_OK);
+    CHECK(dmp_test_open_authenticated_context(&table, &config, &handle) == DMP_OK);
+
+    /* Protected TO_ROOT is rejected (mode 0). */
+    parsed = dmp_core_parse((dmp_bytes){explicit_vector, sizeof explicit_vector}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK);
+    frame.fields.options |= DMP_OPT_SECURITY;
+    key = sentinel;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_MALFORMED);
+    CHECK(memcmp(&key, &sentinel, sizeof key) == 0);
+
+    /* Protected TO_NODE with missing CONTEXT is rejected. */
+    parsed = dmp_core_parse((dmp_bytes){implicit_vector, sizeof implicit_vector}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK);
+    frame.fields.options |= DMP_OPT_SECURITY;
+    frame.fields.route.mode = 1U;
+    frame.fields.route.destination = config.local.origin_id;
+    key = sentinel;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_CONTEXT_REQUIRED);
+    CHECK(memcmp(&key, &sentinel, sizeof key) == 0);
+
+    /* Protected TO_NODE with explicit CONTEXT and local destination resolves key. */
+    parsed = dmp_core_parse((dmp_bytes){explicit_vector, sizeof explicit_vector}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK);
+    frame.fields.options |= DMP_OPT_SECURITY;
+    frame.fields.route.mode = 1U;
+    frame.fields.route.destination = config.local.origin_id;
+    key = sentinel;
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
+    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 27U &&
+          key.origin.epoch == 7U && key.seq == 81U);
+
+    return 0;
+}
+
 static int test_quota(void)
 {
     dmp_identity_slot slot;
@@ -392,7 +526,8 @@ static int test_generation_scan(void)
 int main(void)
 {
     if (test_slots() != 0 || test_quota() != 0 || test_generation_scan() != 0 || test_resolution() != 0 ||
-        test_authenticated_compact() != 0) {
+        test_authenticated_compact() != 0 || test_normative_v2_2_vectors() != 0 ||
+        test_normative_v2_3_vectors() != 0) {
         return 1;
     }
     return 0;

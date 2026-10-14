@@ -92,6 +92,8 @@ dmp_provider_status dmp_provider_setup(dmp_provider *provider,
                                       const dmp_provider_ports *ports);
 void dmp_provider_cleanup(dmp_provider *provider);
 
+/* Key and prologue inputs are consumed during open and are not borrowed after
+ * it returns; callers may erase their buffers immediately. */
 dmp_provider_status dmp_provider_handshake_open(
     dmp_provider *provider, dmp_provider_handshake *handshake,
     const char *protocol_name, int role,
@@ -121,6 +123,7 @@ dmp_provider_status dmp_provider_handshake_split(
 dmp_provider_status dmp_provider_handshake_close(
     dmp_provider *provider, dmp_provider_handshake *handshake);
 
+/* Copies key material before returning; callers may erase key immediately. */
 dmp_provider_status dmp_provider_cipher_from_key(
     dmp_provider *provider, dmp_provider_cipher *cipher, const uint8_t *key,
     size_t key_len);
