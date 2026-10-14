@@ -500,3 +500,13 @@ through host ports. Target durable storage, target memory/stack/scratch peaks,
 and physical transport remain unqualified. Hardware work stays at the final
 plan phase for ESP32-S3 and ESP32-C3; non-Espressif physical qualification is
 explicitly deferred.
+
+## Provider setup port validation — 2026-10-14
+
+`security.provider_adapter::setup-port-validation` rejects null setup inputs,
+each missing required callback, zero or oversized scratch/retained limits, and
+scratch limits above retained limits. It verifies a valid setup still succeeds
+after those rejections and cleanup leaves no tracked allocation. Provider build
+and focused CTest passed; independent GPT-6.1-sol High review found no actionable
+issue. This closes input-preflight test coverage only; broader provider failure
+mapping and target qualification remain open.

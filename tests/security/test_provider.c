@@ -173,6 +173,23 @@ static void set_ports(dmp_provider_ports *ports, port_ctx *ctx, size_t scratch,
     ports->retained_limit = retained;
 }
 
+static int setup_rejected(dmp_provider *provider, const dmp_provider_ports *ports,
+                          port_ctx *port, const char *what)
+{
+    unsigned allocs_before = port->alloc_calls;
+    unsigned releases_before = port->release_calls;
+    dmp_provider_status status = dmp_provider_setup(provider, ports);
+
+    if (status != DMP_PROVIDER_INVALID || dmp_provider_block_count(provider) != 0U ||
+        dmp_provider_retained(provider) != 0U || port->alloc_calls != allocs_before ||
+        port->release_calls != releases_before) {
+        fprintf(stderr, "provider setup accepted invalid %s (status=%d)\n", what,
+                (int)status);
+        return 0;
+    }
+    return 1;
+}
+
 static const noise_fixture_probe_fixture_t *find_fixture(const char *name)
 {
     size_t index;
@@ -290,6 +307,96 @@ static int test_init(void)
     passed = all_zero(provider, dmp_provider_size()) && release_clean(&port, "init");
 
 done:
+    free(provider);
+    return passed;
+}
+
+static int test_setup_port_validation(void)
+{
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider_ports candidate;
+    dmp_provider *provider;
+    int passed = 0;
+
+    memset(&port, 0, sizeof(port));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+
+    if (dmp_provider_setup(NULL, &ports) != DMP_PROVIDER_INVALID ||
+        !setup_rejected(provider, NULL, &port, "NULL ports")) {
+        goto done;
+    }
+
+    candidate = ports;
+    candidate.startup_ready = NULL;
+    if (!setup_rejected(provider, &candidate, &port, "missing startup_ready")) {
+        goto done;
+    }
+    candidate = ports;
+    candidate.startup_read = NULL;
+    if (!setup_rejected(provider, &candidate, &port, "missing startup_read")) {
+        goto done;
+    }
+    candidate = ports;
+    candidate.entropy = NULL;
+    if (!setup_rejected(provider, &candidate, &port, "missing entropy")) {
+        goto done;
+    }
+    candidate = ports;
+    candidate.allocate = NULL;
+    if (!setup_rejected(provider, &candidate, &port, "missing allocate")) {
+        goto done;
+    }
+    candidate = ports;
+    candidate.release = NULL;
+    if (!setup_rejected(provider, &candidate, &port, "missing release")) {
+        goto done;
+    }
+
+    candidate = ports;
+    candidate.scratch_limit = 0U;
+    if (!setup_rejected(provider, &candidate, &port, "zero scratch limit")) {
+        goto done;
+    }
+    candidate = ports;
+    candidate.scratch_limit = DMP_PROVIDER_SCRATCH_MAX + 1U;
+    if (!setup_rejected(provider, &candidate, &port, "oversized scratch limit")) {
+        goto done;
+    }
+    candidate = ports;
+    candidate.retained_limit = 0U;
+    if (!setup_rejected(provider, &candidate, &port, "zero retained limit")) {
+        goto done;
+    }
+    candidate = ports;
+    candidate.retained_limit = DMP_PROVIDER_RETAINED_MAX + 1U;
+    if (!setup_rejected(provider, &candidate, &port, "oversized retained limit")) {
+        goto done;
+    }
+    candidate = ports;
+    candidate.scratch_limit = DMP_PROVIDER_SCRATCH_MAX;
+    candidate.retained_limit = DMP_PROVIDER_SCRATCH_MAX - 1U;
+    if (!setup_rejected(provider, &candidate, &port, "scratch above retained limit")) {
+        goto done;
+    }
+
+    /* Invalid configurations above must not poison the provider's singleton
+     * state or prevent a valid setup. */
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK ||
+        dmp_provider_block_count(provider) != 0U || dmp_provider_retained(provider) != 0U) {
+        fprintf(stderr, "valid provider setup failed after preflight rejections\n");
+        goto done;
+    }
+    passed = 1;
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "setup port validation");
     free(provider);
     return passed;
 }
@@ -3493,6 +3600,7 @@ int main(void)
         return 1;
     }
     expect_case("init", test_init());
+    expect_case("setup-port-validation", test_setup_port_validation());
     expect_case("recovery-protected-vectors", test_recovery_protected_vectors());
     expect_case("entropy", test_entropy());
     expect_case("oom", test_oom());
