@@ -3961,10 +3961,11 @@ static int test_protected_sample1_epoch_endpoint(void)
     uint64_t admission_storage[2048];
     dmp_peer_handle first_peer = {0U, 1U};
     dmp_peer_handle next_peer;
-    dmp_endpoint_grant left_grants[2];
+    dmp_endpoint_grant left_grants[4];
     dmp_identity_context_config context;
-    dmp_endpoint_grant grants[3];
+    dmp_endpoint_grant grants[4];
     dmp_reliability_handle request;
+    dmp_reliability_handle shared_service_request;
     dmp_reliability_handle stale_request = {0};
     dmp_message_key stale_request_key = {0};
     dmp_frame_spec spec;
@@ -3981,6 +3982,10 @@ static int test_protected_sample1_epoch_endpoint(void)
     uint8_t opened[FRAME_CAP];
     size_t opened_size = 0U;
     uint8_t read = DMP_SAMPLE1_READ_OPCODE;
+    uint8_t service2_request_payload[] = {0xA1U, 0xB2U, 0xC3U};
+    uint8_t service2_result_payload[] = {0xD4U, 0xE5U};
+    uint8_t service2_frame_type = 0U;
+    uint8_t stream_sync = 0U;
     uint8_t sealed[FRAME_CAP];
     uint8_t framed[FRAME_CAP];
     size_t sealed_size = 0U;
@@ -4016,7 +4021,13 @@ static int test_protected_sample1_epoch_endpoint(void)
     left_grants[1].principal = ID_RESP;
     left_grants[1].service_id = 1U;
     left_grants[1].permit = DMP_ENDPOINT_PERMIT_TELEM | DMP_ENDPOINT_PERMIT_RESULT;
-    CHECK(dmp_endpoint_set_grants(&left.endpoint, left_grants, 2U) == DMP_OK);
+    left_grants[2].principal = ID_INIT;
+    left_grants[2].service_id = 2U;
+    left_grants[2].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+    left_grants[3].principal = ID_RESP;
+    left_grants[3].service_id = 2U;
+    left_grants[3].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+    CHECK(dmp_endpoint_set_grants(&left.endpoint, left_grants, 4U) == DMP_OK);
     memset(&store, 0, sizeof store);
     memset(&hooks, 0, sizeof hooks);
     hooks.user = &store;
@@ -4035,8 +4046,14 @@ static int test_protected_sample1_epoch_endpoint(void)
     grants[1].principal = ID_RESP;
     grants[1].service_id = 1U;
     grants[1].permit = DMP_ENDPOINT_PERMIT_RESULT | DMP_ENDPOINT_PERMIT_TELEM;
+    grants[2].principal = ID_INIT;
+    grants[2].service_id = 2U;
+    grants[2].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+    grants[3].principal = ID_RESP;
+    grants[3].service_id = 2U;
+    grants[3].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
     CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, first_peer, grants,
-                                       2U) == DMP_OK);
+                                       4U) == DMP_OK);
 
     /* Reserve the first durable epoch, bind its authenticated association,
      * publish telemetry, and answer a real protected READ through the adapter. */
@@ -4162,6 +4179,50 @@ static int test_protected_sample1_epoch_endpoint(void)
     CHECK(pump(now + 3U, 8) == 0);
     CHECK(left.app.results == 2 && left.app.last_status == 0U);
 
+    /* A reliable service-2 request shares this SEC-1 association. The remote
+     * accepts it but leaves the result pending while the producer prepares a
+     * new SAMPLE-1 epoch. The epoch fence must report the request as unknown
+     * and retire it with the old association instead of replaying it later. */
+    {
+        dmp_reliability_sender_slot *sender;
+        CHECK(dmp_endpoint_submit_req_to(&right.endpoint, first_peer, 2U,
+                                         span(service2_request_payload,
+                                              sizeof service2_request_payload),
+                                         now + 4U, &shared_service_request) == DMP_OK);
+        right.wire.now = now + 4U;
+        left.wire.now = now + 4U;
+        CHECK(dmp_endpoint_poll(&right.endpoint, now + 4U) == DMP_OK);
+        CHECK(deliver_all(&right, &left, now + 4U) == 0);
+        CHECK(left.app.accepts == 1 && left.app.request_service == 2U &&
+              left.app.req_n == sizeof service2_request_payload &&
+              memcmp(left.app.req, service2_request_payload,
+                     sizeof service2_request_payload) == 0);
+        CHECK(dmp_endpoint_poll(&left.endpoint, now + 4U) == DMP_OK);
+        CHECK(deliver_all(&left, &right, now + 4U) == 0);
+        CHECK(complete_pending_completions(&right.wire, now + 4U) == 0);
+        CHECK(dmp_endpoint_poll(&right.endpoint, now + 4U) == DMP_OK);
+        CHECK(shared_service_request.slot < right.endpoint.mem.sender_capacity);
+        sender = &right.endpoint.mem.senders[shared_service_request.slot];
+        if (sender->live == 0U || sender->generation != shared_service_request.generation ||
+            sender->kind != DMP_REL_SENDER_REQUEST || sender->service_id != 2U ||
+            (sender->phase != DMP_REL_PHASE_AWAIT_RECEIPT &&
+             sender->phase != DMP_REL_PHASE_AWAIT_RESULT) || !sender->possibly_sent) {
+            (void)fprintf(stderr,
+                          "service-2 request not in flight: live=%u generation=%llu/%llu kind=%u service=%u phase=%u possibly_sent=%u\n",
+                          (unsigned)sender->live,
+                          (unsigned long long)sender->generation,
+                          (unsigned long long)shared_service_request.generation,
+                          (unsigned)sender->kind, (unsigned)sender->service_id,
+                          (unsigned)sender->phase, (unsigned)sender->possibly_sent);
+        }
+        CHECK(sender->live != 0U &&
+              sender->generation == shared_service_request.generation &&
+              sender->kind == DMP_REL_SENDER_REQUEST && sender->service_id == 2U &&
+              (sender->phase == DMP_REL_PHASE_AWAIT_RECEIPT ||
+               sender->phase == DMP_REL_PHASE_AWAIT_RESULT) && sender->possibly_sent);
+        CHECK(right.app.unknowns == 0);
+    }
+
     /* A borrowed epoch-1 frame must settle before epoch 2 can activate. */
     CHECK(dmp_sample1_endpoint_publish(&sample, UINT32_C(0xAABBCCDD), now + 4U) ==
           DMP_SAMPLE1_OWNER_OK);
@@ -4177,6 +4238,37 @@ static int test_protected_sample1_epoch_endpoint(void)
         CHECK(rollover == DMP_SAMPLE1_OWNER_BUSY);
     }
     CHECK(dmp_endpoint_peer_fence_status(&right.endpoint, first_peer) == DMP_BUSY);
+    CHECK(right.app.unknowns == 1 &&
+          right.app.last_unknown_peer.slot == first_peer.slot &&
+          right.app.last_unknown_peer.generation == first_peer.generation);
+    CHECK(shared_service_request.slot < right.endpoint.mem.sender_capacity &&
+          right.endpoint.mem.senders[shared_service_request.slot].live == 0U);
+    /* The remote application can finish work it accepted before the fence.
+     * Keep that old-SA result queued until a replacement SA is active so the
+     * receiver proves it cannot satisfy the canceled request through the new
+     * peer association. */
+    CHECK(left.app.have_pending != 0);
+    CHECK(dmp_endpoint_complete(&left.endpoint, left.app.pending, false, 0U,
+                               span(service2_result_payload,
+                                    sizeof service2_result_payload),
+                               now + 6U) == DMP_OK);
+    left.wire.now = now + 6U;
+    CHECK(dmp_endpoint_poll(&left.endpoint, now + 6U) == DMP_OK);
+    CHECK(left.wire.n == 1);
+    if (!stream_protection(left.wire.q[0].frame, left.wire.q[0].len,
+                           now + 6U, &observed_cid, NULL, NULL)) {
+        CHECK(left.wire.q[0].len == 1U && left.wire.q[0].frame[0] == 0U);
+        CHECK(complete_pending_completions(&left.wire, now + 6U) == 0);
+        left.wire.n = 0;
+        CHECK(dmp_endpoint_poll(&left.endpoint, now + 6U) == DMP_OK);
+        CHECK(left.wire.n == 1);
+    }
+    CHECK(stream_protection(left.wire.q[0].frame, left.wire.q[0].len,
+                            now + 6U, &observed_cid, NULL,
+                            &service2_frame_type));
+    CHECK(observed_cid == new_cid);
+    CHECK(service2_frame_type == DMP_TYPE_RSP);
+    CHECK(complete_pending_completions(&left.wire, now + 6U) == 0);
     CHECK(store.durable_epoch == 2U && sample.owner.epoch == 1U &&
           !sample.owner.active && !sample.owner.stopped);
     CHECK(right.wire.pending_count == 1U);
@@ -4192,8 +4284,17 @@ static int test_protected_sample1_epoch_endpoint(void)
     }
     CHECK(dmp_sample1_endpoint_activate_peer(&sample, first_peer) ==
           DMP_SAMPLE1_OWNER_NOT_READY);
-    replacement_now = now + 7U + right.endpoint.profile.result_cache_ms +
-                      right.endpoint.profile.send_horizon_ms + 10U;
+    {
+        dmp_time_ms peer_reuse_delay =
+            right.endpoint.profile.result_cache_ms + right.endpoint.profile.send_horizon_ms;
+        dmp_time_ms late_result_delay = right.endpoint.profile.correlation_ms +
+                                        right.endpoint.profile.late_result_ms;
+        if (peer_reuse_delay < late_result_delay) {
+            peer_reuse_delay = late_result_delay;
+        }
+        /* The new service-2 UNKNOWN also pins the identity through late-result expiry. */
+        replacement_now = now + 7U + peer_reuse_delay + 10U;
+    }
     CHECK(service(&right, replacement_now) == 0);
     CHECK(dmp_endpoint_poll(&right.endpoint, replacement_now) == DMP_OK);
 
@@ -4205,6 +4306,10 @@ static int test_protected_sample1_epoch_endpoint(void)
     context.security = 1U;
     status = dmp_endpoint_add_peer(&right.endpoint, &context, replacement_now + 1U,
                                    &next_peer);
+    if (status != DMP_OK) {
+        (void)fprintf(stderr, "epoch rollover peer reuse returned %s (%d)\n",
+                      dmp_status_name(status), (int)status);
+    }
     CHECK(status == DMP_OK);
     CHECK(next_peer.slot == first_peer.slot &&
           next_peer.generation != first_peer.generation);
@@ -4218,6 +4323,21 @@ static int test_protected_sample1_epoch_endpoint(void)
                                        2U) == DMP_OK);
     CHECK(dmp_sample1_endpoint_activate_peer(&sample, next_peer) ==
           DMP_SAMPLE1_OWNER_OK);
+    CHECK(dmp_hs_rx_cid(replacement.responder, replacement_index) != observed_cid);
+    CHECK(dmp_endpoint_rx_from(&right.endpoint, next_peer,
+                               span(&stream_sync, sizeof stream_sync),
+                               replacement_now + 2U) == DMP_OK);
+    status = dmp_endpoint_rx_from(
+        &right.endpoint, next_peer,
+        span(left.wire.q[0].frame, left.wire.q[0].len), replacement_now + 2U);
+    if (status != DMP_AUTHENTICATION_FAILURE) {
+        (void)fprintf(stderr, "late old-SA service-2 RSP RX returned %s (%d)\n",
+                      dmp_status_name(status), (int)status);
+    }
+    CHECK(status == DMP_AUTHENTICATION_FAILURE);
+    left.wire.n = 0;
+    CHECK(right.app.results == 0 &&
+          right.endpoint.mem.senders[shared_service_request.slot].live == 0U);
     stale_request.generation = 1U;
     stale_request.peer = next_peer;
     CHECK(dmp_sample1_epoch_owner_accept_read(&sample.owner, stale_association,

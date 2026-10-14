@@ -46,6 +46,12 @@ entire current CTest inventory was rerun.
   `ctest --test-dir build/host --output-on-failure -R
   "^endpoint\\.(sample_.*|protected_sample_.*|protected_service2_immediate)$"`
   passed 20/20.
+- The focused A1 epoch endpoint case now also holds a service-2 RSP until after
+  peer replacement and confirms the old-CID response fails authentication.
+  `cmake --build build/host --target dmp_test_endpoint_sec --parallel 4` and
+  `ctest --test-dir build/host -R '^endpoint\.protected_sample1_epoch_endpoint$'
+  --output-on-failure` passed; this is host evidence and does not close the P12
+  peer/interop rows.
 - `security.handshake` passed 1/1 after adding
   `cached-flight-lifetime`, which checks the configured retransmission count,
   stable cached bytes, and cache invalidation at expiry. The test advances time
