@@ -178,6 +178,7 @@ class P21DRelayRecoveryIntegrationTests(unittest.TestCase):
             self.responder.handle(Advance(now_ms=status_due)),
             at_ms=status_due + 1,
         )
+        status = [wire for wire in status if parse_frame(wire).message_type == 8]
         self.assertEqual(len(status), 1)
         self.assertEqual(parse_frame(status[0]).message_type, 8)
         status_at_endpoint, arrived = self._traverse(status[0], source=10, at_ms=status_due + 2)

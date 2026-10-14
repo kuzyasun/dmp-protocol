@@ -9,7 +9,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from .delivery import DeliveryManager, OutgoingExchange, RetainedResult, AcceptedRecord, RejectionRecord
+from .delivery import (
+    AcceptedRecord,
+    DeliveryManager,
+    OutgoingExchange,
+    PendingApplicationResult,
+    RetainedResult,
+    RejectionRecord,
+)
 from .events import (
     Advance,
     ApplicationEvent,
@@ -982,6 +989,23 @@ class PeerEndpoint:
 
         if event.outcome in ("transmitted", "possibly_transmitted"):
             # Successfully handed to physical/link layer
+            result_key = sub.get("terminal_result_key")
+            result_index = sub.get("terminal_result_index")
+            accepted = self.delivery.accepted_messages.get(result_key) if result_key else None
+            if (
+                event.outcome == "transmitted"
+                and accepted is not None
+                and result_index is not None
+                and accepted.receipt_due_ms is not None
+                and self.now_ms <= accepted.receipt_due_ms
+            ):
+                accepted.terminal_result_transmitted.add(result_index)
+                if (
+                    accepted.terminal_result_frame_count > 0
+                    and len(accepted.terminal_result_transmitted)
+                    >= accepted.terminal_result_frame_count
+                ):
+                    accepted.receipt_due_ms = None
             if exc:
                 exc.possibly_transmitted = True
                 if not exc.pending_schedule_handles and not exc.queued_schedule_frames and not exc.schedule_admitted:
@@ -1134,6 +1158,7 @@ class PeerEndpoint:
         self.delivery.result_gates.clear()
         self.delivery.queue.clear()
         self.delivery.retained_results.clear()
+        self.delivery.pending_results.clear()
         self.delivery.accepted_messages.clear()
         self.delivery.rejections.clear()
         self.delivery.caller_tombstones.clear()
@@ -1189,6 +1214,13 @@ class PeerEndpoint:
             if result.association_h == assoc.h:
                 del self.delivery.retained_results[key]
                 self.delivery.release_result_gate(key)
+        for key, pending in list(self.delivery.pending_results.items()):
+            if pending.association_h == assoc.h:
+                del self.delivery.pending_results[key]
+                self.delivery.release_result_gate(key)
+        for accepted in self.delivery.accepted_messages.values():
+            if accepted.association_h == assoc.h:
+                accepted.receipt_due_ms = None
         for seq, transfer in list(self.outgoing_data.items()):
             if transfer.association_h == assoc.h:
                 transfer.selective_state.terminate()
@@ -1354,6 +1386,30 @@ class PeerEndpoint:
         # Advance delivery: returns due retries and expired exchanges (removed from active list)
         due_reqs, due_results, expired_excs = self.delivery.advance(self.now_ms)
 
+        # Accepted REQ receipt ACKs have their own bounded delay and do not
+        # consume or wait for an application sender slot.
+        for accepted in list(self.delivery.accepted_messages.values()):
+            if (
+                accepted.message_type != 0
+                or accepted.receipt_sent
+                or accepted.receipt_due_ms is None
+                or self.now_ms < accepted.receipt_due_ms
+            ):
+                continue
+            if accepted.association_h:
+                receipt_assoc = self._association_by_hash(accepted.association_h)
+                if receipt_assoc is None or receipt_assoc.status not in ("active", "draining"):
+                    accepted.receipt_due_ms = None
+                    continue
+            if accepted.ack_frame_bytes:
+                self._enqueue_tx(
+                    accepted.ack_frame_bytes,
+                    not_after_ms=None,
+                    service_id=accepted.service_id,
+                    out=out,
+                )
+                accepted.receipt_sent = True
+
         for exc in due_reqs:
             # Check deadline before retransmitting
             if exc.not_after_ms is not None and self.now_ms >= exc.not_after_ms:
@@ -1377,8 +1433,16 @@ class PeerEndpoint:
         # Retransmit all frames of retained results
         for res in due_results:
             self._reprotect_retained_result(res)
-            for rf in res.result_frames:
-                self._enqueue_tx(rf, not_after_ms=None, service_id=res.service_id, out=out)
+            result_key = (res.req_namespace, res.req_origin, res.req_epoch, res.req_seq)
+            for index, rf in enumerate(res.result_frames):
+                self._enqueue_tx(
+                    rf,
+                    not_after_ms=None,
+                    service_id=res.service_id,
+                    terminal_result_key=result_key,
+                    terminal_result_index=index,
+                    out=out,
+                )
 
         # Process expired exchanges exactly once (already removed from active_outgoing)
         for exc in expired_excs:
@@ -2431,8 +2495,15 @@ class PeerEndpoint:
                                 self._enqueue_tx(ack, not_after_ms=None, service_id=service_id, out=out)
                         elif self.delivery.admit_result_replay(res_obj, self.now_ms):
                             self._reprotect_retained_result(res_obj)
-                            for rf in res_obj.result_frames:
-                                self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
+                            for index, rf in enumerate(res_obj.result_frames):
+                                self._enqueue_tx(
+                                    rf,
+                                    not_after_ms=None,
+                                    service_id=service_id,
+                                    terminal_result_key=sender_key,
+                                    terminal_result_index=index,
+                                    out=out,
+                                )
                     elif sender_key in self.delivery.accepted_messages:
                         rec = self.delivery.accepted_messages[sender_key]
                         if rec.ack_frame_bytes and self.delivery.admit_receipt_replay(rec):
@@ -2759,13 +2830,29 @@ class PeerEndpoint:
             else:
                 self.outgoing_data.pop((owner.association_h, sequence), None)
             return
+        terminal_result_key = None
+        if kind == "result":
+            terminal_result_key = (
+                owner.req_namespace,
+                owner.req_origin,
+                owner.req_epoch,
+                owner.req_seq,
+            )
         for frame_bytes in frames:
+            terminal_result_index = None
+            if terminal_result_key is not None:
+                result_frame = parse_frame(frame_bytes, max_frame=self.forward_mtu)
+                terminal_result_index = (
+                    result_frame.fragment.index if result_frame.fragment is not None else 0
+                )
             self._enqueue_tx(
                 frame_bytes,
                 not_after_ms=not_after,
                 service_id=service_id,
                 exchange_id=exchange_id,
                 recovery_seq=sequence,
+                terminal_result_key=terminal_result_key,
+                terminal_result_index=terminal_result_index,
                 out=out,
             )
 
@@ -3261,8 +3348,15 @@ class PeerEndpoint:
                         self._enqueue_tx(fresh_ack, not_after_ms=None, service_id=service_id, out=out)
                 elif self.delivery.admit_result_replay(res, self.now_ms):
                     self._reprotect_retained_result(res)
-                    for rf in res.result_frames:
-                        self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
+                    for index, rf in enumerate(res.result_frames):
+                        self._enqueue_tx(
+                            rf,
+                            not_after_ms=None,
+                            service_id=service_id,
+                            terminal_result_key=sender_key,
+                            terminal_result_index=index,
+                            out=out,
+                        )
             elif rec.ack_frame_bytes and self.delivery.admit_receipt_replay(rec):
                 if self.association is not None:
                     fresh_ack = self._build_ack_frame(sender_key, service_id, own_seq=rec.ack_seq)
@@ -3346,8 +3440,15 @@ class PeerEndpoint:
                 return
             if self.delivery.admit_result_replay(res, self.now_ms):
                 self._reprotect_retained_result(res)
-                for rf in res.result_frames:
-                    self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
+                for index, rf in enumerate(res.result_frames):
+                    self._enqueue_tx(
+                        rf,
+                        not_after_ms=None,
+                        service_id=service_id,
+                        terminal_result_key=sender_key,
+                        terminal_result_index=index,
+                        out=out,
+                    )
             return
 
         # Verify enabled service handler before acceptance or execution
@@ -3402,7 +3503,8 @@ class PeerEndpoint:
                 self._retain_rejection(sender_key, frame, 0, 6, err_frame, geometry=geometry)
                 return
 
-        # Execute request
+        # Execute request; receipt substitution is resolved when every result
+        # frame completes transmission within the configured receipt window.
         if service_id == 1 and (len(frame.payload) != 1 or frame.payload[0] not in (1, 2)):
             err_frame = self._build_err_frame(sender_key, service_id, status=7, payload=b"", is_reliable=False)
             self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
@@ -3442,8 +3544,15 @@ class PeerEndpoint:
                 result_status = 0
                 is_app_err = False
                 rsp_frames, result_seq = self._build_rsp_frames(sender_key, 0, result_payload)
-            for rf in rsp_frames:
-                self._enqueue_tx(rf, not_after_ms=None, service_id=0, out=out)
+            for index, rf in enumerate(rsp_frames):
+                self._enqueue_tx(
+                    rf,
+                    not_after_ms=None,
+                    service_id=0,
+                    terminal_result_key=sender_key,
+                    terminal_result_index=index,
+                    out=out,
+                )
             self.delivery.retained_results[sender_key] = RetainedResult(
                 service_id=0,
                 req_namespace=sender_key[0],
@@ -3467,7 +3576,9 @@ class PeerEndpoint:
                 immutable_metadata=self._immutable_message_metadata(frame, geometry),
                 association_h=self.association.h if self.association is not None else b"",
             )
-        elif service_id == 1:
+        elif service_id == 1 and not (
+            self.test_services and callable(self.test_services.get(service_id))
+        ):
             # SAMPLE-1 request validation
             if len(frame.payload) != 1 or frame.payload[0] not in (1, 2):
                 # STATUS 7
@@ -3480,8 +3591,15 @@ class PeerEndpoint:
                 status, result_payload = self.sample_producer.handle_read()
                 if status == 0:
                     rsp_frames, result_seq = self._build_rsp_frames(sender_key, service_id, result_payload)
-                    for rf in rsp_frames:
-                        self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
+                    for index, rf in enumerate(rsp_frames):
+                        self._enqueue_tx(
+                            rf,
+                            not_after_ms=None,
+                            service_id=service_id,
+                            terminal_result_key=sender_key,
+                            terminal_result_index=index,
+                            out=out,
+                        )
                     self.delivery.retained_results[sender_key] = RetainedResult(
                         service_id=service_id,
                         req_namespace=sender_key[0],
@@ -3507,7 +3625,14 @@ class PeerEndpoint:
                     )
                 else:  # NO_SAMPLE: status 64
                     err_frame, result_seq = self._build_err_frame_reliable(sender_key, service_id, status=64, payload=b"")
-                    self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
+                    self._enqueue_tx(
+                        err_frame,
+                        not_after_ms=None,
+                        service_id=service_id,
+                        terminal_result_key=sender_key,
+                        terminal_result_index=0,
+                        out=out,
+                    )
                     self.delivery.retained_results[sender_key] = RetainedResult(
                         service_id=service_id,
                         req_namespace=sender_key[0],
@@ -3534,8 +3659,15 @@ class PeerEndpoint:
             elif frame.payload[0] == 2:  # STATUS
                 status, result_payload = self.sample_producer.handle_status()
                 rsp_frames, result_seq = self._build_rsp_frames(sender_key, service_id, result_payload)
-                for rf in rsp_frames:
-                    self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
+                for index, rf in enumerate(rsp_frames):
+                    self._enqueue_tx(
+                        rf,
+                        not_after_ms=None,
+                        service_id=service_id,
+                        terminal_result_key=sender_key,
+                        terminal_result_index=index,
+                        out=out,
+                    )
                 self.delivery.retained_results[sender_key] = RetainedResult(
                     service_id=service_id,
                     req_namespace=sender_key[0],
@@ -3559,7 +3691,9 @@ class PeerEndpoint:
                     immutable_metadata=self._immutable_message_metadata(frame, geometry),
                     association_h=self.association.h if self.association is not None else b"",
                 )
-        elif service_id == 2:
+        elif service_id == 2 and not (
+            self.test_services and callable(self.test_services.get(service_id))
+        ):
             # OPAQUE-1 idempotent workload
             max_res = self.manifest.values["services"][1]["result_bytes"]
             res_len = len(frame.payload) if len(frame.payload) < max_res else max_res
@@ -3592,24 +3726,43 @@ class PeerEndpoint:
                                  else None),
             )
             self.delivery.retained_results[sender_key] = retained
-            for rf in rsp_frames:
+            for index, rf in enumerate(rsp_frames):
                 self._enqueue_tx(
                     rf,
                     not_after_ms=None,
                     service_id=service_id,
                     recovery_seq=result_seq if retained.selective_state is not None else None,
+                    terminal_result_key=sender_key,
+                    terminal_result_index=index,
                     out=out,
                 )
         elif self.test_services and isinstance(self.test_services, dict) and callable(self.test_services.get(service_id)):
             res = self.test_services[service_id](frame.payload)
-            if isinstance(res, tuple):
+            if res is None:
+                # Model a deferred test application with bounded ownership:
+                # it holds the result gate only through the caller's deadline.
+                res_status, res_payload = None, b""
+            elif isinstance(res, tuple):
                 res_status, res_payload = res
             else:
                 res_status, res_payload = 0, res
-            if res_status == 0:
+            if res_status is None:
+                pending_assoc = self._rx_association or self.association
+                self.delivery.pending_results[sender_key] = PendingApplicationResult(
+                    expires_at_ms=self.now_ms + self.delivery.result_deadline_ms,
+                    association_h=pending_assoc.h if pending_assoc is not None else b"",
+                )
+            elif res_status == 0:
                 rsp_frames, result_seq = self._build_rsp_frames(sender_key, service_id, res_payload)
-                for rf in rsp_frames:
-                    self._enqueue_tx(rf, not_after_ms=None, service_id=service_id, out=out)
+                for index, rf in enumerate(rsp_frames):
+                    self._enqueue_tx(
+                        rf,
+                        not_after_ms=None,
+                        service_id=service_id,
+                        terminal_result_key=sender_key,
+                        terminal_result_index=index,
+                        out=out,
+                    )
                 self.delivery.retained_results[sender_key] = RetainedResult(
                     service_id=service_id,
                     req_namespace=sender_key[0],
@@ -3633,9 +3786,16 @@ class PeerEndpoint:
                     immutable_metadata=self._immutable_message_metadata(frame, geometry),
                     association_h=self.association.h if self.association is not None else b"",
                 )
-            else:
+            elif res_status is not None:
                 err_frame, result_seq = self._build_err_frame_reliable(sender_key, service_id, status=res_status, payload=res_payload)
-                self._enqueue_tx(err_frame, not_after_ms=None, service_id=service_id, out=out)
+                self._enqueue_tx(
+                    err_frame,
+                    not_after_ms=None,
+                    service_id=service_id,
+                    terminal_result_key=sender_key,
+                    terminal_result_index=0,
+                    out=out,
+                )
                 self.delivery.retained_results[sender_key] = RetainedResult(
                     service_id=service_id,
                     req_namespace=sender_key[0],
@@ -3660,12 +3820,25 @@ class PeerEndpoint:
                     association_h=self.association.h if self.association is not None else b"",
                 )
 
-        # Build cached receipt ACK distinct from terminal result frames
+        # Build cached receipt ACK distinct from terminal result frames.
         receipt_ack_bytes = self._build_ack_frame(sender_key, service_id)
         ack_seq = decode_uleb(receipt_ack_bytes, 3)[0] if len(receipt_ack_bytes) > 3 else 0
+        receipt_due_ms = self.now_ms + self.delivery.receipt_delay_ms
+        terminal_result = self.delivery.retained_results.get(sender_key)
+        request_assoc = self._rx_association or self.association
+        if (
+            request_assoc is not None
+            and receipt_due_ms is not None
+            and request_assoc.status == "draining"
+            and request_assoc.drain_deadline_ms is not None
+            and receipt_due_ms >= request_assoc.drain_deadline_ms
+        ):
+            # An accepted request cannot retain a receipt obligation beyond
+            # the old key's fixed drain window. Send its receipt immediately.
+            receipt_due_ms = self.now_ms
 
         # Preserve request acceptance record across dedup horizon even after result release
-        self.delivery.accepted_messages[sender_key] = AcceptedRecord(
+        accepted_record = AcceptedRecord(
             message_type=0,
             service_id=service_id,
             ack_seq=ack_seq,
@@ -3674,7 +3847,21 @@ class PeerEndpoint:
             expires_at_ms=self.now_ms + self.delivery.dedup_ms,
             payload=frame.payload,
             immutable_metadata=self._immutable_message_metadata(frame, geometry),
+            receipt_due_ms=receipt_due_ms,
+            association_h=request_assoc.h if request_assoc is not None else b"",
+            terminal_result_frame_count=(
+                len(terminal_result.result_frames) if terminal_result is not None else 0
+            ),
         )
+        self.delivery.accepted_messages[sender_key] = accepted_record
+        if receipt_due_ms is not None and receipt_due_ms <= self.now_ms and receipt_ack_bytes:
+            self._enqueue_tx(
+                receipt_ack_bytes,
+                not_after_ms=None,
+                service_id=service_id,
+                out=out,
+            )
+            accepted_record.receipt_sent = True
 
         if self.association is not None:
             ext_fresh = next((e for e in frame.extensions if e.extension_id == 6), None)
@@ -3945,6 +4132,8 @@ class PeerEndpoint:
         bootstrap_attempt_id: bytes | None = None,
         recovery_seq: int | None = None,
         is_frag_status: bool = False,
+        terminal_result_key: tuple[int, int, int, int] | None = None,
+        terminal_result_index: int | None = None,
         out: list[Any],
     ) -> None:
         association_h = b""
@@ -4040,6 +4229,8 @@ class PeerEndpoint:
                     "recovery_seq": recovery_seq,
                     "is_frag_status": is_frag_status,
                     "association_h": association_h,
+                    "terminal_result_key": terminal_result_key,
+                    "terminal_result_index": terminal_result_index,
                 })
                 return
             self._submit_wire(
@@ -4048,6 +4239,8 @@ class PeerEndpoint:
                 recovery_seq=recovery_seq,
                 is_frag_status=is_frag_status,
                 association_h=association_h,
+                terminal_result_key=terminal_result_key,
+                terminal_result_index=terminal_result_index,
             )
             return
 
@@ -4063,6 +4256,8 @@ class PeerEndpoint:
                 "recovery_seq": recovery_seq,
                 "is_frag_status": is_frag_status,
                 "association_h": association_h,
+                "terminal_result_key": terminal_result_key,
+                "terminal_result_index": terminal_result_index,
             })
             if exchange_id is not None and exchange_id in self.delivery.active_outgoing:
                 self.delivery.active_outgoing[exchange_id].queued_schedule_frames += 1
@@ -4073,6 +4268,8 @@ class PeerEndpoint:
             recovery_seq=recovery_seq,
             is_frag_status=is_frag_status,
             association_h=association_h,
+            terminal_result_key=terminal_result_key,
+            terminal_result_index=terminal_result_index,
         )
 
     def _submit_wire(
@@ -4087,6 +4284,8 @@ class PeerEndpoint:
         recovery_seq: int | None = None,
         is_frag_status: bool = False,
         association_h: bytes = b"",
+        terminal_result_key: tuple[int, int, int, int] | None = None,
+        terminal_result_index: int | None = None,
     ):
         if not self.is_open:
             return
@@ -4113,6 +4312,8 @@ class PeerEndpoint:
             "recovery_seq": recovery_seq,
             "is_frag_status": is_frag_status,
             "association_h": association_h,
+            "terminal_result_key": terminal_result_key,
+            "terminal_result_index": terminal_result_index,
             "admitted": False,
             "cancel_requested": False,
             "cancel_emitted": False,
@@ -4164,6 +4365,8 @@ class PeerEndpoint:
                 recovery_seq=item.get("recovery_seq"),
                 is_frag_status=item.get("is_frag_status", False),
                 association_h=item.get("association_h", b""),
+                terminal_result_key=item.get("terminal_result_key"),
+                terminal_result_index=item.get("terminal_result_index"),
             )
 
     def _extract_reply_to(self, frame: CoreFrame) -> Optional[tuple[int, int, int, int]]:

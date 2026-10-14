@@ -864,6 +864,10 @@ class TestP21CProtectedP21B(unittest.TestCase):
             ep_resp.handle(Advance(now_ms=retained.next_retry_ms)),
             at_ms=retained.next_retry_ms + 1,
         )
+        retry_wires = [
+            wire for wire in retry_wires
+            if parse_frame(decode_stream_r(wire)).message_type in (1, 2)
+        ]
         self.assertEqual(len(retry_wires), 3)
         retry_results = [parse_frame(decode_stream_r(wire)) for wire in retry_wires]
         self.assertEqual([frame.sequence for frame in retry_results], [frame.sequence for frame in original_results])

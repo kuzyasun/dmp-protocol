@@ -363,7 +363,11 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.responder.handle(Receive(link=0, bytes=first_slice, at_ms=300))
 
         first_status_events = self.responder.handle(Advance(now_ms=2372))
-        first_status = [event for event in first_status_events if isinstance(event, TxSubmit)]
+        first_status = [
+            event for event in first_status_events
+            if isinstance(event, TxSubmit)
+            and self.responder.active_submissions.get(event.handle, {}).get("is_frag_status")
+        ]
         self.assertEqual(len(first_status), 1)
         self.assertTrue(self.responder.active_submissions[first_status[0].handle]["is_frag_status"])
 
@@ -432,17 +436,27 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
         self.assertEqual(session.selective_feedback_due_ms, 2372)
         self.assertFalse(any(item.get("is_frag_status") for item in self.responder.tx_queue))
 
-        # Free one slot before feedback_delay expires. The original opportunity
-        # remains pending and is submitted without requiring another slice.
+        # Free one slot before feedback_delay expires. The immediate freshness
+        # result already substituted for its receipt ACK, so this slot remains
+        # available for the original pending status opportunity.
         handle, generation = occupied[0]
         self.responder.handle(TxAdmit(
             handle=handle, generation=generation, accepted=True, reason=None, at_ms=2373
         ))
-        self.responder.handle(TxTerminal(
+        freed_events = self.responder.handle(TxTerminal(
             handle=handle, generation=generation, outcome="transmitted", at_ms=2374
         ))
-        deferred_events = self.responder.handle(Advance(now_ms=2375))
-        deferred_status = [event for event in deferred_events if isinstance(event, TxSubmit)]
+        self.assertFalse(any(
+            isinstance(event, TxSubmit)
+            and parse_frame(event.bytes).message_type == 6
+            for event in freed_events
+        ))
+        deferred_events = self.responder.handle(Advance(now_ms=2377))
+        deferred_status = [
+            event for event in deferred_events
+            if isinstance(event, TxSubmit)
+            and self.responder.active_submissions.get(event.handle, {}).get("is_frag_status")
+        ]
         self.assertEqual(len(deferred_status), 1)
         self.assertTrue(self.responder.active_submissions[deferred_status[0].handle]["is_frag_status"])
         self.assertEqual(session.selective_status_count, 1)

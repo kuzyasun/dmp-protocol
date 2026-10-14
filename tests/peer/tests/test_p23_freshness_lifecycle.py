@@ -204,6 +204,7 @@ class TestP23FreshnessLifecycle(unittest.TestCase):
         retry_wires = helpers.extract_and_settle(
             responder, retry_events, at_ms=first_retry_at + 1
         )
+        retry_wires = [wire for wire in retry_wires if parse_frame(wire).message_type == 1]
         self.assertEqual(len(retry_wires), 1)
         retry = parse_frame(retry_wires[0])
         self.assertEqual((retry.message_type, retry.sequence), (1, result_seq))

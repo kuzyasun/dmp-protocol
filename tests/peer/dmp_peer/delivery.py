@@ -87,6 +87,19 @@ class AcceptedRecord:
     payload: bytes = b""
     replay_bursts: int = 0
     immutable_metadata: tuple = ()
+    receipt_due_ms: int | None = None
+    receipt_sent: bool = False
+    association_h: bytes = b""
+    terminal_result_frame_count: int = 0
+    terminal_result_transmitted: set[int] = field(default_factory=set)
+
+
+@dataclass
+class PendingApplicationResult:
+    """Bounded test-service result ownership for deferred application work."""
+
+    expires_at_ms: int
+    association_h: bytes = b""
 
 
 @dataclass
@@ -177,6 +190,9 @@ class DeliveryManager:
 
         # Retained results for responder: (req_namespace, req_origin, req_epoch, req_seq) -> RetainedResult
         self.retained_results: dict[tuple[int, int, int, int], RetainedResult] = {}
+        # Deferred test applications retain result capacity only until the
+        # caller's result deadline or their SEC-1 association is retired.
+        self.pending_results: dict[tuple[int, int, int, int], PendingApplicationResult] = {}
 
         # Accepted messages deduplication cache: (namespace, origin, epoch, seq) -> AcceptedRecord
         self.accepted_messages: dict[tuple[int, int, int, int], AcceptedRecord] = {}
@@ -240,6 +256,11 @@ class DeliveryManager:
                         expired_excs.append(exc)
 
         # Advance retained results
+        for key, pending in list(self.pending_results.items()):
+            if now_ms >= pending.expires_at_ms:
+                del self.pending_results[key]
+                self.release_result_gate(key)
+
         for key, res in list(self.retained_results.items()):
             if now_ms >= res.expires_at_ms:
                 del self.retained_results[key]
@@ -354,7 +375,11 @@ class DeliveryManager:
         return self.history_slots is None or len(self.accepted_messages) + len(self.rejections) < self.history_slots
 
     def admit_result(self, request_key: tuple[int, int, int, int]) -> bool:
-        return request_key in self.retained_results or self.result_slots is None or len(self.retained_results) < self.result_slots
+        if request_key in self.retained_results or request_key in self.pending_results:
+            return True
+        return self.result_slots is None or (
+            len(self.retained_results) + len(self.pending_results) < self.result_slots
+        )
 
     def record_ack_received(
         self,

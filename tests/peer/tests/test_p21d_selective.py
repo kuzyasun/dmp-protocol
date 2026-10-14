@@ -251,6 +251,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         self.assertNotIn(request_key, responder.delivery.retained_results)
         status_events = responder.handle(Advance(now_ms=2372))
         request_status = extract_and_settle(responder, status_events, at_ms=2373)
+        request_status = [wire for wire in request_status if parse_frame(wire).message_type == 8]
         self.assertEqual(len(request_status), 1)
         status_frame = parse_frame(request_status[0])
         self.assertEqual(status_frame.message_type, 8)
@@ -319,6 +320,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
             responder.handle(Advance(now_ms=result_repair_at)),
             at_ms=result_repair_at + 1,
         )
+        result_repairs = [wire for wire in result_repairs if parse_frame(wire).fragment is not None]
         self.assertEqual([parse_frame(wire).fragment.index for wire in result_repairs], [1, 4])
         final_events, result_acks = send_receive(
             initiator, result_repairs, start_ms=result_repair_at + 10
@@ -360,6 +362,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         status = extract_and_settle(
             responder, responder.handle(Advance(now_ms=2372)), at_ms=2373
         )
+        status = [wire for wire in status if parse_frame(wire).message_type == 8]
         self.assertEqual(len(status), 1)
         status_frame = parse_frame(status[0])
         self.assertEqual(status_frame.message_type, 8)
@@ -409,6 +412,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
             responder.handle(Advance(now_ms=2372)),
             at_ms=2373,
         )
+        status = [wire for wire in status if parse_frame(wire).message_type == 8]
         self.assertEqual(len(status), 1)
         self.assertEqual(parse_frame(status[0]).message_type, 8)
         initiator.handle(Receive(link=0, bytes=status[0], at_ms=2374))
@@ -605,6 +609,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
             responder.handle(Advance(now_ms=status_at)),
             at_ms=status_at + 1,
         )
+        status = [wire for wire in status if parse_frame(wire).message_type == 8]
         self.assertEqual(len(status), 1)
         initiator.handle(Receive(link=0, bytes=status[0], at_ms=status_at + 2))
         self.assertEqual(state.pending_mask, 0x01)
@@ -646,6 +651,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
             responder.handle(Advance(now_ms=2372)),
             at_ms=2373,
         )
+        initial_status = [wire for wire in initial_status if parse_frame(wire).message_type == 8]
         self.assertEqual(len(initial_status), 1)
         accepted, acknowledgements = send_receive(responder, [second_slice], start_ms=2400)
         self.assertTrue(any(
@@ -683,6 +689,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
             responder.handle(Advance(now_ms=2372)),
             at_ms=2373,
         )
+        lost_status = [wire for wire in lost_status if parse_frame(wire).message_type == 8]
         self.assertEqual(len(lost_status), 1)
         self.assertEqual(parse_frame(lost_status[0]).message_type, 8)
         self.assertEqual(state.status_count, 0)
@@ -743,6 +750,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         first_status = extract_and_settle(
             responder, responder.handle(Advance(now_ms=2372)), at_ms=2373
         )
+        first_status = [wire for wire in first_status if parse_frame(wire).message_type == 8]
         self.assertEqual(len(first_status), 1)
         initiator.handle(Receive(link=0, bytes=first_status[0], at_ms=2374))
         self.assertEqual(state.pending_mask, 0x02)
@@ -920,7 +928,11 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
             start_ms=300,
         )
         self.assertFalse(any(isinstance(event, ApplicationEvent) for event in partial_events))
-        self.assertEqual(responder.handle(Advance(now_ms=2372)), ())
+        pre_retry = extract_and_settle(
+            responder, responder.handle(Advance(now_ms=2372)), at_ms=2373
+        )
+        # The retained immediate freshness RSP substituted for its receipt ACK.
+        self.assertEqual(pre_retry, [])
         exchange = next(iter(initiator.delivery.active_outgoing.values()))
         retry_at = exchange.next_retry_ms
         retry = extract_and_settle(

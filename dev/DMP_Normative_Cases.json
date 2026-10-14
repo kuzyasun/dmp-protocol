@@ -1549,25 +1549,31 @@
     },
     {
       "id": "main228-control-reserve",
-      "normative_ref": "Main spec \u00a722.8 \u2014 Full app queues permit admitted ACK; HELLO flood cannot consume reserves",
+      "normative_ref": "Main spec §22.8 — Full app queues permit admitted ACK; HELLO flood cannot consume reserves",
       "scenario": "Full app queues permit admitted ACK; HELLO flood cannot consume reserves",
       "expected": "Bound flood; preserve admitted control progress",
       "primary_test_id": "tests/endpoint/test_endpoint_sec.c::test_control_reserve_under_hello_flood",
       "primary_gate": "P14/P19",
-      "peer_test_id": "planned/p21c-p21d/main228-control-reserve",
-      "peer_gate": "P21C/P21D",
+      "peer_test_id": "tests/peer/tests/test_p21c_s10.py::TestP21CS10SecurityLifecycle.test_main228_control_reserve_survives_hello_flood",
+      "peer_gate": "P21C",
       "interop_gate": "P23",
       "scope": "host simulation; protected cases rerun with real SEC-1",
-      "status": "partial",
+      "status": "passed",
       "interop_result": "not-applicable",
-      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row\u2019s separate primary/peer status.",
+      "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",
       "primary_checks": [
         "tests/reliability/test_reliability.c::test_gate_queue_and_ack_bypass",
         "tests/endpoint/test_endpoint_sec.c::test_control_reserve_under_hello_flood"
       ],
       "primary_result": "passed",
       "primary_evidence": "Local Windows Debug host: dmp_test_endpoint_sec built successfully; the control_reserve selector passed; CTest endpoint.protected_receipt_loss, endpoint.security.ttl and endpoint.security.control_reserve passed 3/3. Two real SEC-1 flight-1 offers occupied max_pending=2, a third was refused, h2/h3 remained queued at the delayed ACK deadline, and h_left received the ACK.",
-      "primary_remaining": "No independent peer test exercises this endpoint-specific flood/ACK interaction; peer evidence remains pending."
+      "primary_remaining": "The primary C test is endpoint-only; independent protected peer evidence is recorded separately in peer_result.",
+      "peer_result": "passed",
+      "peer_checks": [
+        "tests/peer/tests/test_p21c_s10.py::TestP21CS10SecurityLifecycle.test_main228_control_reserve_survives_hello_flood"
+      ],
+      "peer_evidence": "Full peer suite passed (427 tests, 51 skipped). The real SEC-1 scenario accepts a protected service-2 REQ while the application sender queue is full and 20 unauthenticated HELLOs arrive; exactly one protected receipt ACK is submitted at its configured deadline without an immediate terminal result.",
+      "peer_remaining": "The host scenario does not separately saturate transport adapter slots or exercise concurrent valid Noise handshakes during the HELLO flood; physical endpoint behavior remains outside this evidence."
     },
     {
       "id": "main228-borrowed-buffer",

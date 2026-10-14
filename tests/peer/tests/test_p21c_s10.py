@@ -266,10 +266,32 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         self.assertEqual(f_req.security.cipher, CIPHER_CHACHAPOLY)
         self.assertEqual(f_req.security.packet_number, 1)
 
-        # Responder receives protected REQ -> generates protected receipt ACK and protected RSP
+        # The immediate protected RSP substitutes for the protected receipt ACK.
         rsp_evts = ep_resp.handle(Receive(link=0, bytes=req_wires[0], at_ms=220))
         rsp_wires = _extract_and_settle(ep_resp, rsp_evts, at_ms=221)
         self.assertGreaterEqual(len(rsp_wires), 1)
+
+        # A validated immediate terminal result substitutes for the request
+        # receipt ACK even when the receipt timer is advanced afterward.
+        delayed_receipt = ep_resp.handle(Advance(
+            now_ms=220 + ep_resp.delivery.receipt_delay_ms
+        ))
+        delayed_receipt_wires = _extract_and_settle(
+            ep_resp,
+            delayed_receipt,
+            at_ms=221 + ep_resp.delivery.receipt_delay_ms,
+        )
+        request_key = (
+            ep_resp.namespace,
+            ep_init.local_node_id,
+            ep_init.local_epoch,
+            f_req.sequence,
+        )
+        self.assertIsNone(ep_resp.delivery.accepted_messages[request_key].receipt_due_ms)
+        self.assertFalse(any(
+            parse_frame(decode_stream_r(wire)).message_type == 6
+            for wire in delayed_receipt_wires
+        ))
 
         # Initiator receives RSP -> emits request_result and generates protected result ACK
         term_evts = []
@@ -286,6 +308,135 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         self.assertEqual(result_event.status, 0)
         sample = Sample.decode_read_result(result_event.payload)
         self.assertEqual(sample.value, 12345)
+
+    def test_terminal_result_submission_rejection_keeps_receipt_due(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        ep_resp.test_services = {2: lambda payload: payload}
+
+        request_events = ep_init.handle(ApplicationRequest(
+            service_id=2, payload=b"x", ack_req=True, at_ms=210
+        ))
+        request_wires = _extract_and_settle(ep_init, request_events, at_ms=211)
+        response_events = ep_resp.handle(Receive(
+            link=0, bytes=request_wires[0], at_ms=220
+        ))
+        result_submit = next(event for event in response_events if isinstance(event, TxSubmit))
+        request_frame = parse_frame(decode_stream_r(request_wires[0]))
+        request_key = (
+            ep_resp.namespace,
+            ep_init.local_node_id,
+            ep_init.local_epoch,
+            request_frame.sequence,
+        )
+        accepted = ep_resp.delivery.accepted_messages[request_key]
+        self.assertEqual(accepted.terminal_result_frame_count, 1)
+
+        rejected = ep_resp.handle(TxAdmit(
+            handle=result_submit.handle,
+            generation=result_submit.generation,
+            accepted=False,
+            reason="busy",
+            at_ms=221,
+        ))
+        self.assertFalse(any(isinstance(event, TxSubmit) for event in rejected))
+        self.assertIsNotNone(accepted.receipt_due_ms)
+
+        due = ep_resp.handle(Advance(now_ms=accepted.receipt_due_ms))
+        ack_frames = [
+            parse_frame(decode_stream_r(event.bytes))
+            for event in due
+            if isinstance(event, TxSubmit)
+        ]
+        self.assertEqual([frame.message_type for frame in ack_frames], [6])
+
+    def test_no_sample_terminal_error_transmission_substitutes_receipt_ack(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+
+        request_events = ep_init.handle(ApplicationRequest(
+            service_id=1, payload=b"\x01", ack_req=True, at_ms=210
+        ))
+        request_wires = _extract_and_settle(ep_init, request_events, at_ms=211)
+        request_frame = parse_frame(decode_stream_r(request_wires[0]))
+        response_events = ep_resp.handle(Receive(
+            link=0, bytes=request_wires[0], at_ms=220
+        ))
+        result_wires = _extract_and_settle(ep_resp, response_events, at_ms=221)
+
+        self.assertEqual(len(result_wires), 1)
+        result_frame = parse_frame(decode_stream_r(result_wires[0]))
+        self.assertEqual((result_frame.message_type, result_frame.options & 2), (2, 2))
+        status_ext = next(
+            extension for extension in result_frame.extensions
+            if extension.extension_id == 5
+        )
+        self.assertEqual(decode_uleb(status_ext.value)[0], 64)
+
+        request_key = (
+            ep_resp.namespace,
+            ep_init.local_node_id,
+            ep_init.local_epoch,
+            request_frame.sequence,
+        )
+        accepted = ep_resp.delivery.accepted_messages[request_key]
+        self.assertEqual(accepted.terminal_result_frame_count, 1)
+        self.assertEqual(accepted.terminal_result_transmitted, {0})
+        self.assertIsNone(accepted.receipt_due_ms)
+
+        after_deadline = ep_resp.handle(Advance(
+            now_ms=accepted.created_at_ms + ep_resp.delivery.receipt_delay_ms
+        ))
+        self.assertFalse(any(
+            isinstance(event, TxSubmit)
+            and parse_frame(decode_stream_r(event.bytes)).message_type == 6
+            for event in after_deadline
+        ))
+
+    def test_all_fragmented_result_frames_transmitted_before_receipt_deadline_substitute_ack(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        ep_resp.adapter_slots = 3
+        payload = bytes(index % 251 for index in range(1024))
+
+        request_events = ep_init.handle(ApplicationRequest(
+            service_id=2, payload=payload, ack_req=True, at_ms=210
+        ))
+        request_wires = _extract_and_settle(ep_init, request_events, at_ms=211)
+        response_events: list[Any] = []
+        for index, wire in enumerate(request_wires):
+            response_events.extend(ep_resp.handle(Receive(
+                link=0, bytes=wire, at_ms=220 + index
+            )))
+
+        request_frame = parse_frame(decode_stream_r(request_wires[0]))
+        request_key = (
+            ep_resp.namespace,
+            ep_init.local_node_id,
+            ep_init.local_epoch,
+            request_frame.sequence,
+        )
+        accepted = ep_resp.delivery.accepted_messages[request_key]
+        self.assertGreater(accepted.terminal_result_frame_count, ep_resp.adapter_slots)
+
+        result_wires = _extract_and_settle(ep_resp, response_events, at_ms=240)
+        result_frames = [parse_frame(decode_stream_r(wire)) for wire in result_wires]
+        self.assertEqual(len(result_frames), accepted.terminal_result_frame_count)
+        self.assertTrue(all(frame.message_type == 1 for frame in result_frames))
+        self.assertEqual(
+            accepted.terminal_result_transmitted,
+            set(range(accepted.terminal_result_frame_count)),
+        )
+        self.assertIsNone(accepted.receipt_due_ms)
+
+        after_deadline = ep_resp.handle(Advance(
+            now_ms=accepted.created_at_ms + ep_resp.delivery.receipt_delay_ms
+        ))
+        self.assertFalse(any(
+            isinstance(event, TxSubmit)
+            and parse_frame(decode_stream_r(event.bytes)).message_type == 6
+            for event in after_deadline
+        ))
 
     def test_handshake_xx_live_activation(self) -> None:
         """S10.01/S10.14: Verify full XX Mode 2 mutual handshake with committed pin."""
@@ -510,7 +661,7 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         )
         self.assertEqual(len(req_wires), 1)
 
-        # Responder processes REQ -> outputs receipt ACK and RSP
+        # Responder's immediate RSP substitutes for the receipt ACK.
         rsp_wires = _extract_and_settle(
             ep_resp, ep_resp.handle(Receive(link=0, bytes=req_wires[0], at_ms=220)), at_ms=221
         )
@@ -954,6 +1105,205 @@ class TestP21CS10SecurityLifecycle(unittest.TestCase):
         # Admitted valid attempt still succeeds afterwards
         self._perform_nnpsk0_handshake(ep_init, ep_resp, at_ms=200)
         self.assertEqual(ep_resp.association.status, "active")
+
+    def test_main228_control_reserve_survives_hello_flood(self) -> None:
+        """A HELLO flood cannot starve an admitted protected ACK behind a full app queue."""
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        active_association = ep_resp.association
+        self.assertIsNotNone(active_association)
+
+        # Hold one local request in flight and fill both configured application
+        # queue entries. A further request must be refused as busy.
+        accepted = []
+        for index in range(3):
+            events = ep_resp.handle(ApplicationRequest(
+                service_id=1, payload=b"\x01", ack_req=True, at_ms=200 + index
+            ))
+            accepted.append(events)
+        self.assertEqual(sum(isinstance(event, TxSubmit) for event in accepted[0]), 1)
+        self.assertEqual(accepted[1], ())
+        self.assertEqual(accepted[2], ())
+        self.assertEqual(len(ep_resp.delivery.active_outgoing), 1)
+        self.assertEqual(len(ep_resp.delivery.queue), 2)
+        busy = ep_resp.handle(ApplicationRequest(
+            service_id=1, payload=b"\x01", ack_req=True, at_ms=203
+        ))
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent)
+            and event.kind == "protocol_rejection"
+            and event.status == 4
+            for event in busy
+        ))
+
+        # Twenty structurally valid but unauthenticated HELLOs must not alter
+        # the active association or consume the reliability/control capacity.
+        hello_core = encode_frame(CoreFrame(
+            message_type=3, sequence=1, integrity=1, payload=b""
+        ), max_frame=ep_resp.forward_mtu)
+        hello_wire = encode_stream_r(hello_core)
+        for index in range(20):
+            events = ep_resp.handle(Receive(
+                link=0, bytes=hello_wire, at_ms=210 + index
+            ))
+            self.assertEqual(events, ())
+        self.assertIs(ep_resp.association, active_association)
+        self.assertEqual(active_association.status, "active")
+        self.assertIsNone(ep_resp.bootstrap_mgr.current_attempt_id)
+        self.assertEqual(len(ep_resp.delivery.queue), 2)
+
+        # A real protected inbound request still creates exactly one receipt
+        # while ordinary outbound work is saturated. The test service accepts
+        # it but completes asynchronously, outside this synchronous callback.
+        ep_resp.test_services = {2: lambda _payload: None}
+        request_events = ep_init.handle(ApplicationRequest(
+            service_id=2, payload=b"\x01", ack_req=True, at_ms=240
+        ))
+        request_wires = [event.bytes for event in request_events if isinstance(event, TxSubmit)]
+        self.assertEqual(len(request_wires), 1)
+        response_events = ep_resp.handle(Receive(
+            link=0, bytes=request_wires[0], at_ms=250
+        ))
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent) and event.kind == "request_accepted"
+            for event in response_events
+        ))
+        request_frame = parse_frame(decode_stream_r(request_wires[0]))
+        request_key = (
+            ep_resp.namespace,
+            ep_init.local_node_id,
+            ep_init.local_epoch,
+            request_frame.sequence,
+        )
+        pending_result = ep_resp.delivery.pending_results[request_key]
+        self.assertEqual(
+            pending_result.expires_at_ms,
+            250 + ep_resp.delivery.result_deadline_ms,
+        )
+        self.assertLessEqual(
+            len(ep_resp.delivery.pending_results), ep_resp.delivery.result_slots
+        )
+        immediate_frames = [
+            parse_frame(decode_stream_r(event.bytes))
+            for event in response_events
+            if isinstance(event, TxSubmit)
+        ]
+        self.assertFalse(any(frame.message_type in (1, 2, 6) for frame in immediate_frames))
+
+        receipt_delay = ep_resp.delivery.receipt_delay_ms
+        before_due = ep_resp.handle(Advance(now_ms=250 + receipt_delay - 1))
+        self.assertFalse(any(
+            isinstance(event, TxSubmit)
+            and parse_frame(decode_stream_r(event.bytes)).message_type in (1, 2, 6)
+            for event in before_due
+        ))
+
+        # At the receipt deadline the ACK is submitted despite the full
+        # application sender queue.
+        at_due = ep_resp.handle(Advance(now_ms=250 + receipt_delay))
+        due_frames = [
+            parse_frame(decode_stream_r(event.bytes))
+            for event in at_due
+            if isinstance(event, TxSubmit)
+        ]
+        self.assertFalse(any(frame.message_type in (1, 2) for frame in due_frames))
+        receipt_wires = [
+            event.bytes
+            for event in at_due
+            if isinstance(event, TxSubmit)
+            and parse_frame(decode_stream_r(event.bytes)).message_type == 6
+        ]
+        self.assertEqual(len(receipt_wires), 1)
+        receipt = parse_frame(decode_stream_r(receipt_wires[0]))
+        self.assertIsNotNone(receipt.security)
+        self.assertTrue(any(ext.extension_id == 1 for ext in receipt.extensions))
+        self.assertIs(ep_resp.association, active_association)
+        self.assertEqual(len(ep_resp.delivery.queue), 2)
+
+        # The receipt is one-shot; later polls cannot duplicate it.
+        later = ep_resp.handle(Advance(now_ms=251 + receipt_delay))
+        self.assertFalse(any(
+            isinstance(event, TxSubmit)
+            and parse_frame(decode_stream_r(event.bytes)).message_type == 6
+            for event in later
+        ))
+
+        still_busy = ep_resp.handle(ApplicationRequest(
+            service_id=1, payload=b"\x01", ack_req=True, at_ms=252 + receipt_delay
+        ))
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent)
+            and event.kind == "protocol_rejection"
+            and event.status == 4
+            for event in still_busy
+        ))
+
+        expired_result = ep_resp.handle(Advance(
+            now_ms=pending_result.expires_at_ms
+        ))
+        self.assertFalse(any(
+            isinstance(event, TxSubmit)
+            and parse_frame(decode_stream_r(event.bytes)).message_type in (1, 2, 6)
+            for event in expired_result
+        ))
+        self.assertNotIn(request_key, ep_resp.delivery.pending_results)
+        self.assertNotIn((ep_resp.remote_node_id, 2), ep_resp.delivery.result_gates)
+
+    def test_delayed_receipt_ack_stays_inside_draining_association_lifetime(self) -> None:
+        ep_init, ep_resp = self._setup_pair_nnpsk0()
+        for endpoint in (ep_init, ep_resp):
+            endpoint.manifest.values["security"]["episode_attempts"] = 2
+        self._perform_nnpsk0_handshake(ep_init, ep_resp)
+        old_init, old_resp = ep_init.association, ep_resp.association
+        self.assertIsNotNone(old_init)
+        self.assertIsNotNone(old_resp)
+
+        request_events = ep_init.handle(ApplicationRequest(
+            service_id=1, payload=b"\x01", ack_req=True, at_ms=210
+        ))
+        request_wire = _extract_and_settle(ep_init, request_events, at_ms=211)[0]
+        self._install_fresh_pair_entropy(ep_init, ep_resp)
+        self._perform_nnpsk0_handshake(
+            ep_init, ep_resp, at_ms=1_300, attempt_id=b"rotate-ack-00001"
+        )
+        deadline = old_resp.drain_deadline_ms
+        self.assertIsNotNone(deadline)
+        self.assertEqual(old_resp.status, "draining")
+
+        # The first delivery arrives so late in the old-SA drain that the
+        # normal receipt delay would land after its fixed close boundary.
+        ep_resp.test_services = {1: lambda _payload: None}
+        arrival = deadline - 50
+        accepted = ep_resp.handle(Receive(link=0, bytes=request_wire, at_ms=arrival))
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent) and event.kind == "request_accepted"
+            for event in accepted
+        ), msg=repr((accepted, ep_resp.delivery.accepted_messages.keys(),
+                     parse_frame(decode_stream_r(request_wire)))))
+        pending_key = next(iter(ep_resp.delivery.pending_results))
+        receipt_wires = [
+            event.bytes for event in accepted
+            if isinstance(event, TxSubmit)
+            and parse_frame(decode_stream_r(event.bytes)).message_type == 6
+        ]
+        self.assertEqual(len(receipt_wires), 1)
+        receipt = parse_frame(decode_stream_r(receipt_wires[0]))
+        self.assertEqual(receipt.security.receive_cid, old_init.local_rx_cid)
+        accepted_record = next(iter(ep_resp.delivery.accepted_messages.values()))
+        self.assertEqual(accepted_record.receipt_due_ms, arrival)
+        self.assertTrue(accepted_record.receipt_sent)
+        _extract_and_settle(ep_resp, accepted, at_ms=arrival + 1)
+
+        expired = ep_resp.handle(Advance(now_ms=deadline))
+        self.assertEqual(old_resp.status, "closed")
+        self.assertIsNone(accepted_record.receipt_due_ms)
+        self.assertNotIn(pending_key, ep_resp.delivery.pending_results)
+        self.assertNotIn((ep_resp.remote_node_id, 1), ep_resp.delivery.result_gates)
+        self.assertFalse(any(
+            isinstance(event, TxSubmit)
+            and parse_frame(decode_stream_r(event.bytes)).message_type == 6
+            for event in expired
+        ))
 
     def test_s10_13_bootstrap_rate_duplicate_and_attempt_deadlines(self) -> None:
         ep_init, ep_resp = self._setup_pair_nnpsk0()

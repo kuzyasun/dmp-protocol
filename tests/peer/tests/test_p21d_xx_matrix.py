@@ -222,6 +222,7 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
         feedback_at = assembly.selective_feedback_due_ms
         status_events = responder.handle(Advance(now_ms=feedback_at))
         status_wires = extract_and_settle(responder, status_events, at_ms=feedback_at + 1)
+        status_wires = [wire for wire in status_wires if parse_frame(wire).message_type == 8]
         self.assertEqual(len(status_wires), 1)
         status = parse_frame(status_wires[0])
         self.assertEqual(status.message_type, 8)
@@ -291,6 +292,9 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
         request_status_wires = extract_and_settle(
             responder, request_status_events, at_ms=request_feedback_at + 1
         )
+        request_status_wires = [
+            wire for wire in request_status_wires if parse_frame(wire).message_type == 8
+        ]
         self.assertEqual(len(request_status_wires), 1)
         request_status = parse_frame(request_status_wires[0])
         self.assertEqual(request_status.message_type, 8)
@@ -379,6 +383,7 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
             responder.handle(Advance(now_ms=result_repair_at)),
             at_ms=result_repair_at + 1,
         )
+        result_repairs = [wire for wire in result_repairs if parse_frame(wire).fragment is not None]
         result_repair_frames = [parse_frame(wire) for wire in result_repairs]
         self.assertEqual(
             [(frame.message_type, frame.fragment.index if frame.fragment else None)
@@ -444,7 +449,11 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
             start_ms=300,
         )
         self.assertFalse(any(isinstance(event, ApplicationEvent) for event in partial_events))
-        self.assertEqual(responder.handle(Advance(now_ms=2372)), ())
+        pre_retry = extract_and_settle(
+            responder, responder.handle(Advance(now_ms=2372)), at_ms=2373
+        )
+        # The retained immediate freshness RSP substituted for its receipt ACK.
+        self.assertEqual(pre_retry, [])
         exchange = next(iter(initiator.delivery.active_outgoing.values()))
         retry_at = exchange.next_retry_ms
         retry = extract_and_settle(
