@@ -17,7 +17,8 @@ typedef struct {
 typedef enum {
     DMP_REASSEMBLY_TOMBSTONE_UNUSED = 0,
     DMP_REASSEMBLY_TOMBSTONE_RESERVED,
-    DMP_REASSEMBLY_TOMBSTONE_EXPIRED
+    DMP_REASSEMBLY_TOMBSTONE_EXPIRED,
+    DMP_REASSEMBLY_TOMBSTONE_REJECTED
 } dmp_reassembly_tombstone_state;
 
 /* Caller-owned bounded state. Do not edit while the engine is initialized. */
@@ -47,7 +48,8 @@ typedef struct {
 } dmp_reassembly_slot;
 
 /* Tombstones keep only identity/context keys; they never retain payload or pin
- * an identity-table slot. 48 bytes are reserved by the profile contract. */
+ * an identity-table slot. EXPIRED and REJECTED both fence reopening until the
+ * context is retired. 48 bytes are reserved by the profile contract. */
 typedef struct {
     dmp_message_key source;
     dmp_identity_handle context;
@@ -127,8 +129,15 @@ dmp_status dmp_reassembly_get(const dmp_reassembly *engine,
 dmp_status dmp_reassembly_release(dmp_reassembly *engine,
                                   dmp_reassembly_handle handle);
 
+/* Discard a complete message after terminal rejection. Releases payload,
+ * metadata and the identity retain, while preserving a bounded no-reopen
+ * tombstone until the identity context is retired. */
+dmp_status dmp_reassembly_reject(dmp_reassembly *engine,
+                                 dmp_reassembly_handle handle);
+
 /* Call only after dmp_identity_context_retire succeeded for this exact
- * generation. It releases that context's expired-transfer tombstones. */
+ * generation. It releases that context's expired-transfer and rejected-message
+ * tombstones. */
 dmp_status dmp_reassembly_context_retired(dmp_reassembly *engine,
                                           dmp_identity_handle context);
 

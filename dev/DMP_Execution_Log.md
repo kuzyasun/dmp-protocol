@@ -2884,3 +2884,28 @@ ESP-IDF component include-validation warnings; exit status was 0 throughout.
 No repository files were modified by the remote job, no test was run on a
 board, and no stage/commit/push occurred. P12 and 137-row statuses were not
 promoted solely from the suite result; see the updated P25 report for open work.
+
+## 2026-10-14 — Rejected fragmented-message tombstone (reassembly core)
+
+The reassembly core now releases payload, metadata and its identity retain after
+terminal rejection, while keeping a bounded REJECTED tombstone until the exact
+identity context is retired. Fresh-PN replay of that source/context/SEQ returns
+DUPLICATE. The sole assembly slot is reusable for another message, while the
+tombstone remains charged to the existing bounded quota.
+
+test_rejected_message_fence checks zeroing, retain release, stale handles,
+no-reopen behavior, slot reuse, tombstone quota and cleanup after identity
+retirement. The host build
+cmake --build build/host --target dmp_test_reassembly dmp_test_endpoint_sec
+--config Debug succeeded. The targeted CTest invocation
+ctest --test-dir build/host --output-on-failure -R
+'^(reassembly\.direct|endpoint\.protected_sample_invalid_fragmented_result|endpoint\.protected_retained_rejection_reassembly|endpoint\.protected_drain)$'
+passed 4/4 against the current integrated working tree. No MCU or physical
+transport evidence is claimed.
+
+The endpoint wiring and drain cleanup stay in the follow-up integration slice:
+they are layered on the already-staged multi-peer endpoint implementation.
+Independent read-only review found that committing those hunks directly from
+the current HEAD would omit that prerequisite. The current complete working tree
+also contains the protected endpoint and drain regressions; this commit isolates
+the reusable reassembly core and its direct unit test.

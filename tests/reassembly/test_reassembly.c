@@ -1349,6 +1349,69 @@ static int test_selective_tail(void)
     return 0;
 }
 
+static int test_rejected_message_fence(void)
+{
+    uint8_t body[16];
+    uint8_t rest[16];
+    frag frame;
+    dmp_reassembly_handle rejected;
+    dmp_reassembly_handle accepted;
+    dmp_reassembly_handle replay = sentinel();
+    dmp_reassembly_message message;
+    size_t i;
+
+    CHECK(boot(1U, 2U, 1U, 2U, 8U, 16U, MAX_MTU, 1000U, 0) == 0);
+    pattern(body, sizeof body, 0xA1);
+    pattern(rest, sizeof rest, 0xA2);
+    frame = base_frag(1U, 0U, 16U, 32U, body, sizeof body);
+    CHECK(apply(&frame, 10U, &rejected) == DMP_INCOMPLETE);
+    frame.index = 1U;
+    frame.plain = rest;
+    CHECK(apply(&frame, 11U, &rejected) == DMP_OK);
+    CHECK(g.assemblies[0].live != 0U && g.ids[g.ctx.slot].retained == 1U);
+
+    CHECK(dmp_reassembly_reject(&g.engine, rejected) == DMP_OK);
+    CHECK(g.assemblies[0].live == 0U);
+    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
+    CHECK(g.ids[g.ctx.slot].retained == 0U);
+    for (i = 0U; i < MAX_MSG; i++) {
+        CHECK(g.payloads[i] == 0U);
+    }
+    for (i = 0U; i < DMP_REASSEMBLY_METADATA_BYTES; i++) {
+        CHECK(g.metadata[i] == 0U);
+    }
+    CHECK(dmp_reassembly_get(&g.engine, rejected, &message) == DMP_STALE_HANDLE);
+
+    frame.index = 0U;
+    frame.plain = body;
+    CHECK(apply(&frame, 12U, &replay) == DMP_DUPLICATE);
+    CHECK(untouched(replay));
+    CHECK(g.assemblies[0].live == 0U);
+    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
+
+    /* The sole assembly slot is reusable for a different message even though
+     * rejected identities remain fenced in the bounded tombstone pool. */
+    frame = base_frag(2U, 0U, 16U, 32U, body, sizeof body);
+    CHECK(apply(&frame, 13U, &accepted) == DMP_INCOMPLETE);
+    frame.index = 1U;
+    frame.plain = rest;
+    CHECK(apply(&frame, 14U, &accepted) == DMP_OK);
+    CHECK(dmp_reassembly_reject(&g.engine, accepted) == DMP_OK);
+    CHECK(g.assemblies[0].live == 0U);
+    CHECK(g.tombstones[1].state == DMP_REASSEMBLY_TOMBSTONE_REJECTED);
+
+    frame = base_frag(3U, 0U, 16U, 32U, body, sizeof body);
+    CHECK(apply(&frame, 15U, &accepted) == DMP_QUOTA_EXHAUSTED);
+    CHECK(g.assemblies[0].live == 0U);
+
+    CHECK(dmp_identity_context_begin_drain(&g.table, g.ctx, 20U) == DMP_OK);
+    CHECK(dmp_identity_context_retire(&g.table, g.ctx, 20U) == DMP_OK);
+    CHECK(dmp_reassembly_context_retired(&g.engine, g.ctx) == DMP_OK);
+    CHECK(g.tombstones[0].state == DMP_REASSEMBLY_TOMBSTONE_UNUSED);
+    CHECK(g.tombstones[1].state == DMP_REASSEMBLY_TOMBSTONE_UNUSED);
+    return 0;
+}
+
 int main(void)
 {
     if (test_init_bounds() != 0) {
@@ -1376,6 +1439,9 @@ int main(void)
         return 1;
     }
     if (test_expiry_and_fence() != 0) {
+        return 1;
+    }
+    if (test_rejected_message_fence() != 0) {
         return 1;
     }
     if (test_retirement() != 0) {

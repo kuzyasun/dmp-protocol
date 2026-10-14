@@ -1541,11 +1541,12 @@
         "tests/reliability/test_reliability.c::test_rejection_and_status",
         "tests/endpoint/test_endpoint_sec.c::test_sample_invalid_request",
         "tests/endpoint/test_endpoint_sec.c::test_retained_rejection_reassembly",
+        "tests/reassembly/test_reassembly.c::test_rejected_message_fence",
         "tests/endpoint/test_endpoint.c::test_sample_no_sample",
         "tests/endpoint/test_endpoint_sec.c::test_protected_sample_no_sample",
         "tests/endpoint/test_endpoint_sec.c::test_protected_err_status_contract"
       ],
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-sec-1-error-status-contract",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-14--rejected-fragmented-message-tombstone",
       "peer_result": "passed",
       "interop_result": "not-applicable",
       "interop_evidence": "P23 does not replay every local core, codec, recovery, ownership or Stream R boundary case across independent endpoints. The exact C/Python matrix covers selected enabled workloads and named S10/R6/R7 cases; preserve this row’s separate primary/peer status.",

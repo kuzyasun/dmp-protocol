@@ -378,6 +378,21 @@ static int find_expired(const dmp_reassembly *engine, dmp_message_key key,
     return 0;
 }
 
+static int find_rejected(const dmp_reassembly *engine, dmp_message_key key,
+                         dmp_identity_handle context)
+{
+    size_t i;
+
+    for (i = 0U; i < engine->storage.tombstone_capacity; i++) {
+        const dmp_reassembly_tombstone *tomb = &engine->storage.tombstones[i];
+        if (tomb->state == DMP_REASSEMBLY_TOMBSTONE_REJECTED && key_eq(tomb->source, key) &&
+            context_eq(tomb->context, context)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static size_t count_origin_assemblies(const dmp_reassembly *engine, dmp_message_origin origin)
 {
     size_t i;
@@ -522,6 +537,9 @@ static dmp_status accept_new(dmp_reassembly *engine, dmp_message_key key,
 
     if (find_expired(engine, key, input->context)) {
         return DMP_DEADLINE_EXPIRED;
+    }
+    if (find_rejected(engine, key, input->context)) {
+        return DMP_DUPLICATE;
     }
     status = slice_geometry(&engine->profile, fields->fragment.index, fields->fragment.chunk_size,
                             fields->fragment.total_size, input->plaintext.size, &count, &offset);
@@ -838,6 +856,40 @@ dmp_status dmp_reassembly_release(dmp_reassembly *engine, dmp_reassembly_handle 
     return DMP_OK;
 }
 
+dmp_status dmp_reassembly_reject(dmp_reassembly *engine, dmp_reassembly_handle handle)
+{
+    dmp_reassembly_slot *slot;
+    dmp_reassembly_tombstone *tomb;
+    uint32_t tomb_index;
+    dmp_status status;
+
+    if (!ready(engine)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    if (complete_slot(engine, handle) == NULL) {
+        return DMP_STALE_HANDLE;
+    }
+    slot = &engine->storage.assemblies[handle.slot];
+    tomb_index = slot->tombstone_slot;
+    if ((size_t)tomb_index >= engine->storage.tombstone_capacity) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    tomb = &engine->storage.tombstones[tomb_index];
+    if (tomb->state != DMP_REASSEMBLY_TOMBSTONE_RESERVED ||
+        !key_eq(tomb->source, slot->source) || !context_eq(tomb->context, slot->context)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    status = dmp_identity_context_release(engine->storage.identity, slot->context);
+    if (status != DMP_OK) {
+        return status;
+    }
+    tomb->state = DMP_REASSEMBLY_TOMBSTONE_REJECTED;
+    memset(payload_ptr(engine, handle.slot), 0, engine->profile.message_bytes);
+    memset(metadata_ptr(engine, handle.slot), 0, (size_t)DMP_REASSEMBLY_METADATA_BYTES);
+    clear_assembly(slot);
+    return DMP_OK;
+}
+
 dmp_status dmp_reassembly_context_retired(dmp_reassembly *engine, dmp_identity_handle context)
 {
     dmp_identity_table *table;
@@ -863,7 +915,8 @@ dmp_status dmp_reassembly_context_retired(dmp_reassembly *engine, dmp_identity_h
     }
     for (i = 0U; i < engine->storage.tombstone_capacity; i++) {
         dmp_reassembly_tombstone *tomb = &engine->storage.tombstones[i];
-        if (tomb->state == DMP_REASSEMBLY_TOMBSTONE_EXPIRED &&
+        if ((tomb->state == DMP_REASSEMBLY_TOMBSTONE_EXPIRED ||
+             tomb->state == DMP_REASSEMBLY_TOMBSTONE_REJECTED) &&
             context_eq(tomb->context, context)) {
             memset(tomb, 0, sizeof *tomb);
         }
