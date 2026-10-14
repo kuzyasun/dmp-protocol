@@ -121,7 +121,18 @@ add_custom_command(OUTPUT "${_fixture_header}"
     DEPENDS "${PROJECT_SOURCE_DIR}/tests/provider/generate_noise_fixture_header.py"
         "${PROJECT_SOURCE_DIR}/docs/DMP_v2_Security_Test_Vectors.json"
     VERBATIM)
-add_executable(dmp_test_provider test_provider.c "${_fixture_header}")
+set(_recovery_header "${CMAKE_CURRENT_BINARY_DIR}/frag_status_aead_vectors.h")
+add_custom_command(OUTPUT "${_recovery_header}"
+    COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/provider/generate_frag_status_aead_header.py"
+        "${PROJECT_SOURCE_DIR}/docs/DMP_v2_Recovery_Test_Vectors.json"
+        "${PROJECT_SOURCE_DIR}/docs/DMP_v2_Security_Test_Vectors.json"
+        "${_recovery_header}"
+    DEPENDS "${PROJECT_SOURCE_DIR}/tests/provider/generate_frag_status_aead_header.py"
+        "${PROJECT_SOURCE_DIR}/docs/DMP_v2_Recovery_Test_Vectors.json"
+        "${PROJECT_SOURCE_DIR}/docs/DMP_v2_Security_Test_Vectors.json"
+    VERBATIM)
+add_executable(dmp_test_provider test_provider.c "${_fixture_header}" "${_recovery_header}")
 target_include_directories(dmp_test_provider PRIVATE
     "${PROJECT_SOURCE_DIR}/src/security" "${CMAKE_CURRENT_BINARY_DIR}")
 dmp_link_rescan(dmp_test_provider libdmp dmp_p01b_noise dmp_p01b_sodium)

@@ -2886,7 +2886,7 @@
       "normative_ref": "SELECTIVE-32 \u00a7R7 \u2014 Protected FRAG_STATUS golden/negative header/AAD/ciphertext",
       "scenario": "Produce complete protected FRAG_STATUS golden and negative vectors; independently derive header, AAD and ciphertext.",
       "expected": "Independent expected bytes match; invalid mask/reference and protected-field mutations reject.",
-      "primary_test_id": "planned/p18/sel-r7-protected-vector",
+      "primary_test_id": "tests/security/test_provider.c::test_recovery_protected_vectors",
       "primary_gate": "P18",
       "peer_test_id": "planned/p21d/sel-r7-protected-vector",
       "peer_gate": "P21D",
@@ -2898,7 +2898,12 @@
         "tests/peer/tests/test_p23_r7_interop.py::TestP23R7CrossEndpointInterop.test_c_protected_status_has_exact_missing_mask_and_replay_is_idempotent"
       ],
       "interop_evidence": "The linked C/Python test checks a protected TYPE-8 missing mask and duplicate replay idempotency. It does not compare the published golden header/AAD/ciphertext bytes or cover the listed malformed header/AAD/ciphertext mutations.",
-      "reference_scope_limit": "Partial row evidence: checks protected TYPE-8 missing mask and duplicate replay idempotency, not published golden bytes or listed malformed mutations."
+      "reference_scope_limit": "Partial row evidence: checks protected TYPE-8 missing mask and duplicate replay idempotency, not published golden bytes or listed malformed mutations.",
+      "primary_result": "partial",
+      "primary_checks": [
+        "tests/security/test_provider.c::test_recovery_protected_vectors"
+      ],
+      "primary_evidence": "C provider opens the published valid cipher-1 frames, accepts the authenticated ttl_only mutation, and rejects the seven AEAD-invalid mutations; this does not exercise production endpoint frame generation or establish peer parity."
     },
     {
       "id": "sel-r7-type8",

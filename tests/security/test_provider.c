@@ -3,6 +3,7 @@
  * physical or MCU entropy source. */
 #include "provider_port.h"
 #include "noise_fixture_probe.h"
+#include "frag_status_aead_vectors.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -289,6 +290,93 @@ static int test_init(void)
     passed = all_zero(provider, dmp_provider_size()) && release_clean(&port, "init");
 
 done:
+    free(provider);
+    return passed;
+}
+
+static int test_recovery_protected_vectors(void)
+{
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    uint8_t buffer[256];
+    size_t out_len;
+    size_t index;
+    int passed = 0;
+
+    memset(&port, 0, sizeof(port));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    for (index = 0U;
+         index < sizeof frag_status_aead_cases / sizeof frag_status_aead_cases[0];
+         index++) {
+        const frag_status_aead_case *item = &frag_status_aead_cases[index];
+        dmp_provider_cipher cipher;
+        size_t header_len;
+        size_t cipher_len;
+        dmp_provider_status status;
+
+        memset(&cipher, 0, sizeof(cipher));
+        if (item->frame_len < 2U + 16U || item->frame_len > sizeof(buffer)) {
+            fprintf(stderr, "%s: invalid fixture frame bounds\n", item->name);
+            goto done;
+        }
+        header_len = item->frame[1];
+        if (header_len < 2U || header_len > item->frame_len - 16U ||
+            item->aad_len > sizeof(buffer)) {
+            fprintf(stderr, "%s: invalid fixture AAD/frame length\n", item->name);
+            goto done;
+        }
+        cipher_len = item->frame_len - header_len;
+        memcpy(buffer, item->frame + header_len, cipher_len);
+        memset(buffer + cipher_len, 0xA5, sizeof(buffer) - cipher_len);
+        if (dmp_provider_cipher_from_key(provider, &cipher, frag_status_aead_key,
+                                         sizeof frag_status_aead_key) != DMP_PROVIDER_OK) {
+            fprintf(stderr, "%s: could not initialize vector cipher\n", item->name);
+            goto done;
+        }
+
+        out_len = 0x1234U;
+        status = dmp_provider_cipher_decrypt(provider, &cipher, item->pn, item->aad,
+                                             item->aad_len, buffer, cipher_len,
+                                             sizeof(buffer), &out_len);
+        if (item->expect_open) {
+            if (status != DMP_PROVIDER_OK || out_len != item->plain_len ||
+                !bytes_match(item->name, buffer, out_len, item->plain, item->plain_len)) {
+                fprintf(stderr, "%s: C provider did not open the published vector\n",
+                        item->name);
+                (void)dmp_provider_cipher_close(provider, &cipher);
+                goto done;
+            }
+        } else if (status != DMP_PROVIDER_REJECTED || out_len != 0U ||
+                   !all_zero(buffer, sizeof(buffer))) {
+            fprintf(stderr, "%s: C provider accepted an altered protected vector\n",
+                    item->name);
+            (void)dmp_provider_cipher_close(provider, &cipher);
+            goto done;
+        }
+        if (dmp_provider_cipher_close(provider, &cipher) != DMP_PROVIDER_OK ||
+            !all_zero(&cipher, sizeof(cipher)) ||
+            dmp_provider_block_count(provider) != 0U ||
+            dmp_provider_retained(provider) != 0U ||
+            !release_clean(&port, item->name)) {
+            fprintf(stderr, "%s: vector cipher cleanup failed\n", item->name);
+            goto done;
+        }
+    }
+    passed = sizeof frag_status_aead_cases / sizeof frag_status_aead_cases[0] >= 10U;
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             release_clean(&port, "recovery protected vectors");
     free(provider);
     return passed;
 }
@@ -3405,6 +3493,7 @@ int main(void)
         return 1;
     }
     expect_case("init", test_init());
+    expect_case("recovery-protected-vectors", test_recovery_protected_vectors());
     expect_case("entropy", test_entropy());
     expect_case("oom", test_oom());
     expect_case("handshake-open-allocation-sweep", test_handshake_open_allocation_sweep());
