@@ -35,7 +35,7 @@ from test_p23_c_endpoint_interop import _CProcess, _Clock, _settle  # noqa: E402
 
 _ROOT = Path(__file__).parents[3]
 _MANIFEST_NAME = "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json"
-_MANIFEST_DIGEST = "64363ad7c1f750409bad1b039509cfec4037a981fa760bbb4dce57bb50e5546d"
+_MANIFEST_DIGEST = "2bc3c2ee1c9e8f3aa87af4afd2f0cab996099fc69da1f0938c23e050c8c68faf"
 _MAX_CORE = 256
 _MAX_ENCODED = 263
 _SYNC = b"\x00"

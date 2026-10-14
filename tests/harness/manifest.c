@@ -514,7 +514,7 @@ static void check_identity(vstate *st, const json_value *m, int *direct_out, int
         for (i = 0; i < nids; i++) {
             for (j = i + 1U; j < nids; j++) {
                 if (ids[i] == ids[j]) {
-                    fail(st, "identity", "$.identity");
+                    fail(st, "identity", "$.identity.nodes");
                     return;
                 }
             }

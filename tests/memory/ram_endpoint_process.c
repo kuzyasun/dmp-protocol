@@ -240,13 +240,13 @@ static int read_file_bytes(const char *path, uint8_t *data, size_t capacity, siz
 static const char *pinned_digest(const char *basename)
 {
     if (strcmp(basename, "test-direct-minimal-128.json") == 0)
-        return "3bbcce998d664fa74970f503a39b28474de9291d453373810d641b2b662fb6e4";
+        return "d987dbae6d7490d98d45aaca7d7af13c600d4c3557b3453c3598e5ffec9c0fa1";
     if (strcmp(basename, "test-direct-minimal-256.json") == 0)
-        return "4dc75347343c209c1ed12ab67e60eba83ff974beaa9f351c121da87e7b18b946";
+        return "9cc6d8ae95c5f241166c9af9edc70d12e61fdb4404c10479bb68de32d0d344ea";
     if (strcmp(basename, "direct-nnpsk0.json") == 0)
-        return "29f7895ab3f8dadfbe7331f1981fa35dcad2bec59139464e29bddc4e841e5285";
+        return "40abedfbb1799ea6cb711f739101d40bae6454eac719858c79b066f2670ad0c1";
     if (strcmp(basename, "radio-nnpsk0.json") == 0)
-        return "9767b5daff88424e64887dd78a335c4de0f9b93900d4512c1cec9c4d041b53a9";
+        return "a3887c44b06b4d2f905f89fae4b28b99c0f00d93d77c50b1f752ce77bde4922f";
     return NULL;
 }
 static int validate_manifest_digest(const char *path, uint8_t digest[32], char digest_hex[65])

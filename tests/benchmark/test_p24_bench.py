@@ -60,6 +60,7 @@ class TestP24Benchmark(unittest.TestCase):
         endpoint = Path(os.environ["DMP_P23_ENDPOINT_SEC_EXE"])
         self.assertTrue(endpoint.is_file())
         output = ROOT / "build" / "host" / "p24-smoke-report.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
         completed = subprocess.run(
             [
                 sys.executable,

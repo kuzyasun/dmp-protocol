@@ -174,7 +174,7 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
         profile = manifest_bytes("radio-xx.json")
         self.assertEqual(
             hashlib.sha256(profile).hexdigest(),
-            "8ddf226f205ac3e547b57858d6cd68aa960fab03f6462b9f27cca81c0822fe60",
+            "b27b06ee7ad0a0d51e79cf894a373bf2b74d9f9b3674b24b9256418b9141641a",
         )
         initiator, responder = self.pair("radio-xx.json")
         self.grant_service2_freshness(initiator, responder)
@@ -418,7 +418,7 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
         profile = manifest_bytes("test-radio-retry-all-xx.json")
         self.assertEqual(
             hashlib.sha256(profile).hexdigest(),
-            "4aece0283e15774346dd2d0d73d45e8c496a4e91aec2ac2693a253e977c767c9",
+            "369314bd7daf840b22d34e10c432fe08575ecd9e1c562cfd730a342bc5e1286a",
         )
         initiator, responder = self.pair("test-radio-retry-all-xx.json")
         self.grant_service2_freshness(initiator, responder)

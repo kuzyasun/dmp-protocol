@@ -901,7 +901,7 @@ class P21DSelectiveIntegrationTests(unittest.TestCase):
         profile = manifest_bytes("test-radio-retry-all-nnpsk0.json")
         self.assertEqual(
             hashlib.sha256(profile).hexdigest(),
-            "bc8bba7c929c6d0fe9ad39dbe66a6699d342304ae8485ddf5cac9e32605b55f1",
+            "b33d39bffcb7c2750fbf860e4e040cd5b4e29101a6d6c0ca604faef9719ccf3f",
         )
         initiator, responder = self.pair("test-radio-retry-all-nnpsk0.json")
         self.grant_service2_freshness(initiator, responder)
