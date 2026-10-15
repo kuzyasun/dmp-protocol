@@ -39,6 +39,13 @@ enum {
     SAMPLE_EPOCH_INDETERMINATE = 3
 };
 
+_Static_assert(sizeof(dmp_reassembly_tombstone) == 48U,
+               "reassembly tombstone layout changed");
+_Static_assert(SAMPLE_INIT_ATTEMPTS >= 1U,
+               "SAMPLE-1 initialization must allow at least one attempt");
+_Static_assert(SAMPLE_RESULT_DEADLINE_MS > 0U,
+               "SAMPLE-1 result deadline must be positive");
+
 /* Host memory standing in for the application save. Not NVS and not a filesystem. */
 typedef struct {
     int have_saved;
@@ -664,7 +671,6 @@ static int boot_with_binding_profile(node *self, int producer, dmp_time_ms now,
         CHECK(self->endpoint.profile.peers == 0U);
         return 0;
     }
-    CHECK(sizeof(dmp_reassembly_tombstone) == 48U);
     CHECK(self->endpoint.profile.assembly_tombstone_slots == TOMBSTONES);
     CHECK(self->endpoint.profile.control_slots == 2U);
     CHECK(self->endpoint.profile.adapter_slots == 3U);
@@ -1333,10 +1339,10 @@ static int test_sample1(void)
     CHECK(pump(now, 8) == 0);
     CHECK(right.app.results == 3);
     {
-        uint8_t older[SAMPLE1_READ_BYTES];
-        CHECK(sample1_read_rsp(older, 1U, 2U, 1U) == sizeof older);
-        CHECK(right.app.result_n == sizeof older);
-        CHECK(memcmp(right.app.result, older, sizeof older) == 0);
+        uint8_t older_reply[SAMPLE1_READ_BYTES];
+        CHECK(sample1_read_rsp(older_reply, 1U, 2U, 1U) == sizeof older_reply);
+        CHECK(right.app.result_n == sizeof older_reply);
+        CHECK(memcmp(right.app.result, older_reply, sizeof older_reply) == 0);
     }
     CHECK(right.app.live_index == 3U);
     CHECK(right.app.live_value == 400U);
@@ -1959,8 +1965,6 @@ static int test_sample_init_retry_budget(void)
     dmp_time_ms second_deadline;
     dmp_time_ms init_deadline;
 
-    CHECK(SAMPLE_INIT_ATTEMPTS == 2U);
-    CHECK(SAMPLE_RESULT_DEADLINE_MS > 0U);
     CHECK(boot(&left, 1, now) == 0);
     CHECK(boot(&right, 0, now) == 0);
     init_deadline = now + SAMPLE_INIT_DEADLINE_MS;

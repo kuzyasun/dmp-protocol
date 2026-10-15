@@ -2750,6 +2750,18 @@ static int test_reassembly(void)
     CHECK(right.app.assembled == 1);
     CHECK(right.app.body_n == sizeof body);
     CHECK(memcmp(right.app.body, body, sizeof body) == 0);
+
+    /* A fresh authenticated PN with the accepted identity cannot replace the
+     * completed body, and it does not dispatch a second assembled message. */
+    spec.payload = span(conflict_bytes, sizeof conflict_bytes);
+    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof sealed, &sealed_n) ==
+          DMP_HS_OK);
+    CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof wrapped, &wrapped_n) == 1);
+    status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now);
+    CHECK(status == DMP_DUPLICATE);
+    CHECK(right.app.assembled == 1);
+    CHECK(right.app.body_n == sizeof body);
+    CHECK(memcmp(right.app.body, body, sizeof body) == 0);
     close_session(&env);
     return 0;
 }
@@ -3437,13 +3449,13 @@ static int test_protected_service2_immediate(void)
     size_t core_n = 0U;
     size_t i;
     uint32_t round;
-    dmp_time_ms at;
+    dmp_time_ms now = 20000U;
+    dmp_time_ms at = now;
     dmp_core_limits limits = {MTU, MESSAGE, 32U};
     dmp_frame_view view;
     dmp_parse_result parsed;
     dmp_frame_spec spec;
     dmp_reliability_handle request;
-    dmp_time_ms now = 20000U;
 
     memset(&env, 0, sizeof(env));
     if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
@@ -3561,7 +3573,8 @@ static int test_protected_single_peer_service_and_bounds(void)
     }
     env.now = now;
     g_endpoint_test_message_bytes = MAX_MESSAGE;
-    /* 256 is the directional decoded-Core MTU. Stream R needs framing headroom. */
+    /* Decoded-Core MTU is 256 B; encoded_mtu is a separate 270 B buffer cap.
+     * Stream R's exact encoded bound for a 256 B Core frame is 263 B. */
     g_endpoint_test_encoded_mtu = 270U;
     if (boot_node(&left, 1, 128U, 32U, now) != 0 ||
         boot_node(&right, 0, 128U, 32U, now) != 0) {
@@ -5218,13 +5231,43 @@ static int test_protected_multi_peer_routing_profile(uint32_t scratch_slots)
         CHECK(live_results == 4U && acked_results == 4U);
     }
 
+    /* An output selected for peer 2 advances the scheduler to peer 3, even
+     * after the initial peer scan has completed. */
+    {
+        uint8_t telem = 0xC3U;
+        grants[0].principal = peer_ids[2];
+        grants[0].service_id = 1U;
+        grants[0].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_TELEM;
+        grants[1].principal = ID_RESP;
+        grants[1].service_id = 1U;
+        grants[1].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT |
+                           DMP_ENDPOINT_PERMIT_TELEM;
+        grants[2].principal = peer_ids[2];
+        grants[2].service_id = 2U;
+        grants[2].permit = DMP_ENDPOINT_PERMIT_REQ;
+        grants[3].principal = ID_RESP;
+        grants[3].service_id = 2U;
+        grants[3].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
+        CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, handles[2], grants,
+                                           4U) == DMP_OK);
+        right.wire.n = 0;
+        right.endpoint.poll_peer_cursor = 0U;
+        CHECK(dmp_endpoint_submit_telem_to(&right.endpoint, handles[2], 1U,
+                                           span(&telem, sizeof telem), now + 50U) ==
+              DMP_OK);
+        CHECK(dmp_endpoint_poll(&right.endpoint, now + 50U) == DMP_OK);
+        CHECK(right.wire.n == 1);
+        CHECK(right.endpoint.poll_peer_cursor == 3U);
+        right.wire.n = 0;
+    }
+
     /* Expire peer 1's retained request, then ensure peer 0's following
      * receive batch keeps the route and decoder bound to peer 0. */
     {
         dmp_reliability_handle pending;
         uint8_t request = 0xA1U;
         uint8_t telem = 0xB2U;
-        dmp_time_ms submit_at = now +
+        dmp_time_ms submit_at = endpoint_now +
                                 right.endpoint.profile.result_cache_ms + 10U;
         dmp_time_ms expire_at = 0U;
         int unknowns_before = right.app.unknowns;
@@ -5517,8 +5560,14 @@ static int test_protected_multi_peer_routing_profile(uint32_t scratch_slots)
     grants[1].principal = ID_RESP;
     grants[1].service_id = 1U;
     grants[1].permit = DMP_ENDPOINT_PERMIT_RESULT;
+    grants[2].principal = 0x30U;
+    grants[2].service_id = 2U;
+    grants[2].permit = DMP_ENDPOINT_PERMIT_REQ;
+    grants[3].principal = ID_RESP;
+    grants[3].service_id = 2U;
+    grants[3].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT;
     CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, replacement, grants,
-                                       2U) == DMP_OK);
+                                       4U) == DMP_OK);
     {
         size_t entropy_index;
         for (entropy_index = 0U;
@@ -5572,6 +5621,70 @@ static int test_protected_multi_peer_routing_profile(uint32_t scratch_slots)
         CHECK(right.app.telems == telems_before_replacement + 1 &&
               right.app.last_peer.slot == replacement.slot &&
               right.app.last_peer.generation == replacement.generation);
+    }
+
+    /* The four-peer endpoint also receives a complete maximum-size service-2
+     * message through the newly active replacement association. The serial
+     * and parallel profile runs both cover all 32 protected slices. */
+    {
+        uint8_t chunk[DMP_MULTI_PEER_CHUNK_BYTES];
+        uint8_t service_two_extensions[3] = {17U, 1U, 2U};
+        uint32_t fragment_index;
+        uint32_t accepts_before = (uint32_t)right.app.accepts;
+        dmp_time_ms fragment_at = lifecycle_at + 5U;
+
+        for (fragment_index = 0U;
+             fragment_index < DMP_MULTI_PEER_FRAGMENTS;
+             fragment_index++) {
+            uint32_t offset;
+            for (offset = 0U; offset < DMP_MULTI_PEER_CHUNK_BYTES; offset++) {
+                chunk[offset] = (uint8_t)(0x31U +
+                    ((fragment_index * DMP_MULTI_PEER_CHUNK_BYTES + offset) % 197U));
+            }
+            memset(&spec, 0, sizeof spec);
+            spec.fields.type = DMP_TYPE_REQ;
+            spec.fields.options = DMP_OPT_SEQ | DMP_OPT_ACK_REQ |
+                                  DMP_OPT_FRAG | DMP_OPT_EXT;
+            spec.fields.seq = 7U;
+            spec.fields.fragment.index = fragment_index;
+            spec.fields.fragment.chunk_size = DMP_MULTI_PEER_CHUNK_BYTES;
+            spec.fields.fragment.total_size = DMP_MULTI_PEER_MESSAGE_BYTES;
+            spec.extensions = span(service_two_extensions,
+                                   sizeof service_two_extensions);
+            spec.payload = span(chunk, sizeof chunk);
+            CHECK(dmp_hs_seal_logical(peers[4].initiator, replacement_index,
+                                      &spec, sealed, sizeof sealed,
+                                      &sealed_size) == DMP_HS_OK);
+            CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped,
+                            &wrapped_size));
+            status = dmp_endpoint_rx_from(
+                &right.endpoint, replacement, span(wrapped, wrapped_size),
+                fragment_at + fragment_index);
+            if (status != (fragment_index + 1U == DMP_MULTI_PEER_FRAGMENTS
+                               ? DMP_OK
+                               : DMP_INCOMPLETE)) {
+                (void)fprintf(stderr,
+                              "four-peer 4096-byte fragment %u returned %s (%d)\n",
+                              (unsigned)fragment_index,
+                              dmp_status_name(status), (int)status);
+            }
+            CHECK(status == (fragment_index + 1U == DMP_MULTI_PEER_FRAGMENTS
+                                 ? DMP_OK
+                                 : DMP_INCOMPLETE));
+            right.wire.n = 0;
+        }
+        CHECK((uint32_t)right.app.accepts == accepts_before + 1U &&
+              right.app.request_service == 2U &&
+              right.app.req_n == DMP_MULTI_PEER_MESSAGE_BYTES &&
+              right.app.last_peer.slot == replacement.slot &&
+              right.app.last_peer.generation == replacement.generation &&
+              right.app.peer_pending_live[replacement.slot] != 0U);
+        for (fragment_index = 0U;
+             fragment_index < DMP_MULTI_PEER_MESSAGE_BYTES;
+             fragment_index++) {
+            CHECK(right.app.req[fragment_index] ==
+                  (uint8_t)(0x31U + (fragment_index % 197U)));
+        }
     }
 
     for (i = 5U; i > 0U; i--) {

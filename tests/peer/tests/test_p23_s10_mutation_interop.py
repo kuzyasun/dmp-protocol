@@ -12,8 +12,8 @@ import json
 sys.path.insert(0, str(Path(__file__).parents[1]))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from dmp_peer.frame import parse_frame  # noqa: E402
-from dmp_peer.stream_r import encode_stream_r  # noqa: E402
+from dmp_peer.frame import decode_uleb, parse_frame  # noqa: E402
+from dmp_peer.stream_r import StreamRDecoder, encode_stream_r  # noqa: E402
 from dmp_peer.testing import PeerEndpoint  # noqa: E402
 from test_p23_c_endpoint_interop import (  # noqa: E402
     _CProcess,
@@ -28,6 +28,20 @@ from test_p23_c_endpoint_interop import (  # noqa: E402
 
 def _wire(core_frame: bytes) -> bytes:
     return encode_stream_r(core_frame, max_core=256, max_encoded=263)
+
+
+def _wire_frame(wire: bytes, clock: _Clock):
+    decoder = StreamRDecoder(
+        max_encoded=263, max_core=256, candidate_timeout_ms=26, await_sync=False
+    )
+    frames = [
+        event.frame
+        for event in decoder.feed(wire, at_ms=clock.next())
+        if event.kind == "frame"
+    ]
+    if len(frames) != 1 or frames[0] is None:
+        raise AssertionError("expected exactly one complete Stream R frame")
+    return parse_frame(frames[0], max_frame=256)
 
 
 @unittest.skipUnless(
@@ -73,6 +87,24 @@ class TestP23S10MutationInterop(unittest.TestCase):
         if state.frames:
             _pump(c_endpoint, peer, state.frames, clock)
         return state
+
+    def assert_receipt(self, frames, clock: _Clock, sequence: int) -> None:
+        self.assertEqual(len(frames), 1, "accepted or duplicate message must emit one receipt")
+        ack = _wire_frame(frames[0], clock)
+        self.assertEqual(ack.message_type, 6)
+        self.assertIsNotNone(ack.security, "receipt must be protected")
+
+        reply_ext = next((ext for ext in ack.extensions if ext.extension_id == 1), None)
+        self.assertIsNotNone(reply_ext, "receipt must include REPLY_TO")
+        reply_seq, reply_size = decode_uleb(reply_ext.value)
+        self.assertEqual(reply_size, len(reply_ext.value), "REPLY_TO must be one canonical ULEB")
+        self.assertEqual(reply_seq, sequence)
+
+        service_ext = next((ext for ext in ack.extensions if ext.extension_id == 4), None)
+        self.assertIsNotNone(service_ext, "receipt must include SERVICE_ID")
+        service_id, service_size = decode_uleb(service_ext.value)
+        self.assertEqual(service_size, len(service_ext.value), "SERVICE_ID must be one canonical ULEB")
+        self.assertEqual(service_id, 2)
 
     def test_fresh_pn_changed_payload_duplicate_cannot_replace_data_slice(self) -> None:
         c_endpoint, peer, clock = self.open_pair(b"\x3c" * 32, 0x6D)
@@ -123,13 +155,58 @@ class TestP23S10MutationInterop(unittest.TestCase):
         self.assertEqual(completed.assembled, 1)
         self.assertEqual(completed.body, original)
 
+        # Inspect the C endpoint receipt emitted upon acceptance of the original transfer.
+        self.assert_receipt(completed.frames, clock, sequence)
+
         # A later fresh-PN retry of the altered immutable identity must not
         # execute a second application delivery or replace retained content.
-        replay = self.deliver(
-            c_endpoint, peer, _wire(changed_frames[0]), clock, allow_reject=True
+        # Generating a fresh variant ensures anti-replay does not mask the
+        # C endpoint's authenticated reassembly dedup path.
+        max_prior_pn = max(
+            parse_frame(frame).security.packet_number
+            for frame in (original_frames + changed_frames)
         )
+        post_accept_changed_frames = peer._build_data_frames(
+            service_id=2, seq=sequence, payload=changed, ack_req=True
+        )
+        fresh_altered_first = parse_frame(post_accept_changed_frames[0])
+        self.assertEqual(fresh_altered_first.message_type, 7)
+        self.assertEqual(fresh_altered_first.sequence, sequence)
+        self.assertGreater(fresh_altered_first.security.packet_number, max_prior_pn)
+        self.assertNotEqual(fresh_altered_first.payload, original_first.payload)
+
+        replay = self.deliver(
+            c_endpoint, peer, _wire(post_accept_changed_frames[0]), clock, allow_reject=True
+        )
+        self.assertEqual(replay.rx_status, 8, "changed fresh-PN frame must enter the accepted-duplicate path")
         self.assertEqual(replay.assembled, 1)
         self.assertEqual(replay.body, original)
+        # The altered duplicate must still receive a protected receipt for the
+        # original message identity, including its application service.
+        replay_receipts = replay.frames
+        if not replay_receipts:
+            replay_receipts = c_endpoint.poll(clock.next()).frames
+        self.assert_receipt(replay_receipts, clock, sequence)
+
+        # An authentic duplicate retry with fresh PN also reaches dedup,
+        # does not redispatch, and re-emits the receipt for the accepted sequence.
+        authentic_retry_frames = peer._build_data_frames(
+            service_id=2, seq=sequence, payload=original, ack_req=True
+        )
+        fresh_authentic_first = parse_frame(authentic_retry_frames[0])
+        self.assertGreater(
+            fresh_authentic_first.security.packet_number,
+            fresh_altered_first.security.packet_number,
+        )
+        dup_delivery = self.deliver(
+            c_endpoint, peer, _wire(authentic_retry_frames[0]), clock, allow_reject=True
+        )
+        self.assertEqual(dup_delivery.assembled, 1)
+        self.assertEqual(dup_delivery.body, original)
+        authentic_receipts = dup_delivery.frames
+        if not authentic_receipts:
+            authentic_receipts = c_endpoint.poll(clock.next()).frames
+        self.assert_receipt(authentic_receipts, clock, sequence)
 
 
 if __name__ == "__main__":

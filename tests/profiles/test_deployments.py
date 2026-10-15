@@ -164,8 +164,26 @@ class DeploymentTests(unittest.TestCase):
              "max_message_bytes": 4096, "return_period_ms": 1000,
              "return_window_ms": 250},
         ], manifest["multi_peer"]["sensitivity_rows"])
-        self.assertTrue(validator.validate_bytes(self.encode(manifest))[
-            "valid"])
+        validated = validator.validate_bytes(self.encode(manifest))
+        self.assertTrue(validated["valid"])
+        endpoint = next(resource for resource in manifest["resources"]
+                        if resource["role"] == "endpoint")
+        ram_limit = next(region["limit_bytes"] for region in endpoint["regions"]
+                         if region["id"] == "RAM")
+        ram_reserved = sum(charge["count"] * charge["bytes_each"]
+                           for charge in endpoint["charges"]
+                           if charge["region"] == "RAM")
+        self.assertEqual(ram_reserved, validated["derived"]["ram_reserved_bytes"]
+                         ["endpoint"]["RAM"])
+        self.assertLessEqual(ram_reserved, ram_limit)
+
+        underfunded = copy.deepcopy(manifest)
+        endpoint = next(resource for resource in underfunded["resources"]
+                        if resource["role"] == "endpoint")
+        ram = next(region for region in endpoint["regions"]
+                   if region["id"] == "RAM")
+        ram["limit_bytes"] = ram_reserved - 1
+        self.assert_rejected(underfunded, "resources", "$.resources[endpoint]")
 
         duplicate = copy.deepcopy(manifest)
         duplicate["multi_peer"]["peer_nodes"][1] = duplicate["multi_peer"]["peer_nodes"][0]

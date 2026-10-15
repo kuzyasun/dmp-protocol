@@ -499,6 +499,13 @@ static dmp_status accept_existing(dmp_reassembly *engine, size_t slot_index,
     payload = payload_ptr(engine, slot_index);
     if ((slot->received_bitmap & bit) != 0U) {
         if (memcmp(payload + offset, input->plaintext.data, input->plaintext.size) != 0) {
+            /* Once the whole identity has been accepted, its retained payload
+             * is authoritative. A fresh authenticated PN carrying different
+             * bytes for that same slice is a duplicate probe, not a reason to
+             * replace the accepted body or reject the identity. */
+            if (slot->complete != 0U) {
+                return DMP_DUPLICATE;
+            }
             return DMP_MALFORMED;
         }
         /* An accepted index after the assembly deadline is expiry, including

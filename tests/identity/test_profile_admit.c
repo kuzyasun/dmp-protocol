@@ -13,6 +13,9 @@
 #error DMP_SOURCE_DIR is required
 #endif
 
+_Static_assert(sizeof(dmp_reassembly_tombstone) == 48U,
+               "reassembly tombstone layout changed");
+
 #define CHECK(condition)                                                     \
     do {                                                                     \
         if (!(condition)) {                                                  \
@@ -78,12 +81,14 @@ static void valid_config(dmp_config *config)
         dmp_config in_;                                                      \
         dmp_admitted_profile out_;                                           \
         dmp_admitted_profile saved_;                                         \
+        dmp_status expected_status_;                                         \
         valid_config(&in_);                                                  \
         setup;                                                               \
+        expected_status_ = (status);                                         \
         memset(&out_, 0x3C, sizeof out_);                                    \
         saved_ = out_;                                                       \
-        CHECK(dmp_config_admit(&in_, &out_) == (status));                    \
-        if ((status) == DMP_OK) {                                            \
+        CHECK(dmp_config_admit(&in_, &out_) == expected_status_);             \
+        if (expected_status_ == DMP_OK) {                                    \
             CHECK(memcmp(&in_, &out_, sizeof in_) == 0);                     \
         } else {                                                             \
             CHECK(memcmp(&out_, &saved_, sizeof out_) == 0);                 \
@@ -896,7 +901,6 @@ static int test_budget(void)
     dmp_admitted_profile saved;
     unsigned i;
 
-    CHECK(sizeof(dmp_reassembly_tombstone) == 48U);
     direct_limits(&manifest, DIRECT_ADAPTER);
     CHECK(dmp_config_admit(&manifest, &out) == DMP_OK);
     CHECK(memcmp(&manifest, &out, sizeof manifest) == 0);

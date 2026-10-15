@@ -11,34 +11,180 @@ Older references below to non-Espressif runtime as a current acceptance blocker
 are superseded for first-version S3/C3 acceptance. Other outstanding evidence
 remains required; no test result or package status changes with this decision.
 
-This report consolidates the accepted host/simulation evidence available for
-P25. It is not a release approval. P25 remains pending because P12, the P01
-acceptance umbrella, and P01C target qualification are still open. Physical
-hardware checks are intentionally scheduled after the software and report
-gates, per owner direction. Host memory estimates and provider-only MCU
-measurements do not guarantee whole-device operation.
+This report consolidates accepted host/simulation evidence and the bounded
+physical smoke results available for P25. It is not a release approval. P25
+remains pending because P12, the P01 acceptance umbrella, and P01C target
+qualification are still open. Host memory estimates and provider-only MCU
+measurements do not guarantee whole-device operation. The existing physical
+smoke evidence below is limited to unauthenticated ESP-NOW/Core echo and
+coredump extraction; it does not qualify the DMP endpoint or P01C.
 
 The P21 peer work is accepted for functional host evidence under the owner's
 explicit disposition, with an unresolved historical provenance caveat. No
 clean-room or complete-independence claim is made.
 
+## Current software gates and bounded physical smoke — 2026-10-15
+
+The agreed P12/P13/P15 host behavior and the finite P01 provider/secret-copy
+inventory are implemented and exercised. The current RBO host gate
+(`job_01M4Y9RXZZMT59095HMED352QN`) completed these checks successfully:
+
+- `ctest --test-dir build/rbo-final-noise --output-on-failure --parallel 1`:
+  2/2 upstream Noise tests passed.
+- `ctest --test-dir build/rbo-final --output-on-failure --parallel 1 -E
+  '^(memory\.mcu_abi|memory\..*\.layout)$'`: 143/143 DMP CTests passed. The
+  owner deferred the ARM ABI probe and its seven dependent layout checks.
+- `python3 -m unittest discover -s tests/peer/tests -v`: 439 tests ran, 438
+  passed, 1 skipped.
+- The Node crypto-vector check reported 4 fixtures, 64 packets, 44 mutations,
+  64 wrong-key rejections, 164 structural rejections, and 8 fixture-policy
+  rejections.
+
+The RBO job itself exited 1 after these gates because its trailing auxiliary
+audit script contained an invalid regular expression. A separate RBO crosswalk
+scan checked all 137 normative rows, primary/peer Test IDs, and 601 check
+references; it found no missing files or symbols. That scan's final whitespace
+check encountered CRLF handling in a Windows-originated note; local
+`git diff --check --ignore-submodules=all` passes. The ledger remains at 36
+whole-row passed / 101 partial. Its primary axis is 103 passed / 19 partial /
+15 unrecorded; peer is 98 passed / 39 partial; P23 interop is 46 passed / 7
+partial / 84 not-applicable. The 34 P12 rows remain 10 whole-row passed / 24
+partial; five primary-partial rows retain target-only storage/reset/UART
+evidence. No status was promoted just because a test reference exists.
+
+The integrated one-endpoint scenario covers four authenticated peers, per-peer
+routing/isolation, four pending reservations, two concurrent crypto scratch
+leases, four active plus four draining associations, and a protected 4096-byte
+service-2 request as 32 × 128-byte fragments. Both `four_serial` and
+`four_parallel` pass. The profile's MTU remains explicit: 256-byte decoded Core
+forward MTU and 263-byte encoded Stream R MTU.
+
+The separately hashed two-attempt SAMPLE-1 READ manifest, real SEC-1 wrong
+authenticated-sender rejection, handshake-to-transport COPY/BORROW/BUSY and
+delayed/uncertain/cancel/expiry/stale-callback behavior, and fail-closed
+application `sample_epoch` owner all have primary host regressions. Peer
+evidence remains partial where the independent model does not implement a real
+SEC-1 association or the full primary lifecycle; those limits are recorded in
+the normative ledger rather than described as protocol passes. The GPT-6.1-sol
+High reviewer found an epoch-index reuse risk when the association-fence
+callback failed. The fix now preserves the index and latches storage failure
+until a successful fence and reservation; reviewer follow-up found no further
+actionable issue.
+
+ESP-IDF 6.1 target compile/link job
+`job_01M4Y7AX57YA2BFGEVCMT8EQPD` passed both probes:
+
+```text
+eim run "idf.py -C tests/embedded/esp32s3 -B build/rbo-final-esp32s3 -DIDF_TARGET=esp32s3 build" v6.1
+eim run "idf.py -C tests/embedded/esp32c3 -B build/rbo-final-esp32c3 -DIDF_TARGET=esp32c3 build" v6.1
+```
+
+These are compile/link results only. Logs include Apple linker duplicate-library
+warnings and ESP-IDF component include-validation warnings; both target
+commands exited successfully.
+
+### Local host recheck and ESP-NOW image compile — 2026-10-15
+
+The local GCC 15.2.0 host build compiled 99/99 steps:
+
+```text
+cmake --build build/host-gcc --parallel 16
+ctest --test-dir build/host-gcc --output-on-failure -E '^(memory\.mcu_abi|memory\..*\.layout)$'
+```
+
+CTest passed 144/144, including the profile suite's normative crosswalk
+regression and `host.espnow_pair.serial_stub`. The filter excludes the
+owner-deferred ARM ABI probe and seven dependent `memory.*.layout` checks.
+Compilation emitted one warning in vendored Noise-C (`patterns.c`, `memchr` bounds); no build step failed.
+
+With `DMP_P23_ENDPOINT_SEC_EXE` set to
+`build/host-gcc/tests/security/dmp_test_endpoint_sec.exe` and
+`PYTHONPATH=tests/peer`, the full Python peer suite ran 439 tests: 438 passed
+and one exact-manifest cross-endpoint tombstone-pressure state was skipped
+because it is unreachable under RADIO-1 and the independent peer has no
+authorized service-1 DATA path to create it. The complete run included the
+loopback TCP binding test. The targeted ledger regression passed 1/1; it checks
+the primary and peer Test IDs for all 137 rows plus every recorded primary,
+peer, and interop check path and declaration. Row statuses remain unchanged:
+36 whole-row passed and 101 partial.
+
+`node dev/dmp_verify_security_vectors.cjs` passed with 4 fixtures, 64 packets,
+44 mutations, 64 wrong-key rejections, 164 structural rejections, and 8
+fixture-policy rejections.
+
+RBO job `job_01M500ZBSPNC6ACZF2KCFT8D7D` passed ESP-IDF 6.1 compile/link for
+the DMP pre-hardware probes on ESP32-S3 and ESP32-C3. A separate RBO job,
+`job_01M50185NATG1KC9KB6M0NG7KK`, passed compile/link for the isolated
+`tests/embedded/espnow_pair` smoke images on both targets, including the
+1 MiB coredump partition. The commands were:
+
+```text
+eim run "idf.py -C tests/embedded/espnow_pair -B build/prehardware-20261015-espnow-s3 -DIDF_TARGET=esp32s3 build" v6.1
+eim run "idf.py -C tests/embedded/espnow_pair -B build/prehardware-20261015-espnow-c3 -DIDF_TARGET=esp32c3 build" v6.1
+```
+
+Those images only exercise Core codec bytes over unauthenticated ESP-NOW echo;
+they are not SEC-1 endpoint or DMP production-binding evidence. The RBO images
+from the compile job above were not flashed. A previous authorized run on
+2026-10-15 erased all four 4 MiB bench boards and flashed the earlier target
+images. Its raw logs and artifacts remain under the ignored local directory
+`dev/evidence/espnow-pair/`; a concise tracked summary is:
+
+| Scenario | Result | Evidence boundary |
+|---|---|---|
+| S3 COM37 ↔ C3 COM36, 10 × 64-byte payload | PASS, 10/10 echoes | Unauthenticated Core echo; max decoded Core frame 68 bytes |
+| S3 COM37 ↔ C3 COM36, 100 × 240-byte payload | PASS, 100/100 echoes | Max decoded Core frame 244 bytes, within the ESP-NOW v1 250-byte payload ceiling |
+| S3 COM37 ↔ C3 COM38, 10 × 64-byte payload | PASS, 10/10 echoes | Unauthenticated Core echo |
+| S3 COM37 ↔ C3 COM39, 10 × 64-byte payload | FAIL | First MAC completion failed; C3 received the probe but its echo completion failed |
+| S3 COM37 with C3 COM36/38/39 in one radio context | FAIL after two echoes | COM39 send callback failed; this is three unauthenticated radio peers, not four authenticated DMP peers |
+| Intentional coredump on COM37, COM36, COM38, COM39 | PASS on all four | 1 MiB partition read without flash writes; each extracted ELF decoded against its matching ESP-IDF 6.1 image |
+
+These radio runs separately recorded the 256-byte decoded Core MTU, 263-byte
+encoded Stream R MTU, and 250-byte ESP-NOW v1 payload maximum. They do not prove
+SEC-1, `dmp_endpoint`, SAMPLE-1, `four_parallel`, or DMP authenticated-peer
+behavior. No physical action was part of the current host/compile recheck. The
+remaining acceptance work requires physical ESP32-S3 and ESP32-C3 boards:
+
+1. Repeat MCU-05 on each final board: three boot epochs × four `RUN 2 128`
+   blocks per epoch (3,072 Noise pairs per board), balanced fixed/random
+   NNpsk0/XX; two 100 ms UART-bridge EN pulses through RTS, keeping DTR
+   inactive as the bridge requires. Capture
+   ROM banner and POWERON reset reason, fresh boot IDs, reset counters, and
+   allocation/heap/stack/synchronization/overlap checks. The prior S3 result
+   predates this final code; prior C3 evidence did not complete this gate.
+2. Run P01C's integrated endpoint workload on one endpoint with four
+   authenticated peers under both `four_serial` and `four_parallel`; record
+   actual heap/retained/scratch/stack limits and complete the protected
+   4096-byte service-2 exchange.
+3. Exercise SAMPLE-1's actual NVS reserve/commit across warm reset and power
+   loss, old-association closure before READ/publish/activate, commit failure,
+   maximum-index epoch rollover, stale-result/TELEM rejection, and the limits
+   of ordinary NVS against complete old-image restoration.
+4. Record physical TRNG readiness/quality and any timing/energy measurements
+   required by the existing P01C acceptance. Do not change eFuses.
+
+For C3, use an observable native USB Serial/JTAG ROM boot channel; the earlier
+COM35 CH343 bridge had ROM output disabled (`UART_PRINT_CONTROL=3`). The
+operator's current mapping is S3 COM37 and C3 COM36/COM38/COM39; verify target
+identity and flash size again before future programming. ARM ABI checks remain
+deferred by owner direction, and non-Espressif physical qualification remains
+deferred.
+
 ## Package state
 
 | Area | Recorded state | Scope boundary |
 |---|---|---|
-| P12 endpoint/SAMPLE-1 | Running; last 34-row reconciliation records 28 passed / 6 partial | Owner-approved D1-D6 continuation now has multi-peer endpoint routing/lifecycle, separate two-attempt retry manifest, real different-sender SEC-1 rejection, handshake-to-transport composition, and SAMPLE-1 epoch-owner composition. The integrated `four_parallel`/`four_serial` endpoint scenario passes. Final RBO job `job_01M4VXMPM95Q2AR8ZER5D091KM` passed 134/134 native CTests after excluding `memory.mcu_abi` and its seven dependent layout checks at the owner's direction; both ESP32-S3/C3 IDF 6.1 compile/link probes passed. Focused continuation selection passed 4/4 and independent GPT-6.1-sol High source review found no actionable findings. ARM ABI/layout evidence remains deferred and unpassed. P12 row-status review, durable target storage and physical qualification remain open. |
+| P12 endpoint/SAMPLE-1 | Host software exercised; 34-row ledger remains 10 whole-row passed / 24 partial | The one-endpoint four-peer topology and both `four_serial`/`four_parallel` profiles pass, including a protected 4096-byte service-2 transfer. The separate two-attempt manifest, real authenticated wrong-sender case, transport ownership/lifecycle cases, and fail-closed epoch owner are covered in the current host suite. Primary evidence is 29 passed / 5 partial; the five primary-partial rows need target NVS/reset/UART evidence. Peer evidence remains 10 passed / 24 partial where the model does not implement real SEC-1 association behavior or the complete primary lifecycle. See the current closeout above. |
 | P13–P20 | Accepted for their recorded package scopes | Each package's linked evidence remains authoritative; this summary does not expand its gate. |
 | P21 independent peer | Owner-accepted for host/peer functionality | Historical actual-input/read-set and enforced access-boundary records are incomplete. |
 | P22 mixed Stream R/packet binding | Done for host/simulation | No physical transport or MCU claim. Reviewed snapshot hash: `0D126BC55389C446496EA6EA213FE28D7F7E93AD3F8F4F119F9F7D7F275208FF`. |
 | P23 C/Python interoperability | Done for enabled host/simulation scope | Historical accepted snapshot recorded full CTest 111/111 and peer suite 410 run, 408 passed, 2 skipped for documented sandbox/profile reasons. The latest owner-authorized non-ARM RBO gate passed all registered C/Python interop tests; ARM ABI/layout checks were excluded and remain pending. No physical binding or release claim. |
 | P24 equivalent-workload benchmark | Done for host/simulation tooling | One-iteration correctness smoke; not a release-performance, energy, or physical-radio study. |
-| P01 / P01C | Running / deferred | Provider host gaps and complete target/physical acceptance remain open. |
-| P25 | Pending | This evidence report does not close dependencies or authorize a release. |
+| P01 / P01C | Running / pending physical qualification | The finite host provider API/failure/secret-copy matrix and integrated endpoint topology are exercised. P01C still needs actual S3/C3 runtime, resource, entropy, reset, and persistence measurements. |
+| P25 | Pending | Host and target compile/link gates are complete for this continuation. P25 remains open until selected S3/C3 physical acceptance; this report does not authorize a release. |
 
-The current working tree includes further P12 and P01 host regressions beyond
-the earlier accepted P23/P24 snapshots. The focused results below apply to the
-current host build; the historic package totals above are not a claim that the
-entire current CTest inventory was rerun.
+The current closeout above reports the full current host and compile/link gates.
+The dated sections below preserve earlier focused and historical evidence.
 
 ## Current focused host evidence
 
@@ -254,7 +400,11 @@ independent implementations also share the published protocol/model context,
 so the review is not formally clean-room. No clean-room or complete
 independence claim is made.
 
-## Open software and final qualification gates
+## Historical open-item snapshot (superseded by the 2026-10-15 closeout above)
+
+The entries below preserve the state at their recorded dates. The 2026-10-15
+closeout above is the current status for host/software gates and exact physical
+residuals.
 
 - The 137-row normative ledger now links exact primary, peer, profile and
   interop test symbols. The last row-level reconciliation recorded 74 passed, 62 partial and 1

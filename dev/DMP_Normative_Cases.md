@@ -2,34 +2,43 @@
 
 P03 case-to-future-test index for main revision 10, SEC-1 revision 5, SELECTIVE-32 revision 1 and SAMPLE-1 revision 2. The canonical rows and stable planned Test IDs are in [DMP_Normative_Cases.json](DMP_Normative_Cases.json); this index does not repeat them.
 
-Last row-level reconciliation across all 137 requirements (2026-10-13):
-**74 passed, 62 partial, 1 not-run**. On 2026-10-14, a source-reference audit
-checked all 510 primary, peer, profile and interop file/symbol references; all
-137 rows had valid references and none were missing. This checks crosswalk
-integrity, not test outcomes, so the whole-row counts remain unchanged pending
-row-by-row disposition review. The latest full RBO host gate passed 135/142
-CTest cases; its seven failures are all RAM layout checks blocked by missing
-Cortex-M ABI records on the worker. These whole-row outcomes do not imply that
-every associated evidence axis passed.
+Current disposition across all 137 requirements (2026-10-15): **36 whole-row
+passed, 101 partial, 0 not-run**. Separate evidence axes record primary C as
+103 passed / 19 partial / 15 unrecorded, independent Python peer as 98 passed /
+39 partial, and P23 interop as 46 passed / 7 partial / 84 not-applicable.
+The current host test validates all primary/peer Test IDs and every recorded
+primary, peer, and interop check against declared C/Python functions. Reference
+validity does not promote a result or imply full normative coverage. The local
+host gate passed DMP CTest 144/144; upstream Noise CTest passed 2/2 in the
+current RBO host run. The integrated Python peer suite ran 439 tests, passed
+438, and skipped one unreachable cross-endpoint quota state; the Node
+crypto-vector check passed. The DMP CTest selection excludes the owner-deferred
+ARM ABI probe and its seven dependent layout checks.
+
+P12 has 34 rows: 10 whole-row passed / 24 partial; the primary axis is 29
+passed / 5 partial, the peer axis 10 passed / 24 partial, and interop 5 passed
+/ 29 not-applicable. The five primary-partial rows are `s-a1-epoch`,
+`s-a1-epoch-transition`, `s-a2-designated-read`, `s-a4-restart`, and
+`s-a4-persistence`; their remaining primary evidence is physical NVS/reset/
+protected-UART behavior. Peer partials remain explicit where the peer model
+does not implement the primary SEC-1 association or full lifecycle.
 
 The JSON records exact executable references by evidence layer:
 `primary_checks` for the C implementation, `peer_checks` for the independent
 Python implementation, `interop_checks` for scoped C/Python endpoint tests,
 and `profile_checks` for offline manifest validation. A reference identifies a
-real test symbol; the separate result fields state its recorded outcome.
-`reference_scope_limit` records where linked tests cover only part of the
-normative scenario. Four excluded-feature rows have profile-validator evidence
-but no independent-peer protocol test, so their `peer_result` is `not-run`.
-`v226-relay` remains only partially covered: the linked peer relay test forwards
-a routed unknown extension, while the normative vector requires an isolated
-unknown extension without ROUTE.
+real test symbol; the separate result fields state its recorded outcome and
+`primary_evidence`, `peer_evidence`, and `interop_evidence` retain scope limits.
+The current peer relay tests include the v226 vector's unknown-extension
+role/route checks. Excluded-feature profile rejections remain configuration
+evidence and do not establish endpoint protocol behavior.
 
 | Evidence layer | Exact rows with references | Recorded result |
 |---|---:|---|
-| Primary C checks | 121 of 137 | 303 linked test symbols; result is per row |
-| Independent Python peer | 76 of 137 | 65 passed, 10 partial, 35 not-run, 27 with no recorded peer result |
-| Offline profile validator | 4 | Excluded-feature manifest mutations; not endpoint or peer behavior |
-| C/Python endpoint interoperability | 53 | 53 passed for this selected scope; 84 explicitly not applicable |
+| Primary C checks | 125 of 137 | 390 links to 153 unique test symbols; result is per row |
+| Independent Python peer | 83 of 137 | 130 links to 114 unique test symbols; result is per row |
+| Offline profile validator | 4 | 4 links to the manifest validator; not endpoint or peer behavior |
+| C/Python endpoint interoperability | 53 | 77 links to 46 unique tests; 46 passed, 7 partial, 84 not applicable |
 
 `not-applicable` does not mean the underlying local requirement passed. P23's
 matrix covers the selected exact-manifest host/simulation endpoints, not every

@@ -29,7 +29,12 @@ MCU-04 adds two independent workers (S3 distinct cores, C3 single-core schedulin
 and fixes the observed C3 idle-watchdog starvation. Each wave's evidence and
 limitations remain authoritative for that experiment; none passes full P01.
 
-## Remaining provider prerequisites, in dependency order
+## Historical provider prerequisites, in dependency order
+
+This table records the 2026-10-13 checkpoint. Its host requirements have since
+been reconciled against the agreed API/ownership scope in
+[the 2026-10-15 closeout](#pre-hardware-provider-and-integration-reconciliation--2026-10-15);
+physical target measurements remain open.
 
 | Check | Existing evidence to reuse | Still required |
 |---|---|---|
@@ -37,17 +42,17 @@ limitations remain authoritative for that experiment; none passes full P01.
 | Pre-read structural/conflicting-duplicate boundary | Host `preread-conflict` and `scratch-serial-stale`; `duplicate-loss-processed-conflict` now sends a changed authenticated payload under the same processed-flight identity | Host regressions verify malformed pre-read inputs do not invoke Noise or destroy the admitted attempt, and a conflicting processed duplicate causes no Noise read/retransmit, deadline change, candidate teardown, or cached-response mutation. Finish the requirement-to-test map; P21C peer-local rerun remains separate evidence for the independent endpoint |
 | Cached-flight and same-owner serialization | Host `duplicate-loss-processed-conflict`, `scratch-serial-stale`, and `cached-flight-lifetime`; private production adapter `dmp_hs_tx` in `src/security/handshake_transport.c`; `security.handshake_transport` covers COPY/BORROW, `BUSY`, delayed/uncertain completion, cancel/expiry, slot lifetime and stale tokens/callbacks; `endpoint.protected_transport_reject_retry` covers endpoint rejection and uncertain completion; independent-worker concurrency remains separately evidenced by MCU-04 | The handshake-to-`dmp_transport` adapter now submits cached bootstrap flights and protected frames while leaving Noise state transitions with the existing handshake owner. Accepted COPY/BORROW buffers remain pinned through terminal callbacks; pre-accept `BUSY` releases no callback, cancellation/expiry do not free an accepted buffer early, and stale completion cannot mutate a reused generation. The late-active-completion regression ensures an already-active same-generation handshake is not expired before its delayed callback settles. These host checks close the library composition/ownership slice; they do not prove a live physical binding or target async scheduling. Two independent workers still do not prove same-owner serialization |
 | Buffer ownership and failure output | PN/AAD checks and MEM-01/02/03 owned-block, allocator-hook, quota and serialized-owner evidence | Host `security.provider_adapter` cases `output-contract` and `split-partial-registration-cleanup`, plus `security.handshake` cases `scratch-serial-stale`, `epoch-hash-alloc`, `cached-flight-lifetime`, and `finish-ready`, cover representative validation versus operational failure output, short-capacity wiping, split partial cleanup, caller RX mutation after partial/AWAITING, and borrowed cached/protected TX lifetimes. The 2026-10-13 premature-hash regression additionally proves hash-output wiping, unchanged provider accounting, a successful exact-vector flight on the same handshake, and cleanup. `short-handshake-read-output` exercises a valid four-byte flight-2 payload against a three-byte output capacity, requiring failure, zero length, exact-capacity wipe, and clean owner close. `late-constructor-validation-cleanup` injects NULL/nonempty prologue validation after NNpsk0 allocation and PSK installation, then checks released/erased state and a successful retry on the same provider. `late-static-constructor-validation-cleanup` performs the same late rejection for XX after installing the 32-byte initiator static key, checks erased state and balanced accounting, then recovers through exact flight 1 on that provider. `premature-split-output` verifies phase refusal, zeroed cipher wrappers, unchanged provider accounting, and exact flight-1 recovery on the same handshake. `short-ciphertext-output` injects a 15-byte record below the 16-byte ChaChaPoly MAC, verifies the operational short-MAC error, exact 32-byte declared-capacity wipe, unchanged tail/accounting, and successful same-cipher recovery. The source inventory below maps owner copies. Exhaustive branch-by-branch provider failure/erasure review and all target-specific behavior remain open. |
-| Resource sensitivity | MEM-03 serial quotas; MCU-03 pending owners; MCU-04 two concurrent workers | A 2026-10-13 host endpoint case now checks service 1 and 2 admission, the configured 256/257-byte decoded-core boundary, and 4096/4097-byte local request admission for the current one-peer endpoint. Complete the declared experiment matrix, including the manifest's `four_parallel` row (four peers, four pending attempts, two crypto slots), per-region retained/scratch/stack and resource bounds; this one-peer test does not map manifest `mtu_bytes`, deliver a 4096-byte exchange, or exercise that aggregate topology. MCU-04 private worker pairs do not exercise that topology |
+| Resource sensitivity | MEM-03 serial quotas; MCU-03 pending owners; MCU-04 two concurrent workers | The current host integration test `endpoint.protected_multi_peer_routing` exercises one endpoint with four authenticated peers, four pending reservations, two concurrent crypto scratch leases, four active plus four draining associations, per-peer routing/isolation, and a protected 4096-byte service-2 request as 32 × 128-byte fragments under both `four_serial` and `four_parallel`. This closes the agreed host resource/lifecycle topology. Target heap/retained/scratch/stack measurements and physical operation remain P01C evidence. The profile distinguishes 256-byte decoded Core forward MTU from 263-byte encoded Stream R MTU. |
 | Non-Espressif target evidence | Cortex-M4 compile/archive/alignment evidence | Select a concrete available board/linker map and entropy/clock port before physical runtime claims. ESP32-C3 does not satisfy non-Espressif evidence. No board is currently selected |
 | Whole-provider acceptance | Reviewed scoped waves, independent expected vectors and pinned backend provenance | Review remaining deltas and combined requirement-to-test mapping; record residual limitations explicitly. Production adoption remains a separate decision |
 
-The next implementation should close the remaining host wrapper-boundary rows
-with bounded private provider tests, reusing the accepted engine and fixtures.
-Do not introduce production endpoint APIs merely to pass a laboratory gate.
-The combined invalid authenticated-payload restart path is now covered at the
-host handshake boundary. Full endpoint episode/global admission, replay,
-transport scheduling and network lifecycle retain their P13-P15 and P21 owners;
-the bounded provider driver does not substitute for those endpoint reruns.
+The finite provider API/failure/secret-copy matrix is now covered by 35 named
+`expect_case` checks in `tests/security/test_provider.c`; its scope and named
+cases are mapped below. The production handshake/transport, endpoint, and
+application epoch-owner regressions also passed the current full host gate.
+P13/P14/P15 host behavior is accepted for its recorded scope. Remaining P01
+work is target runtime/resource/entropy and persistence evidence, not a request
+to expand the internal upstream Noise error-enum matrix.
 Delayed transport send-completion/cancellation interfaces belong to P04 and
 subsequent adapter gates; P01 covers provider/cache-owned buffer lifetimes.
 
@@ -317,29 +322,19 @@ This closes only the DH shared-operation allocation ordinals. It does not
 close other provider failure branches, endpoint resource completeness, target
 allocator behavior, or P01C.
 
-## four_parallel endpoint contract boundary — 2026-10-13
+## four_parallel endpoint contract reconciliation — 2026-10-15
 
-The manifest's `four_parallel` row is explicitly scoped to one endpoint and
-requires four peers, four active and four draining associations, four pending
-attempts, two crypto slots, two services, a 256-byte `mtu_bytes` value, and
-4,096-byte messages. The existing `dmp_parallel_four_parallel` host evidence
-only holds direct Noise state across two worker arenas; it does not create DMP
-endpoints or exercise the manifest's peer/service topology.
-
-Source inspection confirms the current endpoint contract cannot realize that
-row: `src/reliability/reliability.c::validate_storage` rejects
-`profile->peers != 1`, and `dmp_endpoint` owns one active association plus one
-draining association. Multiple separate endpoint objects would change the
-manifest's per-endpoint accounting and would not satisfy the declared topology.
-The row therefore remains partial pending an owner decision to expand the
-endpoint/reliability model. Also clarify whether `mtu_bytes` denotes
-`encoded_mtu` before claiming the 256-byte bound against endpoint admission;
-DIRECT-1 currently distinguishes forward/return MTU 256 from encoded MTU 263.
-No manifest, public API, or implementation was changed in this follow-up.
-
-The software resource row remains open independently of final P01C target
-measurements. Host RAM estimates and direct-Noise allocation counters do not
-guarantee whole-device hardware operation.
+The 2026-10-13 contract boundary below predates the owner-approved multi-peer
+implementation. It is retained as historical context; it is no longer the
+current source state. The current integrated host regression in
+`tests/endpoint/test_endpoint_sec.c::test_protected_multi_peer_routing` creates
+one endpoint with four authenticated peers, four pending attempts, two crypto
+slots, four active and four draining routes, and accepts a protected 4096-byte
+service-2 request as 32 × 128-byte fragments. Both `four_parallel` and
+`four_serial` pass in RBO job `job_01M4Y9RXZZMT59095HMED352QN`'s current host
+gate. The profile's 256-byte decoded Core forward MTU and 263-byte encoded
+Stream R MTU remain distinct. This closes the host topology behavior; whole-DMP
+target memory and physical operation remain P01C checks.
 
 ## ChaChaPoly short-ciphertext host follow-up — 2026-10-13
 
@@ -510,3 +505,51 @@ after those rejections and cleanup leaves no tracked allocation. Provider build
 and focused CTest passed; independent GPT-6.1-sol High review found no actionable
 issue. This closes input-preflight test coverage only; broader provider failure
 mapping and target qualification remain open.
+
+## Empty handshake flight rejection — 2026-10-14
+
+`security.provider_adapter::empty-handshake-read-cleanup-recovery` passes an
+empty first flight through the live provider. Noise rejects the missing
+ephemeral key; the adapter maps the error to `DMP_PROVIDER_INVALID` and erases
+the declared payload output. The test closes the failed owner, verifies cleanup,
+then opens a fresh owner on the same provider and accepts the fixture flight.
+The focused `dmp_test_provider` build and CTest passed; independent GPT-6.1-sol
+High review found no actionable issue. This is one host provider-boundary case,
+not endpoint lifecycle or target qualification evidence.
+
+## Oversized handshake preflight recovery — 2026-10-14
+
+`security.provider_adapter::oversized-handshake-read-preflight-recovery` gives
+the live initiator a 513-byte frame, then verifies rejection leaves its output,
+handshake state, and provider allocation accounting unchanged. The same owner
+then accepts the expected fixture response. Provider build, focused CTest, and
+direct case execution passed; this is provider host evidence, not endpoint or
+target qualification. Independent GPT-6.1-sol High review found no actionable
+test defect; private Noise state immutability is inferred from subsequent
+acceptance of the exact expected fixture response, not inspected bytewise.
+
+## Pre-hardware provider and integration reconciliation — 2026-10-15
+
+The bounded P01 host review is organized by the provider's public operations
+and ownership contract, rather than an open-ended count of internal Noise
+error branches. In the current host gate, `security.provider_adapter` passes;
+its 35 named cases in `tests/security/test_provider.c` map to these finite
+classes:
+
+| Contract slice | Implementation | Primary host cases | Limit |
+|---|---|---|---|
+| Setup, port validation, entropy, allocator bounds, teardown | `dmp_provider_setup`, `dmp_provider_cleanup`, allocation registry | `init`, `setup-port-validation`, `entropy`, `oom`, `handshake-open-allocation-sweep`, `cipher-child-capacity-cleanup`, `cleanup` | Host allocator/entropy seams only |
+| Handshake construction and caller-secret ownership | `dmp_provider_handshake_open` | `late-constructor-validation-cleanup`, `late-static-constructor-validation-cleanup`, `late-key-validation-cleanup`, `xx-null-static-validation-cleanup`, `constructor-key-presence-matrix`, `secret-inputs-copied`, `xx-private-inputs-copied` | Does not measure MCU secret residency or zeroization timing |
+| Handshake read/write/hash/public-key/split output and state | `dmp_provider_handshake_*` | `output-contract`, `premature-split-output`, `closed-wrapper-output`, `null-provider-output`, `wrong-phase-handshake-output`, `handshake-write-short-capacity-fatal-cleanup`, `short-handshake-read-output`, `empty-handshake-read-cleanup-recovery`, `oversized-handshake-read-preflight-recovery`, `wrong-psk`, `low-order`, `split-allocation-failure-retry`, `split-partial-registration-cleanup` | Selected validation, capacity, auth, allocation, and recovery classes; not every backend error enum |
+| Cipher, nonce/AAD and supported suite behavior | `dmp_provider_cipher_*` | `recovery-protected-vectors`, `short-ciphertext-output`, `cipher-encrypt-input-over-capacity`, `pn-aad-nnpsk0`, `pn-aad-xx`, `suite-nnpsk0`, `suite-xx` | NNpsk0/XX with ChaChaPoly; unsupported suites reject |
+| DH and child resource failure | `dmp_provider_dh_*`, child registry | `dh-shared-allocation-failure`, `cipher-child-capacity-cleanup`, `low-order` | Host crypto and bounded allocator behavior only |
+
+This map closes the agreed finite host API/failure/secret-copy inventory. It
+does not claim exhaustive behavior for every upstream Noise-C error enum or
+physical target secret handling. The integration slice is separately covered
+by `security.handshake_transport` and `endpoint.protected_transport_reject_retry`
+for COPY/BORROW ownership, BUSY, delayed/uncertain completion, cancel/expiry,
+and stale callbacks; P01C must still establish target runtime and memory limits.
+The application epoch owner, storage and NVS-anchor adapter have host tests,
+and the ESP32-S3 and ESP32-C3 compile/link probes pass, but reset durability,
+physical transport and full-image rollback behavior remain board-only.

@@ -3212,11 +3212,11 @@ dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
 
     if (endpoint->wire_busy == 0U) {
         for (uint32_t offset = 0U; offset < peers; offset++) {
-            uint32_t peer_index = (start_peer + offset) % peers;
-            if (endpoint->peers[peer_index].live == 0U) {
+            uint32_t candidate_peer = (start_peer + offset) % peers;
+            if (endpoint->peers[candidate_peer].live == 0U) {
                 continue;
             }
-            endpoint->active_peer_slot = peer_index;
+            endpoint->active_peer_slot = candidate_peer;
             status = select_active_route(endpoint);
             if (status != DMP_OK) {
                 return status;
@@ -3226,7 +3226,7 @@ dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
             status = dmp_reliability_poll_peer(&endpoint->reliability, now, peer,
                                                &accepted);
             if (accepted) {
-                endpoint->poll_peer_cursor = (peer_index + 1U) % peers;
+                endpoint->poll_peer_cursor = (candidate_peer + 1U) % peers;
                 return status;
             }
             if (status != DMP_OK && reliability == DMP_OK) {
@@ -3237,9 +3237,9 @@ dmp_status dmp_endpoint_poll(dmp_endpoint *endpoint, dmp_time_ms now)
             }
             {
                 uint64_t accepted_before = endpoint->accepted_tx_generation;
-                status = poll_endpoint_peer_outputs(endpoint, now, peer_index);
+                status = poll_endpoint_peer_outputs(endpoint, now, candidate_peer);
                 if (endpoint->accepted_tx_generation != accepted_before) {
-                    endpoint->poll_peer_cursor = (peer_index + 1U) % peers;
+                    endpoint->poll_peer_cursor = (candidate_peer + 1U) % peers;
                     return reliability;
                 }
             }

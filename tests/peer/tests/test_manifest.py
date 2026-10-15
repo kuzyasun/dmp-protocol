@@ -59,6 +59,39 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in multi["sensitivity_rows"]],
                          ["four_serial", "four_parallel"])
 
+    def test_normative_excluded_manifest_features_are_rejected(self):
+        path = (Path(__file__).parents[3] / "profiles" / "deployments"
+                / "radio-nnpsk0.json")
+        original = json.loads(path.read_bytes())
+        mutations = (
+            ("security", "cipher", 2),
+            ("security", "mode", "group"),
+            ("binding", "topology", "dynamic-unicast"),
+            ("binding", "id", "DMP-test/UART-STREAM-R"),
+        )
+        for section, key, value in mutations:
+            with self.subTest(section=section, key=key, value=value):
+                candidate = json.loads(json.dumps(original))
+                candidate[section][key] = value
+                with self.assertRaises(ManifestError):
+                    parse_manifest(json.dumps(candidate).encode())
+
+    def test_selective_profile_response_floor_exact_boundary(self):
+        path = (Path(__file__).parents[3] / "profiles" / "deployments"
+                / "radio-nnpsk0.json")
+        original = json.loads(path.read_bytes())
+
+        candidate = json.loads(json.dumps(original))
+        candidate["timing"]["response_timeout_ms"] = 2221
+        with self.assertRaisesRegex(ManifestError, "response timeout"):
+            parse_manifest(json.dumps(candidate).encode())
+
+        candidate["timing"]["response_timeout_ms"] = 2222
+        self.assertEqual(
+            "RADIO-1",
+            parse_manifest(json.dumps(candidate).encode()).values["profile"]["id"],
+        )
+
     def test_multi_peer_rejects_duplicate_or_overlapping_peer_identities(self):
         path = (Path(__file__).parents[3] / "profiles" / "deployments"
                 / "test-direct-multi-peer-nnpsk0.json")

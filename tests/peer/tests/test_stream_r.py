@@ -13,6 +13,29 @@ class StreamRTests(unittest.TestCase):
         self.assertEqual(cobs_encode(b"\x11" * 255), b"\xff" + b"\x11" * 254 + b"\x02\x11")
         self.assertEqual(cobs_encode(b"\x11" * 508), b"\xff" + b"\x11" * 254 + b"\xff" + b"\x11" * 254 + b"\x01")
 
+    def test_published_short_508_cobs_vector_is_rejected(self):
+        shortened = b"\xff" + b"\x11" * 254 + b"\xff" + b"\x11" * 254
+        with self.assertRaises(ValueError):
+            cobs_decode(shortened)
+
+    def test_zero_adjacent_to_full_cobs_block_roundtrips(self):
+        after_full_block = b"\x11" * 254 + b"\x00\x22"
+        encoded_after = b"\xff" + b"\x11" * 254 + b"\x01\x02\x22"
+        self.assertEqual(cobs_encode(after_full_block), encoded_after)
+        self.assertEqual(cobs_decode(encoded_after), after_full_block)
+
+        before_full_block = b"\x00" + b"\x11" * 254
+        encoded_before = b"\x01\xff" + b"\x11" * 254 + b"\x01"
+        self.assertEqual(cobs_encode(before_full_block), encoded_before)
+        self.assertEqual(cobs_decode(encoded_before), before_full_block)
+
+    def test_published_minimal_stream_r_wire_bytes(self):
+        core = bytes.fromhex("45 02 AA BB")
+        encoded = bytes.fromhex("09 45 02 AA BB 39 EE 4C 1F 00")
+        self.assertEqual(encode_stream_r(core), encoded)
+        self.assertEqual(initial_sync_delimiter() + encoded,
+                         bytes.fromhex("00 09 45 02 AA BB 39 EE 4C 1F 00"))
+
     def test_decoder_handles_sync_chunking_and_coalescing(self):
         a = encode_frame(CoreFrame(5, sequence=1, payload=b"\x00\xaa"))
         b = encode_frame(CoreFrame(5, sequence=2, payload=b"\xbb"))

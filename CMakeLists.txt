@@ -96,6 +96,7 @@ if(DMP_BUILD_TESTS)
     add_subdirectory(tests/workloads)
     add_subdirectory(tests/scenarios)
     add_subdirectory(tests/memory)
+    add_subdirectory(tests/host/espnow_pair)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
        CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         add_executable(dmp_test_allocator_paths tests/core/allocator_probe.c)

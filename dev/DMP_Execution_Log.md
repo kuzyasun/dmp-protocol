@@ -2885,6 +2885,68 @@ No repository files were modified by the remote job, no test was run on a
 board, and no stage/commit/push occurred. P12 and 137-row statuses were not
 promoted solely from the suite result; see the updated P25 report for open work.
 
+## 2026-10-15 — Normative and SAMPLE-1 peer closure
+
+The current host snapshot is `snp_01M4Y9RY7J1CK3Y7KFPGDEGC4V` in RBO job
+`job_01M4Y9RXZZMT59095HMED352QN`. It completed:
+
+- `ctest --test-dir build/rbo-final-noise --output-on-failure --parallel 1` —
+  upstream Noise: 2/2 passed.
+- `ctest --test-dir build/rbo-final --output-on-failure --parallel 1 -E
+  '^(memory\.mcu_abi|memory\..*\.layout)$'` — DMP: 143/143 passed. This omits
+  the owner-deferred ARM ABI probe and seven dependent layout checks.
+- `python3 -m unittest discover -s tests/peer/tests -v` — 439 run, 438 passed,
+  1 skipped.
+- Node crypto vectors — 4 fixtures, 64 packets, 44 mutations, 64 wrong-key
+  rejections, 164 structural rejections, 8 fixture-policy rejections.
+
+The host job's final auxiliary scanner exited 1 on a malformed regular
+expression after the test gates had passed. A separate crosswalk scan checked
+all 137 normative rows, all primary/peer Test IDs, and 601 check references;
+it found no missing files or symbols. Its final remote `git diff --check` saw
+CRLF from the Windows-originated evidence note; local
+`git diff --check --ignore-submodules=all` passes. Whole-row status remains 36
+passed / 101 partial. Axis counts are primary 103 passed / 19 partial / 15
+unrecorded; peer 98 passed / 39 partial; P23 interop 46 passed / 7 partial /
+84 not-applicable. P12's 34 rows remain 10 passed / 24 partial: the primary
+axis is 29 passed / 5 partial, peer 10 / 24, and interop 5 passed / 29
+not-applicable. The five primary-partial rows are `s-a1-epoch`,
+`s-a1-epoch-transition`, `s-a2-designated-read`, `s-a4-restart`, and
+`s-a4-persistence`; remaining primary evidence is physical NVS/reset/UART.
+No row status was changed merely to match a test reference.
+
+The provider/peer review added the fail-closed epoch-fence regression: restart
+and index rollover no longer clear the sample index before association closure
+and durable reservation succeed. If the fence callback fails, the index is
+preserved, the sample is cleared, storage is failed closed, READ reports
+`NO_SAMPLE`, STATUS remains not-ready, and later publication is blocked. The
+reviewer also requested removing a persistence-row claim that incorrectly
+pointed to the A1 fence test; the ledger evidence now maps that test to A1.
+
+Independent GPT-6.1-sol High review found the fence-failure index-reuse risk;
+the implementation and regression were updated and re-reviewed with no further
+actionable finding. The reviewer did not run tests.
+
+Compile/link-only RBO job `job_01M4Y7AX57YA2BFGEVCMT8EQPD` passed ESP-IDF 6.1
+for ESP32-S3 and ESP32-C3:
+
+```text
+eim run "idf.py -C tests/embedded/esp32s3 -B build/rbo-final-esp32s3 -DIDF_TARGET=esp32s3 build" v6.1
+eim run "idf.py -C tests/embedded/esp32c3 -B build/rbo-final-esp32c3 -DIDF_TARGET=esp32c3 build" v6.1
+```
+
+No board was flashed, reset, or physically tested. Remaining checks require
+selected final S3/C3 boards: repeat MCU-05 (three boot epochs × four
+`RUN 2 128` blocks per epoch = 3,072 Noise pairs per board; two 100 ms
+UART-bridge EN pulses via RTS, with DTR inactive; ROM banner/POWERON cause and
+resource/overlap checks); run the integrated four-peer `four_serial`/`four_parallel` 4096-byte
+service-2 workload with actual heap/retained/scratch/stack measurements; verify
+SAMPLE-1 NVS reserve/commit, old-association fencing and READ/publish/activate
+across warm reset/power-loss, including failure and maximum-index rollover;
+and record required physical TRNG/timing/energy measurements. C3 requires an
+observable native USB Serial/JTAG ROM channel. Do not change eFuses. ARM and
+non-Espressif physical checks remain deferred.
+
 ## 2026-10-14 — Rejected fragmented-message tombstone
 
 The endpoint previously kept the full completed assembly after terminal
@@ -2917,3 +2979,69 @@ passed 4/4. A focused RBO snapshot reconfigured without
 `DMP_SODIUM_SOURCE_DIR`, so it did not register the protected endpoint target;
 no remote test ran. No MCU or physical transport evidence is claimed.
 Independent read-only review found no actionable issue. The drain lifecycle regression seeds rejection through the reassembly API; the protected endpoint rejection regression covers the wire path.
+
+## 2026-10-15 — Full local host gate, normative crosswalk regression, and S3/C3 compile/link
+
+The profile test suite now includes `tests/profiles/test_normative_ledger.py`.
+It validates all 137 normative rows' primary and peer Test IDs, checks any
+recorded primary/peer/interop references against repository files and declared
+C/Python functions, requires executable checks for interop passes, and requires
+a reason for interop not-applicable rows. It does not promote evidence status.
+The focused regression passed 1/1.
+
+Local host configuration, build, and CTest commands:
+
+```text
+cmake -S . -B build/host-gcc -G Ninja -DCMAKE_C_COMPILER=C:/develop/mingw/w64devkit/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/develop/mingw/w64devkit/bin/g++.exe -DCMAKE_BUILD_TYPE=Release -DDMP_BUILD_TESTS=ON -DDMP_SODIUM_SOURCE_DIR=C:/projects/gemslibe/dmp-protocol/build/noise-upstream/_deps/esphome_libsodium-1.10021.11
+cmake --build build/host-gcc --parallel 16
+ctest --test-dir build/host-gcc --output-on-failure -E '^(memory\.mcu_abi|memory\..*\.layout)$'
+```
+
+Configure succeeded; build compiled 99/99 steps. It emitted one warning in the
+vendored Noise-C source `third_party/noise-c/src/protocol/patterns.c` (`memchr` bound exceeds source size). CTest passed 144/144, including the 137-row
+crosswalk regression, four-peer `four_serial`/`four_parallel` cases, secured
+SAMPLE-1/epoch/transport tests, P23 interop, and the CI-safe ESP-NOW serial
+stub. The filter excludes the owner-deferred ARM ABI probe and seven dependent
+layout checks.
+
+With `PYTHONPATH=tests/peer` and
+`DMP_P23_ENDPOINT_SEC_EXE=build/host-gcc/tests/security/dmp_test_endpoint_sec.exe`,
+`python -m unittest discover -s tests/peer/tests -p 'test_*.py'` passed 438 of
+439 tests. The one skip is
+`test_c_tombstone_reservation_pressure_rejects_new_assembly`: its exact
+RADIO-1 profile can retain at most three sequential tombstones, and the
+independent peer has no authorized service-1 DATA path to create simultaneous
+assemblies. The full run included and passed the loopback TCP binding test.
+`python -m unittest discover -s tests/profiles -p 'test_normative_ledger.py' -v`
+passed 1/1. `node dev/dmp_verify_security_vectors.cjs` passed with 4 fixtures,
+64 packets, 44 mutations, 64 wrong-key rejections, 164 structural rejections,
+and 8 fixture-policy rejections.
+
+RBO compile/link evidence, using EIM-managed ESP-IDF 6.1 and no flash actions:
+
+```text
+eim run "idf.py -C tests/embedded/esp32s3 -B build/prehardware-20261015-esp32s3 -DIDF_TARGET=esp32s3 build" v6.1
+eim run "idf.py -C tests/embedded/esp32c3 -B build/prehardware-20261015-esp32c3 -DIDF_TARGET=esp32c3 build" v6.1
+eim run "idf.py -C tests/embedded/espnow_pair -B build/prehardware-20261015-espnow-s3 -DIDF_TARGET=esp32s3 build" v6.1
+eim run "idf.py -C tests/embedded/espnow_pair -B build/prehardware-20261015-espnow-c3 -DIDF_TARGET=esp32c3 build" v6.1
+```
+
+The first pair is job `job_01M500ZBSPNC6ACZF2KCFT8D7D`; the isolated
+ESP-NOW images are job `job_01M50185NATG1KC9KB6M0NG7KK`. Both jobs exited 0
+for S3 and C3. The ESP-NOW image generated a 4 MiB table with 24 KiB NVS,
+4 KiB PHY init, 3,008 KiB factory app, and 1 MiB coredump partitions. IDF
+component include-validation warnings were emitted. The ESP-NOW image only
+tests unauthenticated Core codec echo; it is not SEC-1 or production DMP
+binding evidence.
+
+Independent GPT-6.1-sol High read-only security/lifecycle review of the current
+multi-peer, reassembly, provider, handshake transport, and identity changes
+found no actionable issue; the reviewer did not rerun tests. No physical action
+was part of this host/compile recheck. Earlier authorized ESP-NOW/Core echo and
+coredump runs are summarized in `dev/DMP_P25_Host_Simulation_Report.md`; raw
+serial/artifact evidence remains under the ignored local
+`dev/evidence/espnow-pair/` directory. Those runs did not exercise SEC-1 or the
+DMP endpoint. Remaining P12/P01/P25 work is target and physical storage,
+reset, entropy, resource, and authenticated transport qualification on
+selected ESP32-S3 and ESP32-C3 hardware. ARM ABI and non-Espressif physical
+checks remain deferred.

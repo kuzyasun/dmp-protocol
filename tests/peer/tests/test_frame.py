@@ -16,6 +16,14 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(parsed.payload, b"\xaa\xbb")
         self.assertEqual(encode_frame(parsed), raw)
 
+    def test_published_minimal_telemetry_bytes(self):
+        raw = bytes.fromhex("45 02 AA BB")
+        parsed = parse_frame(raw)
+        self.assertEqual(parsed.message_type, 5)
+        self.assertIsNone(parsed.sequence)
+        self.assertEqual(parsed.payload, bytes.fromhex("AA BB"))
+        self.assertEqual(encode_frame(parsed), raw)
+
     def test_roundtrip_full_structural_header_and_stream_security_shape(self):
         frame = CoreFrame(
             7, sequence=81, route=Route(3, 1, 27, 44),
@@ -30,6 +38,31 @@ class FrameTests(unittest.TestCase):
         wire = encode_frame(frame)
         result = parse_frame(wire)
         self.assertEqual(result, frame.__class__(**{**frame.__dict__, "options": result.options}))
+
+    def test_published_raw_descriptor_schema_42_bytes(self):
+        raw = bytes.fromhex("47 07 20 03 00 2A 01 DE AD")
+        frame = parse_frame(raw)
+        self.assertEqual(frame.payload_descriptor, PayloadDescriptor(3, 0, 42, 1))
+        self.assertEqual(frame.payload, bytes.fromhex("DE AD"))
+        self.assertEqual(encode_frame(frame), raw)
+
+    def test_published_invalid_descriptor_and_integrity_forms(self):
+        malformed = (
+            bytes.fromhex("47 05 20 04 00"),  # reserved descriptor flags
+            bytes.fromhex("47 05 20 02 00"),  # schema version without schema
+            bytes.fromhex("45 04 10 02"),  # unsupported core integrity descriptor
+        )
+        for raw in malformed:
+            with self.subTest(raw=raw), self.assertRaises(FrameError):
+                parse_frame(raw)
+
+        unsupported_cipher = bytes.fromhex("47 07 41 01 03 01 01") + bytes(16)
+        with self.assertRaisesRegex(FrameError, "unsupported/inconsistent security descriptor"):
+            parse_frame(unsupported_cipher)
+
+        conflicting_integrity_security = bytes.fromhex("47 08 51 01 01 01 01 01") + bytes(16)
+        with self.assertRaisesRegex(FrameError, "unsupported/inconsistent security descriptor"):
+            parse_frame(conflicting_integrity_security)
 
     def test_uleb_boundaries_and_rejections(self):
         for number in (0, 127, 128, 16384, 0xFFFFFFFF):
@@ -81,6 +114,11 @@ class FrameTests(unittest.TestCase):
         parsed = parse_frame(raw)
         self.assertEqual(parsed.extensions, (Extension(7, False, False, b""),))
         self.assertEqual(encode_frame(parsed), raw)
+
+    def test_known_reply_to_empty_extension_is_rejected(self):
+        raw = bytes.fromhex("47 06 81 01 05 00")
+        with self.assertRaises(FrameError):
+            parse_frame(raw)
 
     def test_fragment_exact_tail_and_length(self):
         frame = CoreFrame(7, sequence=3, fragment=Fragment(1, 2, 3), payload=b"\x22")

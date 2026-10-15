@@ -14,12 +14,22 @@ class SampleEpochError(RuntimeError):
 class SampleEpochStore:
     """Producer-owned persistent epoch counter with injected persistence modeling."""
 
-    def __init__(self, initial_epoch: int = 1, *, persist_fn=None):
+    def __init__(self, initial_epoch: int = 1, *, persist_fn=None, monotonic_floor: Optional[int] = None):
         if initial_epoch <= 0 or initial_epoch > 0xFFFFFFFFFFFFFFFF:
             raise ValueError("initial_epoch must be a positive 64-bit integer")
+        if monotonic_floor is not None and initial_epoch < monotonic_floor:
+            self._failed = True
+            raise SampleEpochError(
+                f"detected epoch rollback: initial_epoch {initial_epoch} is below monotonic floor {monotonic_floor}"
+            )
         self._current_epoch = initial_epoch
         self._failed = False
         self._persist_fn = persist_fn
+        self._monotonic_floor = monotonic_floor
+
+    @property
+    def monotonic_floor(self) -> Optional[int]:
+        return self._monotonic_floor
 
     @property
     def failed(self) -> bool:
@@ -37,8 +47,14 @@ class SampleEpochStore:
         if self._failed:
             raise SampleEpochError("epoch storage is inaccessible or failed")
         if self._current_epoch >= 0xFFFFFFFFFFFFFFFF:
+            self._failed = True
             raise SampleEpochError("sample epoch counter exhausted")
         next_epoch = self._current_epoch + 1
+        if self._monotonic_floor is not None and next_epoch <= self._monotonic_floor:
+            self._failed = True
+            raise SampleEpochError(
+                f"candidate epoch {next_epoch} does not advance beyond monotonic floor {self._monotonic_floor}"
+            )
         if self._persist_fn is not None:
             try:
                 ok = self._persist_fn(next_epoch)
@@ -51,6 +67,8 @@ class SampleEpochStore:
                     raise
                 raise SampleEpochError(f"injected persistence failure: {e}") from e
         self._current_epoch = next_epoch
+        if self._monotonic_floor is not None:
+            self._monotonic_floor = next_epoch
         return self._current_epoch
 
 
@@ -65,6 +83,12 @@ class Sample:
 
     def encode_read_result(self) -> bytes:
         return struct.pack("<BQII", 1, self.epoch, self.index, self.value)
+
+    @staticmethod
+    def encode_status_result(ready: int) -> bytes:
+        if ready not in (0, 1):
+            raise ValueError(f"SAMPLE-1 STATUS ready must be 0 or 1, got {ready}")
+        return struct.pack("<BB", 2, ready)
 
     @classmethod
     def decode_telemetry(cls, payload: bytes) -> Sample:
@@ -81,6 +105,17 @@ class Sample:
         if opcode != 1:
             raise ValueError(f"SAMPLE-1 READ result opcode must be 1, got {opcode}")
         return cls(epoch, index, value)
+
+    @staticmethod
+    def decode_status_result(payload: bytes) -> int:
+        if len(payload) != 2:
+            raise ValueError(f"SAMPLE-1 STATUS result must be exactly 2 bytes, got {len(payload)}")
+        opcode, ready = struct.unpack("<BB", payload)
+        if opcode != 2:
+            raise ValueError(f"SAMPLE-1 STATUS result opcode must be 2, got {opcode}")
+        if ready not in (0, 1):
+            raise ValueError(f"SAMPLE-1 STATUS ready must be 0 or 1, got {ready}")
+        return ready
 
 
 class SampleProducer:
@@ -104,9 +139,7 @@ class SampleProducer:
         epoch = self.epoch_store.current_epoch()
         if self._sample_index >= 0xFFFFFFFF:
             # Index exhausted: must advance epoch
-            if self._before_epoch_advance is not None:
-                self._before_epoch_advance()
-            epoch = self.epoch_store.advance_epoch()
+            epoch = self._advance_epoch_after_fence()
             self._sample_index = 0
         self._sample_index += 1
         sample = Sample(epoch, self._sample_index, value & 0xFFFFFFFF)
@@ -115,13 +148,29 @@ class SampleProducer:
 
     def restart(self) -> None:
         """Producer restarts: atomically reserve and durably commit next epoch."""
-        self.epoch_store.advance_epoch()
-        self._sample_index = 0
         self._current_sample = None
+        self._advance_epoch_after_fence()
+        self._sample_index = 0
+
+    def _advance_epoch_after_fence(self) -> int:
+        """Close old associations before advancing, and fail closed if fencing fails."""
+        self._current_sample = None
+        try:
+            if self._before_epoch_advance is not None:
+                self._before_epoch_advance()
+            return self.epoch_store.advance_epoch()
+        except Exception:
+            # A failed fence or durable reservation leaves the producer unable to
+            # publish under either the old identity or a potentially new epoch.
+            self.epoch_store.set_failed()
+            raise
+        if self._before_epoch_advance is not None:
+            self._before_epoch_advance()
+        self.epoch_store.advance_epoch()
 
     def handle_read(self) -> tuple[int, bytes]:
         """Handle READ request. Returns (status, result_payload)."""
-        if self._current_sample is None:
+        if self._current_sample is None or self.epoch_store.failed:
             # NO_SAMPLE: status 64, empty payload
             return 64, b""
         return 0, self._current_sample.encode_read_result()
@@ -129,7 +178,7 @@ class SampleProducer:
     def handle_status(self) -> tuple[int, bytes]:
         """Handle STATUS request. Returns (status, result_payload)."""
         ready = 1 if self._current_sample is not None and not self.epoch_store.failed else 0
-        return 0, struct.pack("<BB", 2, ready)
+        return 0, Sample.encode_status_result(ready)
 
 
 class SampleConsumer:

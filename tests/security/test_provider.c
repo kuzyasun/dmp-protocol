@@ -2349,6 +2349,194 @@ done:
     return passed;
 }
 
+static int test_empty_handshake_read_cleanup_recovery(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake responder;
+    dmp_provider_handshake_keys keys;
+    uint8_t payload[CASE_BUFFER];
+    size_t payload_len = 0x1234U;
+    size_t blocks_before;
+    size_t retained_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count == 0U) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&responder, 0, sizeof(responder));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_RESPONDER, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &responder, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_RESPONDER, &keys) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    memset(payload, 0xA5, sizeof(payload));
+    status = dmp_provider_handshake_read(provider, &responder, NULL, 0U, payload,
+                                         sizeof(payload), &payload_len);
+    if (status != DMP_PROVIDER_INVALID || payload_len != 0U ||
+        !all_zero(payload, sizeof(payload)) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before) {
+        fprintf(stderr,
+                "empty handshake flight status=%d length=%zu output_zero=%d blocks=%zu/%zu retained=%zu/%zu\n",
+                (int)status, payload_len, all_zero(payload, sizeof(payload)),
+                dmp_provider_block_count(provider), blocks_before,
+                dmp_provider_retained(provider), retained_before);
+        goto done;
+    }
+
+    /* A malformed flight ends this Noise attempt. Close it before the provider
+     * is reused for a fresh attempt. */
+    if (dmp_provider_handshake_close(provider, &responder) != DMP_PROVIDER_OK ||
+        !all_zero(&responder, sizeof(responder)) ||
+        dmp_provider_block_count(provider) != 0U ||
+        dmp_provider_retained(provider) != 0U ||
+        !release_clean(&port, "empty handshake read close")) {
+        fprintf(stderr, "empty handshake read did not cleanly close its failed owner\n");
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_RESPONDER, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &responder, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_RESPONDER, &keys) != DMP_PROVIDER_OK) {
+        fprintf(stderr, "fresh handshake open failed after empty flight rejection\n");
+        goto done;
+    }
+    memset(payload, 0x5A, sizeof(payload));
+    payload_len = 0x2345U;
+    status = dmp_provider_handshake_read(provider, &responder,
+                                         fixture->flights[0].message.data,
+                                         fixture->flights[0].message.size, payload,
+                                         sizeof(payload), &payload_len);
+    if (status != DMP_PROVIDER_OK ||
+        !bytes_match("valid flight after empty read", payload, payload_len,
+                     fixture->flights[0].plaintext.data,
+                     fixture->flights[0].plaintext.size)) {
+        fprintf(stderr, "fresh handshake did not recover after empty flight rejection (status=%d length=%zu)\n",
+                (int)status, payload_len);
+        goto done;
+    }
+
+    passed = dmp_provider_handshake_close(provider, &responder) == DMP_PROVIDER_OK &&
+             all_zero(&responder, sizeof(responder)) &&
+             dmp_provider_block_count(provider) == 0U &&
+             dmp_provider_retained(provider) == 0U &&
+             release_clean(&port, "empty handshake read recovery");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             all_zero(&responder, sizeof(responder)) &&
+             release_clean(&port, "empty handshake read provider cleanup");
+    free(provider);
+    return passed;
+}
+
+static int test_oversized_handshake_read_preflight_recovery(void)
+{
+    enum { OVERSIZED_MESSAGE_LEN = 513U };
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    port_ctx port;
+    dmp_provider_ports ports;
+    dmp_provider *provider;
+    dmp_provider_handshake handshake;
+    dmp_provider_handshake_keys keys;
+    uint8_t message[CASE_BUFFER];
+    uint8_t oversized_message[OVERSIZED_MESSAGE_LEN];
+    uint8_t payload[CASE_BUFFER];
+    size_t message_len = 0U;
+    size_t payload_len = 0x3456U;
+    size_t blocks_before;
+    size_t retained_before;
+    unsigned alloc_calls_before;
+    unsigned release_calls_before;
+    dmp_provider_status status;
+    int passed = 0;
+
+    if (fixture == NULL || fixture->flight_count != 2U ||
+        fixture->flights[1].plaintext.size > sizeof(payload)) {
+        return 0;
+    }
+    memset(&port, 0, sizeof(port));
+    memset(&handshake, 0, sizeof(handshake));
+    memset(oversized_message, 0x6DU, sizeof(oversized_message));
+    provider = (dmp_provider *)calloc(1, dmp_provider_size());
+    if (provider == NULL) {
+        return 0;
+    }
+    set_ports(&ports, &port, DMP_PROVIDER_SCRATCH_MAX, DMP_PROVIDER_RETAINED_MAX);
+    if (dmp_provider_setup(provider, &ports) != DMP_PROVIDER_OK) {
+        goto done;
+    }
+    fill_keys(fixture, DMP_PROVIDER_ROLE_INITIATOR, NULL, &keys);
+    if (dmp_provider_handshake_open(provider, &handshake, fixture->protocol_name,
+                                    DMP_PROVIDER_ROLE_INITIATOR, &keys) != DMP_PROVIDER_OK ||
+        dmp_provider_handshake_write(provider, &handshake, fixture->flights[0].plaintext.data,
+                                     fixture->flights[0].plaintext.size, message, sizeof(message),
+                                     &message_len) != DMP_PROVIDER_OK ||
+        !bytes_match("oversized-read preceding flight", message, message_len,
+                     fixture->flights[0].message.data, fixture->flights[0].message.size)) {
+        goto done;
+    }
+
+    blocks_before = dmp_provider_block_count(provider);
+    retained_before = dmp_provider_retained(provider);
+    alloc_calls_before = port.alloc_calls;
+    release_calls_before = port.release_calls;
+    memset(payload, 0xC3, sizeof(payload));
+    status = dmp_provider_handshake_read(provider, &handshake, oversized_message,
+                                         sizeof(oversized_message), payload, sizeof(payload),
+                                         &payload_len);
+    if (status != DMP_PROVIDER_INVALID || payload_len != 0x3456U ||
+        !all_value(payload, sizeof(payload), 0xC3U) ||
+        dmp_provider_block_count(provider) != blocks_before ||
+        dmp_provider_retained(provider) != retained_before ||
+        port.alloc_calls != alloc_calls_before || port.release_calls != release_calls_before) {
+        fprintf(stderr, "oversized handshake preflight changed caller output or provider state\n");
+        goto done;
+    }
+
+    status = dmp_provider_handshake_read(provider, &handshake,
+                                         fixture->flights[1].message.data,
+                                         fixture->flights[1].message.size, payload,
+                                         sizeof(payload), &payload_len);
+    if (status != DMP_PROVIDER_OK ||
+        !bytes_match("valid flight after oversized preflight", payload, payload_len,
+                     fixture->flights[1].plaintext.data,
+                     fixture->flights[1].plaintext.size)) {
+        fprintf(stderr, "valid handshake flight failed after oversized preflight (status=%d)\n",
+                (int)status);
+        goto done;
+    }
+    passed = dmp_provider_handshake_close(provider, &handshake) == DMP_PROVIDER_OK &&
+             all_zero(&handshake, sizeof(handshake)) &&
+             dmp_provider_block_count(provider) == 0U &&
+             dmp_provider_retained(provider) == 0U &&
+             release_clean(&port, "oversized handshake preflight recovery");
+
+done:
+    dmp_provider_cleanup(provider);
+    passed = passed && all_zero(provider, dmp_provider_size()) &&
+             all_zero(&handshake, sizeof(handshake)) &&
+             release_clean(&port, "oversized handshake preflight provider cleanup");
+    free(provider);
+    return passed;
+}
+
 static int test_wrong_psk(void)
 {
     const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
@@ -3618,6 +3806,9 @@ int main(void)
     expect_case("wrong-phase-handshake-output", test_wrong_phase_handshake_output());
     expect_case("handshake-write-short-capacity-fatal-cleanup", test_handshake_write_short_capacity_fatal_cleanup());
     expect_case("short-handshake-read-output", test_short_handshake_read_output());
+    expect_case("empty-handshake-read-cleanup-recovery", test_empty_handshake_read_cleanup_recovery());
+    expect_case("oversized-handshake-read-preflight-recovery",
+                test_oversized_handshake_read_preflight_recovery());
     expect_case("wrong-psk", test_wrong_psk());
     expect_case("secret-inputs-copied", test_secret_inputs_are_copied());
     expect_case("xx-private-inputs-copied", test_xx_private_inputs_are_copied());

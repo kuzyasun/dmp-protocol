@@ -353,6 +353,72 @@ static int test_authenticated_compact(void)
     return 0;
 }
 
+static int test_normative_reply_to_wire_forms(void)
+{
+    static const uint8_t full_ack[] = {0x46U, 0x11U, 0x81U, 0x08U, 0x05U, 0x0bU,
+                                       0x01U, 0x0aU, 0x07U, 0x00U, 0x00U, 0x00U,
+                                       0x00U, 0x00U, 0x00U, 0x00U, 0x2aU};
+    uint8_t full_with_trailing[sizeof full_ack + 1U];
+    uint8_t compact[26U] = {0x41U, 0x0aU, 0xc1U, 0x08U, 0x01U, 0x07U,
+                            0x01U, 0x05U, 0x01U, 0x2aU};
+    uint8_t compact_with_trailing[27U];
+    dmp_core_limits limits = {64U, 1024U, 16U};
+    dmp_identity_slot slots[1];
+    dmp_identity_table table;
+    dmp_identity_context_config config = sample_config(0U);
+    dmp_identity_handle handle;
+    dmp_identity_handle replacement;
+    dmp_message_key key;
+    dmp_frame_view frame;
+    dmp_parse_result parsed;
+
+    memset(compact + 10U, 0, 16U); /* Structural SEC-1 tag; authentication is tested at endpoint. */
+    CHECK(dmp_identity_table_init(&table, slots, 1U) == DMP_OK);
+    CHECK(dmp_identity_context_open(&table, &config, &handle) == DMP_OK);
+    parsed = dmp_core_parse((dmp_bytes){full_ack, sizeof full_ack}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof full_ack);
+    CHECK(dmp_identity_reply_to(&frame, &table, handle, 0U, &key) == DMP_OK);
+    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 10U &&
+          key.origin.epoch == UINT64_C(7) && key.seq == 42U);
+
+    memcpy(full_with_trailing, full_ack, sizeof full_ack);
+    full_with_trailing[1] = 0x12U;
+    full_with_trailing[5] = 0x0cU;
+    full_with_trailing[sizeof full_ack] = 0U;
+    parsed = dmp_core_parse((dmp_bytes){full_with_trailing, sizeof full_with_trailing},
+                            &limits, &frame);
+    CHECK(parsed.status == DMP_MALFORMED);
+    CHECK(dmp_identity_context_begin_drain(&table, handle, 1U) == DMP_OK);
+    CHECK(dmp_identity_context_retire(&table, handle, 1U) == DMP_OK);
+
+    config = sample_config(1U);
+    CHECK(dmp_test_open_authenticated_context(&table, &config, &handle) == DMP_OK);
+    parsed = dmp_core_parse((dmp_bytes){compact, sizeof compact}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof compact);
+    CHECK(dmp_identity_reply_to(&frame, &table, handle, 0U, &key) == DMP_OK);
+    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 10U &&
+          key.origin.epoch == UINT64_C(7) && key.seq == 42U);
+
+    memcpy(compact_with_trailing, compact, sizeof compact);
+    compact_with_trailing[1] = 0x0bU;
+    compact_with_trailing[8] = 0x02U;
+    memmove(compact_with_trailing + 11U, compact_with_trailing + 10U, 16U);
+    compact_with_trailing[10] = 0U;
+    parsed = dmp_core_parse((dmp_bytes){compact_with_trailing,
+                                        sizeof compact_with_trailing},
+                            &limits, &frame);
+    CHECK(parsed.status == DMP_MALFORMED);
+
+    CHECK(dmp_identity_context_begin_drain(&table, handle, 1U) == DMP_OK);
+    CHECK(dmp_identity_context_retire(&table, handle, 1U) == DMP_OK);
+    CHECK(dmp_identity_context_open(&table, &config, &replacement) == DMP_OK);
+    CHECK(replacement.slot == handle.slot && replacement.generation != handle.generation);
+    parsed = dmp_core_parse((dmp_bytes){compact, sizeof compact}, &limits, &frame);
+    CHECK(parsed.status == DMP_OK);
+    CHECK(dmp_identity_reply_to(&frame, &table, handle, 1U, &key) == DMP_STALE_HANDLE);
+    return 0;
+}
+
 static int test_normative_v2_2_vectors(void)
 {
     static const uint8_t request[] = {0x40U, 0x04U, 0x03U, 0x2aU, 0xaaU};
@@ -526,7 +592,8 @@ static int test_generation_scan(void)
 int main(void)
 {
     if (test_slots() != 0 || test_quota() != 0 || test_generation_scan() != 0 || test_resolution() != 0 ||
-        test_authenticated_compact() != 0 || test_normative_v2_2_vectors() != 0 ||
+        test_authenticated_compact() != 0 || test_normative_reply_to_wire_forms() != 0 ||
+        test_normative_v2_2_vectors() != 0 ||
         test_normative_v2_3_vectors() != 0) {
         return 1;
     }

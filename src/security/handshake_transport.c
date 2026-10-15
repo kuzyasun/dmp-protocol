@@ -456,7 +456,7 @@ dmp_hs_tx_status dmp_hs_tx_init(dmp_hs_tx *state, dmp_hs *handshake,
                                 dmp_hs_tx_lifetime *lifetime,
                                 const dmp_hs_tx_buffer buffers[DMP_HS_TX_SLOT_MAX])
 {
-    size_t encoded_bound;
+    size_t encoded_bound = 0U;
     uint32_t i;
 
     if (state == NULL || handshake == NULL || transport == NULL || config == NULL ||

@@ -26,6 +26,7 @@ from dmp_peer.frame import (
     Extension,
     Fragment,
     PayloadDescriptor,
+    Route,
     decode_uleb,
     encode_frame,
     encode_uleb,
@@ -102,6 +103,7 @@ class NormativeP21BCasesTests(unittest.TestCase):
         ns, at = decode_uleb(ext.value, 0)
         epoch = int.from_bytes(ext.value[at : at + 8], "little")
         self.assertEqual((ns, epoch), (1, 7))
+        self.assertEqual((ns, frame.route.source_id, epoch, frame.sequence), (1, 27, 7, 81))
 
     def test_case_v223_implicit_context(self):
         """v223-implicit: Omitted preconfigured CONTEXT yields unambiguous identity with 6-byte header."""
@@ -114,6 +116,20 @@ class NormativeP21BCasesTests(unittest.TestCase):
         )
         encoded = encode_frame(frame)
         self.assertEqual(encoded[1], 6)  # HDR_LEN = 6 bytes
+        self.assertEqual(encoded, bytes.fromhex("45 06 05 51 30 1B AA"))
+
+        # Preconfigured context resolution: endpoint preconfigured with namespace=1 and remote_epoch=7
+        # resolves the omitted CONTEXT to identical full message identity (1, 27, 7, 81).
+        req_frame = CoreFrame(
+            message_type=0,
+            options=1 | 4,  # SEQ | ROUTE
+            sequence=81,
+            route=frame.route,
+            payload=b"\x01",
+        )
+        self.endpoint_20.handle(Receive(link=0, bytes=encode_stream_r(encode_frame(req_frame)), at_ms=20))
+        self.assertIn((1, 27, 7, 81), self.endpoint_20.delivery.rejections)
+        self.assertEqual(self.endpoint_20.delivery.rejections[(1, 27, 7, 81)].status, 7)
 
     def test_case_v224_fragments_reverse_arrival(self):
         """v224-fragments: Two fragments arrive in reverse order (1 then 0), reassembles AA BB CC once."""
@@ -476,8 +492,87 @@ class NormativeP21BCasesTests(unittest.TestCase):
         """s-a1-epoch-transition: Close old-epoch associations before exposing new epoch."""
         producer = SampleProducer()
         producer.publish(100)
+        self.assertEqual(producer.current_sample.epoch, 1)
+
+        consumer = SampleConsumer()
+        gen1 = consumer.start_initialization(association_id=1)
+        consumer.designate_read(1)
+        consumer.handle_read_result(1, producer.current_sample.encode_read_result(), association_id=1, generation=gen1)
+        self.assertTrue(consumer.is_live)
+        self.assertEqual(consumer.selected_epoch, 1)
+
+        # Producer restarts into epoch 2: old sample is discarded, NO_SAMPLE returned until publish
         producer.restart()
         self.assertEqual(producer.epoch_store.current_epoch(), 2)
+        self.assertIsNone(producer.current_sample)
+        status, payload = producer.handle_read()
+        self.assertEqual(status, 64)
+        self.assertEqual(payload, b"")
+
+        # Consumer begins new association 2
+        gen2 = consumer.start_initialization(association_id=2)
+        self.assertGreater(gen2, gen1)
+        self.assertFalse(consumer.is_live)
+        self.assertEqual(consumer.state, "unsynchronized")
+
+        # Telemetry is not admitted before designated READ
+        early_telem = Sample(epoch=2, index=1, value=200).encode_telemetry()
+        self.assertIsNone(consumer.handle_telemetry(early_telem))
+        self.assertFalse(consumer.is_live)
+
+        # Late prior-association result from association 1 is rejected
+        stale_res = Sample(epoch=1, index=1, value=100).encode_read_result()
+        self.assertFalse(consumer.handle_read_result(1, stale_res, association_id=1, generation=gen1))
+        self.assertFalse(consumer.is_live)
+
+        # Publish in epoch 2, designate READ on association 2, synchronize
+        producer.publish(200)
+        self.assertTrue(consumer.designate_read(10))
+        res_ok = consumer.handle_read_result(
+            10, producer.current_sample.encode_read_result(), association_id=2, generation=gen2
+        )
+        self.assertTrue(res_ok)
+        self.assertTrue(consumer.is_live)
+        self.assertEqual(consumer.selected_epoch, 2)
+        self.assertEqual(consumer.cached_sample.value, 200)
+
+        # Subsequent epoch 2 telemetry is admitted
+        telem_sample = Sample(epoch=2, index=2, value=300)
+        updated = consumer.handle_telemetry(telem_sample.encode_telemetry())
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.value, 300)
+        self.assertEqual(consumer.cached_sample.value, 300)
+
+        # A failed lifecycle fence must not reset/reuse the old epoch's index or
+        # allow reads/publication to resume under the still-current epoch.
+        def fail_fence():
+            raise RuntimeError("association closure failed")
+
+        fenced_producer = SampleProducer(before_epoch_advance=fail_fence)
+        old_sample = fenced_producer.publish(400)
+        with self.assertRaisesRegex(RuntimeError, "association closure failed"):
+            fenced_producer.restart()
+        self.assertEqual(fenced_producer._sample_index, old_sample.index)
+        self.assertIsNone(fenced_producer.current_sample)
+        self.assertTrue(fenced_producer.epoch_store.failed)
+        self.assertEqual(fenced_producer.handle_read(), (64, b""))
+        self.assertEqual(Sample.decode_status_result(fenced_producer.handle_status()[1]), 0)
+        with self.assertRaises(SampleEpochError):
+            fenced_producer.publish(500)
+
+        # The same fence failure on index rollover also stops publication without
+        # wrapping or recycling the terminal index in the old epoch.
+        rollover_producer = SampleProducer(before_epoch_advance=fail_fence)
+        rollover_producer._sample_index = 0xFFFFFFFE
+        last_sample = rollover_producer.publish(600)
+        self.assertEqual(last_sample.index, 0xFFFFFFFF)
+        with self.assertRaisesRegex(RuntimeError, "association closure failed"):
+            rollover_producer.publish(700)
+        self.assertEqual(rollover_producer._sample_index, last_sample.index)
+        self.assertIsNone(rollover_producer.current_sample)
+        self.assertTrue(rollover_producer.epoch_store.failed)
+        self.assertEqual(rollover_producer.handle_read(), (64, b""))
+        self.assertEqual(Sample.decode_status_result(rollover_producer.handle_status()[1]), 0)
 
     def test_case_s_a2_unsync(self):
         """s-a2-unsync: New generation; prior cache not live; discard telemetry."""
@@ -490,14 +585,75 @@ class NormativeP21BCasesTests(unittest.TestCase):
 
     def test_case_s_a2_designated_read(self):
         """s-a2-designated-read: One designated full identity; old designation invalidated."""
-        consumer = SampleConsumer()
-        consumer.start_initialization(association_id=1)
-        consumer.designate_read(10)
-        consumer.designate_read(20)  # Supersedes 10
+        consumer = SampleConsumer(max_attempts=2, init_deadline_ms=1000)
+        gen = consumer.start_initialization(association_id=1, at_ms=0)
+
+        # Finite retry budget: attempt 1 succeeds
+        self.assertTrue(consumer.can_attempt_init(now_ms=0))
+        self.assertTrue(consumer.designate_read(10, at_ms=0))
+        self.assertEqual(consumer.init_attempts, 1)
+        self.assertEqual(consumer.designated_request_seq, 10)
+
+        # Attempt 2 supersedes 10 within budget
+        self.assertTrue(consumer.can_attempt_init(now_ms=100))
+        self.assertTrue(consumer.designate_read(20, at_ms=100))
+        self.assertEqual(consumer.init_attempts, 2)
         self.assertEqual(consumer.designated_request_seq, 20)
-        # Result for 10 rejected
-        res = consumer.handle_read_result(10, Sample(1, 1, 100).encode_read_result())
-        self.assertFalse(res)
+
+        # Superseded request 10 result is rejected
+        res_superseded = consumer.handle_read_result(
+            10, Sample(1, 1, 100).encode_read_result(), association_id=1, generation=gen
+        )
+        self.assertFalse(res_superseded)
+
+        # Stale generation and association are rejected while request 20 remains designated.
+        res_stale_gen = consumer.handle_read_result(
+            20, Sample(1, 1, 100).encode_read_result(), association_id=1, generation=gen - 1
+        )
+        self.assertFalse(res_stale_gen)
+        self.assertEqual(consumer.designated_request_seq, 20)
+
+        res_stale_assoc = consumer.handle_read_result(
+            20, Sample(1, 1, 100).encode_read_result(), association_id=999, generation=gen
+        )
+        self.assertFalse(res_stale_assoc)
+        self.assertEqual(consumer.designated_request_seq, 20)
+
+        # Positive control: the current request and identity tuple do synchronize.
+        self.assertTrue(
+            consumer.handle_read_result(
+                20, Sample(1, 1, 100).encode_read_result(), association_id=1, generation=gen
+            )
+        )
+        self.assertTrue(consumer.is_live)
+
+        # Attempt 3: a separate consumer exhausts its two-attempt budget.
+        consumer_budget = SampleConsumer(max_attempts=2, init_deadline_ms=1000)
+        consumer_budget.start_initialization(association_id=3, at_ms=0)
+        self.assertTrue(consumer_budget.designate_read(30, at_ms=0))
+        self.assertTrue(consumer_budget.designate_read(31, at_ms=100))
+        self.assertFalse(consumer_budget.can_attempt_init(now_ms=200))
+        self.assertFalse(consumer_budget.designate_read(32, at_ms=200))
+        self.assertIsNone(consumer_budget.designated_request_seq)
+
+        # Absolute deadline expiration: advancing past init_deadline_ms marks failed
+        consumer_dl = SampleConsumer(max_attempts=3, init_deadline_ms=500)
+        consumer_dl.start_initialization(association_id=2, at_ms=0)
+        consumer_dl.designate_read(5, at_ms=100)
+        self.assertEqual(consumer_dl.designated_request_seq, 5)
+
+        self.assertTrue(consumer_dl.can_attempt_init(now_ms=400))
+        self.assertTrue(consumer_dl.advance(now_ms=500))
+        self.assertEqual(consumer_dl.state, "failed")
+        self.assertFalse(consumer_dl.is_live)
+        self.assertIsNone(consumer_dl.designated_request_seq)
+        self.assertFalse(consumer_dl.can_attempt_init(now_ms=500))
+
+        # Result arriving after deadline expiration is rejected
+        res_late = consumer_dl.handle_read_result(
+            5, Sample(1, 1, 100).encode_read_result(), association_id=2, now_ms=500
+        )
+        self.assertFalse(res_late)
 
     def test_case_s_a2_correlated_result(self):
         """s-a2-correlated-result: Only current authorized result selects epoch; same epoch no rollback."""
@@ -533,13 +689,78 @@ class NormativeP21BCasesTests(unittest.TestCase):
 
     def test_case_s_a3_positive_and_negative(self):
         """s-a3-positive & s-a3-negative: Canonical payloads and reject malformed before state update."""
+        # 1. Canonical positive payloads (§A3)
         read_req = b"\x01"
         status_req = b"\x02"
+        status_ready_1 = b"\x02\x01"
+        status_ready_0 = b"\x02\x00"
         self.assertEqual(read_req, bytes.fromhex("01"))
         self.assertEqual(status_req, bytes.fromhex("02"))
-        # Invalid payload b"\x03" rejected
+        self.assertEqual(status_ready_1, bytes.fromhex("02 01"))
+        self.assertEqual(status_ready_0, bytes.fromhex("02 00"))
+        self.assertEqual(Sample.encode_status_result(1), status_ready_1)
+        self.assertEqual(Sample.encode_status_result(0), status_ready_0)
+        self.assertEqual(Sample.decode_status_result(status_ready_1), 1)
+        self.assertEqual(Sample.decode_status_result(status_ready_0), 0)
+
+        # Canonical TELEM and READ result vectors (§A3):
+        # TELEM epoch=1, index=2, value=300 (16 bytes)
+        expected_telem = bytes.fromhex("01 00 00 00 00 00 00 00 02 00 00 00 2C 01 00 00")
+        sample_telem = Sample(epoch=1, index=2, value=300)
+        self.assertEqual(sample_telem.encode_telemetry(), expected_telem)
+        self.assertEqual(Sample.decode_telemetry(expected_telem), sample_telem)
+
+        # READ result for same sample: opcode 1 + 16-byte sample (17 bytes)
+        expected_read_result = bytes.fromhex("01 01 00 00 00 00 00 00 00 02 00 00 00 2C 01 00 00")
+        self.assertEqual(sample_telem.encode_read_result(), expected_read_result)
+        self.assertEqual(Sample.decode_read_result(expected_read_result), sample_telem)
+
+        # 2. Negative TELEM shapes: wrong length rejected
+        for bad_len in (0, 15, 17, 32):
+            with self.assertRaises(ValueError):
+                Sample.decode_telemetry(b"\x00" * bad_len)
+
+        # 3. Negative READ result shapes: wrong length, wrong opcode
+        for bad_len in (0, 16, 18):
+            with self.assertRaises(ValueError):
+                Sample.decode_read_result(b"\x00" * bad_len)
         with self.assertRaises(ValueError):
-            Sample.decode_telemetry(b"\x00" * 15)  # Wrong length
+            # Opcode 2 (STATUS result) passed as READ result
+            Sample.decode_read_result(b"\x02" + expected_telem)
+        with self.assertRaises(ValueError):
+            # Opcode 3 passed as READ result
+            Sample.decode_read_result(b"\x03" + expected_telem)
+
+        # 4. Negative STATUS result shapes
+        with self.assertRaises(ValueError):
+            Sample.decode_status_result(b"")  # empty
+        with self.assertRaises(ValueError):
+            Sample.decode_status_result(b"\x02")  # 1 byte
+        with self.assertRaises(ValueError):
+            Sample.decode_status_result(b"\x02\x01\x00")  # 3 bytes
+        with self.assertRaises(ValueError):
+            Sample.decode_status_result(b"\x01\x01")  # wrong opcode 1
+        with self.assertRaises(ValueError):
+            Sample.decode_status_result(b"\x02\x02")  # ready=2 is invalid (must be 0 or 1)
+
+        # 5. Consumer rejects malformed result shapes before mutating state
+        consumer = SampleConsumer()
+        consumer.start_initialization(association_id=1)
+        consumer.designate_read(42)
+        self.assertFalse(consumer.handle_read_result(42, b"\x00" * 16))
+        self.assertFalse(consumer.handle_read_result(42, b"\x02" + expected_telem))
+        self.assertFalse(consumer.handle_read_result(42, b""))
+        self.assertEqual(consumer.state, "unsynchronized")
+        self.assertFalse(consumer.is_live)
+
+        # 6. Malformed request shapes rejected with STATUS=7 by endpoint
+        bad_op = CoreFrame(message_type=0, options=0x03, sequence=120, payload=b"\x03")
+        self.endpoint_10.handle(Receive(link=0, bytes=encode_stream_r(encode_frame(bad_op)), at_ms=20))
+        self.assertEqual(self.endpoint_10.delivery.rejections[(1, 20, 9, 120)].status, 7)
+
+        empty_req = CoreFrame(message_type=0, options=0x03, sequence=121, payload=b"")
+        self.endpoint_10.handle(Receive(link=0, bytes=encode_stream_r(encode_frame(empty_req)), at_ms=20))
+        self.assertEqual(self.endpoint_10.delivery.rejections[(1, 20, 9, 121)].status, 7)
 
     def test_case_s_a4_firstboot(self):
         """s-a4-firstboot: Unsynchronized until designated correlated READ."""
@@ -590,10 +811,38 @@ class NormativeP21BCasesTests(unittest.TestCase):
 
     def test_case_s_a4_restart(self):
         """s-a4-restart: Durable new epoch; no index wrap or telemetry adoption."""
+        # 1. Normal restart: atomically reserve and durably commit next epoch
         producer = SampleProducer()
         producer.publish(10)
+        self.assertEqual(producer.current_sample.epoch, 1)
+        self.assertEqual(producer.current_sample.index, 1)
         producer.restart()
         self.assertEqual(producer.epoch_store.current_epoch(), 2)
+        self.assertIsNone(producer.current_sample)
+
+        # 2. Index exhaustion: index >= 0xFFFFFFFF advances epoch before reusing index
+        producer._sample_index = 0xFFFFFFFF
+        exhaust_sample = producer.publish(42)
+        self.assertEqual(exhaust_sample.epoch, 3)
+        self.assertEqual(exhaust_sample.index, 1)  # Reset to 1 under new epoch, never reused in epoch 2
+        self.assertEqual(producer.epoch_store.current_epoch(), 3)
+
+        # 3. Consumer rejects old epoch telemetry and never adopts epoch from telemetry
+        consumer = SampleConsumer()
+        consumer.start_initialization(association_id=1)
+        consumer.designate_read(1)
+        consumer.handle_read_result(1, exhaust_sample.encode_read_result())
+        self.assertEqual(consumer.selected_epoch, 3)
+
+        # Old epoch 2 telemetry discarded
+        self.assertIsNone(consumer.handle_telemetry(Sample(2, 5, 50).encode_telemetry()))
+        self.assertEqual(consumer.cached_sample.epoch, 3)
+        self.assertEqual(consumer.cached_sample.value, 42)
+
+        # Different epoch (4) telemetry on active association is discarded (contract violation)
+        self.assertIsNone(consumer.handle_telemetry(Sample(4, 1, 99).encode_telemetry()))
+        self.assertEqual(consumer.selected_epoch, 3)
+        self.assertEqual(consumer.cached_sample.epoch, 3)
 
     def test_case_s_a4_late_result(self):
         """s-a4-late-result: No epoch/cache change; normal correlation still works."""
@@ -614,11 +863,85 @@ class NormativeP21BCasesTests(unittest.TestCase):
 
     def test_case_s_a4_persistence(self):
         """s-a4-persistence: Stop publishing on persistence failure."""
-        store = SampleEpochStore(1)
-        store.set_failed(True)
+        # A stale restored image must not boot below an independently retained
+        # monotonic floor. This models, but does not physically qualify, rollback
+        # detection in the target's durable storage adapter.
+        current_store = SampleEpochStore(initial_epoch=5, monotonic_floor=5)
+        self.assertEqual(current_store.advance_epoch(), 6)
+        self.assertEqual(current_store.monotonic_floor, 6)
+        with self.assertRaisesRegex(SampleEpochError, "detected epoch rollback"):
+            SampleEpochStore(initial_epoch=5, monotonic_floor=current_store.monotonic_floor)
+
+        max_epoch_store = SampleEpochStore(initial_epoch=0xFFFFFFFFFFFFFFFF)
+        with self.assertRaisesRegex(SampleEpochError, "counter exhausted"):
+            max_epoch_store.advance_epoch()
+        self.assertTrue(max_epoch_store.failed)
+
+        # 1. Injected persistence backend failure sets failed state
+        persisted = []
+
+        def failing_persist(epoch: int) -> bool:
+            if epoch > 2:
+                return False  # Rejects epoch 3
+            persisted.append(epoch)
+            return True
+
+        store = SampleEpochStore(1, persist_fn=failing_persist)
         producer = SampleProducer(store)
+        producer.publish(10)
+        self.assertEqual(producer.current_sample.epoch, 1)
+
+        # Advance to epoch 2 succeeds
+        producer.restart()
+        self.assertEqual(store.current_epoch(), 2)
+        producer.publish(20)
+        self.assertEqual(producer.current_sample.epoch, 2)
+
+        # Next advance to epoch 3 rejected by persistence backend
         with self.assertRaises(SampleEpochError):
-            producer.publish(1)
+            producer.restart()
+        self.assertTrue(store.failed)
+
+        # Subsequent advance and current_epoch fail closed
+        with self.assertRaises(SampleEpochError):
+            store.advance_epoch()
+        with self.assertRaises(SampleEpochError):
+            store.current_epoch()
+
+        # Producer fails closed: publish fails, no sample published or reused
+        with self.assertRaises(SampleEpochError):
+            producer.publish(30)
+        status, payload = producer.handle_read()
+        self.assertEqual(status, 64)  # NO_SAMPLE: fails closed, prevents reuse
+        self.assertEqual(payload, b"")
+        status_code, status_payload = producer.handle_status()
+        self.assertEqual(status_code, 0)
+        self.assertEqual(Sample.decode_status_result(status_payload), 0)  # ready=0
+
+        # Index exhaustion must attempt and fail the required epoch reservation.
+        attempted_epochs = []
+
+        def reject_epoch_advance(epoch: int) -> bool:
+            attempted_epochs.append(epoch)
+            return False
+
+        store2 = SampleEpochStore(1, persist_fn=reject_epoch_advance)
+        producer2 = SampleProducer(store2)
+        producer2._sample_index = 0xFFFFFFFE
+        last_sample = producer2.publish(100)
+        self.assertEqual(last_sample.index, 0xFFFFFFFF)
+        with self.assertRaises(SampleEpochError):
+            producer2.publish(200)
+        self.assertEqual(attempted_epochs, [2])
+        self.assertIsNone(producer2.current_sample)  # Fail closed after reservation failure
+        self.assertEqual(producer2._sample_index, 0xFFFFFFFF)  # No index reuse
+        status, payload = producer2.handle_read()
+        self.assertEqual((status, payload), (64, b""))  # Failed store hides the retained sample
+        status_code, status_payload = producer2.handle_status()
+        self.assertEqual(status_code, 0)
+        self.assertEqual(Sample.decode_status_result(status_payload), 0)
+        with self.assertRaises(SampleEpochError):
+            store2.current_epoch()
 
     def test_case_s_a4_close_shared(self):
         """s-a4-close-shared: Discard sample work on shared association close."""

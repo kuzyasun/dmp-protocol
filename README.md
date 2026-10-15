@@ -2,7 +2,7 @@
 
 DMP is a compact, transport-independent device messaging protocol under development. It carries opaque payloads over explicitly specified bindings, with optional routing, reliability, fragmentation and pairwise end-to-end encryption.
 
-**Current contract:** manifest format 1.0, document revision 10, SEC-1 profile revision 5, BOOT_VERSION 2, SELECTIVE-32 recovery revision 1. Wire major version remains 2; peers must agree on the exact profile and manifest bytes. The portable C11 `libdmp` now includes bounded endpoint, peer-owned SEC-1 association lifecycle, reliability, reassembly, Stream L/R framing, transparent relay, profile admission, and an application-side SAMPLE-1 epoch owner. The latest RBO host gate passed 134/134 native CTests, excluding the Cortex-M ABI probe and seven dependent `memory.*.layout` checks; those ARM cases remain deferred. ESP-IDF 6.1 compile/link probes passed for ESP32-S3 and ESP32-C3. Target runtime and physical qualification remain open. This is host/simulation progress, not a product release claim. DIRECT-1 uses a 256-byte decoded Core frame ceiling and a 263-byte encoded Stream R ceiling.
+**Current contract:** manifest format 1.0, document revision 10, SEC-1 profile revision 5, BOOT_VERSION 2, SELECTIVE-32 recovery revision 1. Wire major version remains 2; peers must agree on the exact profile and manifest bytes. The portable C11 `libdmp` now includes bounded endpoint, peer-owned SEC-1 association lifecycle, reliability, reassembly, Stream L/R framing, transparent relay, profile admission, and an application-side SAMPLE-1 epoch owner. The latest local host gate passed 144/144 native CTests, excluding the owner-deferred ARM ABI probe and seven dependent `memory.*.layout` checks. ESP-IDF 6.1 compile/link checks passed for the DMP probes and the separate ESP-NOW smoke images on ESP32-S3 and ESP32-C3. Target runtime and physical qualification remain open. This is host/simulation and compile/link evidence, not a product release claim. DIRECT-1 uses a 256-byte decoded Core frame ceiling and a 263-byte encoded Stream R ceiling.
 
 The public API is under [include/dmp/](include/dmp/); implementation layers live in `src/`, including the payload-agnostic endpoint/security core and the separate [SAMPLE-1 application component](src/application/). Tests link the same C sources. Host CTest and the independent Python peer cover scoped protocol, security lifecycle, profile, and interop behavior. See the [multi-peer continuation contract](dev/DMP_Multi_Peer_Contract_2026-10-13.md) and the [P25 host/simulation report](dev/DMP_P25_Host_Simulation_Report.md) for current acceptance boundaries.
 
@@ -72,7 +72,7 @@ node dev/dmp_verify_security_vectors.cjs
 
 The upstream file is an external input, not bundled here. Its recorded SHA-256 is `3bde7c09a6f349ee11c825c50fcc02649f8f02a47c857a459206b357f9386cae`. Review regenerated output and provenance before replacing vectors. Public deterministic keys are test-only. The generator and Node verifier validate public fixtures; they do not replace the linked endpoint, recovery or interoperability tests, and they do not prove physical binding timing or production security.
 
-The implementation has progressed beyond the original codec scaffold. P00 and P02-P11 are accepted for their recorded scopes; P13-P20, P21 and P22-P24 have recorded host/simulation acceptance, with P21 retaining its documented historical provenance limitation. The approved P12 continuation code has passed its focused and full non-ARM host gates, including four-peer admission/lifecycle, the two-attempt SAMPLE-1 profile, rejection of a different authenticated sender, handshake transport composition and the application-side epoch owner. P12 remains open while the six partial SAMPLE-1 ledger rows are reconciled and production target storage/lifecycle adapters remain unqualified. P01 remains an umbrella gate for provider evidence and final target qualification; P25 remains pending. The owner scheduled hardware qualification at the end for ESP32-S3 and ESP32-C3; non-Espressif physical qualification remains explicitly deferred. See the [work package board](dev/DMP_Work_Packages.md), [owner decisions](dev/DMP_Continuation_Decisions_2026-10-13.md), and [P25 report](dev/DMP_P25_Host_Simulation_Report.md).
+The implementation has progressed beyond the original codec scaffold. P00 and P02-P11 are accepted for their recorded scopes; P13-P20, P21 and P22-P24 have recorded host/simulation acceptance, with P21 retaining its documented historical provenance limitation. The approved P12 continuation code has passed its focused and full non-ARM host gates, including four-peer admission/lifecycle, both `four_serial` and `four_parallel`, the two-attempt SAMPLE-1 profile, rejection of a different authenticated sender, handshake transport composition, and the application-side epoch owner. P12 remains open for five primary rows that need target storage/reset/UART evidence; peer evidence remains partial where the independent model does not implement real SEC-1 association behavior or the full primary lifecycle. P01 remains an umbrella gate for provider evidence and final target qualification; P25 remains pending physical acceptance. The owner selected ESP32-S3 and ESP32-C3 for hardware qualification; non-Espressif physical qualification remains explicitly deferred. See the [work package board](dev/DMP_Work_Packages.md), [owner decisions](dev/DMP_Continuation_Decisions_2026-10-13.md), and [P25 report](dev/DMP_P25_Host_Simulation_Report.md).
 
 ## Offline profile validation
 
@@ -93,11 +93,12 @@ format 1.0. Corpus files are not physical/product profiles.
 separately identified radio retry-all comparison. P09 implements startup
 enforcement in libdmp. The [137-case ledger](dev/DMP_Normative_Cases.md) now
 records concrete test references and separate whole-row, primary, peer, profile
-and interop evidence: 74 passed, 62 partial and 1 not run for whole-row status.
-A 2026-10-14 source audit checked all 510 linked file/symbol references with no
-missing entries; this verifies the crosswalk, not each row's result. Those counts
-do not include physical S3/C3 qualification or convert P21 provenance limitations
-into independent-proof claims.
+and interop evidence: 36 passed and 101 partial whole rows as of 2026-10-15. The
+profile gate now checks all 137 primary and peer Test IDs and each recorded
+primary, peer, and interop check against declared C/Python functions. This
+verifies traceability links, not each row's result. The counts do not include
+physical S3/C3 qualification or convert P21 provenance limitations into
+independent-proof claims.
 See [P02 evidence](dev/evidence/profile-validator-20260927/README.md) for actual
 checks and limits, and [P03 evidence](dev/evidence/profile-freeze-20260927/README.md)
 for the six profiles, resource rationale and early independent review. Simulator

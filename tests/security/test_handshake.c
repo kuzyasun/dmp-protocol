@@ -1928,6 +1928,58 @@ done:
     return passed;
 }
 
+static int test_oob_expired_approval(void)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("xx");
+    session env;
+    port_ctx port;
+    dmp_hs_approval approval;
+    uint32_t index = 0U;
+    uint64_t deadline;
+    size_t cached_len = 0U;
+    const uint8_t *cached;
+    int passed = 0;
+
+    if (fixture == NULL ||
+        !make_pair(&env, &port, fixture, NULL, 0, NULL, 0, 1, NULL) ||
+        dmp_hs_schedule(env.initiator, &index) != DMP_HS_OK) {
+        return 0;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+    if (!drive_flight(env.responder, cached, cached_len, ID_INIT, ID_RESP, 1U, NN_EPOCH,
+                      DMP_HS_OK)) {
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.responder, 0U, &cached_len);
+    if (!drive_flight(env.initiator, cached, cached_len, ID_RESP, ID_INIT, 2U, NN_EPOCH,
+                      DMP_HS_CANDIDATE)) {
+        goto done;
+    }
+    cached = dmp_hs_cached_flight(env.initiator, index, &cached_len);
+    if (!drive_flight(env.responder, cached, cached_len, ID_INIT, ID_RESP, 3U, NN_EPOCH,
+                      DMP_HS_CANDIDATE) ||
+        dmp_hs_view_of(env.initiator, index) != DMP_HS_VIEW_AWAITING_VERIFICATION) {
+        goto done;
+    }
+
+    fill_approval(env.initiator, index, &approval, 1);
+    deadline = dmp_hs_deadline(env.initiator, index);
+    if (deadline <= env.now) {
+        goto done;
+    }
+    env.now = deadline;
+    passed = dmp_hs_approve(env.initiator, index, &approval) == DMP_HS_EXPIRED &&
+             dmp_hs_view_of(env.initiator, index) == DMP_HS_VIEW_EXPIRED &&
+             !dmp_hs_enrolled(env.initiator, index) && env.init_store.calls == 0 &&
+             dmp_hs_secrets_wiped(env.initiator, index) &&
+             not_active(env.initiator, index) && !dmp_hs_enrolled(env.responder, 0U) &&
+             env.resp_store.calls == 0 && not_active(env.responder, 0U);
+
+done:
+    close_session(&env);
+    return passed;
+}
+
 static void tune_episode(dmp_hs_config *initiator, dmp_hs_config *responder)
 {
     (void)responder;
@@ -3881,6 +3933,7 @@ int main(int argc, char **argv)
     expect_case("xx-pin-candidate", test_xx_pin_candidate());
     expect_case("wrong-pin", test_wrong_pin_and_association());
     expect_case("oob-commit", test_oob_commit());
+    expect_case("oob-expired-approval", test_oob_expired_approval());
     expect_case("episode-backoff", test_episode_backoff());
     expect_case("active-pending-rotation", test_active_association_does_not_consume_pending_slot());
     expect_case("orphan-quota", test_orphan_replay_and_quota());

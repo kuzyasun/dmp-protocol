@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from dmp_peer.frame import parse_frame
 from dmp_peer.relay import RelayError, TransparentRelay
 
 
@@ -29,7 +30,8 @@ def protected_routed_frame(*, seq: int = 77, pn: int = 1, frag_index: int = 0,
                            ttl: int = 4, source: int = 10, destination: int = 20,
                            payload: bytes | None = None, cid: int = 9,
                            epoch: int = 0x0102030405060708,
-                           fragmented: bool = True) -> bytes:
+                           fragmented: bool = True,
+                           unknown_critical: int = 0) -> bytes:
     """Build a wire-shaped SEC-1 packet without importing any peer codec."""
     ciphertext = payload if payload is not None else bytes((pn & 0xFF,)) * 32
     route = bytes(((ttl << 4) | 1,)) + uleb(source) + uleb(destination)
@@ -39,7 +41,7 @@ def protected_routed_frame(*, seq: int = 77, pn: int = 1, frag_index: int = 0,
     extensions = (
         extension(2, context, critical=1, unsafe=1)
         + extension(4, uleb(2), critical=1, unsafe=0)
-        + extension(64, b"xyz", critical=0, unsafe=0)
+        + extension(64, b"xyz", critical=unknown_critical, unsafe=0)
     )
     options = 0xCD if fragmented else 0xC5
     header = bytes((0x47, 0, options)) + uleb(seq) + route + fragment + security + extensions
@@ -205,6 +207,41 @@ class TransparentRelayTests(unittest.TestCase):
         relay.complete(decision.token, 11, transmitted=False)
         with self.assertRaises(RelayError):
             relay.complete(decision.token, 12, transmitted=True)
+
+    def test_case_v226_unknown_safe_extension_role_policy(self):
+        """v226-relay: Forward a routable unknown safe extension; reject the isolated no-route vector."""
+        # Main §22.6 isolated vector: TYPE=DATA, options=EXT (no SEQ, no ROUTE),
+        # extension tag=257 (ext_id=64, unsafe=0, critical=1), len=2, value=DE AD
+        isolated_vector = bytes.fromhex("47 08 80 81 02 02 DE AD")
+        parsed = parse_frame(isolated_vector)
+        self.assertEqual(parsed.message_type, 7)
+        self.assertIsNone(parsed.route)
+        self.assertIsNone(parsed.sequence)
+        self.assertEqual(len(parsed.extensions), 1)
+        self.assertEqual(parsed.extensions[0].extension_id, 64)
+        self.assertFalse(parsed.extensions[0].unsafe)
+        self.assertTrue(parsed.extensions[0].critical)
+        self.assertEqual(parsed.extensions[0].value, b"\xDE\xAD")
+
+        # The relay model requires SEQ, ROUTE, and SEC-1 SECURITY; forwarding without ROUTE
+        # is unsupported by the relay contract and is rejected as RelayError (mirroring C DMP_MALFORMED).
+        relay = self.relay()
+        with self.assertRaises(RelayError):
+            relay.receive(isolated_vector, 0)
+
+        # A valid routed frame with the same unknown C=1/U=0 extension is relayable.
+        routed = protected_routed_frame(seq=82, pn=1, unknown_critical=1)
+        routed_view = parse_frame(routed)
+        unknown = next(ext for ext in routed_view.extensions if ext.extension_id == 64)
+        self.assertTrue(unknown.critical)
+        self.assertFalse(unknown.unsafe)
+        self.assertEqual(unknown.value, b"xyz")
+        decision = relay.receive(routed, 1)
+        self.assertTrue(decision.forwarded)
+        expected = bytearray(routed)
+        expected[ttl_byte_offset(routed)] -= 0x10
+        self.assertEqual(decision.frame, bytes(expected))
+        self.finish(relay, decision, 2)
 
 
 def ttl_byte_offset(frame: bytes) -> int:
