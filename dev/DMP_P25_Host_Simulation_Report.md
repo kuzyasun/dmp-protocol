@@ -112,6 +112,13 @@ peer, and interop check path and declaration. Row statuses remain unchanged:
 44 mutations, 64 wrong-key rejections, 164 structural rejections, and 8
 fixture-policy rejections.
 
+After the host gate, the CI-safe serial stub suite was extended to cover a C3
+echo send callback marked failed even when the S3 trace contains a returned
+echo. The runner remains fail-closed for this uncertain MAC outcome. The
+focused Python suite passed 28/28 and
+`ctest --test-dir build/host-gcc --output-on-failure -R
+'^host\.espnow_pair\.serial_stub$'` passed 1/1.
+
 RBO job `job_01M500ZBSPNC6ACZF2KCFT8D7D` passed ESP-IDF 6.1 compile/link for
 the DMP pre-hardware probes on ESP32-S3 and ESP32-C3. A separate RBO job,
 `job_01M50185NATG1KC9KB6M0NG7KK`, passed compile/link for the isolated
@@ -138,6 +145,22 @@ images. Its raw logs and artifacts remain under the ignored local directory
 | S3 COM37 ↔ C3 COM39, 10 × 64-byte payload | FAIL | First MAC completion failed; C3 received the probe but its echo completion failed |
 | S3 COM37 with C3 COM36/38/39 in one radio context | FAIL after two echoes | COM39 send callback failed; this is three unauthenticated radio peers, not four authenticated DMP peers |
 | Intentional coredump on COM37, COM36, COM38, COM39 | PASS on all four | 1 MiB partition read without flash writes; each extracted ELF decoded against its matching ESP-IDF 6.1 image |
+
+### Physical callback diagnostic recheck — 2026-10-15
+
+Fresh firmware `INFO` records reconfirmed the current port map: S3 on COM37,
+and C3 on COM36, COM38, and COM39. The operator-authorized recheck did not
+flash or erase devices:
+
+| Scenario | Result | Evidence |
+|---|---|---|
+| S3 COM37 ↔ C3 COM36, 10 × 64-byte payload | FAIL | S3 recorded 10 returned echoes, but C3 reported one failed echo send callback; the strict counter gate failed. `dev/evidence/espnow-pair/pair-20261015T152131-458391400Z/` |
+| S3 COM37 ↔ C3 COM39, 1 × 64-byte payload | FAIL | C3 received the probe, then both MAC send callbacks reported failure. `dev/evidence/espnow-pair/pair-20261015T152353-718612500Z/` |
+| S3 COM37 ↔ C3 COM38, 1 × 64-byte payload | PASS | Both callbacks succeeded and the byte-identical echo returned; decoded Core frame was 68 bytes. `dev/evidence/espnow-pair/pair-20261015T152400-964459300Z/` |
+
+The contrast keeps COM39 as a board/radio-path issue for follow-up. These runs
+remain unauthenticated Core codec smoke evidence; they do not test SEC-1,
+`dmp_endpoint`, SAMPLE-1, or the authenticated multi-peer workload.
 
 These radio runs separately recorded the 256-byte decoded Core MTU, 263-byte
 encoded Stream R MTU, and 250-byte ESP-NOW v1 payload maximum. They do not prove

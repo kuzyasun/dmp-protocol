@@ -24,12 +24,15 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 class EspNowSerialStub:
     """Two in-memory serial endpoints with a deterministic ESP-NOW echo link."""
 
-    def __init__(self, fail_run: bool = False):
+    def __init__(self, fail_run: bool = False,
+                 fail_echo_sequence: int | None = None):
         self.fail_run = fail_run
+        self.fail_echo_sequence = fail_echo_sequence
         self.devices = {}
         self.commands = []
         self.echo_rx = 0
         self.echo_tx_ok = 0
+        self.echo_tx_failed = 0
 
     def attach(self, device):
         self.devices[device.spec.side] = device
@@ -49,6 +52,7 @@ class EspNowSerialStub:
 
         core_frame_bytes = payload_bytes + 10
         for sequence in range(1, count + 1):
+            echo_tx_ok = sequence != self.fail_echo_sequence
             self.emit("s3", {"event": "tx_done", "session": session,
                               "seq": sequence, "status": "success"})
             self.emit("c3", {"event": "rx_valid", "session": session,
@@ -56,13 +60,15 @@ class EspNowSerialStub:
                               "core_frame_bytes": core_frame_bytes})
             self.emit("c3", {"event": "echo_tx_done", "session": session,
                               "seq": sequence, "peer_mac": S3_MAC,
-                              "status": "success"})
+                              "status": "success" if echo_tx_ok else "failed"})
             self.emit("s3", {"event": "round_trip", "session": session,
                               "seq": sequence, "peer_mac": C3_MAC,
                               "tx_done": True, "echo_match": True,
                               "core_frame_bytes": core_frame_bytes})
         self.echo_rx = count
-        self.echo_tx_ok = count
+        self.echo_tx_failed = int(self.fail_echo_sequence is not None and
+                                  1 <= self.fail_echo_sequence <= count)
+        self.echo_tx_ok = count - self.echo_tx_failed
         self.emit("s3", {"event": "run_done", "session": session,
                           "pass": True, "completed": count,
                           "payload_bytes": payload_bytes, "peer_count": 1,
@@ -120,7 +126,7 @@ class StubSerialCapture:
                 "event": "stats", "session": self.session,
                 "echo_rx": self.pair.echo_rx,
                 "echo_tx_ok": self.pair.echo_tx_ok,
-                "echo_tx_failed": 0,
+                "echo_tx_failed": self.pair.echo_tx_failed,
             }))
 
     def close(self):
@@ -128,7 +134,8 @@ class StubSerialCapture:
 
 
 class RunnerHostStubTests(unittest.TestCase):
-    def run_with_stub(self, root: Path, fail_run: bool):
+    def run_with_stub(self, root: Path, fail_run: bool,
+                      fail_echo_sequence: int | None = None):
         s3_image = root / "s3.bin"
         c3_image = root / "c3.bin"
         s3_image.write_bytes(b"host-stub-s3-image")
@@ -140,7 +147,8 @@ class RunnerHostStubTests(unittest.TestCase):
             "--evidence-root", str(root / "unused-evidence-root"),
             "--output-dir", str(output), "--count", "2", "--payload-bytes", "64",
         ])
-        pair = EspNowSerialStub(fail_run=fail_run)
+        pair = EspNowSerialStub(fail_run=fail_run,
+                                fail_echo_sequence=fail_echo_sequence)
         StubSerialCapture.pair = pair
         with patch.object(serial_pair, "SerialCapture", StubSerialCapture), \
                 patch.object(serial_pair, "collect_port_inventory", return_value={}):
@@ -184,6 +192,32 @@ class RunnerHostStubTests(unittest.TestCase):
                     serial_pair.run(args)
             metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["result"]["result"], "FAIL")
+
+    def test_runner_fails_closed_on_c3_failed_callback_even_if_echo_returns(self):
+        with tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / "dev") as directory:
+            root = Path(directory)
+            s3_image = root / "s3.bin"
+            c3_image = root / "c3.bin"
+            s3_image.write_bytes(b"stub-s3")
+            c3_image.write_bytes(b"stub-c3")
+            output = root / "evidence"
+            args = serial_pair.build_parser().parse_args([
+                "--s3-port", "STUB-S3", "--c3-port", "STUB-C3",
+                "--s3-bin", str(s3_image), "--c3-bin", str(c3_image),
+                "--evidence-root", str(root / "unused-evidence-root"),
+                "--output-dir", str(output), "--count", "2", "--payload-bytes", "64",
+            ])
+            pair = EspNowSerialStub(fail_echo_sequence=2)
+            StubSerialCapture.pair = pair
+            with patch.object(serial_pair, "SerialCapture", StubSerialCapture), \
+                    patch.object(serial_pair, "collect_port_inventory", return_value={}):
+                with self.assertRaisesRegex(serial_pair.PairTestError,
+                                            "failed ESP-NOW echo transmission"):
+                    serial_pair.run(args)
+            metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["result"]["result"], "FAIL")
+            self.assertEqual(metadata["result"]["error"],
+                             "C3 reported a failed ESP-NOW echo transmission")
 
 
 if __name__ == "__main__":
