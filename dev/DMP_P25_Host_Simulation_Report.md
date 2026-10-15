@@ -157,6 +157,8 @@ flash or erase devices:
 | S3 COM37 ↔ C3 COM36, 10 × 64-byte payload | FAIL | S3 recorded 10 returned echoes, but C3 reported one failed echo send callback; the strict counter gate failed. `dev/evidence/espnow-pair/pair-20261015T152131-458391400Z/` |
 | S3 COM37 ↔ C3 COM39, 1 × 64-byte payload | FAIL | C3 received the probe, then both MAC send callbacks reported failure. `dev/evidence/espnow-pair/pair-20261015T152353-718612500Z/` |
 | S3 COM37 ↔ C3 COM38, 1 × 64-byte payload | PASS | Both callbacks succeeded and the byte-identical echo returned; decoded Core frame was 68 bytes. `dev/evidence/espnow-pair/pair-20261015T152400-964459300Z/` |
+| S3 COM37 ↔ C3 COM38, 100 × 240-byte payload | PASS | 100/100 byte-identical echoes; decoded Core frame was 244 bytes, below the 250-byte ESP-NOW v1 payload limit. The 263-byte encoded Stream R MTU is a separate bound and is not the packet size here. `dev/evidence/espnow-pair/pair-20261015T152646-142841800Z/` |
+| S3 COM37 with C3 COM36/38/39 in one radio context, 1 probe per C3 | FAIL after two peers | COM36 and COM38 callbacks succeeded; COM39 receive and echo callback were followed by failed C3/S3 send callbacks. `dev/evidence/espnow-pair/four-peer-20261015T152657-650656300Z/` |
 
 The contrast keeps COM39 as a board/radio-path issue for follow-up. These runs
 remain unauthenticated Core codec smoke evidence; they do not test SEC-1,
