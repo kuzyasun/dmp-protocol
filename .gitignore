@@ -35,3 +35,5 @@ Thumbs.db
 /dev/evidence/p00/initial-*.patch
 /dev/evidence/rbo-artifacts/
 /dev/
+/tests/embedded/espnow_dmp/managed_components
+/tests/embedded/esp32s3/managed_components
