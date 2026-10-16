@@ -361,5 +361,3 @@ def wait_for_handshake_result(
     if event.get("status") != "success":
         raise DmpTestError(f"{desc} completed with status {event.get('status')!r}")
     return event
-
-\n

@@ -555,3 +555,7 @@ def main() -> None:
         timeout=args.timeout,
     )
     print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

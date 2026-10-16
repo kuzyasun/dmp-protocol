@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -110,6 +111,18 @@ def make_passing_pair_events(
 
 
 class TestDmpPair(unittest.TestCase):
+    def test_serial_runner_cli_help(self):
+        result = subprocess.run(
+            [sys.executable, str(EMBEDDED_DIR / "serial_dmp_pair.py"), "--help"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--s3-port", result.stdout)
+        self.assertIn("--c3-port", result.stdout)
+
     def test_passing_pair_events(self):
         events = make_passing_pair_events(4096)
         res = validate_dmp_pair_events(events, 4096, SESSION)
