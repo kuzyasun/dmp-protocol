@@ -11,11 +11,13 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from serial_soak import (
-    Soak, BUILD, CYCLES, reset_uart,
+    Soak, CYCLES, load_build_id, reset_uart,
     parse_partitions_csv, validate_partition_table, validate_target_partition_config,
     COREDUMP_OFFSET, COREDUMP_SIZE, FLASH_SIZE_4MB, EXPECTED_PARTITIONS, main
 )
 import test_serial_parallel
+
+TEST_BUILD_ID = "b" * 64
 
 
 class FakeSerial:
@@ -31,7 +33,7 @@ class FakeSerial:
         self.writes.append(data)
         line = data.decode().split()
         value = dict(id=int(line[0]), op=line[1], boot=f"{self.boot:08x}",
-                     target="esp32s3", idf="v6.1", build=BUILD, cores=2)
+                     target="esp32s3", idf="v6.1", build=TEST_BUILD_ID, cores=2)
         if line[1] == "HELLO":
             value["last_id"] = self.last_id
         else:
@@ -59,17 +61,20 @@ class SoakTests(unittest.TestCase):
     def setUp(self):
         self.serial = FakeSerial()
         self.events = []
-        self.soak = Soak(self.serial, "esp32s3", lambda event, **kw: self.events.append((event, kw)),
-                         self.serial.reset)
+        self.soak = Soak(self.serial, "esp32s3", TEST_BUILD_ID,
+                         lambda event, **kw: self.events.append((event, kw)), self.serial.reset)
 
     def test_partition_preflight_fails_before_serial_open(self):
         with tempfile.TemporaryDirectory() as td:
             output = Path(td) / "soak.jsonl"
+            build_id_file = Path(td) / "dmp_bench_build_id.txt"
+            build_id_file.write_text(TEST_BUILD_ID + "\n", encoding="ascii")
             with patch("serial_soak.validate_target_partition_config",
                        side_effect=RuntimeError("invalid partition config")), \
                  patch("serial_soak.transport.SerialTransport") as serial_open, \
                  patch.object(sys, "argv", ["serial_soak.py", "--port", "COM35",
-                                             "--target", "esp32c3", "--output", str(output)]), \
+                                             "--target", "esp32c3", "--build-id-file",
+                                             str(build_id_file), "--output", str(output)]), \
                  redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 result = main()
 
@@ -78,6 +83,29 @@ class SoakTests(unittest.TestCase):
             events = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(events[-1]["event"], "failed")
             self.assertIn("invalid partition config", events[-1]["error"])
+
+    def test_invalid_build_id_fails_before_output_or_serial_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            build_id_file = Path(td) / "dmp_bench_build_id.txt"
+            build_id_file.write_text("not-a-sha256\n", encoding="ascii")
+            output = Path(td) / "soak.jsonl"
+            with patch("serial_soak.transport.SerialTransport") as serial_open, \
+                 patch.object(sys, "argv", ["serial_soak.py", "--port", "COM35",
+                                             "--target", "esp32c3", "--build-id-file",
+                                             str(build_id_file), "--output", str(output)]), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as result:
+                    main()
+
+            self.assertEqual(result.exception.code, 2)
+            self.assertFalse(output.exists())
+            serial_open.assert_not_called()
+
+    def test_build_id_loader_accepts_exact_lowercase_sha256(self):
+        with tempfile.TemporaryDirectory() as td:
+            build_id_file = Path(td) / "dmp_bench_build_id.txt"
+            build_id_file.write_text(TEST_BUILD_ID + "\n", encoding="ascii")
+            self.assertEqual(load_build_id(build_id_file), TEST_BUILD_ID)
 
     def test_epochs_reset_only_after_four_accepted_runs_and_final_hello(self):
         self.soak.run()
@@ -264,6 +292,45 @@ class PartitionLayoutTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "does not match the expected"):
             validate_partition_table(table)
+
+    def test_validate_partition_table_rejects_unexpected_flags(self):
+        table = (
+            "nvs, data, nvs, 0x9000, 0x6000, encrypted\n"
+            "phy_init, data, phy, 0xf000, 0x1000\n"
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+            "coredump, data, coredump, 0x300000, 0x100000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "unexpected flags"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_rejects_unaligned_offset(self):
+        table = (
+            "nvs, data, nvs, 0x9001, 0x6000\n"
+            "phy_init, data, phy, 0xf000, 0x1000\n"
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+            "coredump, data, coredump, 0x300000, 0x100000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "is not aligned"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_rejects_unaligned_size(self):
+        table = (
+            "nvs, data, nvs, 0x9000, 0x6001\n"
+            "phy_init, data, phy, 0xf000, 0x1000\n"
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+            "coredump, data, coredump, 0x300000, 0x100000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "is not aligned"):
+            validate_partition_table(table)
+
+    def test_parse_partition_table_rejects_nonpositive_size(self):
+        for size in ("0", "-0x1000"):
+            with self.subTest(size=size), self.assertRaisesRegex(RuntimeError, "Invalid partition size"):
+                parse_partitions_csv(f"nvs, data, nvs, 0x9000, {size}\n")
+
+    def test_parse_partition_table_rejects_too_many_fields(self):
+        with self.assertRaisesRegex(RuntimeError, "Malformed partition row at line 1"):
+            parse_partitions_csv("nvs, data, nvs, 0x9000, 0x6000, encrypted, extra\n")
 
     def test_validate_partition_table_missing_coredump_fails(self):
         table = (

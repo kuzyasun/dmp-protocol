@@ -1,6 +1,6 @@
 # Content identity of provider test sources, fixtures and build registration.
 # Compiler/configuration and actual binary hashes remain separate evidence.
-function(dmp_bench_identity target)
+function(dmp_bench_identity_value output)
     get_filename_component(_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../.." ABSOLUTE)
     file(GLOB_RECURSE _inputs CONFIGURE_DEPENDS
         "${_root}/tests/provider/*.c" "${_root}/tests/provider/*.h"
@@ -21,5 +21,11 @@ function(dmp_bench_identity target)
         string(APPEND _identity "${_relative}=${_hash};")
     endforeach()
     string(SHA256 _identity "${_identity}")
+    set(${output} "${_identity}" PARENT_SCOPE)
+endfunction()
+
+function(dmp_bench_identity target)
+    dmp_bench_identity_value(_identity)
+    file(WRITE "${CMAKE_BINARY_DIR}/dmp_bench_build_id.txt" "${_identity}\n")
     target_compile_definitions(${target} PRIVATE DMP_BENCH_BUILD_ID="${_identity}")
 endfunction()

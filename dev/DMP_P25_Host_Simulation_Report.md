@@ -783,12 +783,115 @@ run completed one epoch (1,024 Noise pairs) and failed closed after its planned
 reset because the board's read-only eFuse configuration disables ROM output
 on UART; this remains partial evidence. No eFuse was changed.
 
+Two additional dated setup failures are retained as port-access outcomes, not
+protocol failures: `pair-20261015T220127-766295000Z/run.json` stopped before
+serial commands because COM37 returned `PermissionError(13)` (its
+`commands.jsonl` is empty), and
+`dev/evidence/mcu05-20261016-COM36-usbjtag/efuse-readonly.txt` records a
+read-only COM36 inspection rejected because the port was busy. Neither run
+provides radio, eFuse, or MCU workload evidence.
+
+Two more unsuccessful attempts on 2026-10-16 are retained with their primary
+logs. `pair-20261016T131449-936418500Z/run.json` records INFO commands sent to
+COM37 and COM40, an S3 `ready` event, and a timeout before the C3 `ready`
+event; no echo/protocol command was run. The coredump attempt
+`core-dump-esp32c3-COM40-20261016T131651-596125Z/run.json` observed the
+intentional abort and post-abort reboot, but the 460800-baud flash read failed
+with exit 2 after a short transfer (expected 4096 bytes, received 4002); it
+does not contain a complete partition image or decoder result. These are
+startup/read-transport failures, not DMP protocol failures.
+
 These are physical radio/Core-codec and test-image coredump results only. The
 radio test is unauthenticated and does not run SEC-1, `dmp_endpoint`, SAMPLE-1,
 the one-endpoint authenticated four-peer behavior, or `four_parallel`.
 P12's host implementation remains covered by the prior host gate; P12 target
 storage/reset/secure-UART rows, P01C resource/entropy/transport/persistence
 qualification, and final P25 acceptance remain open.
+
+## Replacement C3 on COM40 — 2026-10-16
+
+The replacement C3 was flashed with the native USB Serial/JTAG ESP-NOW test
+image. The persisted run records map COM40's USB serial number and firmware MAC
+to `94:a9:90:7b:ef:00`; its ready event reports ESP32-C3 / ESP-IDF 6.1. The
+standalone chip revision/flash-manufacturer output was not saved, so it is not
+claimed as durable evidence. A later read-only `esptool chip-id` attempt was
+blocked because COM40 was busy (`PermissionError(13)`); the failed attempt is
+retained as `chip-id-readonly.log` in the coredump evidence directory.
+
+The pair runner passed 10/10 bidirectional Core echoes between S3 COM37
+(`20:6e:f1:b0:f0:2c`) and C3 COM40 at 64-byte payloads. The four-board runner
+passed 30/30 serialized round trips at 64-byte payloads and 30/30 at 240-byte
+payloads through the C3 peers on COM36, COM38 and COM40. At 240 bytes the
+largest Core frame was 244 bytes. The firmware separately reported decoded
+Core MTU 256 bytes, Stream R encoded MTU 263 bytes, and ESP-NOW v1 payload MTU
+250 bytes. Evidence is under `dev/evidence/espnow-pair/`:
+
+- `pair-20261016T131556-593133100Z/`
+- `four-peer-20261016T131615-555205100Z/`
+- `four-peer-20261016T131627-127151700Z/`
+
+The coredump utility intentionally aborted the C3 test app, observed it reboot
+and return ready, then read the complete 1 MiB partition at `0x300000` at
+115200 baud. `run.json` reports PASS; the partition SHA-256 is
+`6c4e167bc14add70d620d56a8225caa24a1404455a0dfe5bada110fe1b7e4388`, and the
+extracted 6,368-byte `core.elf` SHA-256 is
+`701c968ab2cb722979065489c029801b586f0775c351fc7e6628ff58feef2a38`. ESP-IDF
+reported a valid coredump checksum. Offline decoding then passed with ESP-IDF
+6.1 / `espcoredump.py v1.17.2` and the matching C3 app ELF. Frames are
+`panic_abort` → `esp_system_abort` → `abort` → `handle_command` at
+`tests/embedded/espnow_pair/main/main.c:542` → `app_main` at line 757, matching
+the intentional test abort. `coredump-decode.json` and the complete
+`coredump-decode.log` retain the command, toolchain versions, hashes and output.
+The capture validates the test-image partition/read/extraction/decoder path
+only; it does not establish a production crash policy.
+
+All three radio runs use the unauthenticated Core echo image with one S3 radio
+owner and serialized peer sends. They provide no SEC-1, `dmp_endpoint`,
+SAMPLE-1, authenticated four-peer endpoint, `four_parallel`, P12 target, P01C,
+or final P25 evidence.
+
+## MCU-05 build identity and S3/C3 compile-link gate — 2026-10-16
+
+A review found the MCU-05 runner's fixed `BUILD` value had drifted from the
+provider sources and would reject the current image at HELLO. CMake now writes
+`dmp_bench_build_id.txt` into the matching build directory, and the runner
+requires that file before opening a serial port. The expected ID is compared
+with every HELLO. Partition preflight now also rejects unexpected flags; host
+tests cover nonpositive sizes, extra fields, and unaligned offsets/sizes.
+
+Fresh ESP-IDF 6.1 compile/link commands, run sequentially through AGY EIM:
+
+```text
+eim run "idf.py -C tests/provider/targets/esp32-parallel -B build/agent-provider-parallel-s3-transcript-20261016 -DIDF_TARGET=esp32s3 -DDMP_MCU_TEST_ONLY=ON '-DDMP_SODIUM_SOURCE_DIR=C:/projects/gemslibe/dmp-protocol/build/noise-upstream/_deps/esphome_libsodium-1.10021.11' build" v6.1
+eim run "idf.py -C tests/provider/targets/esp32-parallel -B build/agent-provider-parallel-c3-transcript-20261016 -DIDF_TARGET=esp32c3 -DDMP_MCU_TEST_ONLY=ON '-DDMP_SODIUM_SOURCE_DIR=C:/projects/gemslibe/dmp-protocol/build/noise-upstream/_deps/esphome_libsodium-1.10021.11' build" v6.1
+```
+
+Both exited 0 with ELF and app BIN linked, zero compiler warnings and zero
+compiler errors. Complete command output is retained in
+`dev/evidence/provider-build-logs-20261016/esp32s3-build.log` (1,003 lines,
+103,729 bytes, SHA-256
+`ca7e0b7219b33ac4af08dc2c4d70bae53a32c66a3bcf79d16e7d766d84ab6616`) and
+`esp32c3-build.log` (980 lines, 100,476 bytes, SHA-256
+`413893f064db1e7fff95a2bf40f4672bbd644424d067cbd91d89bc8fb5b98796`). The
+same directory contains `SUMMARY.md` with tool versions and artifact checksums.
+Kconfig emitted informational notes: both targets report the configured
+115200 baud symbol as hidden by a disabled dependency; C3 also reports the
+`SPIRAM=n` default as an unknown symbol for that target. These notes are not
+compiler warnings/errors; no source or target configuration was changed to
+hide them.
+Both targets generated the same 64-character ID
+`53ee068d0dbc967e4f78b58ceba5bd0614c8eb45b156a370ce249f11612d2620`; it
+matches an independent local CMake recomputation and is present in each ELF and
+app BIN. The generated ID files are 66 bytes on disk with SHA-256
+`ad602747ca24b2bdd9b379492e9b29929a047538dc3d24c2fd6a2e68c74cae86`.
+
+| Target | ELF size / SHA-256 | App BIN size / SHA-256 |
+|---|---|---|
+| ESP32-S3 | 4,316,372 / `388bd43f9b47d4be13bb017bd06c6467a033e969503f3f2c29f79d4b3bec55c4` | 228,384 / `15ce4dc1f1c189441790fbbb40d848f16f3ca980db9175933d4310f60072fbe8` |
+| ESP32-C3 | 4,344,224 / `617351ccfec5d6c839515f1ca06cc37a39c167c8f6d8202c1d8df7afaa261c4d` | 210,432 / `b187c87dfb77ee895537168dc2b87a9d0f9aa454829c850c60a83a1cd38cbf2b` |
+
+These are compile/link and content-identity results only. Neither provider image
+was flashed or run on a board.
 
 The CI-safe host regressions were rerun after the physical tests:
 
@@ -801,8 +904,10 @@ python -m py_compile tests/embedded/espnow_pair/serial_pair.py tests/embedded/es
 
 Review-fix revalidation on 2026-10-16 added a current-C3 default-port regression
 and strict provider partition-table parser cases. The updated host suites passed
-32/32 ESP-NOW stub tests and 37/37 provider tests in both normal and optimized
-Python modes. These host results do not imply physical COM40 behavior.
+32/32 ESP-NOW stub tests and 44/44 provider tests in both normal and optimized
+Python modes. MCU-05 now consumes the build ID generated by its matching CMake
+build; fresh S3/C3 compile/link verification of that generated file passed.
+These host results do not imply physical COM40 behavior.
 
 The physical serial runners remain outside CTest. Host stubs never open COM
 ports and do not imply hardware, SEC-1, or endpoint evidence.

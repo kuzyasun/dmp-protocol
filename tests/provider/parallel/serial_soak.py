@@ -9,7 +9,6 @@ import time
 
 from serial_parallel import transport, validate
 
-BUILD = "b5cb389bbeda7d86c856959e6f547ad71200916d92de8b44add98dd0160007b0"
 EPOCHS, RUNS, CYCLES = 3, 4, 128
 COREDUMP_OFFSET = 0x300000
 COREDUMP_SIZE = 0x100000
@@ -27,6 +26,16 @@ EXPECTED_PARTITIONS = (
 def check(condition, message):
     if not condition:
         raise RuntimeError(message)
+
+
+def load_build_id(path: Path) -> str:
+    try:
+        build_id = path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError) as error:
+        raise RuntimeError(f"Cannot read provider build ID from {path}: {error}") from error
+    check(re.fullmatch(r"[0-9a-f]{64}", build_id) is not None,
+          f"Invalid provider build ID in {path}")
+    return build_id
 
 
 def parse_partitions_csv(text: str) -> list[dict]:
@@ -96,6 +105,8 @@ def validate_partition_table(text: str) -> list[dict]:
     )
     check(actual == EXPECTED_PARTITIONS,
           "Partition layout does not match the expected 4 MiB provider test table")
+    check(all(partition["flags"] is None for partition in partitions),
+          "Partition table contains unexpected flags")
     return partitions
 
 
@@ -136,8 +147,9 @@ def reset_uart(serial, sleep=time.sleep):
 
 
 class Soak:
-    def __init__(self, serial, target, record, reset=reset_uart):
-        self.serial, self.target, self.record, self.reset = serial, target, record, reset
+    def __init__(self, serial, target, build_id, record, reset=reset_uart):
+        self.serial, self.target, self.build_id = serial, target, build_id
+        self.record, self.reset = record, reset
 
     def command(self, line, startup=False, planned_reset=False):
         self.record("command", line=line)
@@ -165,7 +177,7 @@ class Soak:
                                parse_constant=transport._reject_json_constant)
             check(value["id"] == int(line.split()[0]), "Reply ID mismatch")
             check(value["target"] == self.target and value["idf"] == "v6.1"
-                  and value["build"] == BUILD, "Image identity mismatch")
+                  and value["build"] == self.build_id, "Image identity mismatch")
             check(value["cores"] == (2 if self.target == "esp32s3" else 1), "Core count mismatch")
             check(isinstance(value["boot"], str) and re.fullmatch(r"[0-9a-f]{8}", value["boot"]),
                   "Invalid boot identity")
@@ -225,21 +237,27 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True)
     parser.add_argument("--target", choices=("esp32s3", "esp32c3"), required=True)
+    parser.add_argument("--build-id-file", type=Path, required=True,
+                        help="dmp_bench_build_id.txt from the matching firmware build")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    try:
+        build_id = load_build_id(args.build_id_file)
+    except RuntimeError as error:
+        parser.error(str(error))
     serial = None
     with args.output.open("x", encoding="utf-8") as output:
         def record(event, **fields):
             output.write(json.dumps(dict(event=event, time_unix_ms=int(time.time()*1000), **fields)) + "\n")
             output.flush()
         try:
-            record("metadata", port=args.port, target=args.target, build=BUILD,
+            record("metadata", port=args.port, target=args.target, build=build_id,
                    epochs=EPOCHS, runs_per_epoch=RUNS, workers=2, cycles=CYCLES,
                    reset="UART bridge EN, RTS true 100ms then false; DTR false")
             target_dir = Path(__file__).resolve().parent.parent / "targets" / "esp32-parallel"
             validate_target_partition_config(target_dir)
             serial = transport.SerialTransport(args.port, 115200)
-            Soak(serial, args.target, record).run()
+            Soak(serial, args.target, build_id, record).run()
             print(json.dumps(dict(success=True, target=args.target, pairs=EPOCHS*RUNS*2*CYCLES)))
             return 0
         except Exception as exc:

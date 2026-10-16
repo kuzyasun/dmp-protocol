@@ -98,18 +98,59 @@ does not pass P12, P01C, `four_parallel`, or final P25. P12 target
 storage/reset/secure-UART evidence and P01C memory/entropy/transport/persistence
 measurements remain open.
 
-Current bench preflight, 2026-10-16: the new C3 on COM40 was read-only
-identified as ESP32-C3 rev 0.4, MAC `94:a9:90:7b:ef:00`, USB Serial/JTAG, with
-4 MiB XMC flash (manufacturer `0x20`, device `0x4016`). This identity matches
-the native USB/JTAG C3 smoke image. This records identity only; a new smoke run
-and its per-run evidence are separate from the historical COM35 results above.
+Current replacement-module evidence, 2026-10-16: saved COM40 run records map
+the USB Serial/JTAG serial number to MAC `94:a9:90:7b:ef:00`, and the firmware
+`ready` event identifies `esp32c3` / IDF v6.1. A separate chip-ID transcript
+with revision and flash manufacturer was not retained. A post-capture read-only
+`esptool chip-id` retry also failed to open COM40 (`PermissionError(13)`); its
+log is in the coredump evidence directory. Those details are not asserted here.
+
+The COM37 S3 and COM40 C3 pair passed 10/10 64-byte Core echoes. The S3 on
+COM37 then passed 30/30 serialized echoes through C3 peers on COM36, COM38 and
+COM40 at both 64- and 240-byte payloads. Evidence directories are
+`dev/evidence/espnow-pair/pair-20261016T131556-593133100Z/`,
+`four-peer-20261016T131615-555205100Z/`, and
+`four-peer-20261016T131627-127151700Z/`. At 240 bytes the maximum Core frame
+was 244 bytes, within the 250-byte ESP-NOW v1 payload limit; decoded Core MTU
+(256) and Stream R encoded MTU (263) remain separate values. This test image
+is unauthenticated and does not qualify SEC-1, `dmp_endpoint`, SAMPLE-1,
+`four_parallel`, P01C, or final P25.
+
+Two failed attempts earlier on 2026-10-16 are retained separately from the
+passing evidence: `pair-20261016T131449-936418500Z` received S3 `ready` but
+timed out before C3 `ready`, so no echo command ran; the first coredump read
+(`core-dump-esp32c3-COM40-20261016T131651-596125Z`) observed the intended abort
+and reboot but failed on a short 460800-baud transfer. Neither is a protocol
+failure or a complete coredump read.
+
+The COM40 coredump run at 115200 baud passed the intentional-abort and reboot
+checks, read the full 1 MiB partition at `0x300000`, and extracted a 6,368-byte
+ELF. `run.json` records partition SHA-256
+`6c4e167bc14add70d620d56a8225caa24a1404455a0dfe5bada110fe1b7e4388` and ELF
+SHA-256 `701c968ab2cb722979065489c029801b586f0775c351fc7e6628ff58feef2a38`.
+The core decoded offline with ESP-IDF 6.1 / `espcoredump.py v1.17.2` and the
+matching C3 ELF. The backtrace ends at the intentional `CORE_DUMP_TEST` abort
+in `handle_command`; decoder logs and hashes are retained beside `run.json`.
 
 Current host regression revalidation after review fixes, 2026-10-16:
 
 - `python -m unittest discover -s tests/host/espnow_pair -p 'test_*.py' -v`: 32/32 passed.
-- `python -m unittest discover -s tests/provider/parallel -p 'test_serial*.py' -v`: 37/37 passed.
-- `python -O -m unittest discover -s tests/provider/parallel -p 'test_serial*.py' -v`: 37/37 passed.
+- `python -m unittest discover -s tests/provider/parallel -p 'test_serial*.py' -v`: 44/44 passed.
+- `python -O -m unittest discover -s tests/provider/parallel -p 'test_serial*.py' -v`: 44/44 passed.
 - Scoped Python `py_compile`: passed.
+
+MCU-05 now reads the expected build identity from the matching CMake-generated
+`dmp_bench_build_id.txt`; it no longer embeds a manually maintained fingerprint.
+The partition preflight rejects flags and directly tested malformed, nonpositive,
+and unaligned entries. Fresh S3/C3 compile/link verification of the generated
+identity passed with ESP-IDF 6.1. Both targets emitted build ID
+`53ee068d0dbc967e4f78b58ceba5bd0614c8eb45b156a370ce249f11612d2620`, and the
+value was found in both their ELF and app image. Fresh, transcript-retained
+builds are in `build/agent-provider-parallel-{s3,c3}-transcript-20261016`; full
+logs and a checksum summary are in
+`dev/evidence/provider-build-logs-20261016/`. Both builds had zero compiler
+warnings/errors; Kconfig noted the hidden console baud option and an unknown
+`SPIRAM=n` default on C3. No provider image was flashed.
 
 These host stubs did not open serial ports. The physical runner remains separate
 from CI/CTest.
