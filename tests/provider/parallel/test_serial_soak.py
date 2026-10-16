@@ -1,9 +1,20 @@
 """No hardware: fail-closed orchestration and planned-reset boundaries."""
 import copy
+import io
 import json
+from pathlib import Path
+import re
+import sys
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from unittest.mock import patch
 
-from serial_soak import Soak, BUILD, CYCLES, reset_uart
+from serial_soak import (
+    Soak, BUILD, CYCLES, reset_uart,
+    parse_partitions_csv, validate_partition_table, validate_target_partition_config,
+    COREDUMP_OFFSET, COREDUMP_SIZE, FLASH_SIZE_4MB, EXPECTED_PARTITIONS, main
+)
 import test_serial_parallel
 
 
@@ -50,6 +61,23 @@ class SoakTests(unittest.TestCase):
         self.events = []
         self.soak = Soak(self.serial, "esp32s3", lambda event, **kw: self.events.append((event, kw)),
                          self.serial.reset)
+
+    def test_partition_preflight_fails_before_serial_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "soak.jsonl"
+            with patch("serial_soak.validate_target_partition_config",
+                       side_effect=RuntimeError("invalid partition config")), \
+                 patch("serial_soak.transport.SerialTransport") as serial_open, \
+                 patch.object(sys, "argv", ["serial_soak.py", "--port", "COM35",
+                                             "--target", "esp32c3", "--output", str(output)]), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                result = main()
+
+            self.assertEqual(result, 1)
+            serial_open.assert_not_called()
+            events = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(events[-1]["event"], "failed")
+            self.assertIn("invalid partition config", events[-1]["error"])
 
     def test_epochs_reset_only_after_four_accepted_runs_and_final_hello(self):
         self.soak.run()
@@ -174,6 +202,149 @@ class SoakTests(unittest.TestCase):
         reset_uart(self.serial, lambda delay: events.append(("sleep", delay)))
         self.assertEqual(events, [("dtr", False), ("rts", True), ("dtr", False),
                                  ("sleep", 0.1), ("rts", False), ("dtr", False), ("sleep", 1.0)])
+
+
+class PartitionLayoutTests(unittest.TestCase):
+    def setUp(self):
+        self.target_dir = Path(__file__).resolve().parent.parent / "targets" / "esp32-parallel"
+        self.espnow_dir = Path(__file__).resolve().parent.parent.parent / "embedded" / "espnow_pair"
+
+    def test_provider_target_partition_config_passes_validation(self):
+        validate_target_partition_config(self.target_dir)
+
+    def test_provider_target_partition_entries_match_expected_tuples(self):
+        csv_path = self.target_dir / "partitions.csv"
+        self.assertTrue(csv_path.is_file())
+        partitions = parse_partitions_csv(csv_path.read_text(encoding="utf-8"))
+        actual = [(p["name"], p["type"], p["subtype"], p["offset"], p["size"]) for p in partitions]
+        self.assertEqual(actual, list(EXPECTED_PARTITIONS))
+
+    def test_provider_target_geometry_matches_espnow_pair(self):
+        target_csv = (self.target_dir / "partitions.csv").read_text(encoding="utf-8")
+        espnow_csv = (self.espnow_dir / "partitions.csv").read_text(encoding="utf-8")
+        p_target = [(p["name"], p["offset"], p["size"]) for p in parse_partitions_csv(target_csv)]
+        p_espnow = [(p["name"], p["offset"], p["size"]) for p in parse_partitions_csv(espnow_csv)]
+        self.assertEqual(p_target, p_espnow)
+
+    def test_validate_partition_table_empty_fails(self):
+        with self.assertRaisesRegex(RuntimeError, "Partition table is empty"):
+            validate_partition_table("")
+
+    def test_parse_partition_table_rejects_malformed_row(self):
+        with self.assertRaisesRegex(RuntimeError, "Malformed partition row at line 1"):
+            parse_partitions_csv("coredump, data, coredump, 0x300000\n")
+
+    def test_parse_partition_table_rejects_invalid_offset(self):
+        with self.assertRaisesRegex(RuntimeError, "Invalid partition offset/size at line 1"):
+            parse_partitions_csv("nvs, data, nvs, nope, 0x6000\n")
+
+    def test_validate_partition_table_rejects_duplicate_name(self):
+        table = (
+            "nvs, data, nvs, 0x9000, 0x6000\n"
+            "nvs, data, nvs, 0xf000, 0x1000\n"
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+            "coredump, data, coredump, 0x300000, 0x100000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "Duplicate partition name"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_rejects_bootloader_region(self):
+        table = (
+            "factory, app, factory, 0x8000, 0x1000\n"
+            "coredump, data, coredump, 0x300000, 0x100000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "starts before partition table end"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_rejects_missing_expected_partition(self):
+        table = (
+            "nvs, data, nvs, 0x9000, 0x6000\n"
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+            "coredump, data, coredump, 0x300000, 0x100000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "does not match the expected"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_missing_coredump_fails(self):
+        table = (
+            "nvs, data, nvs, 0x9000, 0x6000\n"
+            "phy_init, data, phy, 0xf000, 0x1000\n"
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "Missing coredump partition"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_invalid_coredump_type_or_subtype(self):
+        for bad_type, bad_subtype in (("app", "coredump"), ("data", "nvs")):
+            with self.subTest(bad_type=bad_type, bad_subtype=bad_subtype):
+                table = (
+                    "factory, app, factory, 0x10000, 0x2F0000\n"
+                    f"coredump, {bad_type}, {bad_subtype}, 0x300000, 0x100000\n"
+                )
+                with self.assertRaisesRegex(RuntimeError, "invalid type/subtype"):
+                    validate_partition_table(table)
+
+    def test_validate_partition_table_wrong_coredump_offset(self):
+        table = (
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+            "coredump, data, coredump, 0x200000, 0x100000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "offset mismatch"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_wrong_coredump_size(self):
+        table = (
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+            "coredump, data, coredump, 0x300000, 0x80000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "size mismatch"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_overlap(self):
+        table = (
+            "factory, app, factory, 0x10000, 0x300000\n"
+            "coredump, data, coredump, 0x300000, 0x100000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "overlap detected"):
+            validate_partition_table(table)
+
+    def test_validate_partition_table_exceeds_4mb(self):
+        table = (
+            "factory, app, factory, 0x10000, 0x2F0000\n"
+            "coredump, data, coredump, 0x300000, 0x100000\n"
+            "extra, data, nvs, 0x400000, 0x1000\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "extends beyond 4 MiB"):
+            validate_partition_table(table)
+
+    def test_validate_target_partition_config_missing_csv(self):
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaisesRegex(RuntimeError, "Missing partitions.csv"):
+                validate_target_partition_config(Path(td))
+
+    def test_validate_target_partition_config_missing_sdkconfig(self):
+        with tempfile.TemporaryDirectory() as td:
+            csv_path = Path(td) / "partitions.csv"
+            csv_path.write_text((self.target_dir / "partitions.csv").read_text(encoding="utf-8"))
+            with self.assertRaisesRegex(RuntimeError, "Missing sdkconfig.defaults"):
+                validate_target_partition_config(Path(td))
+
+    def test_validate_target_partition_config_missing_options(self):
+        required_options = [
+            "CONFIG_PARTITION_TABLE_CUSTOM=y",
+            'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"',
+            "CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y",
+            "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y",
+        ]
+        valid_sdkconfig = (self.target_dir / "sdkconfig.defaults").read_text(encoding="utf-8")
+        for opt in required_options:
+            with self.subTest(missing_opt=opt):
+                with tempfile.TemporaryDirectory() as td:
+                    (Path(td) / "partitions.csv").write_text((self.target_dir / "partitions.csv").read_text(encoding="utf-8"))
+                    corrupted = valid_sdkconfig.replace(opt, "")
+                    (Path(td) / "sdkconfig.defaults").write_text(corrupted)
+                    with self.assertRaisesRegex(RuntimeError, re.escape(opt)):
+                        validate_target_partition_config(Path(td))
 
 
 if __name__ == "__main__":

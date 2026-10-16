@@ -1,4 +1,4 @@
-# P25 host and simulation readiness report — 2026-10-14
+# P25 host and simulation readiness report — 2026-10-16
 
 ## Status and conclusion
 
@@ -164,11 +164,31 @@ The contrast keeps COM39 as a board/radio-path issue for follow-up. These runs
 remain unauthenticated Core codec smoke evidence; they do not test SEC-1,
 `dmp_endpoint`, SAMPLE-1, or the authenticated multi-peer workload.
 
-These radio runs separately recorded the 256-byte decoded Core MTU, 263-byte
-encoded Stream R MTU, and 250-byte ESP-NOW v1 payload maximum. They do not prove
-SEC-1, `dmp_endpoint`, SAMPLE-1, `four_parallel`, or DMP authenticated-peer
-behavior. No physical action was part of the current host/compile recheck. The
-remaining acceptance work requires physical ESP32-S3 and ESP32-C3 boards:
+## Replacement C3 module and refreshed ESP-NOW smoke — 2026-10-15
+
+During the 2026-10-15 runs, the operator replaced one C3 module. The device on
+COM35 was treated as a separate physical unit from the earlier COM36/COM38/COM39 devices. Its observed
+runtime identity is ESP32-C3 MAC `9c:cc:01:61:40:40`; the serial adapter is a
+CH343 USB-UART bridge (USB serial `5C38020005`). It uses the dedicated C3 UART0
+console image `build/espnow-pair-esp32c3-uart0-bridge/dmp_espnow_pair.bin`
+(SHA-256
+`15e33ba90049b735f4cf10389cb78664728062a3a64875d083ca5626ad7a05f6`).
+
+| Scenario | Result | Evidence boundary |
+|---|---|---|
+| S3 COM37 ↔ replacement C3 COM35, 10 × 64-byte payload | PASS, 10/10 round trips | Unauthenticated Core echo; COM35 image path/hash and USB identity recorded in `dev/evidence/espnow-pair/pair-20261015T194024-422322400Z/run.json` |
+| S3 COM37 with C3 COM36/COM38/COM35, 10 probes per peer | PASS, 30/30 round trips | One test-radio owner with three serialized unicast peers; COM35 has a distinct UART0 image entry in `dev/evidence/espnow-pair/four-peer-20261015T193853-624349900Z/run.json`; this is not `four_parallel` or an authenticated DMP endpoint |
+| Intentional coredump on replacement C3 COM35 | PASS, panic/reboot, partition extraction, and offline symbolic decode | Read-only 1 MiB partition capture at `0x300000`; 6,270 non-erased bytes; 6,368-byte ELF with RISC-V machine type. Offline decode on 2026-10-16 used EIM ESP-IDF 6.1, esp-coredump 1.17.2, and GDB 17.1 to resolve the expected abort in `handle_command` at `main.c:542`. See `dev/evidence/espnow-pair/core-dump-esp32c3-COM35-20261015T193900-663174Z/{run.json,offline-decode.json}` |
+| ESP-NOW host-stub regression suite | PASS, 31/31 | CI-safe runner/parser behavior only; no hardware or SEC-1 claim |
+
+The pair/four-peer images report 256-byte decoded Core MTU, 263-byte encoded
+Stream R MTU, and 250-byte ESP-NOW v1 payload maximum as separate limits. The
+observed test frame was 68 bytes. These refreshed smoke results do not change
+the P12/P01C/P25 status: they still do not exercise SEC-1, `dmp_endpoint`,
+SAMPLE-1 persistence, or the authenticated `four_serial`/`four_parallel`
+acceptance workload.
+
+The remaining acceptance work requires physical ESP32-S3 and ESP32-C3 boards:
 
 1. Repeat MCU-05 on each final board: three boot epochs × four `RUN 2 128`
    blocks per epoch (3,072 Noise pairs per board), balanced fixed/random
@@ -180,7 +200,8 @@ remaining acceptance work requires physical ESP32-S3 and ESP32-C3 boards:
 2. Run P01C's integrated endpoint workload on one endpoint with four
    authenticated peers under both `four_serial` and `four_parallel`; record
    actual heap/retained/scratch/stack limits and complete the protected
-   4096-byte service-2 exchange.
+   4096-byte service-2 exchange. The current bench has one S3 and three C3
+   units; reserve a fifth board so one endpoint can have four physical peers.
 3. Exercise SAMPLE-1's actual NVS reserve/commit across warm reset and power
    loss, old-association closure before READ/publish/activate, commit failure,
    maximum-index epoch rollover, stale-result/TELEM rejection, and the limits
@@ -188,12 +209,18 @@ remaining acceptance work requires physical ESP32-S3 and ESP32-C3 boards:
 4. Record physical TRNG readiness/quality and any timing/energy measurements
    required by the existing P01C acceptance. Do not change eFuses.
 
-For C3, use an observable native USB Serial/JTAG ROM boot channel; the earlier
-COM35 CH343 bridge had ROM output disabled (`UART_PRINT_CONTROL=3`). The
-operator's current mapping is S3 COM37 and C3 COM36/COM38/COM39; verify target
-identity and flash size again before future programming. ARM ABI checks remain
-deferred by owner direction, and non-Espressif physical qualification remains
-deferred.
+Read-only COM35 inspection on 2026-10-16 identified the replacement module as
+ESP32-C3 rev 0.4, MAC `9c:cc:01:61:40:40`, with 4 MiB flash. Its
+`UART_PRINT_CONTROL=0b11` disables ROM output on UART; native USB Serial/JTAG
+ROM output remains enabled (`DIS_USB_SERIAL_JTAG_ROM_PRINT=0b0`), but COM35 is
+only a CH343 USB-UART bridge. No eFuse was changed. The replacement C3 was
+flashed with the current MCU-05 image and completed six MCU-04 provider cases
+plus one 1,024-pair MCU-05 epoch. The planned-reset gate observed a new boot ID
+and reset counter but no UART ROM banner/reset-cause line, then stopped without
+retry. See `dev/evidence/mcu05-20261016-COM35/summary.md` and its raw logs. The
+three-epoch MCU-05 qualification remains incomplete until an observable native
+USB Serial/JTAG ROM channel is connected. ARM ABI checks remain deferred by
+owner direction, and non-Espressif physical qualification remains deferred.
 
 ## Package state
 
@@ -704,3 +731,78 @@ disposition review, target durable storage, and final S3/C3 physical
 qualification remain open. The owner has directed that ARM checks be revisited
 later; they are not a current blocker to continuing native and ESP32 software
 work.
+
+## Historical physical ESP-NOW and coredump evidence — 2026-10-15
+
+At the time of these runs, the bench was identified as ESP32-S3 rev 0.2 on COM37 (4 MiB flash,
+MAC `20:6e:f1:b0:f0:2c`) and ESP32-C3 rev 0.4 on COM35, COM36, and COM38
+(each 4 MiB flash; MACs `9c:cc:01:61:40:40`, `28:37:2f:75:5d:64`, and
+`18:8b:0e:31:be:9c`, respectively). COM35 used a CH343 UART0 bridge; COM36
+and COM38 exposed USB Serial/JTAG. The S3 and the three C3 devices ran the
+isolated ESP-NOW smoke image. COM39 was not enumerated during
+those runs.
+
+The S3/C3 pair runner passed 10/10 echoes at 64-byte payloads (68-byte Core
+frames) and 10/10 at 240-byte payloads (244-byte Core frames). The four-board
+runner passed 30/30 serialized round trips through one S3 radio context and
+three distinct C3 peers, with 10/10 per peer at both payload sizes. The
+post-restore 64-byte run also passed 30/30. Evidence is under
+`dev/evidence/espnow-pair/pair-20261015T214755-454939700Z/`,
+`pair-20261015T214811-702451100Z/`,
+`four-peer-20261015T214947-926509300Z/`,
+`four-peer-20261015T214958-266852200Z/`, and
+`four-peer-20261015T215548-042217200Z/`; each contains raw serial streams,
+timestamped event timelines, commands, and `run.json` with image hashes.
+The measured limits remain separate: decoded Core MTU 256 bytes, Stream R
+encoded MTU 263 bytes, and ESP-NOW v1 payload maximum 250 bytes. A 244-byte
+Core frame fits the radio packet limit; this smoke did not send a full 256-byte
+Core frame or a 263-byte Stream R frame.
+
+The physical coredump smoke passed on C3 COM35 and S3 COM37 after an explicit
+test abort and application reboot. Each 1 MiB coredump partition at `0x300000`
+contained a length-prefixed ELF; the extracted ELF sizes were 6,368 bytes
+(C3) and 16,352 bytes (S3). Both dumps decoded successfully with ESP-IDF 6.1
+and `espcoredump.py v1.15.0`; the backtraces identify the intentional
+`CORE_DUMP_TEST` abort in the test application. Captures and decoder logs are
+in `core-dump-esp32c3-COM35-20261015T214817-920311Z/` and
+`core-dump-esp32s3-COM37-20261015T215006-049835Z/`. This proves the test-image
+partition, capture, extraction, and offline decoder path; it is not a claim
+about a production crash policy.
+
+Image hashes recorded by the runners: S3 app
+`c82abbf9f3b4e7ddc347c4c57ec42325f60811a4884f1c3196f19cb7da3d0ffd`, C3
+native USB Serial/JTAG app
+`2d2dcf3e2a8a39fee15a2e5bca14f34f2d9bcdbccf7053e7d53e076f0e838905`, and C3
+UART0/CH343 app
+`15e33ba90049b735f4cf10389cb78664728062a3a64875d083ca5626ad7a05f6`.
+The provider image was temporarily loaded on COM36 for MCU-05, but its UART0
+console did not match that board's USB Serial/JTAG interface; the run failed
+before HELLO, any workload, or reset. COM36 was restored to the ESP-NOW image,
+then the four-board 64-byte smoke passed again. On COM35, the earlier MCU-05
+run completed one epoch (1,024 Noise pairs) and failed closed after its planned
+reset because the board's read-only eFuse configuration disables ROM output
+on UART; this remains partial evidence. No eFuse was changed.
+
+These are physical radio/Core-codec and test-image coredump results only. The
+radio test is unauthenticated and does not run SEC-1, `dmp_endpoint`, SAMPLE-1,
+the one-endpoint authenticated four-peer behavior, or `four_parallel`.
+P12's host implementation remains covered by the prior host gate; P12 target
+storage/reset/secure-UART rows, P01C resource/entropy/transport/persistence
+qualification, and final P25 acceptance remain open.
+
+The CI-safe host regressions were rerun after the physical tests:
+
+```text
+python -m unittest discover -s tests/host/espnow_pair -p 'test_*.py' -v  # 31/31
+python -m unittest discover -s tests/provider/parallel -p 'test_serial*.py' -v  # 32/32
+python -O -m unittest discover -s tests/provider/parallel -p 'test_serial*.py' -v  # 32/32
+python -m py_compile tests/embedded/espnow_pair/serial_pair.py tests/embedded/espnow_pair/serial_four.py tests/embedded/espnow_pair/serial_coredump.py tests/provider/parallel/serial_parallel.py tests/provider/parallel/serial_soak.py tests/provider/parallel/test_serial_parallel.py tests/provider/parallel/test_serial_soak.py  # exit 0
+```
+
+Review-fix revalidation on 2026-10-16 added a current-C3 default-port regression
+and strict provider partition-table parser cases. The updated host suites passed
+32/32 ESP-NOW stub tests and 37/37 provider tests in both normal and optimized
+Python modes. These host results do not imply physical COM40 behavior.
+
+The physical serial runners remain outside CTest. Host stubs never open COM
+ports and do not imply hardware, SEC-1, or endpoint evidence.

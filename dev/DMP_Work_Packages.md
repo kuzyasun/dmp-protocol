@@ -1,6 +1,6 @@
 # DMP implementation work packages
 
-**Status, 2026-10-15:** The RBO host run passed 143/143 DMP CTests, 2/2 upstream Noise tests, and Node vectors; the follow-up local GCC host gate passed 144/144 DMP CTests including the normative-ledger regression. The integrated Python peer suite ran 439 tests, passed 438, and skipped one unreachable cross-endpoint quota state; the loopback TCP test passed in the elevated local run. The CTest selection excluded the owner-deferred ARM ABI probe and seven dependent layout checks. ESP-IDF 6.1 compile/link passed for the DMP probes and the separate ESP-NOW smoke images on ESP32-S3 and ESP32-C3. P12 remains open for five primary rows needing target storage/reset/UART evidence; its 34 whole rows record 10 passed / 24 partial. P01 remains the cross-cutting umbrella; its finite host provider API/failure/secret-copy matrix and integrated four-peer scenario are implemented and host-checked, while P01C physical qualification is open. All 137 normative rows have primary and peer Test IDs and resolved source declarations; their statuses remain evidence-scoped and were not promoted from references alone. P13/P14/P15 host scopes are accepted. P21 remains owner-accepted with its historical provenance limitation; P22/P23 retain host/simulation scope; P24 retains its bounded benchmark scope. P25 is pending hardware acceptance. Non-Espressif physical qualification and ARM ABI checks remain deferred. See the [continuation decisions](DMP_Continuation_Decisions_2026-10-13.md), [P25 report](DMP_P25_Host_Simulation_Report.md), and [P01 reconciliation](evidence/noise-mcu-soak-20260927/p01-reconciliation.md).
+**Status, 2026-10-16:** The RBO host run passed 143/143 DMP CTests, 2/2 upstream Noise tests, and Node vectors; the follow-up local GCC host gate passed 144/144 DMP CTests including the normative-ledger regression. The integrated Python peer suite ran 439 tests, passed 438, and skipped one unreachable cross-endpoint quota state; the loopback TCP test passed in the elevated local run. The CTest selection excluded the owner-deferred ARM ABI probe and seven dependent layout checks. ESP-IDF 6.1 compile/link passed for the DMP probes and the separate ESP-NOW smoke images on ESP32-S3 and ESP32-C3. P12 remains open for five primary rows needing target storage/reset/UART evidence; its 34 whole rows record 10 passed / 24 partial. P01 remains the cross-cutting umbrella; its finite host provider API/failure/secret-copy matrix and integrated four-peer scenario are implemented and host-checked, while P01C physical qualification is open. All 137 normative rows have primary and peer Test IDs and resolved source declarations; their statuses remain evidence-scoped and were not promoted from references alone. P13/P14/P15 host scopes are accepted. P21 remains owner-accepted with its historical provenance limitation; P22/P23 retain host/simulation scope; P24 retains its bounded benchmark scope. P25 is pending hardware acceptance. Non-Espressif physical qualification and ARM ABI checks remain deferred. See the [continuation decisions](DMP_Continuation_Decisions_2026-10-13.md), [P25 report](DMP_P25_Host_Simulation_Report.md), and [P01 reconciliation](evidence/noise-mcu-soak-20260927/p01-reconciliation.md).
 **Authority:** [implementation plan](DMP_Implementation_Plan.md) and its normative references. This file adds scheduling and ownership, not protocol behavior.\
 **Baseline:** main document revision 10, SEC-1 revision 5 / BOOT_VERSION 2, SELECTIVE-32 revision 1. The first package records exact document hashes and verifies these revisions.
 
@@ -37,12 +37,11 @@ authorized four-board smoke erased and flashed the bench boards; S3↔C3 Core
 echo passed on COM36 and COM38, failed on COM39, the combined three-C3 radio
 run failed on COM39, and coredump extraction/decoding passed on all four
 boards. These are not authenticated DMP endpoint tests; see the bounded result
-table in the [P25 report](DMP_P25_Host_Simulation_Report.md). No physical action
-was part of the current host/compile recheck. The operator-selected transport
-is ESP-NOW; current mapping is S3 on COM37 and C3 boards on COM36, COM38, and
-COM39. Recheck chip identity, flash size, and native USB Serial/JTAG ROM
-visibility before future hardware work, and record the exact board/module
-variants for P01C.
+table in the [P25 report](DMP_P25_Host_Simulation_Report.md). At that host/compile
+recheck, the operator-selected transport was ESP-NOW and the observed mapping
+was S3 on COM37 and C3 boards on COM36, COM38, and COM39. Recheck chip identity,
+flash size, and native USB Serial/JTAG ROM visibility whenever hardware changes,
+and record the exact board/module variants for P01C.
 
 Current compile/link-only job `job_01M4Y7AX57YA2BFGEVCMT8EQPD` passed both
 ESP32-S3 and ESP32-C3 with EIM-managed ESP-IDF 6.1. These results compile and
@@ -73,6 +72,47 @@ portable DMP pre-hardware probes; the second builds the isolated ESP-NOW smoke
 images and their 1 MiB coredump partition. These are compile/link results only;
 no board was flashed, erased, or physically tested. The ESP-NOW smoke is an
 unauthenticated Core codec echo test, not SEC-1 or a production DMP endpoint.
+
+## Historical physical ESP-NOW pair, four-peer smoke, and coredump — 2026-10-15
+
+At the time of these runs, S3 COM37 and C3 COM35/COM36/COM38 were identified by
+chip and flash ID. The pair runner passed 10/10 echoes at 64-byte and 240-byte
+payloads. The one-S3/three-C3 runner passed 30/30 serialized echoes at both
+sizes, including a final 30/30 64-byte run after restoring COM36 from a
+provider image to its ESP-NOW image. A 240-byte payload produced a 244-byte
+Core frame. The decoded Core MTU (256), Stream R encoded MTU (263), and
+ESP-NOW v1 packet maximum (250) remain distinct; no full 256-byte Core frame
+was transmitted.
+
+The C3 on COM35 and S3 on COM37 each generated a 1 MiB flash coredump after an
+intentional test abort and reboot. Their 6,368-byte and 16,352-byte ELF images
+were extracted and decoded with ESP-IDF 6.1 / `espcoredump.py v1.15.0`.
+Evidence and raw logs are linked in the [P25 report](DMP_P25_Host_Simulation_Report.md#historical-physical-esp-now-and-coredump-evidence--2026-10-15).
+
+MCU-05 is still not fully qualified: COM35 passed its first epoch but lacks
+UART ROM reset evidence because its eFuse disables ROM output on that bridge.
+A COM36 attempt used the provider's UART0 console on a USB Serial/JTAG port and
+failed before HELLO; no workload or reset occurred. COM36 was restored and the
+final four-board ESP-NOW smoke passed. This radio smoke is unauthenticated and
+does not pass P12, P01C, `four_parallel`, or final P25. P12 target
+storage/reset/secure-UART evidence and P01C memory/entropy/transport/persistence
+measurements remain open.
+
+Current bench preflight, 2026-10-16: the new C3 on COM40 was read-only
+identified as ESP32-C3 rev 0.4, MAC `94:a9:90:7b:ef:00`, USB Serial/JTAG, with
+4 MiB XMC flash (manufacturer `0x20`, device `0x4016`). This identity matches
+the native USB/JTAG C3 smoke image. This records identity only; a new smoke run
+and its per-run evidence are separate from the historical COM35 results above.
+
+Current host regression revalidation after review fixes, 2026-10-16:
+
+- `python -m unittest discover -s tests/host/espnow_pair -p 'test_*.py' -v`: 32/32 passed.
+- `python -m unittest discover -s tests/provider/parallel -p 'test_serial*.py' -v`: 37/37 passed.
+- `python -O -m unittest discover -s tests/provider/parallel -p 'test_serial*.py' -v`: 37/37 passed.
+- Scoped Python `py_compile`: passed.
+
+These host stubs did not open serial ports. The physical runner remains separate
+from CI/CTest.
 
 ## Operating model
 

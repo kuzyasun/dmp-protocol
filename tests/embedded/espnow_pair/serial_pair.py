@@ -2,7 +2,7 @@
 """Capture and run a bounded ESP-NOW DMP core-frame echo on S3/C3 boards.
 
 This is a transport smoke test. It does not perform SEC-1 authentication or
-claim DMP endpoint acceptance. Raw bytes from both Serial/JTAG ports are kept
+claim DMP endpoint acceptance. Raw bytes from both serial ports are kept
 alongside a timestamped line index and a machine-checked result.
 """
 

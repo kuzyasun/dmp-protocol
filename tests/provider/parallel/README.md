@@ -32,6 +32,22 @@ cross-worker frees are supported. Each whole entropy-source enable/read/disable
 sequence takes a mutex with a five-second deadline. No other ADC/RF client may
 run. The SDK exposes no entropy health failure result.
 
+Both targets use the test-only 4 MiB partition table at
+`tests/provider/targets/esp32-parallel/partitions.csv`:
+
+| Partition | Type | Offset | Size |
+|---|---|---:|---:|
+| `nvs` | data/nvs | `0x9000` | `0x6000` |
+| `phy_init` | data/phy | `0xf000` | `0x1000` |
+| `factory` | app/factory | `0x10000` | `0x2f0000` |
+| `coredump` | data/coredump | `0x300000` | `0x100000` |
+
+`sdkconfig.defaults` enables coredump-to-flash and the project includes the
+`espcoredump` component. The app slot is smaller than the default single-app
+layout. Flash the matching target build as a whole so `partition-table.bin` is
+written at `0x8000` along with the bootloader and app; this is a provider-test
+layout, not the DMP product partition contract.
+
 UART0 is 115200 baud. Commands are bounded ASCII lines:
 
 ```text

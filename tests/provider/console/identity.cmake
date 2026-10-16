@@ -4,7 +4,8 @@ function(dmp_bench_identity target)
     get_filename_component(_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../.." ABSOLUTE)
     file(GLOB_RECURSE _inputs CONFIGURE_DEPENDS
         "${_root}/tests/provider/*.c" "${_root}/tests/provider/*.h"
-        "${_root}/tests/provider/*.cmake" "${_root}/tests/provider/CMakeLists.txt"
+        "${_root}/tests/provider/*.cmake" "${_root}/tests/provider/*.csv"
+        "${_root}/tests/provider/CMakeLists.txt"
         "${_root}/tests/provider/*/CMakeLists.txt" "${_root}/tests/provider/*/sdkconfig.defaults")
     list(APPEND _inputs "${_root}/docs/DMP_v2_Security_Test_Vectors.json"
         "${_root}/tests/provider/backend/checked-init.patch"

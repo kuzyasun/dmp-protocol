@@ -35,7 +35,7 @@ from serial_pair import (
 
 
 DEFAULT_S3_PORT = "COM37"
-DEFAULT_C3_PORTS = ("COM36", "COM38", "COM39")
+DEFAULT_C3_PORTS = ("COM36", "COM38", "COM40")
 DEFAULT_C3_BIN = Path("build/espnow-pair-esp32c3/dmp_espnow_pair.bin")
 MAX_COUNT_PER_PEER = 333
 SIDES = ("s3", "c3_1", "c3_2", "c3_3")
@@ -220,6 +220,28 @@ def create_output_dir(root: Path, requested: Path | None) -> Path:
     return output
 
 
+def c3_images_for_ports(
+    c3_ports: list[str], default_image: Path, overrides: list[str] | None,
+) -> dict[str, Path]:
+    """Resolve image paths per C3 serial port while keeping one default image."""
+    allowed_ports = {port.upper() for port in c3_ports}
+    port_names = {port.upper(): port for port in c3_ports}
+    images: dict[str, Path] = {}
+    for value in overrides or []:
+        port, separator, image_path = value.partition("=")
+        key = port.strip().upper()
+        if not separator or not key or not image_path.strip():
+            raise PairTestError("each --c3-bin-for-port value must be PORT=PATH")
+        if key not in allowed_ports:
+            raise PairTestError(
+                f"--c3-bin-for-port references an unconfigured C3 port: {port.strip()}"
+            )
+        if key in images:
+            raise PairTestError(f"--c3-bin-for-port is repeated for {port_names[key]}")
+        images[key] = Path(image_path.strip())
+    return {port.upper(): images.get(port.upper(), default_image) for port in c3_ports}
+
+
 def run(args: argparse.Namespace) -> int:
     c3_ports = [port.strip() for port in args.c3_ports.split(",") if port.strip()]
     if len(c3_ports) != 3:
@@ -231,10 +253,11 @@ def run(args: argparse.Namespace) -> int:
     if not 8 <= args.payload_bytes <= MAX_PAYLOAD_BYTES:
         raise PairTestError(f"payload-bytes must be between 8 and {MAX_PAYLOAD_BYTES}")
 
+    c3_images = c3_images_for_ports(c3_ports, args.c3_bin, args.c3_bin_for_port)
     specs = {"s3": DeviceSpec("s3", args.s3_port, "esp32s3", args.s3_bin)}
     for index, port in enumerate(c3_ports, start=1):
         side = f"c3_{index}"
-        specs[side] = DeviceSpec(side, port, "esp32c3", args.c3_bin)
+        specs[side] = DeviceSpec(side, port, "esp32c3", c3_images[port.upper()])
     for spec in specs.values():
         if not spec.image.is_file():
             raise PairTestError(f"firmware image is missing: {spec.image}")
@@ -382,6 +405,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="exactly three comma-separated C3 serial ports")
     parser.add_argument("--s3-bin", type=Path, default=DEFAULT_S3_BIN)
     parser.add_argument("--c3-bin", type=Path, default=DEFAULT_C3_BIN)
+    parser.add_argument("--c3-bin-for-port", action="append", metavar="PORT=PATH",
+                        help="override the C3 image for a serial port; may be repeated")
     parser.add_argument("--evidence-root", type=Path, default=DEFAULT_EVIDENCE_ROOT)
     parser.add_argument("--output-dir", type=Path,
                         help="new, empty output directory; must not already exist")

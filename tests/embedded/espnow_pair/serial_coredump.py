@@ -82,7 +82,7 @@ def _write_json_line(file, value: dict[str, Any]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", required=True, help="USB Serial/JTAG COM port")
+    parser.add_argument("--port", required=True, help="serial console COM port")
     parser.add_argument("--target", required=True, choices=("esp32s3", "esp32c3"))
     parser.add_argument("--evidence-root", type=Path, default=DEFAULT_EVIDENCE_ROOT)
     parser.add_argument("--event-timeout", type=float, default=35.0)

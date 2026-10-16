@@ -24,6 +24,19 @@ Both harnesses report these separate bounds:
 
 This run keeps each test packet at or below 250 bytes. It does not establish
 delivery for the full 256-byte Core or 263-byte Stream R limits.
+The default images use the native USB Serial/JTAG console. For C3 modules that
+expose UART0 through a USB-UART bridge, build the UART0 variant in a separate
+directory. In PowerShell, set the extra defaults for this invocation and then
+build:
+
+```powershell
+eim run "idf.py -C tests/embedded/espnow_pair -B build/espnow-pair-esp32c3-uart0-bridge -D IDF_TARGET=esp32c3 -D DMP_PAIR_C3_UART0_CONSOLE=1 build"
+```
+
+The UART0 variant uses the same app, ESP-NOW channel, and coredump partition as
+the default C3 image. It changes only the console transport and is intended for
+modules whose USB bridge does not provide native USB Serial/JTAG.
+
 The runner assigns a fresh 64-bit session token for every invocation. Both
 images confirm it before peer setup, and each Core payload begins with that
 token so delayed packets from a prior run are rejected. This reserves the first
@@ -53,33 +66,21 @@ disabled. This is a test-image layout, not a DMP product partition contract.
 
 Before writing an image, identify each target and read its flash size. The
 build selects a 4 MiB layout. Stop if the chip does not match its selected
-image or its flash is smaller than 4 MiB. For the current bench mapping, S3 is
-COM37 and the first C3 is COM36. COM38 and COM39 remain available for the later
-multi-board run. Recheck the chip identity if USB port assignments change.
+image or its flash is smaller than 4 MiB. On 2026-10-16 the verified bench
+mapping is S3 on COM37 and native USB Serial/JTAG C3 boards on COM36, COM38,
+and COM40. COM35 is disconnected. COM40 was identified as ESP32-C3 rev 0.4,
+MAC `94:a9:90:7b:ef:00`, with 4 MiB flash. Recheck chip identity and flash size
+whenever USB port assignments change.
 
-The owner authorized a one-time full-flash erase of the four bench boards for
-this test setup. Before erasing, verify each port's detected target and flash
-size with `esptool --port <PORT> chip-id` and `esptool --port <PORT> flash-id`.
-Proceed only if COM37 is the S3, COM36/COM38/COM39 are C3s, and every flash is
-at least 4 MiB. A full erase removes all flash contents, including NVS and any
-existing firmware; it does not alter eFuses.
-
-After identity verification, erase each board:
-
-```powershell
-esptool --chip esp32s3 --port COM37 erase-flash
-esptool --chip esp32c3 --port COM36 erase-flash
-esptool --chip esp32c3 --port COM38 erase-flash
-esptool --chip esp32c3 --port COM39 erase-flash
-```
-
-Then flash the matching target image:
+The one-time full-flash erase authorized for the earlier bench setup is
+complete; it does not apply to replacement devices. Do not run `erase-flash`
+for this test. Program only the selected board with its matching test image:
 
 ```powershell
 eim run "idf.py -C tests/embedded/espnow_pair -B build/espnow-pair-esp32s3 -p COM37 flash"
 eim run "idf.py -C tests/embedded/espnow_pair -B build/espnow-pair-esp32c3 -p COM36 flash"
 eim run "idf.py -C tests/embedded/espnow_pair -B build/espnow-pair-esp32c3 -p COM38 flash"
-eim run "idf.py -C tests/embedded/espnow_pair -B build/espnow-pair-esp32c3 -p COM39 flash"
+eim run "idf.py -C tests/embedded/espnow_pair -B build/espnow-pair-esp32c3 -p COM40 flash"
 ```
 
 The Python runner leaves DTR and RTS inactive so opening the USB ports does not
@@ -110,7 +111,9 @@ Install `pyserial` in the selected Python environment if it is not present.
 Run the bounded default pair scenario from the repository root:
 
 ```powershell
-python tests/embedded/espnow_pair/serial_pair.py --s3-port COM37 --c3-port COM36 --count 10 --payload-bytes 64
+python tests/embedded/espnow_pair/serial_pair.py `
+  --s3-port COM37 --c3-port COM40 `
+  --count 10 --payload-bytes 64
 ```
 
 The runner requests fresh INFO records, programs each board with the other's
@@ -142,9 +145,16 @@ records; they are never hard-coded.
 
 ```powershell
 python tests/embedded/espnow_pair/serial_four.py `
-  --s3-port COM37 --c3-ports COM36,COM38,COM39 `
+  --s3-port COM37 --c3-ports COM36,COM38,COM40 `
   --count-per-peer 10 --payload-bytes 64
 ```
+
+If a C3 board uses a different console-specific image, keep `--c3-bin` for
+the common image and repeat `--c3-bin-for-port PORT=PATH` for each exception.
+The runner records the selected image path and SHA-256 separately for each
+board. For example, append
+`--c3-bin-for-port <PORT>=<UART0-image-path>` when a board uses a UART0-console
+image instead of the native USB Serial/JTAG image.
 
 The S3 adds all three C3 peers to one radio context. It then sends 30 probes
 one at a time, round-robin, and verifies a matching echo from the selected
