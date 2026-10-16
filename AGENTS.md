@@ -46,4 +46,12 @@ Workers return: changed files; behavior implemented; exact commands and outcomes
 
 The existing fixture check is `node dev/dmp_verify_security_vectors.cjs`. The CMake, profile, simulator and benchmark commands in the implementation plan are proposed until their packages implement them. Do not claim they ran before they exist. Record actual tool versions, source/configuration hashes and test outcomes. Keep secrets out of logs and diagnostic fixtures.
 
+## RBO builds and target toolchains
+
+- For a fresh RBO `job_run`, set `project_root` to this project's absolute path on the Controller machine. Omit `cwd` or set it to `.` to run at the project root. For a subdirectory, use a relative path such as `firmware/app`. Never put an absolute path or `..` in `cwd`. A validation error for `source.cwd` means the job was not created; correct the request before retrying.
+- `agents_list` reports worker availability and OS, not installed compilers or SDKs. Set `target_os` from the selected worker. Use `bash` or `zsh` on macOS/Linux and `powershell` on Windows. If omitted, `target_os` defaults to the Controller OS.
+- Start each build script with the repository's real toolchain activation command. This repository uses EIM with ESP-IDF 6.1; invoke builds as `eim run "idf.py <arguments>" v6.1` (for example, `eim run "idf.py -C tests/embedded/esp32s3 -B build/rbo-esp32s3 -DIDF_TARGET=esp32s3 build" v6.1`). Do not invent an installation path. If instructions for a repository still contain `REPLACE_WITH_`, stop and ask an operator to provide that repository's real activation command.
+- Do not search a worker machine for toolchain installations or call `agent_probe` to discover them. If a build fails because a tool or SDK is missing, stop and ask an operator to install it on that worker.
+- If `job_run` returns `resume: true`, resume the same `job_id` and pass its `next_log_cursor` as `log_cursor`.
+
 Use focused existing tests and then the applicable integration gate. Update canonical documentation only for accepted durable changes; put execution evidence in `dev/`. Keep this workflow small: the work board and its linked evidence are sufficient; no additional task-management service is required.
