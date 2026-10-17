@@ -3202,3 +3202,22 @@ Evidence: `dev/evidence/p12-p01c-physical/epoch_transition_20261017_232450_f4791
 The run reported decoded Core MTU 256 bytes, encoded Stream R MTU 263 bytes, and maximum observed frame 262 bytes. Internal free/minimum/largest heap blocks were 83,532/82,396/40,960 bytes on S3 and 22,048/21,136/13,312 bytes on C3. Energy was not measured; entropy diagnostics are not quality certification.
 
 This adds target evidence for NVS continuity after an operator-attested external power cycle on one S3/C3 pair. It does not detect restoration of a complete old flash image or inject target NVS commit failure. Target SAMPLE-1 retry/cancel/timeout and supersession, MCU-05 UART0 Noise/reset, energy, and four-peer hardware remain open. The five P12 primary results remain partial; no normative status was promoted.
+
+## 2026-10-17 — Post-commit host and S3/C3 compile-link checks
+
+After commit `342b3bf0e25b86f706d7a4211fe4a5e9481b02d5` was pushed, the ESP-NOW qualification target was rebuilt for both supported chips on the RBO macOS ARM64 worker with ESP-IDF 6.1.0. The sequential command exited 0:
+
+```text
+eim run "idf.py -C tests/embedded/espnow_dmp -B build/rbo-final-esp32s3 -DIDF_TARGET=esp32s3 build" v6.1
+eim run "idf.py -C tests/embedded/espnow_dmp -B build/rbo-final-esp32c3 -DIDF_TARGET=esp32c3 build" v6.1
+```
+
+RBO job `job_01M55SQ669TQBV7AY1NDMWBH8W` completed with outcome `succeeded`, exit code 0. Logs include ESP-IDF component-validation warnings about private Wi-Fi/WPA Supplicant include directories; no source change was made to upstream ESP-IDF for those warnings.
+
+The committed host serial-runner suite also passed on RBO:
+
+```text
+python3 -m unittest discover -s tests/host/espnow_dmp -p 'test_*.py' -v
+```
+
+RBO job `job_01M55SW6S6Y91GWWFY0H6HWMK0` completed with outcome `succeeded`, exit code 0; unittest reported 204 tests in 7.577 seconds, `OK`. These are host and compile/link checks only; they do not establish behavior on physical boards.
