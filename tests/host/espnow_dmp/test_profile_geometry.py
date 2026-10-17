@@ -210,6 +210,8 @@ class TestProfileGeometry(unittest.TestCase):
             "target": "esp32s3",
             "idf": "ESP-IDF v6.1",
             "firmware": "dmp-espnow-dmp/0.1",
+            "boot_id": "a" * 16,
+            "reset_reason": "power_on",
             "mac": "28:37:2f:75:5d:64",
             "channel": 1,
             "decoded_core_mtu_bytes": 256,

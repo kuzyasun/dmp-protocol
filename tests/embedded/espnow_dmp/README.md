@@ -101,6 +101,9 @@ The qualification firmware responds to line-oriented ASCII commands over USB Ser
   on the S3 controller. Each C3 peer uses one slot.
 - `PEER <mac> [node_id]`: Register a peer station MAC address and node ID.
 - `NVS_CHECK`: Execute the SAMPLE-1 NVS monotonic epoch reservation test.
+- `SAMPLE_ROTATE <sample_value>`: Qualification-only S3 command that starts the existing
+  production SAMPLE-1 epoch transition, fences prior peer records, and publishes a sample
+  under the newly reserved epoch. It does not add a wire command or alter the manifest.
 - `HANDSHAKE <peer_handle>`: Start a SEC-1 Noise handshake with the given peer.
 - `SAMPLE_READ <peer_handle>`: Submit an authenticated SAMPLE-1 initialization READ request.
 - `TRANSFER <peer_handle> <bytes>`: Initiate a fragmented Service-2 transfer within the active
@@ -115,6 +118,29 @@ The Python runners own repeat counts and serial/parallel transfer scheduling by 
 commands do not implement the runner's full scheduling and repeat-count contract.
 The default per-operation timeout is 25 seconds for pair mode and 60 seconds for four-peer
 mode, covering the respective 20-second and 50-second single-attempt handshake deadlines.
+
+The `serial_dmp_epoch_transition.py` hardware runner consumes a passing pair evidence directory
+while both endpoints are still running that session. It records preflight boot IDs, rotates the
+S3 SAMPLE-1 epoch, submits one READ over the old C3 association, watches for the full retry-2
+initialization deadline from the active manifest, then software-reboots both boards and checks
+the next S3 owner/NVS reservations. The runner reports decoded Core MTU and encoded Stream R MTU
+as separate values. Prepare the live pair with NVS_CHECK omitted so the owner remains at the
+latest durable epoch, then pass that run's directory to the transition runner:
+
+```powershell
+python tests/embedded/espnow_dmp/serial_dmp_pair.py `
+  --s3-port COM37 --c3-port COM40 --transfer-bytes 1024 --timeout 70 `
+  --skip-nvs-check-for-epoch-transition `
+  --evidence-dir dev/evidence/p12-p01c-physical
+
+python tests/embedded/espnow_dmp/serial_dmp_epoch_transition.py `
+  --s3-port COM37 --c3-port COM40 `
+  --previous-pair-dir dev/evidence/p12-p01c-physical/PAIR_RUN_DIRECTORY `
+  --evidence-dir dev/evidence/p12-p01c-physical
+```
+
+This runner is physical-hardware-only and is not part of host CI. The host suite tests its event
+validation using stubs; the hardware result remains separate evidence.
 
 ## 8. CI vs Hardware Separation
 

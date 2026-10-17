@@ -80,6 +80,7 @@ class EspNowDmpStub:
         self.session: str | None = None
         self.role: str | None = None
         self.node_id: int | None = None
+        self.owner_epoch = 0
         self.stack_initialized = False
         self.peers: list[tuple[str, int]] = []
         self.hs_sync_handles: set[int] = set()
@@ -125,6 +126,8 @@ class EspNowDmpStub:
                 "target": self.target,
                 "idf": "ESP-IDF v6.1",
                 "firmware": "dmp-espnow-dmp/0.1",
+                "boot_id": "a" * 16 if self.target == "esp32s3" else "b" * 16,
+                "reset_reason": "power_on",
                 "mac": self.mac,
                 "channel": 1,
                 "decoded_core_mtu_bytes": 256,
@@ -134,6 +137,57 @@ class EspNowDmpStub:
                 "espnow_version": self.espnow_version,
                 "peer_capacity": 4,
                 "test_mode": "authenticated-dmp-endpoint",
+            }, event_queue)
+        elif cmd == "RESOURCES":
+            self._emit(side, {
+                "event": "resources",
+                "session": self.session,
+                "target": self.target,
+                "status": "ok",
+                "entropy_ready": True,
+                "heap_internal_free_bytes": 100000,
+                "heap_internal_min_free_bytes": 90000,
+                "heap_internal_largest_block_bytes": 80000,
+                "heap_internal_used_since_ready_bytes": 1000,
+                "heap_spiram_free_bytes": 0,
+                "heap_spiram_min_free_bytes": 0,
+                "heap_spiram_largest_block_bytes": 0,
+                "qualification_static_bytes": 40000,
+                "qualification_dynamic_object_bytes": 3000,
+                "provider_live_requested_bytes": 1000,
+                "provider_peak_requested_bytes": 12000,
+                "provider_largest_allocation_bytes": 8192,
+                "provider_retained_bytes": 1000,
+                "provider_scratch_limit_bytes": 16384,
+                "provider_retained_limit_bytes": 131072,
+                "main_stack_min_free_bytes": 1500,
+                "main_stack_configured_bytes": 7168,
+                "command_stack_min_free_bytes": 1400,
+                "command_stack_configured_bytes": 4096,
+                "wifi_rx_callback_stack_sampled": True,
+                "wifi_rx_callback_stack_min_free_bytes": 1200,
+                "wifi_tx_callback_stack_sampled": True,
+                "wifi_tx_callback_stack_min_free_bytes": 1100,
+                "decoded_core_mtu_bytes": 256,
+                "stream_r_encoded_mtu_bytes": 263,
+                "espnow_v1_payload_mtu_bytes": 250,
+                "espnow_v2_payload_mtu_bytes": 1470,
+            }, event_queue)
+        elif cmd == "ENTROPY_DIAGNOSTIC":
+            self._emit(side, {
+                "event": "entropy_diagnostic",
+                "session": self.session,
+                "status": "ok",
+                "entropy_ready": True,
+                "source": "esp_fill_random_wifi_active",
+                "sample_bytes": 4096,
+                "unique_byte_values": 256,
+                "minimum_bucket_count": 5,
+                "maximum_bucket_count": 31,
+                "chi_square_x1000": 25413000,
+                "elapsed_us": 1500,
+                "quality_certified": False,
+                "interpretation": "statistical diagnostic only",
             }, event_queue)
         elif cmd == "SESSION" and len(parts) >= 2:
             self.session = parts[1]
@@ -201,6 +255,15 @@ class EspNowDmpStub:
             self.node_id = node_id
             self.stack_initialized = True
             self.hs_sync_handles.clear()
+            if self.role == "controller":
+                self.nvs_epoch += 1
+                self.owner_epoch = self.nvs_epoch
+                self._emit(side, {
+                    "event": "sample1_epoch_reserved",
+                    "session": self.session,
+                    "epoch": self.nvs_epoch,
+                    "elapsed_us": 100,
+                }, event_queue)
             self._emit(side, {
                 "event": "role_set",
                 "session": self.session,
@@ -251,6 +314,7 @@ class EspNowDmpStub:
                     "has_previous": True,
                     "previous_epoch": self.nvs_epoch - 1,
                     "reserved_epoch": self.nvs_epoch,
+                    "elapsed_us": 100,
                 }, event_queue)
         elif cmd == "HS_SYNC" and len(parts) >= 2:
             h = int(parts[1])
@@ -333,6 +397,7 @@ class EspNowDmpStub:
                     "peer_mac": peer_mac,
                     "peer_handle": h,
                     "status": "success",
+                    "elapsed_us": 50000,
                 }, event_queue)
             if network and not self.fail_handshake and not self.fail_poll_error:
                 peer_port = network.ports_by_mac.get(peer_mac.lower())
@@ -352,6 +417,7 @@ class EspNowDmpStub:
                         "peer_mac": self.mac,
                         "peer_handle": 0,
                         "status": "success",
+                        "elapsed_us": 51000,
                     })
         elif cmd == "SAMPLE_READ" and len(parts) >= 2:
             h = int(parts[1])
@@ -392,6 +458,15 @@ class EspNowDmpStub:
                     "wire_status": 0,
                     "bytes": 17,
                 }, event_queue)
+                if peer_port is not None and controller_handle is not None:
+                    self._emit(side, {
+                        "event": "sample1_read_result",
+                        "session": self.session,
+                        "peer_handle": h,
+                        "epoch": peer_port.stub.owner_epoch,
+                        "sample_index": 1,
+                        "sample_value": 0x11223344,
+                    }, event_queue)
                 if peer_port is not None and controller_handle is not None:
                     def complete_sample_response_tx() -> None:
                         peer_port.stub.sample_response_tx_pending = False
@@ -744,6 +819,10 @@ class TestRunnerStub(unittest.TestCase):
             # Session
             s3.handle_command("s3", f"SESSION {SESSION}", q)
             c3.handle_command("c3", f"SESSION {SESSION}", q)
+            s3.handle_command("s3", "RESOURCES", q)
+            c3.handle_command("c3", "RESOURCES", q)
+            s3.handle_command("s3", "ENTROPY_DIAGNOSTIC", q)
+            c3.handle_command("c3", "ENTROPY_DIAGNOSTIC", q)
 
             # Roles with explicit node_ids
             s3.handle_command("s3", f"ROLE controller retry-2 {PAIR_CONTROLLER_NODE_ID} 1", q)
@@ -775,10 +854,19 @@ class TestRunnerStub(unittest.TestCase):
                 "peer_mac": S3_MAC,
                 "peer_handle": 0,
                 "status": "success",
+                "elapsed_us": 51000,
             }))
 
             # Sample Read on C3 reader
             c3.handle_command("c3", "SAMPLE_READ 0", q)
+            q.put(("c3", {
+                "event": "sample1_read_result",
+                "session": SESSION,
+                "peer_handle": 0,
+                "epoch": s3.nvs_epoch - 1,
+                "sample_index": 1,
+                "sample_value": 0x11223344,
+            }))
 
             # Native v2 frame
             s3.handle_command("s3", "V2_FRAME 0", q)
@@ -1067,6 +1155,37 @@ class TestRunnerStub(unittest.TestCase):
             handshake_command = s3_commands.index("HANDSHAKE 0")
             self.assertEqual(s3_commands[handshake_command - 1], "INFO")
             self.assertIn("HS_SYNC 0", s3_commands[:handshake_command])
+
+    def test_run_dmp_pair_epoch_transition_mode_omits_only_nvs_check(self):
+        net = SimulatedEspNowNetwork()
+        s3_stub = EspNowDmpStub("esp32s3", S3_MAC)
+        c3_stub = EspNowDmpStub("esp32c3", C3_MAC)
+        net.register("COM37", "s3", s3_stub)
+        net.register("COM40", "c3", c3_stub)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_dmp_pair(
+                s3_port="COM37",
+                c3_port="COM40",
+                transfer_bytes=1024,
+                evidence_dir=tmpdir,
+                timeout=5.0,
+                serial_factory=net.make_factory(),
+                run_nvs_check=False,
+            )
+
+            self.assertEqual(result["result"], "PASS")
+            self.assertFalse(result["nvs_check_performed"])
+            self.assertEqual(result["sample1_owner_epoch"], s3_stub.owner_epoch)
+            commands = [
+                json.loads(line)["command"]
+                for line in (Path(result["evidence_dir"]) / "commands.log").read_text(
+                    encoding="utf-8"
+                ).splitlines()
+                if json.loads(line).get("status") == "sent"
+            ]
+            self.assertNotIn("NVS_CHECK", commands)
+            self.assertIn("SAMPLE_READ 0", commands)
 
     def test_pair_runner_waits_for_v2_probe_tx_completion_before_transfer(self):
         net = SimulatedEspNowNetwork()

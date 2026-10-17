@@ -3519,8 +3519,8 @@
         "tests/application/test_sample1_epoch_anchor_nvs.c::test_nvs_failures_are_fail_closed",
         "tests/application/test_sample1_epoch_anchor_nvs.c::test_composition_reservation_and_reopen"
       ],
-      "primary_remaining": "Host owner, storage, NVS-anchor, and SEC-1 endpoint tests cover reservation/order, reopen, stale-anchor rollback, commit failure, exhaustion, and fail-closed outputs. Deterministic host storage does not establish on-device flash durability/reset behavior or detect restoration of a complete old flash image.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--owner-approved-d1-d5-continuation-checkpoint",
+      "primary_remaining": "Physical evidence now includes owner epoch 67 after the operator-attested cold power cycle from check reservation 66, followed by NVS check reservation 68. Earlier target evidence covers rotation 61 to 62, old-record closure, stale READ rejection, and software-reset continuity. Target NVS commit-failure injection and detection of a restored complete old image remain unverified.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#cold-power-cycle-after-reservation-66",
       "peer_result": "partial",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_epoch"
@@ -3554,8 +3554,8 @@
         "tests/application/test_sample1_epoch_owner.c::test_index_exhaustion_rotates_before_publication",
         "tests/endpoint/test_endpoint_sec.c::test_protected_sample1_epoch_endpoint"
       ],
-      "primary_remaining": "The application owner, production storage/NVS-anchor adapter, and real SEC-1 endpoint bridge have host tests and both target compile/link gates. Physical NVS commit/restart timing remains unverified; ordinary NVS cannot detect restoration of a complete old flash image.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--owner-approved-d1-d5-continuation-checkpoint",
+      "primary_remaining": "One physical S3/C3 run rotated 61 to 62, closed the prior peer record (1 to 0), published sample 0x55667788, and rejected old-association READ for 24,260 ms. A later operator-attested cold power cycle after reservation 66 passed with power_on boots and NVS owner/check epochs 67/68. Shared Service-2 overlap, multi-peer transition races, and target commit-failure injection remain unverified.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#cold-power-cycle-after-reservation-66",
       "peer_result": "partial",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a1_epoch_transition"
@@ -3624,8 +3624,8 @@
         "tests/application/test_sample1_epoch_owner.c::test_uncertain_reserve_activation_read_and_publish_stop",
         "tests/profiles/test_deployments.py::DeploymentTests.test_sample_retry_profile_is_separate_and_timing_bounded"
       ],
-      "primary_remaining": "Primary host checks cover the distinct two-attempt manifest, resource/timing bounds, protected success/timeout, supersession, and exhausted retry policy. Target storage/lifecycle timing and protected UART execution remain hardware-only.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--owner-approved-d1-d5-continuation-checkpoint",
+      "primary_remaining": "Protected designated READ passed at epoch 67 after cold power-on; a separate old-association READ after fencing produced no producer request or reader result during the 24,260 ms retry-2 observation. Target initialization retry/cancel/timeout and supersession timing remain unverified.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#cold-power-cycle-after-reservation-66",
       "peer_result": "partial",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a2_designated_read"
@@ -4003,8 +4003,8 @@
         "tests/application/test_sample1_epoch_anchor_nvs.c::test_nvs_failures_are_fail_closed",
         "tests/application/test_sample1_epoch_anchor_nvs.c::test_composition_reservation_and_reopen"
       ],
-      "primary_remaining": "Primary host tests cover owner restart fencing, index exhaustion, storage reopen, stale-anchor rollback, and NVS-adapter commit failures. Physical warm-reset durability remains unverified; complete flash-image restoration is outside ordinary NVS rollback detection.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--owner-approved-d1-d5-continuation-checkpoint",
+      "primary_remaining": "A physical S3/C3 software reboot after rotation changed both boot identities; S3 then reserved owner epoch 63 and NVS_CHECK reserved 64. A later operator-attested cold power cycle observed new boot IDs, power_on reasons, and NVS owner/check epochs 67/68. Complete old-flash-image restoration remains unverified.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#cold-power-cycle-after-reservation-66",
       "peer_result": "partial",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_restart"
@@ -4106,8 +4106,8 @@
         "tests/application/test_sample1_epoch_anchor_nvs.c::test_nvs_failures_are_fail_closed",
         "tests/application/test_sample1_epoch_anchor_nvs.c::test_composition_reservation_and_reopen"
       ],
-      "primary_remaining": "Primary host tests cover store reopen, stale-anchor rollback, commit failure, maximum epoch exhaustion, anchor recovery, and fail-closed outputs. Physical flash durability and complete old-image restoration detection remain unverified.",
-      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--owner-approved-d1-d5-continuation-checkpoint",
+      "primary_remaining": "NVS progression remained monotonic through live rotation, software reset, and a later operator-attested cold power cycle: owner/check epochs advanced to 67/68 after the prior check reserved 66. Target NVS commit-failure injection and complete old-image rollback detection remain unverified.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#cold-power-cycle-after-reservation-66",
       "peer_result": "partial",
       "peer_checks": [
         "tests/peer/tests/test_normative_p21b.py::NormativeP21BCasesTests.test_case_s_a4_persistence"

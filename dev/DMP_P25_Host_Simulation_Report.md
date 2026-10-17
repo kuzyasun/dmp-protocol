@@ -23,6 +23,52 @@ The P21 peer work is accepted for functional host evidence under the owner's
 explicit disposition, with an unresolved historical provenance caveat. No
 clean-room or complete-independence claim is made.
 
+## Additional S3/C3 DMP target evidence — 2026-10-17
+
+One ESP32-S3 (COM37, MAC `20:6e:f1:b0:f0:2c`) and one ESP32-C3 (COM40, MAC
+`94:a9:90:7b:ef:00`) passed the authenticated DMP pair: SEC-1, SAMPLE-1 READ,
+and protected 1024-byte Service-2 transfer. The latest pair recorded READ epoch
+54/index 1/value `0x11223344`, 16 × 64-byte fragments, and a 262-byte largest
+observed frame. It also recorded integrated heap/provider retained/scratch,
+task and Wi-Fi callback stack, RNG readiness/statistical sample, and target
+timing. The entropy sample remains diagnostic only (`quality_certified=false`);
+no current/energy monitor was configured. The decoded Core MTU (256 bytes),
+encoded Stream R MTU (263 bytes), ESP-NOW v1 payload limit (250 bytes), and v2
+payload limit (1,470 bytes) are reported separately. Detailed metrics and raw
+evidence paths are in [the P12/P01C physical evidence](evidence/p12-p01c-physical/README.md).
+
+RBO job `job_01M55MABXZ04PBAGC24AWH1S9R` passed ESP-IDF 6.1 compile/link for
+the DMP ESP-NOW application on ESP32-S3 and ESP32-C3. Its stored application
+artifacts were materialized and their local sizes/SHA-256 values matched the
+RBO records (S3 888,064 bytes,
+`d2bcdf9e3456730224e08ef6f0f8cf6b5c231e52c99d4be86a465098f0621336`; C3
+927,792 bytes,
+`c16b7cca607879376cf1e1f06a29a97b02efdf320a307f8af0990ca71ba8d42e`). Only
+the application partitions at `0x10000` were programmed; no full-flash erase,
+bootloader write, or partition-table write was performed.
+
+After the operator-reported board reboot, a `reset-mode none` pair passed and
+observed changed boot IDs and NVS progression 47 → 48 → 49. That run did not
+attest reset cause or power-off duration, so it is not cold power-loss proof.
+The latest build was then programmed app-only. Its baseline pair reported
+`usb` reset reasons (the esptool reset path) and NVS check values 52 → 53. A
+separate serial `REBOOT` run observed each `reboot_requested` marker, closed
+and reopened each COM port once, received a changed boot ID and `software`
+reset reason, and completed the authenticated pair with NVS values 53 → 54 →
+55. The next SAMPLE-1 READ and protected transfer passed. These results provide
+UART software-reset and warm NVS-continuity evidence; they do not attest a
+five-second power removal. Full paths and metrics are in
+[`dev/evidence/p12-p01c-physical/README.md`](evidence/p12-p01c-physical/README.md).
+
+No normative status was promoted. A subsequent cold power-on run after
+reservation 66 on S3 COM37 and C3 COM40 observed changed boot IDs,
+`power_on` reset reasons, NVS owner/check epochs 67/68, protected READ, and
+Service-2. The five P12 primary-partial rows still have target initialization,
+NVS commit-failure, and complete-old-image restoration gaps. MCU-05 UART0
+Noise/reset qualification, integrated four-peer P01C resources, entropy quality
+certification, and energy measurement remain open. See the detailed
+[post-reservation evidence](evidence/p12-p01c-physical/README.md#cold-power-cycle-after-reservation-66).
+
 ## Current software gates and bounded physical smoke — 2026-10-15
 
 The agreed P12/P13/P15 host behavior and the finite P01 provider/secret-copy
@@ -49,8 +95,10 @@ check encountered CRLF handling in a Windows-originated note; local
 whole-row passed / 101 partial. Its primary axis is 103 passed / 19 partial /
 15 unrecorded; peer is 98 passed / 39 partial; P23 interop is 46 passed / 7
 partial / 84 not-applicable. The 34 P12 rows remain 10 whole-row passed / 24
-partial; five primary-partial rows retain target-only storage/reset/UART
-evidence. No status was promoted just because a test reference exists.
+partial; five primary-partial rows now have a one-peer S3/C3 pair, serial
+software restart, and target NVS progression evidence, but their full storage,
+initialization, and reset/power-loss gates remain open. No status was promoted
+just because a test reference exists.
 
 The integrated one-endpoint scenario covers four authenticated peers, per-peer
 routing/isolation, four pending reservations, two concurrent crypto scratch
@@ -181,12 +229,11 @@ console image `build/espnow-pair-esp32c3-uart0-bridge/dmp_espnow_pair.bin`
 | Intentional coredump on replacement C3 COM35 | PASS, panic/reboot, partition extraction, and offline symbolic decode | Read-only 1 MiB partition capture at `0x300000`; 6,270 non-erased bytes; 6,368-byte ELF with RISC-V machine type. Offline decode on 2026-10-16 used EIM ESP-IDF 6.1, esp-coredump 1.17.2, and GDB 17.1 to resolve the expected abort in `handle_command` at `main.c:542`. See `dev/evidence/espnow-pair/core-dump-esp32c3-COM35-20261015T193900-663174Z/{run.json,offline-decode.json}` |
 | ESP-NOW host-stub regression suite | PASS, 31/31 | CI-safe runner/parser behavior only; no hardware or SEC-1 claim |
 
-The pair/four-peer images report 256-byte decoded Core MTU, 263-byte encoded
-Stream R MTU, and 250-byte ESP-NOW v1 payload maximum as separate limits. The
-observed test frame was 68 bytes. These refreshed smoke results do not change
-the P12/P01C/P25 status: they still do not exercise SEC-1, `dmp_endpoint`,
-SAMPLE-1 persistence, or the authenticated `four_serial`/`four_parallel`
-acceptance workload.
+The separate unauthenticated ESP-NOW smoke pair/four-peer images report the
+256-byte decoded Core MTU, 263-byte encoded Stream R MTU, and 250-byte ESP-NOW
+v1 maximum separately; their observed test frame was 68 bytes. Those smoke
+images do not exercise SEC-1 or `dmp_endpoint` and are independent of the DMP
+endpoint evidence above.
 
 The remaining acceptance work requires physical ESP32-S3 and ESP32-C3 boards:
 
@@ -197,17 +244,22 @@ The remaining acceptance work requires physical ESP32-S3 and ESP32-C3 boards:
    ROM banner and POWERON reset reason, fresh boot IDs, reset counters, and
    allocation/heap/stack/synchronization/overlap checks. The prior S3 result
    predates this final code; prior C3 evidence did not complete this gate.
-2. Run P01C's integrated endpoint workload on one endpoint with four
-   authenticated peers under both `four_serial` and `four_parallel`; record
-   actual heap/retained/scratch/stack limits and complete the protected
-   4096-byte service-2 exchange. The current bench has one S3 and three C3
-   units; reserve a fifth board so one endpoint can have four physical peers.
-3. Exercise SAMPLE-1's actual NVS reserve/commit across warm reset and power
-   loss, old-association closure before READ/publish/activate, commit failure,
-   maximum-index epoch rollover, stale-result/TELEM rejection, and the limits
-   of ordinary NVS against complete old-image restoration.
-4. Record physical TRNG readiness/quality and any timing/energy measurements
-   required by the existing P01C acceptance. Do not change eFuses.
+2. Four-peer physical tests were skipped by owner direction. Reopen this gate
+   only if requested; one endpoint with four C3 peers needs one S3 plus four C3
+   boards. The current one-peer resource measurements do not qualify the
+   physical `four_serial`/`four_parallel` envelopes or a 4096-byte four-peer
+   exchange.
+3. Run the external-power NVS test with both boards unpowered for at least five
+   seconds, then verify the authenticated READ and epoch progression. Host
+   tests cover commit failure, exhaustion, stale result/telemetry, and
+   association fencing; the current target runner does not inject those faults
+   or force the maximum index. Ordinary NVS cannot detect complete restoration
+   of an older flash image.
+4. Entropy readiness, a 4,096-byte diagnostic histogram, and handshake timing
+   were measured on both boards, but the entropy statistic is not a quality
+   certification. Complete the P01C power measurement with a current/energy
+   monitor and use an accepted physical entropy-quality method. Do not change
+   eFuses.
 
 Read-only COM35 inspection on 2026-10-16 identified the replacement module as
 ESP32-C3 rev 0.4, MAC `9c:cc:01:61:40:40`, with 4 MiB flash. Its
@@ -226,13 +278,13 @@ owner direction, and non-Espressif physical qualification remains deferred.
 
 | Area | Recorded state | Scope boundary |
 |---|---|---|
-| P12 endpoint/SAMPLE-1 | Host software exercised; 34-row ledger remains 10 whole-row passed / 24 partial | The one-endpoint four-peer topology and both `four_serial`/`four_parallel` profiles pass, including a protected 4096-byte service-2 transfer. The separate two-attempt manifest, real authenticated wrong-sender case, transport ownership/lifecycle cases, and fail-closed epoch owner are covered in the current host suite. Primary evidence is 29 passed / 5 partial; the five primary-partial rows need target NVS/reset/UART evidence. Peer evidence remains 10 passed / 24 partial where the model does not implement real SEC-1 association behavior or the complete primary lifecycle. See the current closeout above. |
+| P12 endpoint/SAMPLE-1 | Host software exercised; 34-row ledger remains 10 whole-row passed / 24 partial | The one-endpoint four-peer topology and both `four_serial`/`four_parallel` profiles pass in host simulation, including a protected 4096-byte service-2 transfer. The separate two-attempt manifest, real authenticated wrong-sender case, transport ownership/lifecycle cases, and fail-closed epoch owner are covered in the current host suite. Primary evidence is 29 passed / 5 partial; the latest one-peer physical pair and serial `REBOOT` verify protected READ, new boot identities, software reset reasons, and NVS progression, but initialization retry, injected persistence failure, maximum-index rollover, and cold power loss remain open. Peer evidence remains 10 passed / 24 partial where the model does not implement real SEC-1 association behavior or the complete primary lifecycle. See the current closeout above. |
 | P13–P20 | Accepted for their recorded package scopes | Each package's linked evidence remains authoritative; this summary does not expand its gate. |
 | P21 independent peer | Owner-accepted for host/peer functionality | Historical actual-input/read-set and enforced access-boundary records are incomplete. |
 | P22 mixed Stream R/packet binding | Done for host/simulation | No physical transport or MCU claim. Reviewed snapshot hash: `0D126BC55389C446496EA6EA213FE28D7F7E93AD3F8F4F119F9F7D7F275208FF`. |
 | P23 C/Python interoperability | Done for enabled host/simulation scope | Historical accepted snapshot recorded full CTest 111/111 and peer suite 410 run, 408 passed, 2 skipped for documented sandbox/profile reasons. The latest owner-authorized non-ARM RBO gate passed all registered C/Python interop tests; ARM ABI/layout checks were excluded and remain pending. No physical binding or release claim. |
 | P24 equivalent-workload benchmark | Done for host/simulation tooling | One-iteration correctness smoke; not a release-performance, energy, or physical-radio study. |
-| P01 / P01C | Running / pending physical qualification | The finite host provider API/failure/secret-copy matrix and integrated endpoint topology are exercised. P01C still needs actual S3/C3 runtime, resource, entropy, reset, and persistence measurements. |
+| P01 / P01C | Running / partial physical qualification | The finite host provider API/failure/secret-copy matrix and integrated endpoint topology are exercised. One S3/C3 authenticated peer pair now has measured integrated heap, retained/scratch, stack, entropy readiness/diagnostic, handshake timing, and serial-reset/NVS evidence. Four-peer physical envelope, energy measurement, certified entropy quality, and MCU-05 UART0 Noise/reset remain open. |
 | P25 | Pending | Host and target compile/link gates are complete for this continuation. P25 remains open until selected S3/C3 physical acceptance; this report does not authorize a release. |
 
 The current closeout above reports the full current host and compile/link gates.

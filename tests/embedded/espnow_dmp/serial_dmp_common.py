@@ -21,6 +21,12 @@ from typing import Any, Callable, Iterable
 
 MAC_PATTERN = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}\Z", re.IGNORECASE)
 SESSION_PATTERN = re.compile(r"^[0-9a-f]{16}\Z")
+BOOT_ID_PATTERN = re.compile(r"^[0-9a-f]{16}\Z")
+RESET_REASONS = {
+    "unknown", "power_on", "external_pin", "software", "panic",
+    "interrupt_watchdog", "task_watchdog", "watchdog", "deep_sleep",
+    "brownout", "sdio", "usb", "jtag", "efuse", "power_glitch", "cpu_lockup", "other",
+}
 
 
 RETRY_2_PROFILE_HASH = "478af0bc4912d0fc46ed76c249ec5f30f8f64bc89ed7411e9b9231bbf487db5c"
@@ -82,6 +88,11 @@ def validate_ready_event(event: dict[str, Any], expected_target: str) -> dict[st
         raise DmpTestError(f"IDF version mismatch: {event.get('idf')!r}")
     if event.get("test_mode") != "authenticated-dmp-endpoint":
         raise DmpTestError(f"Test mode mismatch: {event.get('test_mode')!r}")
+    boot_id = event.get("boot_id")
+    if not isinstance(boot_id, str) or not BOOT_ID_PATTERN.fullmatch(boot_id):
+        raise DmpTestError(f"Invalid target boot identity: {boot_id!r}")
+    if event.get("reset_reason") not in RESET_REASONS:
+        raise DmpTestError(f"Invalid target reset reason: {event.get('reset_reason')!r}")
 
     # Protocol MTU bounds
     if event.get("decoded_core_mtu_bytes") != 256:
@@ -150,6 +161,111 @@ def validate_nvs_check(
     return event
 
 
+def validate_resources_event(
+    event: dict[str, Any], expected_target: str, session: str
+) -> dict[str, Any]:
+    """Validate integrated target resource counters and MTU units."""
+    if event.get("event") != "resources" or event.get("status") != "ok":
+        raise DmpTestError(f"Expected successful resources event, got {event.get('status')!r}")
+    if event.get("session") != session:
+        raise DmpTestError("Resource sample session mismatch")
+    if event.get("target") != expected_target:
+        raise DmpTestError(
+            f"Resource target mismatch: got {event.get('target')!r}, expected {expected_target!r}"
+        )
+    if event.get("entropy_ready") is not True:
+        raise DmpTestError("Target did not report cryptographic entropy readiness")
+
+    required_nonnegative = (
+        "heap_internal_free_bytes",
+        "heap_internal_min_free_bytes",
+        "heap_internal_largest_block_bytes",
+        "heap_spiram_free_bytes",
+        "heap_spiram_min_free_bytes",
+        "heap_spiram_largest_block_bytes",
+        "qualification_static_bytes",
+        "qualification_dynamic_object_bytes",
+        "provider_live_requested_bytes",
+        "provider_peak_requested_bytes",
+        "provider_largest_allocation_bytes",
+        "provider_retained_bytes",
+        "provider_scratch_limit_bytes",
+        "provider_retained_limit_bytes",
+        "main_stack_min_free_bytes",
+        "main_stack_configured_bytes",
+        "command_stack_min_free_bytes",
+        "command_stack_configured_bytes",
+        "wifi_rx_callback_stack_min_free_bytes",
+        "wifi_tx_callback_stack_min_free_bytes",
+        "decoded_core_mtu_bytes",
+        "stream_r_encoded_mtu_bytes",
+        "espnow_v1_payload_mtu_bytes",
+        "espnow_v2_payload_mtu_bytes",
+    )
+    for key in required_nonnegative:
+        value = event.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise DmpTestError(f"Resource field {key} must be a nonnegative integer")
+    if event["heap_internal_min_free_bytes"] > event["heap_internal_free_bytes"]:
+        raise DmpTestError("Internal heap minimum watermark exceeds current free bytes")
+    if event["heap_internal_largest_block_bytes"] > event["heap_internal_free_bytes"]:
+        raise DmpTestError("Largest internal heap block exceeds total free bytes")
+    if event["heap_spiram_min_free_bytes"] > event["heap_spiram_free_bytes"]:
+        raise DmpTestError("SPIRAM minimum watermark exceeds current free bytes")
+    if event["heap_spiram_largest_block_bytes"] > event["heap_spiram_free_bytes"]:
+        raise DmpTestError("Largest SPIRAM block exceeds total free bytes")
+    if event["provider_live_requested_bytes"] > event["provider_peak_requested_bytes"]:
+        raise DmpTestError("Provider live allocation bytes exceed its recorded peak")
+    if event["provider_largest_allocation_bytes"] > event["provider_scratch_limit_bytes"]:
+        raise DmpTestError("Provider largest allocation exceeds the configured scratch limit")
+    if event["provider_retained_bytes"] > event["provider_retained_limit_bytes"]:
+        raise DmpTestError("Provider retained bytes exceed the configured retained limit")
+    if event["main_stack_configured_bytes"] <= 0 or event["command_stack_configured_bytes"] <= 0:
+        raise DmpTestError("Configured task stack sizes must be reported")
+    if event["main_stack_min_free_bytes"] <= 0 or event["command_stack_min_free_bytes"] <= 0:
+        raise DmpTestError("Main and command task stack watermarks must be nonzero")
+    for sampled_field, value_field in (
+        ("wifi_rx_callback_stack_sampled", "wifi_rx_callback_stack_min_free_bytes"),
+        ("wifi_tx_callback_stack_sampled", "wifi_tx_callback_stack_min_free_bytes"),
+    ):
+        if event.get(sampled_field) is not True or event[value_field] <= 0:
+            raise DmpTestError(f"Missing nonzero Wi-Fi callback stack watermark: {sampled_field}")
+
+    expected_mtus = {
+        "decoded_core_mtu_bytes": 256,
+        "stream_r_encoded_mtu_bytes": 263,
+        "espnow_v1_payload_mtu_bytes": 250,
+        "espnow_v2_payload_mtu_bytes": 1470,
+    }
+    for key, expected in expected_mtus.items():
+        if event[key] != expected:
+            raise DmpTestError(f"{key} mismatch: got {event[key]}, expected {expected}")
+    return event
+
+
+def validate_entropy_diagnostic_event(
+    event: dict[str, Any], session: str
+) -> dict[str, Any]:
+    """Validate a target RNG readiness sample without treating statistics as certification."""
+    if event.get("event") != "entropy_diagnostic" or event.get("status") != "ok":
+        raise DmpTestError("Target entropy diagnostic did not complete successfully")
+    if event.get("session") != session or event.get("entropy_ready") is not True:
+        raise DmpTestError("Target entropy diagnostic has the wrong session or is not ready")
+    if event.get("source") != "esp_fill_random_wifi_active":
+        raise DmpTestError("Target entropy diagnostic did not identify the ESP-IDF RNG source")
+    if event.get("sample_bytes") != 4096 or event.get("quality_certified") is not False:
+        raise DmpTestError("Entropy sample size or its diagnostic-only qualification is invalid")
+    for key in ("unique_byte_values", "minimum_bucket_count", "maximum_bucket_count", "chi_square_x1000", "elapsed_us"):
+        value = event.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise DmpTestError(f"Entropy diagnostic field {key} must be a nonnegative integer")
+    if event["unique_byte_values"] > 256 or event["maximum_bucket_count"] > 4096:
+        raise DmpTestError("Entropy diagnostic contains out-of-range histogram counts")
+    if event.get("interpretation") != "statistical diagnostic only":
+        raise DmpTestError("Entropy sample must remain explicitly diagnostic, not certification")
+    return event
+
+
 class HostCommandLog:
     """Thread-safe command logger for host-side serial interaction."""
 
@@ -204,7 +320,14 @@ def default_serial_factory(port: str, baudrate: int = 115200, timeout: float = 1
             "pyserial is required for hardware qualification runs. "
             "Install pyserial or inject a mock serial factory for host testing."
         ) from exc
-    return serial.Serial(port, baudrate=baudrate, timeout=timeout)
+    handle = serial.Serial(port=None, baudrate=baudrate, timeout=timeout)
+    handle.dtr = False
+    handle.rts = False
+    handle.port = port
+    handle.open()
+    handle.dtr = False
+    handle.rts = False
+    return handle
 
 
 class SerialDeviceSession:

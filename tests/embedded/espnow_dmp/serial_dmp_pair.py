@@ -11,6 +11,8 @@ Exercises:
    with 64-byte DMP fragments.
 7. Verification that frames fit within ESP-NOW v1 bounds while explicitly
    reporting decoded Core MTU 256, Stream R MTU 263, ESP-NOW v1 250, and ESP-NOW v2 1470.
+8. Integrated target heap/stack/provider metrics, target handshake/epoch timing,
+   and a diagnostic-only ESP-IDF RNG histogram on both boards.
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ from serial_dmp_common import (
     create_evidence_dir,
     default_serial_factory,
     validate_nvs_check,
+    validate_resources_event,
+    validate_entropy_diagnostic_event,
     validate_ready_event,
     wait_for_handshake_start,
     wait_for_handshake_pair,
@@ -51,6 +55,7 @@ def validate_dmp_pair_events(
     session: str,
     count: int = 1,
     bidirectional: bool = False,
+    require_nvs_check: bool = True,
 ) -> dict[str, Any]:
     """Validate authenticated pair evidence from S3 controller and C3 peer."""
     if not SESSION_PATTERN.match(session):
@@ -153,10 +158,25 @@ def validate_dmp_pair_events(
 
     # Validate NVS check on S3 producer
     s3_nvs = [e for e in by_side["s3"] if e.get("event") == "nvs_epoch_check"]
-    if not s3_nvs:
+    if require_nvs_check and not s3_nvs:
         raise DmpTestError("S3 producer did not report NVS epoch check")
+    if not require_nvs_check and s3_nvs:
+        raise DmpTestError("S3 unexpectedly ran NVS_CHECK while preparing a live epoch transition")
     for nvs_ev in s3_nvs:
         validate_nvs_check(nvs_ev, session)
+        elapsed_us = nvs_ev.get("elapsed_us")
+        if not isinstance(elapsed_us, int) or isinstance(elapsed_us, bool) or elapsed_us <= 0:
+            raise DmpTestError("S3 NVS epoch check is missing a positive target elapsed_us measurement")
+
+    epoch_events = [
+        e for e in by_side["s3"]
+        if e.get("event") == "sample1_epoch_reserved" and e.get("session") == session
+    ]
+    if not epoch_events or not isinstance(epoch_events[-1].get("elapsed_us"), int) or epoch_events[-1]["elapsed_us"] <= 0:
+        raise DmpTestError("S3 owner epoch reservation is missing target elapsed_us evidence")
+    current_owner_epoch = epoch_events[-1].get("epoch")
+    if not isinstance(current_owner_epoch, int) or isinstance(current_owner_epoch, bool) or current_owner_epoch <= 0:
+        raise DmpTestError("S3 owner epoch reservation is missing a positive epoch value")
 
     # Validate Handshake
     s3_hs_start = [e for e in by_side["s3"] if e.get("event") == "handshake_started"]
@@ -170,6 +190,12 @@ def validate_dmp_pair_events(
     c3_hs_done = [e for e in by_side["c3"] if e.get("event") == "handshake_done"]
     if not c3_hs_done or c3_hs_done[-1].get("status") != "success":
         raise DmpTestError("C3 did not complete handshake with status success")
+    handshake_elapsed_us: dict[str, int] = {}
+    for side, handshake_events in (("s3", s3_hs_done), ("c3", c3_hs_done)):
+        elapsed_us = handshake_events[-1].get("elapsed_us") if handshake_events else None
+        if not isinstance(elapsed_us, int) or isinstance(elapsed_us, bool) or elapsed_us <= 0:
+            raise DmpTestError(f"{side.upper()} handshake completion is missing target elapsed_us evidence")
+        handshake_elapsed_us[side] = elapsed_us
 
     c3_ready_submits = [e for e in by_side["c3"] if e.get("event") == "handshake_ready_submit"]
     if not any(e.get("accepted") is True for e in c3_ready_submits):
@@ -192,6 +218,24 @@ def validate_dmp_pair_events(
         raise DmpTestError(
             f"SAMPLE-1 READ result bytes mismatch: expected 17 (DMP_SAMPLE1_READ_BYTES), got {sample_results[-1].get('bytes')}"
         )
+    decoded_sample_results = [
+        e for e in by_side["c3"]
+        if e.get("event") == "sample1_read_result" and e.get("session") == session
+    ]
+    if len(decoded_sample_results) != 1:
+        raise DmpTestError(
+            f"Expected one decoded SAMPLE-1 READ result, got {len(decoded_sample_results)}"
+        )
+    decoded_sample = decoded_sample_results[0]
+    if require_nvs_check:
+        current_owner_epoch = s3_nvs[-1].get("previous_epoch")
+    if decoded_sample.get("epoch") != current_owner_epoch:
+        raise DmpTestError(
+            "SAMPLE-1 READ did not return the current owner epoch: "
+            f"got {decoded_sample.get('epoch')!r}, expected {current_owner_epoch!r}"
+        )
+    if decoded_sample.get("sample_index") != 1 or decoded_sample.get("sample_value") != 0x11223344:
+        raise DmpTestError("SAMPLE-1 READ returned an unexpected sample index or value")
 
     # Validate Service-2 transfer
     expected_fragments = (bytes_to_transfer + CHUNK_BYTES - 1) // CHUNK_BYTES
@@ -291,6 +335,18 @@ def validate_dmp_pair_events(
     if not v2_tx_done or v2_tx_done[-1].get("status") != "success":
         raise DmpTestError("S3 raw v2 capability probe did not complete its transport send")
 
+    resource_samples: dict[str, dict[str, Any]] = {}
+    entropy_samples: dict[str, dict[str, Any]] = {}
+    for side, target in (("s3", "esp32s3"), ("c3", "esp32c3")):
+        resource_events = [e for e in by_side[side] if e.get("event") == "resources"]
+        if not resource_events:
+            raise DmpTestError(f"{side.upper()} did not report integrated target resources")
+        resource_samples[side] = validate_resources_event(resource_events[-1], target, session)
+        entropy_events = [e for e in by_side[side] if e.get("event") == "entropy_diagnostic"]
+        if not entropy_events:
+            raise DmpTestError(f"{side.upper()} did not report target entropy diagnostic")
+        entropy_samples[side] = validate_entropy_diagnostic_event(entropy_events[-1], session)
+
     # Frame size validation
     tx_frames = [e for e in by_side["s3"] + by_side["c3"] if e.get("event") == "tx_done"]
     frame_bytes_list = [e.get("frame_bytes") for e in tx_frames if isinstance(e.get("frame_bytes"), int)]
@@ -309,13 +365,31 @@ def validate_dmp_pair_events(
     return {
         "result": "PASS",
         "test_mode": "authenticated-dmp-endpoint",
+        "nvs_check_performed": require_nvs_check,
         "session": session,
         "s3_mac": s3_mac,
         "c3_mac": c3_mac,
+        "s3_boot_id": s3_ready["boot_id"],
+        "c3_boot_id": c3_ready["boot_id"],
+        "s3_reset_reason": s3_ready["reset_reason"],
+        "c3_reset_reason": c3_ready["reset_reason"],
         "s3_node_id": 10,
         "c3_node_id": 20,
         "peer_count": 1,
         "handshake_scratch_slots": 1,
+        "target_handshake_elapsed_us": handshake_elapsed_us,
+        "target_resources": resource_samples,
+        "target_entropy_diagnostics": entropy_samples,
+        "sample1_read_result": {
+            "epoch": decoded_sample["epoch"],
+            "sample_index": decoded_sample["sample_index"],
+            "sample_value": decoded_sample["sample_value"],
+        },
+        "sample1_owner_epoch": current_owner_epoch,
+        "energy_measurement": {
+            "captured": False,
+            "reason": "No inline or external current monitor is configured for this run",
+        },
         "channel": s3_ready["channel"],
         "transfer_bytes": bytes_to_transfer,
         "pair_profile_max_transfer_bytes": PAIR_PROFILE_MAX_TRANSFER_BYTES,
@@ -328,24 +402,27 @@ def validate_dmp_pair_events(
         "espnow_v2_payload_mtu_bytes": 1470,
         "claims": {
             "authenticated_traffic": (
-                "authenticated SEC-1 Noise handshake, SAMPLE-1 NVS epoch check, "
+                "authenticated SEC-1 Noise handshake, SAMPLE-1 NVS epoch reservation, "
                 f"protected Service-2 {bytes_to_transfer}B transfer"
+                + ("; separate NVS_CHECK performed" if require_nvs_check else "; NVS_CHECK omitted to preserve the live epoch owner")
             ),
             "unauthenticated_probe": (
                 "raw-v2-capability-probe 256B frame exchange without session key authentication"
             ),
         },
         "authenticated_claim": (
-            "authenticated SEC-1 Noise handshake, SAMPLE-1 NVS epoch check, "
+            "authenticated SEC-1 Noise handshake, SAMPLE-1 NVS epoch reservation, "
             f"protected Service-2 {bytes_to_transfer}B transfer"
+            + ("; separate NVS_CHECK performed" if require_nvs_check else "; NVS_CHECK omitted to preserve the live epoch owner")
         ),
         "unauthenticated_claim": (
             "raw-v2-capability-probe 256B frame exchange without session key authentication"
         ),
         "security_claim": (
-            "authenticated SEC-1 Noise handshake, SAMPLE-1 NVS epoch check, "
+            "authenticated SEC-1 Noise handshake, SAMPLE-1 NVS epoch reservation, "
             f"protected Service-2 {bytes_to_transfer}B transfer; "
             "distinct unauthenticated raw-v2-capability-probe"
+            + ("; separate NVS_CHECK performed" if require_nvs_check else "; NVS_CHECK omitted to preserve the live epoch owner")
         ),
     }
 
@@ -358,6 +435,7 @@ def run_dmp_pair(
     evidence_dir: Path | str | None = None,
     timeout: float = 25.0,
     serial_factory: Callable[..., Any] | None = None,
+    run_nvs_check: bool = True,
 ) -> dict[str, Any]:
     """Execute authenticated pair qualification between S3 and C3 devices."""
     if not s3_port or not isinstance(s3_port, str) or not s3_port.strip():
@@ -495,13 +573,15 @@ def run_dmp_pair(
             s3_dev, c3_dev, session, timeout, "pair handshake", 0, 0
         )
 
-        # 6. Producer NVS check at S3
-        s3_dev.send_command("NVS_CHECK")
-        s3_dev.wait_for_event(
-            lambda e: e.get("event") == "nvs_epoch_check" and e.get("session") == session,
-            timeout=timeout,
-            desc="nvs_epoch_check on S3",
-        )
+        # 6. Producer NVS check at S3. A live epoch-transition run omits this
+        # extra reservation so the active owner remains the newest durable epoch.
+        if run_nvs_check:
+            s3_dev.send_command("NVS_CHECK")
+            s3_dev.wait_for_event(
+                lambda e: e.get("event") == "nvs_epoch_check" and e.get("session") == session,
+                timeout=timeout,
+                desc="nvs_epoch_check on S3",
+            )
 
         # 7. SAMPLE_READ on C3 reader
         s3_sample_start = s3_dev.event_count
@@ -596,6 +676,7 @@ def run_dmp_pair(
                 desc=f"transfer_started on S3 (iter {iter_idx})",
                 start_index=s3_idx,
             )
+
             c3_dev.wait_for_event(
                 lambda e: (
                     e.get("event") == "rx_assembled"
@@ -627,6 +708,32 @@ def run_dmp_pair(
                 start_index=s3_idx,
             )
 
+        # Sample integrated target resources and RNG readiness after the
+        # authenticated workload has exercised both devices.
+        for device, side, target in (
+            (s3_dev, "s3", "esp32s3"),
+            (c3_dev, "c3", "esp32c3"),
+        ):
+            resource_start = device.event_count
+            device.send_command("RESOURCES")
+            resource_event = device.wait_for_event(
+                lambda e: e.get("event") == "resources" and e.get("session") == session,
+                timeout=timeout,
+                desc=f"{side.upper()} integrated resource snapshot",
+                start_index=resource_start,
+            )
+            validate_resources_event(resource_event, target, session)
+
+            entropy_start = device.event_count
+            device.send_command("ENTROPY_DIAGNOSTIC")
+            entropy_event = device.wait_for_event(
+                lambda e: e.get("event") == "entropy_diagnostic" and e.get("session") == session,
+                timeout=timeout,
+                desc=f"{side.upper()} entropy readiness diagnostic",
+                start_index=entropy_start,
+            )
+            validate_entropy_diagnostic_event(entropy_event, session)
+
         tagged_events = (
             [("s3", ev) for ev in s3_dev.get_events()]
             + [("c3", ev) for ev in c3_dev.get_events()]
@@ -637,6 +744,7 @@ def run_dmp_pair(
             session,
             count=count,
             bidirectional=True,
+            require_nvs_check=run_nvs_check,
         )
         result["evidence_dir"] = str(ev_dir)
 
@@ -660,6 +768,11 @@ def main() -> None:
     parser.add_argument("--transfer-bytes", type=int, default=DEFAULT_TRANSFER_BYTES, help="Payload bytes")
     parser.add_argument("--evidence-dir", type=Path, default=None, help="Evidence directory")
     parser.add_argument("--timeout", type=float, default=25.0, help="Operation timeout in seconds")
+    parser.add_argument(
+        "--skip-nvs-check-for-epoch-transition",
+        action="store_true",
+        help="Keep the live owner at the newest durable epoch for a following transition probe",
+    )
     args = parser.parse_args()
 
     result = run_dmp_pair(
@@ -669,6 +782,7 @@ def main() -> None:
         transfer_bytes=args.transfer_bytes,
         evidence_dir=args.evidence_dir,
         timeout=args.timeout,
+        run_nvs_check=not args.skip_nvs_check_for_epoch_transition,
     )
     print(json.dumps(result, indent=2))
 

@@ -15,6 +15,9 @@ from serial_dmp_common import (
     PAIR_PEER_NODE_ID,
     DmpTestError,
     RETRY_2_PROFILE_HASH,
+    validate_entropy_diagnostic_event,
+    validate_ready_event,
+    validate_resources_event,
 )
 from serial_dmp_pair import run_dmp_pair, validate_dmp_pair_events
 
@@ -30,6 +33,8 @@ def make_ready(target: str, mac: str, espnow_version: int = 2) -> dict:
         "idf": "ESP-IDF v6.1",
         "firmware": "dmp-espnow-dmp/0.1",
         "mac": mac,
+        "boot_id": "a" * 16 if target == "esp32s3" else "b" * 16,
+        "reset_reason": "power_on",
         "channel": 1,
         "decoded_core_mtu_bytes": 256,
         "stream_r_encoded_mtu_bytes": 263,
@@ -38,6 +43,52 @@ def make_ready(target: str, mac: str, espnow_version: int = 2) -> dict:
         "espnow_version": espnow_version,
         "peer_capacity": 4,
         "test_mode": "authenticated-dmp-endpoint",
+    }
+
+
+def make_resources(session: str, target: str) -> dict:
+    return {
+        "event": "resources", "session": session, "target": target, "status": "ok",
+        "entropy_ready": True,
+        "heap_internal_free_bytes": 100000,
+        "heap_internal_min_free_bytes": 90000,
+        "heap_internal_largest_block_bytes": 80000,
+        "heap_internal_used_since_ready_bytes": 1000,
+        "heap_spiram_free_bytes": 0,
+        "heap_spiram_min_free_bytes": 0,
+        "heap_spiram_largest_block_bytes": 0,
+        "qualification_static_bytes": 40000,
+        "qualification_dynamic_object_bytes": 3000,
+        "provider_live_requested_bytes": 1000,
+        "provider_peak_requested_bytes": 12000,
+        "provider_largest_allocation_bytes": 8192,
+        "provider_retained_bytes": 1000,
+        "provider_scratch_limit_bytes": 16384,
+        "provider_retained_limit_bytes": 131072,
+        "main_stack_min_free_bytes": 1500,
+        "main_stack_configured_bytes": 7168,
+        "command_stack_min_free_bytes": 1400,
+        "command_stack_configured_bytes": 4096,
+        "wifi_rx_callback_stack_sampled": True,
+        "wifi_rx_callback_stack_min_free_bytes": 1200,
+        "wifi_tx_callback_stack_sampled": True,
+        "wifi_tx_callback_stack_min_free_bytes": 1100,
+        "decoded_core_mtu_bytes": 256,
+        "stream_r_encoded_mtu_bytes": 263,
+        "espnow_v1_payload_mtu_bytes": 250,
+        "espnow_v2_payload_mtu_bytes": 1470,
+    }
+
+
+def make_entropy_diagnostic(session: str) -> dict:
+    return {
+        "event": "entropy_diagnostic", "session": session, "status": "ok",
+        "entropy_ready": True, "source": "esp_fill_random_wifi_active",
+        "sample_bytes": 4096, "unique_byte_values": 256,
+        "minimum_bucket_count": 5, "maximum_bucket_count": 31,
+        "chi_square_x1000": 25413000, "elapsed_us": 1500,
+        "quality_certified": False,
+        "interpretation": "statistical diagnostic only",
     }
 
 
@@ -68,19 +119,25 @@ def make_passing_pair_events(
             "has_previous": True,
             "previous_epoch": 1,
             "reserved_epoch": 2,
+            "elapsed_us": 120,
         }),
+        ("s3", {"event": "sample1_epoch_reserved", "session": session, "epoch": 1, "elapsed_us": 180}),
         ("s3", {"event": "handshake_started", "session": session, "peer_mac": C3_MAC, "peer_handle": 0}),
         ("s3", {"event": "tx_done", "session": session, "peer_mac": C3_MAC, "peer_handle": 0, "frame_bytes": 100, "status": "success"}),
         ("c3", {"event": "tx_done", "session": session, "peer_mac": S3_MAC, "peer_handle": 0, "frame_bytes": 100, "status": "success"}),
-        ("s3", {"event": "handshake_done", "session": session, "peer_mac": C3_MAC, "peer_handle": 0, "status": "success"}),
+        ("s3", {"event": "handshake_done", "session": session, "peer_mac": C3_MAC, "peer_handle": 0, "status": "success", "elapsed_us": 50000}),
         ("c3", {"event": "handshake_ready_submit", "session": session, "peer_mac": S3_MAC, "peer_handle": 0, "accepted": True, "status": 0, "status_name": "accepted"}),
-        ("c3", {"event": "handshake_done", "session": session, "peer_mac": S3_MAC, "peer_handle": 0, "status": "success"}),
+        ("c3", {"event": "handshake_done", "session": session, "peer_mac": S3_MAC, "peer_handle": 0, "status": "success", "elapsed_us": 51000}),
         ("c3", {"event": "sample_read_submitted", "session": session, "peer_handle": 0, "status": 0}),
         ("c3", {"event": "rx_result", "session": session, "peer_handle": 0, "service_id": 1, "wire_status": 0, "bytes": 17}),
+        ("c3", {"event": "sample1_read_result", "session": session, "peer_handle": 0, "epoch": 1, "sample_index": 1, "sample_value": 0x11223344}),
         ("s3", {"event": "v2_frame_emitted", "session": session, "peer_handle": 0, "decoded_bytes": 256, "encoded_bytes": 258, "authenticated": False}),
         ("c3", {"event": "v2_frame_received", "session": session, "peer_handle": 0, "decoded_bytes": 256, "encoded_bytes": 258, "authenticated": False, "classification": "raw-v2-capability-probe"}),
         ("s3", {"event": "v2_frame_tx_done", "session": session, "peer_handle": 0, "encoded_bytes": 258, "status": "success", "authenticated": False}),
     ]
+    events.extend((side, make_resources(session, target))
+                  for side, target in (("s3", "esp32s3"), ("c3", "esp32c3")))
+    events.extend((side, make_entropy_diagnostic(session)) for side in ("s3", "c3"))
     for _ in range(count):
         # Forward: S3 -> C3
         events.append(("s3", {"event": "transfer_started", "session": session, "peer_handle": 0, "peer_mac": C3_MAC, "bytes": transfer_bytes, "chunk_bytes": 64, "fragments": fragments}))
@@ -117,6 +174,12 @@ def make_passing_pair_events(
 
 
 class TestDmpPair(unittest.TestCase):
+    def test_ready_event_requires_a_boot_identity(self):
+        event = make_ready("esp32s3", S3_MAC)
+        self.assertEqual(validate_ready_event(event, "esp32s3")["boot_id"], "a" * 16)
+        with self.assertRaisesRegex(DmpTestError, "boot identity"):
+            validate_ready_event({**event, "boot_id": "not-a-boot-id"}, "esp32s3")
+
     def test_serial_runner_cli_help(self):
         result = subprocess.run(
             [sys.executable, str(EMBEDDED_DIR / "serial_dmp_pair.py"), "--help"],
@@ -133,6 +196,8 @@ class TestDmpPair(unittest.TestCase):
         events = make_passing_pair_events(1024)
         res = validate_dmp_pair_events(events, 1024, SESSION)
         self.assertEqual(res["result"], "PASS")
+        self.assertTrue(res["nvs_check_performed"])
+        self.assertEqual(res["sample1_owner_epoch"], 1)
         self.assertEqual(res["transfer_bytes"], 1024)
         self.assertEqual(res["chunk_bytes"], 64)
         self.assertEqual(res["fragments"], 16)
@@ -140,6 +205,87 @@ class TestDmpPair(unittest.TestCase):
         self.assertEqual(res["stream_r_encoded_mtu_bytes"], 263)
         self.assertEqual(res["espnow_v1_payload_mtu_bytes"], 250)
         self.assertEqual(res["espnow_v2_payload_mtu_bytes"], 1470)
+        self.assertEqual(res["target_handshake_elapsed_us"], {"s3": 50000, "c3": 51000})
+        self.assertEqual(res["target_resources"]["s3"]["decoded_core_mtu_bytes"], 256)
+        self.assertFalse(res["target_entropy_diagnostics"]["c3"]["quality_certified"])
+        self.assertEqual(res["sample1_read_result"], {
+            "epoch": 1, "sample_index": 1, "sample_value": 0x11223344
+        })
+
+    def test_epoch_transition_pair_skips_nvs_check_and_preserves_owner_epoch(self):
+        events = [
+            (side, event)
+            for side, event in make_passing_pair_events(1024)
+            if event.get("event") != "nvs_epoch_check"
+        ]
+        result = validate_dmp_pair_events(
+            events, 1024, SESSION, require_nvs_check=False
+        )
+        self.assertFalse(result["nvs_check_performed"])
+        self.assertEqual(result["sample1_owner_epoch"], 1)
+
+    def test_epoch_transition_pair_rejects_unexpected_nvs_reservation(self):
+        with self.assertRaisesRegex(DmpTestError, "unexpectedly ran NVS_CHECK"):
+            validate_dmp_pair_events(
+                make_passing_pair_events(1024),
+                1024,
+                SESSION,
+                require_nvs_check=False,
+            )
+
+    def test_rejects_sample1_read_from_stale_epoch(self):
+        events = [
+            (side, {**event, "epoch": 0}
+             if event.get("event") == "sample1_read_result" else event)
+            for side, event in make_passing_pair_events()
+        ]
+        with self.assertRaisesRegex(DmpTestError, "did not return the current owner epoch"):
+            validate_dmp_pair_events(events, 1024, SESSION)
+
+    def test_rejects_missing_decoded_sample1_read_payload(self):
+        events = [
+            item for item in make_passing_pair_events()
+            if item[1].get("event") != "sample1_read_result"
+        ]
+        with self.assertRaisesRegex(DmpTestError, "Expected one decoded SAMPLE-1 READ result"):
+            validate_dmp_pair_events(events, 1024, SESSION)
+
+    def test_rejects_missing_integrated_resource_measurement(self):
+        events = [
+            item for item in make_passing_pair_events()
+            if not (item[0] == "c3" and item[1].get("event") == "resources")
+        ]
+        with self.assertRaisesRegex(DmpTestError, "C3 did not report integrated target resources"):
+            validate_dmp_pair_events(events, 1024, SESSION)
+
+    def test_rejects_entropy_sample_as_certified_quality(self):
+        events = [
+            (side, {**event, "quality_certified": True}
+             if event.get("event") == "entropy_diagnostic" and side == "s3" else event)
+            for side, event in make_passing_pair_events()
+        ]
+        with self.assertRaisesRegex(DmpTestError, "sample size or its diagnostic-only qualification"):
+            validate_dmp_pair_events(events, 1024, SESSION)
+
+    def test_resources_validator_rejects_encoded_mtu_confusion(self):
+        resource = next(
+            event for side, event in make_passing_pair_events()
+            if side == "s3" and event.get("event") == "resources"
+        )
+        with self.assertRaisesRegex(DmpTestError, "stream_r_encoded_mtu_bytes mismatch"):
+            validate_resources_event(
+                {**resource, "stream_r_encoded_mtu_bytes": 256}, "esp32s3", SESSION
+            )
+
+    def test_entropy_validator_requires_readiness(self):
+        diagnostic = next(
+            event for side, event in make_passing_pair_events()
+            if side == "s3" and event.get("event") == "entropy_diagnostic"
+        )
+        with self.assertRaisesRegex(DmpTestError, "wrong session or is not ready"):
+            validate_entropy_diagnostic_event(
+                {**diagnostic, "entropy_ready": False}, SESSION
+            )
 
     def test_passing_bidirectional_pair_events(self):
         events = make_passing_pair_events(1024, count=2, bidirectional=True)

@@ -38,6 +38,8 @@ def make_ready(target: str, mac: str, espnow_version: int = 2) -> dict:
         "idf": "ESP-IDF v6.1",
         "firmware": "dmp-espnow-dmp/0.1",
         "mac": mac,
+        "boot_id": "a" * 16 if target == "esp32s3" else "b" * 16,
+        "reset_reason": "power_on",
         "channel": 1,
         "decoded_core_mtu_bytes": 256,
         "stream_r_encoded_mtu_bytes": 263,

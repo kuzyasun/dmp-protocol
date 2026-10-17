@@ -3058,3 +3058,147 @@ ctest --test-dir build/host --output-on-failure -R '^endpoint.security.(ttl|aad_
 ```
 
 The targeted build succeeded and CTest passed 2/2 (`endpoint.security.ttl`, `endpoint.security.aad_mutations`). This is local Windows host evidence. A prior RBO attempt did not register `dmp_test_endpoint_sec` because that snapshot did not include the ignored pinned libsodium source tree required by `DMP_SODIUM_SOURCE_DIR`; it did not run the endpoint test. The overall normative row remains `partial` because the P23 interop sub-result is still partial; only `primary_result` is now `passed`.
+
+## 2026-10-17 — P12 and P01C cold power reset and NVS continuity
+
+After the operator reported switching off and reconnecting S3 COM37 and C3
+COM40 following the request to leave both unpowered for at least five seconds,
+the external-power restart runner passed. The runner was invoked with
+`--operator-confirms-power-cycle`; it records a 5,000 ms operator attestation,
+but does not instrument the power rails or measure the off interval.
+
+Command:
+
+```text
+python tests/embedded/espnow_dmp/serial_dmp_restart.py --s3-port COM37 --c3-port COM40 --previous-run dev/evidence/p12-p01c-physical/epoch_transition_20261017_221315_8c0c3c15/pair_20261017_221315_316d4703 --reset-mode external-power --operator-confirms-power-cycle --transfer-bytes 1024 --timeout 70 --evidence-dir dev/evidence/p12-p01c-physical
+```
+
+Evidence: `dev/evidence/p12-p01c-physical/epoch_transition_20261017_223818_0de6d323/epoch_transition.json`
+and `pair_20261017_223818_b53eab33/evidence.json` — PASS. INFO-only preflight
+observed changed boot IDs and `reset_reason=power_on` on both targets before
+SESSION/ROLE: S3 `e1c017e55d0b02a7` → `d939872b272b2d42`; C3
+`b962a8e2fd236c28` → `6f28e35652eb9b12`. NVS progressed from the prior check's
+reservation 55 to post-cycle owner previous epoch 56 and check reservation 57.
+The authenticated pair completed SAMPLE-1 READ at epoch 56, index 1, value
+`0x11223344`, and protected 1024-byte Service-2 transfer. Latest measurements
+include decoded Core MTU 256 bytes, Stream R encoded MTU 263 bytes, maximum
+observed frame 262 bytes, S3/C3 internal free heap 83,548/22,016 bytes, and
+handshake time 92,617/72,650 us. Energy was not measured; entropy quality is
+not certified. This is one S3/C3 pair and operator-attested reset evidence,
+not a four-peer or instrumented power-rail qualification.
+
+The result verifies observed power-on boots and NVS continuity after the
+operator-reported power cycle. It does not exercise explicit in-process epoch
+rotation/old-association closure, target READ retry/cancel/timeout, target NVS
+commit-failure injection, or detection of a restored complete old flash image.
+The corresponding five P12 primary rows remain partial.
+
+The focused primary host cross-check for these SAMPLE-1 rows passed 19/19:
+
+```text
+ctest --test-dir build/host --output-on-failure -R "^(application\.sample1_epoch_(owner|store|anchor_nvs)|endpoint\.sample_(init_budget|retry_exhaustion|late_assoc|superseded|new_epoch|epoch_restart|epoch_fail|epoch_indeterminate|epoch_index_exhaustion)|endpoint\.protected_(rotation|sample_initialization|sample1_epoch_endpoint|sample_late_assoc|sample_superseded|sample_init_timeout|sample_retry_two_attempts))$"
+```
+
+This is host evidence for owner/storage failure handling, retry budgets, epoch
+rotation, protected READ/restart cases, timeout, and supersession. It does not
+replace the remaining physical scenarios listed above.
+
+The ESP-NOW runner stub suite ran 186/186 tests and passed CTest:
+
+```text
+$env:TEMP = C:\projects\gemslibe\dmp-protocol\build\host\ctest-tmp
+$env:TMP = C:\projects\gemslibe\dmp-protocol\build\host\ctest-tmp
+ctest --test-dir build/host --output-on-failure -R '^host\.espnow_dmp\.serial_stub$'
+```
+
+The initial default-TEMP attempt reported 32 permission errors under the
+Windows sandbox temp directory; rerunning with TEMP/TMP under `build/host`
+passed. No assertion failed in the passing run.
+
+## 2026-10-17 — P12 live epoch transition and P01C measurements
+
+The epoch-transition runner initially stopped during evidence preflight before
+opening either COM port: serial JSONL records nest decoded events in `record.event`,
+while the loader expected flat objects. The loader now accepts the recorded
+wrapper format and host regressions cover it. The active pair session remained
+untouched; after the fix, the same pair evidence passed the physical transition
+run.
+
+Host validation after the final loader change passed all 204 DMP host tests and
+the ESP-NOW serial-stub CTest (1/1). The targeted epoch/pair/stub tests passed
+74/74 before the final full run.
+
+RBO job `job_01M55QRVZA05ZHDG976AN2KQPJ` completed with exit code 0 using
+ESP-IDF 6.1.0. It built the ESP32-S3 and ESP32-C3 qualification applications.
+The IDF build emitted upstream CMake component-validation warnings for private
+`esp_wifi`/`wpa_supplicant` include directories; no project compilation or link
+failure occurred. App artifacts were materialized and locally verified:
+
+- S3 artifact `art_01M55QVKQN5F2GT7S7DCQ2WYCH`: 889,056 bytes,
+  SHA-256 `55b20639f52f5eab4c75ae6c771ab109cc402480c627b698fba8e48b24555420`.
+- C3 artifact `art_01M55QVJQJ5BH7B7C9N97M84BM`: 928,800 bytes,
+  SHA-256 `0d381cb7f895b5755863d29ebd83459b00d7d3024d69b88676bb33ca67be7b7f`.
+- Files: `dev/evidence/rbo-artifacts/p12-p01c-20261017-epoch-rotation-r3/`.
+
+Only each application partition at `0x10000` was rewritten. esptool v5.1.0
+reported `Hash of data verified` for both COM37 ESP32-S3 (MAC
+`20:6e:f1:b0:f0:2c`) and COM40 ESP32-C3 (MAC `94:a9:90:7b:ef:00`); bootloader,
+partition table, and NVS were preserved.
+
+The authenticated pair run passed with session `dcde2b6ef539267e`, S3/C3 owner
+epoch 61, protected SAMPLE-1 READ value `0x11223344`, and bidirectional 1024-byte
+Service-2 transfers. It reported decoded Core MTU 256 bytes and encoded Stream R
+MTU 263 bytes; maximum observed frame size was 262 bytes. Target resource,
+entropy-diagnostic, and handshake timing details are in
+[`p12-p01c-physical/README.md`](evidence/p12-p01c-physical/README.md).
+
+The live transition runner passed on the same association: epoch 61 → 62,
+peer records 1 → 0, requested sample published, and an old-association READ
+produced no S3 request or C3 result during 24,260 ms (the 24,010 ms manifest
+retry-2 initialization deadline plus 250 ms). Software reboot changed both
+boot IDs; S3 then reserved owner epoch 63 and NVS_CHECK reserved 64. Detailed
+UART evidence is in `dev/evidence/p12-p01c-physical/epoch-rotation_20261017_231633_3764d578/`.
+
+This adds direct target evidence for one-peer rotation, old-association fencing,
+stale READ rejection, and NVS continuity across software reset. The latest
+epoch-62 transition has not yet been power-cycled. No energy instrument was
+attached, the entropy sample is diagnostic and not quality certification, the
+MCU-05 UART0 bridge scenario remains unavailable on native USB Serial/JTAG, and
+four-peer hardware resources and full old-flash-image restoration remain open.
+P12 primary row statuses remain partial pending their remaining failure,
+power-loss, and retry/cancellation cases.
+
+The independent read-only Gemini 3.8 reviewer found no critical issue and one
+low-severity evidence metadata defect: the retry-2 report used a nonexistent
+root `name` field and wrote `manifest_profile: null`. The runner now reads the
+canonical `profile.id` and the host test asserts
+`TEST-DIRECT-SAMPLE-RETRY-2`. The final host run passed 204/204 tests, the
+serial-stub CTest passed 1/1, and the normative ledger crosswalk passed 1/1;
+the five P12 normative statuses remain `partial`.
+
+A second standard pair run after the transition cleanup also passed on COM37
+and COM40: owner epoch 65, NVS check previous/reserved 65/66, protected READ,
+and 1024-byte bidirectional Service-2. Evidence is
+`dev/evidence/p12-p01c-physical/pair_20261017_232249_2d74f29b/`. The operator
+subsequently completed the requested five-second power cycle; the
+post-reservation result is recorded in the following subsection.
+
+
+### Cold power cycle after reservation 66
+
+The operator confirmed switching off S3 COM37 and C3 COM40 together for at
+least five seconds, then reconnecting them. The external-power restart runner
+passed. The 5,000 ms interval is operator-attested; the runner does not measure
+power rails or elapsed power-off time.
+
+Command:
+
+```text
+python tests/embedded/espnow_dmp/serial_dmp_restart.py --s3-port COM37 --c3-port COM40 --previous-run dev/evidence/p12-p01c-physical/pair_20261017_232249_2d74f29b --reset-mode external-power --operator-confirms-power-cycle --transfer-bytes 1024 --timeout 70 --evidence-dir dev/evidence/p12-p01c-physical
+```
+
+Evidence: `dev/evidence/p12-p01c-physical/epoch_transition_20261017_232450_f4791f66/epoch_transition.json` and nested pair `pair_20261017_232450_d8f45f42/evidence.json` — PASS. INFO preflight observed changed boot IDs and `reset_reason=power_on`: S3 `a37ece427359cada` → `8ac5910e5c1c6ae8`; C3 `cb5659801f2d26a7` → `0431069304f2ac57`. Previous NVS check reservation was 66; after power-on the S3 owner used epoch 67 and the separate check reserved 68. Protected READ returned epoch 67/index 1/value `0x11223344`; authenticated bidirectional Service-2 transfer passed at 1024 bytes.
+
+The run reported decoded Core MTU 256 bytes, encoded Stream R MTU 263 bytes, and maximum observed frame 262 bytes. Internal free/minimum/largest heap blocks were 83,532/82,396/40,960 bytes on S3 and 22,048/21,136/13,312 bytes on C3. Energy was not measured; entropy diagnostics are not quality certification.
+
+This adds target evidence for NVS continuity after an operator-attested external power cycle on one S3/C3 pair. It does not detect restoration of a complete old flash image or inject target NVS commit failure. Target SAMPLE-1 retry/cancel/timeout and supersession, MCU-05 UART0 Noise/reset, energy, and four-peer hardware remain open. The five P12 primary results remain partial; no normative status was promoted.

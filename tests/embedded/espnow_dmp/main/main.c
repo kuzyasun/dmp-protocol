@@ -29,11 +29,13 @@
 
 #include "esp_err.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_now.h"
 #include "esp_random.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -66,6 +68,8 @@
 #define QUAL_EVENT_QUEUE_LENGTH 16U
 #define QUAL_COMMAND_QUEUE_LENGTH 8U
 #define QUAL_TIMEOUT_US 5000000LL
+#define QUAL_ENTROPY_DIAGNOSTIC_BYTES 4096U
+#define QUAL_ENTROPY_BUCKETS 256U
 
 /* Compile-time check on flash layout and ESP-NOW constants */
 _Static_assert(ESP_NOW_MAX_DATA_LEN == 250,
@@ -152,6 +156,7 @@ typedef struct {
     bool pending_hs_submit;
     bool hs_sync_requested;
     bool hs_rx_ready;
+    uint64_t handshake_started_us;
 } qual_peer_entry;
 
 typedef struct {
@@ -277,6 +282,19 @@ static portMUX_TYPE g_callback_diag_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t g_rx_callback_count;
 static uint32_t g_rx_callback_queue_drops;
 static uint8_t g_telemetry_frame[256];
+static uint8_t g_entropy_sample[QUAL_ENTROPY_DIAGNOSTIC_BYTES];
+static uint16_t g_entropy_bucket_counts[QUAL_ENTROPY_BUCKETS];
+static portMUX_TYPE g_provider_alloc_mux = portMUX_INITIALIZER_UNLOCKED;
+static size_t g_provider_live_requested_bytes;
+static size_t g_provider_peak_requested_bytes;
+static size_t g_provider_largest_single_request_bytes;
+static size_t g_wifi_rx_stack_min_free_bytes = SIZE_MAX;
+static size_t g_wifi_tx_stack_min_free_bytes = SIZE_MAX;
+static TaskHandle_t g_command_reader_task;
+static bool g_entropy_ready;
+static uint64_t g_boot_id;
+static size_t g_internal_heap_free_at_ready_bytes;
+static bool g_internal_heap_baseline_available;
 
 static uint8_t g_test_transfer_payload[QUAL_MAX_PAYLOAD_BYTES];
 
@@ -292,6 +310,18 @@ static void format_mac(const uint8_t mac[6], char out[18])
 {
     (void)snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+static uint32_t load_u32_le(const uint8_t bytes[4])
+{
+    return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8U) |
+           ((uint32_t)bytes[2] << 16U) | ((uint32_t)bytes[3] << 24U);
+}
+
+static uint64_t load_u64_le(const uint8_t bytes[8])
+{
+    return (uint64_t)load_u32_le(bytes) |
+           ((uint64_t)load_u32_le(bytes + 4U) << 32U);
 }
 
 static const char *hs_tx_status_name(dmp_hs_tx_status status)
@@ -372,12 +402,16 @@ static int find_peer_by_mac(const uint8_t mac[6])
 static int hw_startup_ready(void *ctx)
 {
     (void)ctx;
-    return 0;
+    /* The provider contract uses nonzero to mean startup is not eligible. */
+    return g_entropy_ready ? 0 : 1;
 }
 
 static int hw_startup_read(void *ctx, void *bytes, size_t size)
 {
     (void)ctx;
+    if (!g_entropy_ready || bytes == NULL || size == 0U) {
+        return -1;
+    }
     esp_fill_random(bytes, size);
     return 0;
 }
@@ -385,6 +419,9 @@ static int hw_startup_read(void *ctx, void *bytes, size_t size)
 static int hw_entropy(void *ctx, void *bytes, size_t size)
 {
     (void)ctx;
+    if (!g_entropy_ready || bytes == NULL || size == 0U) {
+        return -1;
+    }
     esp_fill_random(bytes, size);
     return 0;
 }
@@ -392,13 +429,40 @@ static int hw_entropy(void *ctx, void *bytes, size_t size)
 static void *hw_allocate(void *ctx, size_t size)
 {
     (void)ctx;
-    return malloc(size);
+    void *ptr = malloc(size);
+    if (ptr == NULL) {
+        return NULL;
+    }
+
+    portENTER_CRITICAL(&g_provider_alloc_mux);
+    if (SIZE_MAX - g_provider_live_requested_bytes < size) {
+        portEXIT_CRITICAL(&g_provider_alloc_mux);
+        free(ptr);
+        return NULL;
+    }
+    g_provider_live_requested_bytes += size;
+    if (g_provider_live_requested_bytes > g_provider_peak_requested_bytes) {
+        g_provider_peak_requested_bytes = g_provider_live_requested_bytes;
+    }
+    if (size > g_provider_largest_single_request_bytes) {
+        g_provider_largest_single_request_bytes = size;
+    }
+    portEXIT_CRITICAL(&g_provider_alloc_mux);
+    return ptr;
 }
 
 static void hw_release(void *ctx, void *ptr, size_t size)
 {
     (void)ctx;
-    (void)size;
+    if (ptr == NULL) {
+        return;
+    }
+    portENTER_CRITICAL(&g_provider_alloc_mux);
+    g_provider_live_requested_bytes =
+        g_provider_live_requested_bytes >= size
+            ? g_provider_live_requested_bytes - size
+            : 0U;
+    portEXIT_CRITICAL(&g_provider_alloc_mux);
     free(ptr);
 }
 
@@ -411,6 +475,9 @@ static uint64_t hw_hs_now_ms(void *ctx)
 static int hw_hs_entropy(void *ctx, uint8_t *bytes, size_t size)
 {
     (void)ctx;
+    if (!g_entropy_ready || bytes == NULL || size == 0U) {
+        return -1;
+    }
     esp_fill_random(bytes, size);
     return 0;
 }
@@ -433,6 +500,165 @@ static dmp_sample1_nvs_epoch_anchor g_sample_anchor;
 static dmp_sample1_nvs_epoch_store g_sample_store;
 static nvs_handle_t g_sample_nvs_handle = 0;
 static bool g_sample1_active = false;
+
+static size_t qualification_static_storage_bytes(void)
+{
+    return sizeof(g_state) + sizeof(g_endpoint) + sizeof(g_transport) +
+           sizeof(g_profile_config) + sizeof(g_admitted_profile) +
+           sizeof(g_peer_states) + sizeof(g_identity_slots) +
+           sizeof(g_senders) + sizeof(g_sender_payload) + sizeof(g_results) +
+           sizeof(g_result_payload) + sizeof(g_history) +
+           sizeof(g_history_metadata) + sizeof(g_correlations) +
+           sizeof(g_correlation_metadata) + sizeof(g_adapters) + sizeof(g_frames) +
+           sizeof(g_receive_payload) + sizeof(g_stream_tx) + sizeof(g_stream_rx) +
+           sizeof(g_assemblies) + sizeof(g_tombstones) + sizeof(g_freshness) +
+           sizeof(g_assembly_payload) + sizeof(g_assembly_metadata) +
+           sizeof(g_fragment_message) + sizeof(g_fragment_frame) +
+           sizeof(g_telemetry_payload) + sizeof(g_telemetry_next) +
+           sizeof(g_telemetry_frame) + sizeof(g_test_transfer_payload) +
+           sizeof(g_sample_endpoint) + sizeof(g_sample_anchor) +
+           sizeof(g_sample_store) + sizeof(g_entropy_sample) +
+           sizeof(g_entropy_bucket_counts);
+}
+
+static size_t qualification_dynamic_object_bytes(void)
+{
+    size_t bytes = 0U;
+    if (g_provider != NULL) {
+        bytes += dmp_provider_size();
+    }
+    if (g_admission_storage != NULL) {
+        bytes += dmp_hs_admission_size();
+    }
+    for (size_t i = 0U; i < QUAL_MAX_PEERS; ++i) {
+        if (g_state.peers[i].hs != NULL) {
+            bytes += dmp_hs_size();
+        }
+        if (g_state.peers[i].hs_tx != NULL) {
+            bytes += dmp_hs_tx_size();
+        }
+    }
+    return bytes;
+}
+
+static void report_resources(void)
+{
+    char session[QUAL_SESSION_BYTES * 2U + 1U];
+    size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t internal_min = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t internal_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t spiram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    size_t spiram_min = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    size_t spiram_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    size_t provider_live;
+    size_t provider_peak;
+    size_t provider_largest;
+    size_t rx_stack;
+    size_t tx_stack;
+    size_t main_stack = (size_t)uxTaskGetStackHighWaterMark(NULL);
+    size_t command_stack = g_command_reader_task != NULL
+                               ? (size_t)uxTaskGetStackHighWaterMark(g_command_reader_task)
+                               : 0U;
+    int64_t internal_used_since_ready = 0;
+
+    format_session(session);
+    if (g_internal_heap_baseline_available) {
+        internal_used_since_ready = (int64_t)g_internal_heap_free_at_ready_bytes -
+                                    (int64_t)internal_free;
+    }
+    portENTER_CRITICAL(&g_provider_alloc_mux);
+    provider_live = g_provider_live_requested_bytes;
+    provider_peak = g_provider_peak_requested_bytes;
+    provider_largest = g_provider_largest_single_request_bytes;
+    portEXIT_CRITICAL(&g_provider_alloc_mux);
+    portENTER_CRITICAL(&g_callback_diag_mux);
+    rx_stack = g_wifi_rx_stack_min_free_bytes;
+    tx_stack = g_wifi_tx_stack_min_free_bytes;
+    portEXIT_CRITICAL(&g_callback_diag_mux);
+
+#ifdef CONFIG_ESP_MAIN_TASK_STACK_SIZE
+    const unsigned main_stack_configured = CONFIG_ESP_MAIN_TASK_STACK_SIZE;
+#else
+    const unsigned main_stack_configured = 0U;
+#endif
+    printf("{\"event\":\"resources\",\"session\":\"%s\",\"target\":\"%s\","
+           "\"status\":\"ok\",\"entropy_ready\":%s,"
+           "\"heap_internal_free_bytes\":%zu,\"heap_internal_min_free_bytes\":%zu,"
+           "\"heap_internal_largest_block_bytes\":%zu,"
+           "\"heap_internal_used_since_ready_bytes\":%" PRId64 ","
+           "\"heap_spiram_free_bytes\":%zu,\"heap_spiram_min_free_bytes\":%zu,"
+           "\"heap_spiram_largest_block_bytes\":%zu,"
+           "\"qualification_static_bytes\":%zu,\"qualification_dynamic_object_bytes\":%zu,"
+           "\"provider_live_requested_bytes\":%zu,\"provider_peak_requested_bytes\":%zu,"
+           "\"provider_largest_allocation_bytes\":%zu,\"provider_retained_bytes\":%zu,"
+           "\"provider_scratch_limit_bytes\":%u,\"provider_retained_limit_bytes\":%u,"
+           "\"main_stack_min_free_bytes\":%zu,\"main_stack_configured_bytes\":%u,"
+           "\"command_stack_min_free_bytes\":%zu,\"command_stack_configured_bytes\":4096,"
+           "\"wifi_rx_callback_stack_sampled\":%s,\"wifi_rx_callback_stack_min_free_bytes\":%zu,"
+           "\"wifi_tx_callback_stack_sampled\":%s,\"wifi_tx_callback_stack_min_free_bytes\":%zu,"
+           "\"decoded_core_mtu_bytes\":%u,\"stream_r_encoded_mtu_bytes\":%u,"
+           "\"espnow_v1_payload_mtu_bytes\":%u,\"espnow_v2_payload_mtu_bytes\":%u}\n",
+           session, CONFIG_IDF_TARGET, g_entropy_ready ? "true" : "false",
+           internal_free, internal_min, internal_largest, internal_used_since_ready,
+           spiram_free, spiram_min, spiram_largest,
+           qualification_static_storage_bytes(), qualification_dynamic_object_bytes(),
+           provider_live, provider_peak, provider_largest,
+           g_provider != NULL ? dmp_provider_retained(g_provider) : 0U,
+           (unsigned)DMP_PROVIDER_SCRATCH_MAX, (unsigned)DMP_PROVIDER_RETAINED_MAX,
+           main_stack, main_stack_configured, command_stack,
+           rx_stack != SIZE_MAX ? "true" : "false", rx_stack != SIZE_MAX ? rx_stack : 0U,
+           tx_stack != SIZE_MAX ? "true" : "false", tx_stack != SIZE_MAX ? tx_stack : 0U,
+           QUAL_DECODED_CORE_MTU_BYTES, QUAL_STREAM_R_ENCODED_MTU_BYTES,
+           QUAL_ESPNOW_V1_PAYLOAD_MTU_BYTES, QUAL_ESPNOW_V2_PAYLOAD_MTU_BYTES);
+}
+
+static void report_entropy_diagnostic(void)
+{
+    char session[QUAL_SESSION_BYTES * 2U + 1U];
+    uint32_t unique_bytes = 0U;
+    uint16_t min_bucket = UINT16_MAX;
+    uint16_t max_bucket = 0U;
+    uint64_t squared_deviation = 0U;
+    uint64_t started_us = (uint64_t)esp_timer_get_time();
+
+    format_session(session);
+    if (!g_entropy_ready) {
+        printf("{\"event\":\"entropy_diagnostic\",\"session\":\"%s\","
+               "\"status\":\"fail_closed\",\"entropy_ready\":false}\n", session);
+        return;
+    }
+    memset(g_entropy_bucket_counts, 0, sizeof(g_entropy_bucket_counts));
+    esp_fill_random(g_entropy_sample, sizeof(g_entropy_sample));
+    for (size_t i = 0U; i < sizeof(g_entropy_sample); ++i) {
+        ++g_entropy_bucket_counts[g_entropy_sample[i]];
+    }
+    for (size_t i = 0U; i < QUAL_ENTROPY_BUCKETS; ++i) {
+        uint16_t count = g_entropy_bucket_counts[i];
+        uint32_t delta = count > 16U ? (uint32_t)(count - 16U) : (uint32_t)(16U - count);
+        if (count != 0U) {
+            ++unique_bytes;
+        }
+        if (count < min_bucket) {
+            min_bucket = count;
+        }
+        if (count > max_bucket) {
+            max_bucket = count;
+        }
+        squared_deviation += (uint64_t)delta * (uint64_t)delta;
+    }
+    memset(g_entropy_sample, 0, sizeof(g_entropy_sample));
+    uint64_t elapsed_us = (uint64_t)esp_timer_get_time() - started_us;
+    printf("{\"event\":\"entropy_diagnostic\",\"session\":\"%s\","
+           "\"status\":\"ok\",\"entropy_ready\":true,"
+           "\"source\":\"esp_fill_random_wifi_active\",\"sample_bytes\":%u,"
+           "\"unique_byte_values\":%" PRIu32 ",\"minimum_bucket_count\":%u,"
+           "\"maximum_bucket_count\":%u,\"chi_square_x1000\":%" PRIu64 ","
+           "\"elapsed_us\":%" PRIu64 ",\"quality_certified\":false,"
+           "\"interpretation\":\"statistical diagnostic only\"}\n",
+           session, QUAL_ENTROPY_DIAGNOSTIC_BYTES, unique_bytes,
+           (unsigned)min_bucket, (unsigned)max_bucket,
+           (squared_deviation * UINT64_C(1000)) / UINT64_C(16), elapsed_us);
+}
 
 static bool sample1_hook_try_enter(void *user)
 {
@@ -461,6 +687,7 @@ static dmp_sample1_port_result sample1_hook_dummy_publish(
 static void execute_nvs_check(void)
 {
     char session[QUAL_SESSION_BYTES * 2U + 1U];
+    uint64_t started_us = (uint64_t)esp_timer_get_time();
     format_session(session);
 
     if (!g_state.stack_initialized ||
@@ -514,8 +741,10 @@ static void execute_nvs_check(void)
 
     printf("{\"event\":\"nvs_epoch_check\",\"session\":\"%s\",\"status\":\"ok\","
            "\"namespace\":\"dmp_test_nvs\",\"key\":\"%s\","
-           "\"has_previous\":%s,\"previous_epoch\":%" PRIu64 ",\"reserved_epoch\":%" PRIu64 "}\n",
-           session, epoch_key, has_prev ? "true" : "false", prev_epoch, reserved_epoch);
+           "\"has_previous\":%s,\"previous_epoch\":%" PRIu64 ",\"reserved_epoch\":%" PRIu64 ","
+           "\"elapsed_us\":%" PRIu64 "}\n",
+           session, epoch_key, has_prev ? "true" : "false", prev_epoch, reserved_epoch,
+           (uint64_t)esp_timer_get_time() - started_us);
 }
 
 /* Endpoint notice callback */
@@ -567,6 +796,18 @@ static void on_endpoint_notice(void *user, const dmp_endpoint_notice *notice)
                "\"service_id\":%" PRIu32 ",\"wire_status\":%" PRIu32 ",\"bytes\":%u}\n",
                session, (unsigned)notice->peer.slot, notice->service_id,
                notice->wire_status, (unsigned)notice->payload.size);
+        if (notice->service_id == QUAL_SERVICE_SAMPLE1 &&
+            notice->wire_status == 0U && notice->payload.data != NULL &&
+            notice->payload.size == DMP_SAMPLE1_READ_BYTES &&
+            notice->payload.data[0] == DMP_SAMPLE1_READ_OPCODE) {
+            printf("{\"event\":\"sample1_read_result\",\"session\":\"%s\","
+                   "\"peer_handle\":%u,\"epoch\":%" PRIu64 ","
+                   "\"sample_index\":%" PRIu32 ",\"sample_value\":%" PRIu32 "}\n",
+                   session, (unsigned)notice->peer.slot,
+                   load_u64_le(notice->payload.data + 1U),
+                   load_u32_le(notice->payload.data + 9U),
+                   load_u32_le(notice->payload.data + 13U));
+        }
     } else if (notice->event == DMP_ENDPOINT_TELEMETRY) {
         printf("{\"event\":\"rx_telemetry\",\"session\":\"%s\",\"peer_handle\":%u,"
                "\"service_id\":%" PRIu32 ",\"bytes\":%u}\n",
@@ -635,7 +876,9 @@ static void send_callback(const esp_now_send_info_t *info,
                           esp_now_send_status_t status)
 {
     dmp_qual_tx_completion_event event;
+    size_t stack_free;
     if (info == NULL || info->des_addr == NULL) return;
+    stack_free = (size_t)uxTaskGetStackHighWaterMark(NULL);
     memcpy(event.mac, info->des_addr, sizeof event.mac);
     event.status = (int)status;
 
@@ -643,6 +886,9 @@ static void send_callback(const esp_now_send_info_t *info,
      * dedicated single-slot mailbox so RX queue pressure cannot drop it and
      * strand a COPY/BORROW frame. Serialize with the event-loop consumer. */
     portENTER_CRITICAL(&g_callback_diag_mux);
+    if (stack_free < g_wifi_tx_stack_min_free_bytes) {
+        g_wifi_tx_stack_min_free_bytes = stack_free;
+    }
     if (!dmp_qual_tx_completion_post(&g_tx_completion, &event)) {
         ++g_tx_callback_duplicates;
     }
@@ -653,12 +899,17 @@ static void receive_callback(const esp_now_recv_info_t *info,
                              const uint8_t *data, int data_length)
 {
     qual_wifi_event event;
+    size_t stack_free;
     if (g_wifi_events == NULL || info == NULL || info->src_addr == NULL ||
         data_length < 0 || (data_length > 0 && data == NULL)) {
         return;
     }
+    stack_free = (size_t)uxTaskGetStackHighWaterMark(NULL);
     portENTER_CRITICAL(&g_callback_diag_mux);
     ++g_rx_callback_count;
+    if (stack_free < g_wifi_rx_stack_min_free_bytes) {
+        g_wifi_rx_stack_min_free_bytes = stack_free;
+    }
     portEXIT_CRITICAL(&g_callback_diag_mux);
 
     memset(&event, 0, sizeof event);
@@ -715,20 +966,48 @@ static void command_reader_task(void *unused)
     }
 }
 
+static const char *reset_reason_name(esp_reset_reason_t reason)
+{
+    switch (reason) {
+        case ESP_RST_UNKNOWN: return "unknown";
+        case ESP_RST_POWERON: return "power_on";
+        case ESP_RST_EXT: return "external_pin";
+        case ESP_RST_SW: return "software";
+        case ESP_RST_PANIC: return "panic";
+        case ESP_RST_INT_WDT: return "interrupt_watchdog";
+        case ESP_RST_TASK_WDT: return "task_watchdog";
+        case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_DEEPSLEEP: return "deep_sleep";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SDIO: return "sdio";
+        case ESP_RST_USB: return "usb";
+        case ESP_RST_JTAG: return "jtag";
+        case ESP_RST_EFUSE: return "efuse";
+        case ESP_RST_PWR_GLITCH: return "power_glitch";
+        case ESP_RST_CPU_LOCKUP: return "cpu_lockup";
+        default: return "other";
+    }
+}
+
 static void log_ready(void)
 {
     char mac_text[18];
     format_mac(g_state.own_mac, mac_text);
     printf("{\"event\":\"ready\",\"target\":\"%s\",\"idf\":\"ESP-IDF v6.1\","
            "\"firmware\":\"dmp-espnow-dmp/0.1\",\"mac\":\"%s\",\"channel\":%u,"
+           "\"boot_id\":\"%016" PRIx64 "\","
+           "\"reset_reason\":\"%s\","
            "\"decoded_core_mtu_bytes\":%u,\"stream_r_encoded_mtu_bytes\":%u,"
            "\"espnow_v1_payload_mtu_bytes\":%u,\"espnow_v2_payload_mtu_bytes\":%u,"
            "\"espnow_version\":%" PRIu32 ",\"peer_capacity\":%u,"
+           "\"entropy_ready\":%s,"
            "\"test_mode\":\"authenticated-dmp-endpoint\"}\n",
-           CONFIG_IDF_TARGET, mac_text, QUAL_CHANNEL,
+           CONFIG_IDF_TARGET, mac_text, QUAL_CHANNEL, g_boot_id,
+           reset_reason_name(esp_reset_reason()),
            QUAL_DECODED_CORE_MTU_BYTES, QUAL_STREAM_R_ENCODED_MTU_BYTES,
            QUAL_ESPNOW_V1_PAYLOAD_MTU_BYTES, QUAL_ESPNOW_V2_PAYLOAD_MTU_BYTES,
-           g_state.espnow_version, QUAL_MAX_PEERS);
+           g_state.espnow_version, QUAL_MAX_PEERS,
+           g_entropy_ready ? "true" : "false");
 }
 
 static bool init_dmp_stack(const char *profile_name)
@@ -998,10 +1277,18 @@ static bool init_dmp_stack(const char *profile_name)
             ESP_LOGE(TAG, "SAMPLE-1 endpoint initialization failed");
             return false;
         }
+        uint64_t epoch_started_us = (uint64_t)esp_timer_get_time();
         if (dmp_sample1_endpoint_begin_epoch(&g_sample_endpoint, now) != DMP_SAMPLE1_OWNER_OK) {
             ESP_LOGE(TAG, "SAMPLE-1 epoch reservation failed");
             return false;
         }
+        char epoch_session[QUAL_SESSION_BYTES * 2U + 1U];
+        format_session(epoch_session);
+        printf("{\"event\":\"sample1_epoch_reserved\",\"session\":\"%s\","
+               "\"epoch\":%" PRIu64 ",\"elapsed_us\":%" PRIu64 "}\n",
+               epoch_session,
+               g_sample_endpoint.owner.epoch,
+               (uint64_t)esp_timer_get_time() - epoch_started_us);
         if (dmp_sample1_endpoint_publish(&g_sample_endpoint,
                                          UINT32_C(0x11223344), now) != DMP_SAMPLE1_OWNER_OK) {
             ESP_LOGE(TAG, "SAMPLE-1 initial publication failed");
@@ -1216,6 +1503,7 @@ static void trigger_handshake(qual_peer_entry *peer)
     }
 
     dmp_time_ms now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
+    peer->handshake_started_us = (uint64_t)esp_timer_get_time();
     dmp_hs_status st = dmp_hs_schedule(peer->hs, &peer->attempt_index);
     printf("{\"event\":\"handshake_schedule_done\",\"session\":\"%s\","
            "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"status\":%d}\n",
@@ -1292,9 +1580,14 @@ static bool activate_authenticated_peer(qual_peer_entry *peer, uint32_t attempt_
     }
 
     peer->handshake_done = true;
+    uint64_t handshake_elapsed_us = peer->handshake_started_us != 0U &&
+                                    (uint64_t)esp_timer_get_time() >= peer->handshake_started_us
+                                        ? (uint64_t)esp_timer_get_time() - peer->handshake_started_us
+                                        : 0U;
     printf("{\"event\":\"handshake_done\",\"session\":\"%s\","
-           "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"status\":\"success\"}\n",
-           session, peer_mac, (unsigned)peer->handle.slot);
+           "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"status\":\"success\","
+           "\"elapsed_us\":%" PRIu64 "}\n",
+           session, peer_mac, (unsigned)peer->handle.slot, handshake_elapsed_us);
     return true;
 }
 
@@ -1371,6 +1664,9 @@ static void handle_rx_packet(const qual_wifi_event *event)
         dmp_qual_classify_handshake_frame(&view);
     if (handshake_frame == DMP_QUAL_FRAME_BOOTSTRAP) {
         /* Handshake M1 or M2 */
+        if (peer->handshake_started_us == 0U) {
+            peer->handshake_started_us = (uint64_t)esp_timer_get_time();
+        }
         dmp_hs_ingress ingress;
         dmp_hs_completion completion;
         dmp_qual_bootstrap_context wire_context;
@@ -1751,6 +2047,73 @@ static void trigger_v2_frame(uint32_t peer_idx)
            session, (unsigned)peer_idx, (unsigned)core_written, (unsigned)encoded_written);
 }
 
+static const char *sample_owner_result_name(dmp_sample1_owner_result result)
+{
+    switch (result) {
+    case DMP_SAMPLE1_OWNER_OK: return "ok";
+    case DMP_SAMPLE1_OWNER_BUSY: return "busy";
+    case DMP_SAMPLE1_OWNER_NOT_READY: return "not-ready";
+    case DMP_SAMPLE1_OWNER_STOPPED: return "stopped";
+    case DMP_SAMPLE1_OWNER_INVALID: return "invalid";
+    default: return "unknown";
+    }
+}
+
+static uint32_t sample_endpoint_live_peer_records(void)
+{
+    uint32_t count = 0U;
+    for (uint32_t i = 0U; i < DMP_PROFILE_MAX_PEERS; ++i) {
+        count += g_sample_endpoint.peers[i].live != 0U ? 1U : 0U;
+    }
+    return count;
+}
+
+static void rotate_sample1_epoch(uint32_t sample_value)
+{
+    char session[QUAL_SESSION_BYTES * 2U + 1U];
+    uint64_t previous_epoch = g_sample_endpoint.owner.epoch;
+    uint64_t reserved_epoch = 0U;
+    uint64_t new_epoch = 0U;
+    uint32_t peer_records_before = sample_endpoint_live_peer_records();
+    dmp_sample1_owner_result result;
+    dmp_time_ms now;
+
+    format_session(session);
+    if (g_state.role != ROLE_CONTROLLER || g_sample_endpoint.initialized == 0U ||
+        g_sample_endpoint.owner.stopped) {
+        printf("{\"event\":\"sample1_epoch_transition\",\"session\":\"%s\","
+               "\"status\":\"not-ready\",\"owner_status\":%d}\n",
+               session, (int)DMP_SAMPLE1_OWNER_NOT_READY);
+        return;
+    }
+
+    now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
+    result = dmp_sample1_endpoint_begin_epoch(&g_sample_endpoint, now);
+    if (result == DMP_SAMPLE1_OWNER_OK) {
+        new_epoch = g_sample_endpoint.owner.epoch;
+        reserved_epoch = new_epoch;
+        result = dmp_sample1_endpoint_publish(&g_sample_endpoint, sample_value, now);
+    } else {
+        reserved_epoch = g_sample_endpoint.owner.transition_reserved_epoch;
+    }
+    g_sample1_active = g_sample_endpoint.owner.active &&
+                       !g_sample_endpoint.owner.stopped;
+
+    printf("{\"event\":\"sample1_epoch_transition\",\"session\":\"%s\","
+           "\"status\":\"%s\",\"owner_status\":%d,"
+           "\"previous_epoch\":%" PRIu64 ",\"reserved_epoch\":%" PRIu64 ","
+           "\"new_epoch\":%" PRIu64 ","
+           "\"sample_value\":%" PRIu32 ","
+           "\"peer_records_before\":%" PRIu32 ",\"peer_records_after\":%" PRIu32 ","
+           "\"owner_active\":%s,\"sample_published\":%s}\n",
+           session, sample_owner_result_name(result), (int)result, previous_epoch,
+           reserved_epoch, new_epoch, sample_value,
+           peer_records_before, sample_endpoint_live_peer_records(),
+           g_sample_endpoint.owner.active ? "true" : "false",
+           (result == DMP_SAMPLE1_OWNER_OK && g_sample_endpoint.owner.have_sample)
+               ? "true" : "false");
+}
+
 static void handle_command(const char *line)
 {
     char session[QUAL_SESSION_BYTES * 2U + 1U];
@@ -1759,7 +2122,14 @@ static void handle_command(const char *line)
     char extra = '\0';
     format_session(session);
 
-    if (strcmp(line, "INFO") == 0) {
+    if (strcmp(line, "REBOOT") == 0) {
+        printf("{\"event\":\"reboot_requested\",\"target\":\"%s\","
+               "\"boot_id\":\"%016" PRIx64 "\"}\n",
+               CONFIG_IDF_TARGET, g_boot_id);
+        (void)fflush(stdout);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        esp_restart();
+    } else if (strcmp(line, "INFO") == 0) {
         log_ready();
     } else if (sscanf(line, "SESSION %16s %c", arg1, &extra) == 1) {
         uint8_t token[QUAL_SESSION_BYTES];
@@ -1974,6 +2344,14 @@ static void handle_command(const char *line)
         log_peer_setup_stage("peer_added_emit_returned", peer_setup_started_us);
     } else if (strcmp(line, "NVS_CHECK") == 0) {
         execute_nvs_check();
+    } else if (strncmp(line, "SAMPLE_ROTATE ", 14U) == 0) {
+        unsigned int sample_value = 0U;
+        if (sscanf(line, "SAMPLE_ROTATE %u %c", &sample_value, &extra) != 1) {
+            printf("{\"event\":\"command_rejected\",\"reason\":\"sample-rotate-usage\","
+                   "\"expected\":\"SAMPLE_ROTATE <sample_value>\"}\n");
+            return;
+        }
+        rotate_sample1_epoch((uint32_t)sample_value);
     } else if (strncmp(line, "HS_SYNC ", 8U) == 0) {
         unsigned int h = 0U;
         if (sscanf(line, "HS_SYNC %u %c", &h, &extra) != 1) {
@@ -2062,6 +2440,16 @@ static void handle_command(const char *line)
                g_state.stats_assembled_transfers,
                (unsigned)g_state.max_observed_rx_frame_bytes,
                (unsigned)g_state.max_observed_tx_frame_bytes);
+    } else if (strcmp(line, "RESOURCES") == 0) {
+        if (!g_state.stack_initialized) {
+            printf("{\"event\":\"resources\",\"session\":\"%s\","
+                   "\"status\":\"unavailable\",\"reason\":\"endpoint-not-initialized\"}\n",
+                   session);
+            return;
+        }
+        report_resources();
+    } else if (strcmp(line, "ENTROPY_DIAGNOSTIC") == 0) {
+        report_entropy_diagnostic();
     } else if (strcmp(line, "CORE_DUMP_TEST") == 0) {
         printf("{\"event\":\"core_dump_test\",\"action\":\"intentional-abort\"}\n");
         (void)fflush(stdout);
@@ -2094,11 +2482,12 @@ void app_main(void)
 
     /* Initialize NVS for SAMPLE-1 storage adapter */
     esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
+    if (ret != ESP_OK) {
+        printf("{\"event\":\"startup_failed\",\"status\":\"fail_closed\","
+               "\"reason\":\"nvs-init\",\"error\":%d,\"erase_attempted\":false}\n",
+               (int)ret);
+        return;
     }
-    ESP_ERROR_CHECK(ret);
 
     /* Initialize network interface and WiFi in Station mode */
     ESP_ERROR_CHECK(esp_netif_init());
@@ -2113,6 +2502,10 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
+    do {
+        esp_fill_random(&g_boot_id, sizeof(g_boot_id));
+    } while (g_boot_id == 0U);
+    g_entropy_ready = true;
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_set_channel(QUAL_CHANNEL, WIFI_SECOND_CHAN_NONE));
     ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_STA, g_state.own_mac));
@@ -2131,9 +2524,14 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_now_register_send_cb(send_callback));
     ESP_ERROR_CHECK(esp_now_register_recv_cb(receive_callback));
 
+    g_internal_heap_free_at_ready_bytes =
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    g_internal_heap_baseline_available = true;
+
     log_ready();
 
-    if (xTaskCreate(command_reader_task, "qual_cmd", 4096U, NULL, 4U, NULL) != pdPASS) {
+    if (xTaskCreate(command_reader_task, "qual_cmd", 4096U, NULL, 4U,
+                    &g_command_reader_task) != pdPASS) {
         ESP_LOGE(TAG, "command reader task creation failed");
         return;
     }

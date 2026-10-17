@@ -21,6 +21,7 @@ idf_component_register(
         esp_netif
         esp_timer
         esp_wifi
+    heap
         nvs_flash
 )
 
