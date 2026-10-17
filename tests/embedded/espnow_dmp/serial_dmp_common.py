@@ -25,6 +25,8 @@ SESSION_PATTERN = re.compile(r"^[0-9a-f]{16}\Z")
 
 RETRY_2_PROFILE_HASH = "478af0bc4912d0fc46ed76c249ec5f30f8f64bc89ed7411e9b9231bbf487db5c"
 MULTI_PEER_PROFILE_HASH = "001eb42d8f440e0ceaf1711e764ceacfc3c1dd034cfb2d7f320be7d877f7454f"
+RETRY_2_EPOCH_NVS_KEY = "s1_epoch_test"
+MULTI_PEER_EPOCH_NVS_KEY = "s1_epoch_mp"
 
 PAIR_CONTROLLER_NODE_ID = 10
 PAIR_PEER_NODE_ID = 20
@@ -107,7 +109,11 @@ def validate_ready_event(event: dict[str, Any], expected_target: str) -> dict[st
     return event
 
 
-def validate_nvs_check(event: dict[str, Any], session: str) -> dict[str, Any]:
+def validate_nvs_check(
+    event: dict[str, Any],
+    session: str,
+    expected_key: str = RETRY_2_EPOCH_NVS_KEY,
+) -> dict[str, Any]:
     """Validate SAMPLE-1 NVS epoch reservation, ensuring monotonic progression and fail-closed handling."""
     if event.get("event") != "nvs_epoch_check":
         raise DmpTestError(f"Expected 'nvs_epoch_check' event, got {event.get('event')!r}")
@@ -129,7 +135,7 @@ def validate_nvs_check(event: dict[str, Any], session: str) -> dict[str, Any]:
 
     if event.get("namespace") != "dmp_test_nvs":
         raise DmpTestError(f"Unexpected NVS namespace: {event.get('namespace')!r}")
-    if event.get("key") != "s1_epoch_test":
+    if event.get("key") != expected_key:
         raise DmpTestError(f"Unexpected NVS key: {event.get('key')!r}")
 
     has_prev = event.get("has_previous")
@@ -211,12 +217,14 @@ class SerialDeviceSession:
         port_obj: Any,
         evidence_dir: Path,
         cmd_log: HostCommandLog | None = None,
+        expected_session: str | None = None,
     ):
         self.side = side
         self.port_name = port_name
         self.port_obj = port_obj
         self.evidence_dir = evidence_dir
         self.cmd_log = cmd_log
+        self.expected_session = expected_session
 
         self.raw_path = evidence_dir / f"raw_serial_{side}.bin"
         self.jsonl_path = evidence_dir / f"events_{side}.jsonl"
@@ -225,6 +233,7 @@ class SerialDeviceSession:
         self._jsonl_file = self.jsonl_path.open("w", encoding="utf-8")
 
         self._events: list[dict[str, Any]] = []
+        self._expected_session_event_index: int | None = None
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._stopped = False
@@ -264,7 +273,15 @@ class SerialDeviceSession:
                     }
                     self._jsonl_file.write(json.dumps(entry, separators=(",", ":")) + "\n")
                     self._jsonl_file.flush()
+                    event_index = len(self._events)
                     self._events.append(parsed)
+                    if (
+                        self.expected_session is not None
+                        and self._expected_session_event_index is None
+                        and parsed.get("event") == "session_set"
+                        and parsed.get("session") == self.expected_session
+                    ):
+                        self._expected_session_event_index = event_index
                     self._cond.notify_all()
 
     def send_command(self, cmd: str) -> None:
@@ -297,9 +314,11 @@ class SerialDeviceSession:
     ) -> dict[str, Any]:
         deadline = time.time() + timeout
         with self._cond:
-            for ev in self._events[start_index:]:
+            for event_index in range(start_index, len(self._events)):
+                ev = self._events[event_index]
                 if predicate(ev):
                     return ev
+                self._raise_if_firmware_rejected(ev, desc, event_index)
             while True:
                 if self._reader_error is not None:
                     raise DmpTestError(f"Serial reader error on {self.side}: {self._reader_error}")
@@ -307,9 +326,32 @@ class SerialDeviceSession:
                 if remaining <= 0:
                     raise DmpTestError(f"Timeout ({timeout:.1f}s) waiting for {desc} on {self.side}")
                 self._cond.wait(timeout=min(remaining, 0.1))
-                for ev in self._events[start_index:]:
+                for event_index in range(start_index, len(self._events)):
+                    ev = self._events[event_index]
                     if predicate(ev):
                         return ev
+                    self._raise_if_firmware_rejected(ev, desc, event_index)
+
+    def _raise_if_firmware_rejected(
+        self, event: dict[str, Any], desc: str, event_index: int
+    ) -> None:
+        event_name = event.get("event")
+        event_session = event.get("session")
+        if self.expected_session is not None:
+            if event_session is not None and event_session != self.expected_session:
+                return
+            if event_session is None and (
+                self._expected_session_event_index is None
+                or event_index < self._expected_session_event_index
+            ):
+                return
+        if event_name in ("command_rejected", "role_failed", "handshake_stream_sync_failed") or (
+            event_name == "error" and event.get("status") == "fail_closed"
+        ):
+            reason = event.get("reason", event_name)
+            raise DmpTestError(
+                f"Firmware rejected command while waiting for {desc} on {self.side}: {reason}"
+            )
 
     def get_events(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -360,4 +402,114 @@ def wait_for_handshake_result(
         raise DmpTestError(f"{desc} failed: {reason}")
     if event.get("status") != "success":
         raise DmpTestError(f"{desc} completed with status {event.get('status')!r}")
+    return event
+
+
+def wait_for_handshake_pair(
+    initiator: SerialDeviceSession,
+    responder: SerialDeviceSession,
+    session: str,
+    timeout: float,
+    desc: str,
+    initiator_peer_handle: int,
+    responder_peer_handle: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Wait for endpoint activation and an accepted READY submit together.
+
+    The responder activates on authenticated FINISH, while application TX is
+    allowed only after READY is accepted by its transport. BUSY can be retried
+    by duplicate FINISH; permanent submit failures are surfaced immediately.
+    """
+    deadline = time.monotonic() + timeout
+    done: dict[str, dict[str, Any]] = {}
+    ready_accepted = False
+    last_ready_busy: Any = None
+
+    def matches_peer(event: dict[str, Any], peer_handle: int) -> bool:
+        event_peer = event.get("peer_handle")
+        return event_peer is None or event_peer == peer_handle
+
+    while True:
+        for device, label, peer_handle in (
+            (initiator, "initiator", initiator_peer_handle),
+            (responder, "responder", responder_peer_handle),
+        ):
+            for event in device.get_events():
+                if event.get("session") != session or not matches_peer(event, peer_handle):
+                    continue
+                event_name = event.get("event")
+                if event_name == "handshake_failed" or (
+                    event_name == "error" and event.get("status") == "fail_closed"
+                ):
+                    raise DmpTestError(
+                        f"{desc} failed on {label}: {event.get('reason', event_name)}"
+                    )
+                if event_name == "handshake_done":
+                    if event.get("status") != "success":
+                        raise DmpTestError(
+                            f"{desc} completed on {label} with status {event.get('status')!r}"
+                        )
+                    done[label] = event
+                if label == "responder" and event_name == "handshake_ready_submit":
+                    if event.get("accepted") is True:
+                        ready_accepted = True
+                    elif event.get("status_name") == "busy":
+                        last_ready_busy = event.get("status")
+                    elif not ready_accepted:
+                        raise DmpTestError(
+                            f"{desc} responder rejected protected READY transport submission: "
+                            f"status={event.get('status_name', event.get('status'))!r}"
+                        )
+
+        if len(done) == 2 and ready_accepted:
+            return done["initiator"], done["responder"]
+        if len(done) == 2 and not ready_accepted:
+            raise DmpTestError(
+                f"{desc} endpoints became active without an accepted READY transport submission"
+            )
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if not ready_accepted:
+                suffix = (
+                    f"; last READY submit status={last_ready_busy!r}"
+                    if last_ready_busy is not None
+                    else ""
+                )
+                raise DmpTestError(
+                    f"Timeout waiting for responder to accept protected READY submission for {desc}{suffix}"
+                )
+            missing = " and ".join(label for label in ("initiator", "responder") if label not in done)
+            raise DmpTestError(f"Timeout waiting for {desc} activation on {missing}")
+        time.sleep(min(0.05, remaining))
+
+
+def wait_for_handshake_start(
+    device: SerialDeviceSession,
+    session: str,
+    timeout: float,
+    desc: str,
+    peer_handle: int | None = None,
+) -> dict[str, Any]:
+    """Return handshake_started or surface a synchronous scheduling failure."""
+
+    def is_start_or_failure(event: dict[str, Any]) -> bool:
+        if event.get("session") != session:
+            return False
+        event_name = event.get("event")
+        if event_name not in (
+            "handshake_started",
+            "handshake_failed",
+            "handshake_schedule_diagnostic",
+        ) and not (event_name == "error" and event.get("status") == "fail_closed"):
+            return False
+        event_peer = event.get("peer_handle")
+        return peer_handle is None or event_peer is None or event_peer == peer_handle
+
+    event = device.wait_for_event(is_start_or_failure, timeout=timeout, desc=desc)
+    if event.get("event") != "handshake_started":
+        reason = event.get("reason") or event.get("stage") or event.get("event", "unspecified")
+        status = event.get("status")
+        suffix = "" if status is None else f" status={status}"
+        raise DmpTestError(f"{desc} failed before start: {reason}{suffix}")
     return event

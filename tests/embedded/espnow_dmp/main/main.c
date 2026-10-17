@@ -21,6 +21,11 @@
 #include "sample1_endpoint.h"
 #include "sample1_epoch_anchor_nvs.h"
 #include "sample1_epoch_store.h"
+#include "qual_console_line.h"
+#include "qual_handshake_frame.h"
+#include "qual_handshake_readiness.h"
+#include "qual_tx_completion.h"
+#include "qual_transport_outcome.h"
 
 #include "esp_err.h"
 #include "esp_event.h"
@@ -39,10 +44,12 @@
 #include "sdkconfig.h"
 
 #include <inttypes.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define QUAL_CHANNEL 1U
 #define QUAL_DECODED_CORE_MTU_BYTES 256U
@@ -102,15 +109,13 @@ static const uint8_t MULTI_PEER_PROFILE_HASH[32] = {
 static const uint32_t MULTI_PEER_NODE_IDS[QUAL_MAX_PEERS] = { 10U, 35U, 34U, 36U };
 
 typedef enum {
-    EVENT_TX_DONE = 1,
-    EVENT_RX = 2,
-    EVENT_RX_OVERSIZE = 3
+    EVENT_RX = 1,
+    EVENT_RX_OVERSIZE = 2
 } qual_event_kind;
 
 typedef struct {
     qual_event_kind kind;
     uint8_t mac[6];
-    esp_now_send_status_t send_status;
     size_t length;
     uint8_t bytes[ESP_NOW_MAX_DATA_LEN_V2];
 } qual_wifi_event;
@@ -131,16 +136,22 @@ typedef struct {
     dmp_peer_handle handle;
     bool in_use;
     bool handshake_done;
+    bool handshake_tx_ready;
     bool handshake_poll_failed;
+    bool handshake_activation_failed;
     dmp_hs *hs;
     dmp_hs_tx *hs_tx;
     dmp_hs_tx_lifetime hs_lifetime;
     dmp_hs_tx_buffer hs_buffers[DMP_HS_TX_SLOT_MAX];
-    uint8_t hs_buffer_bytes[DMP_HS_TX_SLOT_MAX][256];
+    uint8_t hs_buffer_bytes[DMP_HS_TX_SLOT_MAX][QUAL_STREAM_R_ENCODED_MTU_BYTES];
+    dmp_stream_decoder hs_rx_decoder;
+    uint8_t hs_rx_bytes[QUAL_DECODED_CORE_MTU_BYTES + 32U];
     uint32_t attempt_index;
     uint32_t resp_attempt_index;
     dmp_tx_token pending_hs_token;
     bool pending_hs_submit;
+    bool hs_sync_requested;
+    bool hs_rx_ready;
 } qual_peer_entry;
 
 typedef struct {
@@ -181,12 +192,24 @@ typedef struct {
 static qual_state g_state;
 static QueueHandle_t g_wifi_events = NULL;
 static QueueHandle_t g_commands = NULL;
+static dmp_qual_tx_completion_slot g_tx_completion;
+static uint32_t g_tx_callback_duplicates;
 
 static uint32_t profile_controller_node_id(const char *profile_name)
 {
     return strcmp(profile_name, "retry-2") == 0
                ? RETRY_2_CONTROLLER_NODE_ID
                : MULTI_PEER_CONTROLLER_NODE_ID;
+}
+
+static const char *profile_sample1_epoch_key(const char *profile_name)
+{
+    return strcmp(profile_name, "retry-2") == 0 ? "s1_epoch_test" : "s1_epoch_mp";
+}
+
+static const char *profile_sample1_anchor_key(const char *profile_name)
+{
+    return strcmp(profile_name, "retry-2") == 0 ? "s1_anch_test" : "s1_anch_mp";
 }
 
 static uint32_t profile_peer_capacity(const char *profile_name)
@@ -239,6 +262,8 @@ static uint8_t g_correlation_metadata[4 * DMP_RELIABILITY_METADATA_BYTES];
 static dmp_reliability_adapter_slot g_adapters[QUAL_MAX_ADAPTER_SLOTS];
 static uint8_t g_frames[QUAL_MAX_ADAPTER_SLOTS * QUAL_STREAM_R_ENCODED_MTU_BYTES];
 static uint8_t g_receive_payload[QUAL_MAX_PAYLOAD_BYTES];
+static uint8_t g_stream_tx[QUAL_STREAM_R_ENCODED_MTU_BYTES];
+static uint8_t g_stream_rx[QUAL_MAX_PEERS * QUAL_STREAM_R_ENCODED_MTU_BYTES];
 static dmp_reassembly_slot g_assemblies[QUAL_MAX_ASSEMBLY_SLOTS];
 static dmp_reassembly_tombstone g_tombstones[QUAL_MAX_TOMBSTONE_SLOTS];
 static dmp_endpoint_freshness_slot g_freshness[8];
@@ -248,6 +273,9 @@ static uint8_t g_fragment_message[QUAL_MAX_PEERS * QUAL_MAX_PAYLOAD_BYTES];
 static uint8_t g_fragment_frame[256];
 static uint8_t g_telemetry_payload[QUAL_MAX_PEERS * QUAL_MAX_PAYLOAD_BYTES];
 static uint8_t g_telemetry_next[QUAL_MAX_PEERS * QUAL_MAX_PAYLOAD_BYTES];
+static portMUX_TYPE g_callback_diag_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t g_rx_callback_count;
+static uint32_t g_rx_callback_queue_drops;
 static uint8_t g_telemetry_frame[256];
 
 static uint8_t g_test_transfer_payload[QUAL_MAX_PAYLOAD_BYTES];
@@ -264,6 +292,22 @@ static void format_mac(const uint8_t mac[6], char out[18])
 {
     (void)snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+static const char *hs_tx_status_name(dmp_hs_tx_status status)
+{
+    switch (status) {
+    case DMP_HS_TX_ACCEPTED: return "accepted";
+    case DMP_HS_TX_BUSY: return "busy";
+    case DMP_HS_TX_EXPIRED: return "expired";
+    case DMP_HS_TX_NO_OUTPUT: return "no-output";
+    case DMP_HS_TX_NO_SLOT: return "no-slot";
+    case DMP_HS_TX_REFUSED: return "refused";
+    case DMP_HS_TX_TRANSPORT_REJECTED: return "transport-rejected";
+    case DMP_HS_TX_STALE: return "stale";
+    case DMP_HS_TX_INVALID: return "invalid";
+    default: return "unknown";
+    }
 }
 
 static bool parse_mac(const char *in, uint8_t mac[6])
@@ -286,6 +330,24 @@ static void format_session(char out[QUAL_SESSION_BYTES * 2U + 1U])
         (void)snprintf(out + i * 2U, 3U, "%02x", g_state.session_token[i]);
     }
     out[QUAL_SESSION_BYTES * 2U] = '\0';
+}
+
+void dmp_handshake_qual_diagnostic(void *context, const char *stage, int status)
+{
+    const qual_peer_entry *peer = (const qual_peer_entry *)context;
+    char session[QUAL_SESSION_BYTES * 2U + 1U];
+    char peer_mac[18] = "00:00:00:00:00:00";
+    uint32_t peer_handle = UINT32_MAX;
+
+    format_session(session);
+    if (peer != NULL) {
+        format_mac(peer->mac, peer_mac);
+        peer_handle = peer->handle.slot;
+    }
+    printf("{\"event\":\"handshake_schedule_diagnostic\",\"session\":\"%s\","
+           "\"peer_mac\":\"%s\",\"peer_handle\":%" PRIu32 ","
+           "\"stage\":\"%s\",\"status\":%d}\n",
+           session, peer_mac, peer_handle, stage != NULL ? stage : "unknown", status);
 }
 
 static void format_hex(const uint8_t *in, size_t len, char *out)
@@ -418,8 +480,10 @@ static void execute_nvs_check(void)
 
     dmp_sample1_nvs_epoch_anchor anchor;
     dmp_sample1_nvs_epoch_store store;
-    dmp_sample1_nvs_epoch_anchor_init(&anchor, nvs_handle, "s1_anch_test", NULL);
-    dmp_sample1_nvs_epoch_store_init(&store, nvs_handle, "s1_epoch_test",
+    const char *epoch_key = profile_sample1_epoch_key(g_state.profile_name);
+    const char *anchor_key = profile_sample1_anchor_key(g_state.profile_name);
+    dmp_sample1_nvs_epoch_anchor_init(&anchor, nvs_handle, anchor_key, NULL);
+    dmp_sample1_nvs_epoch_store_init(&store, nvs_handle, epoch_key,
                                      cb_allow_first_provisioning, NULL, NULL, NULL, NULL,
                                      &dmp_sample1_nvs_anchor_ops, &anchor);
 
@@ -449,9 +513,9 @@ static void execute_nvs_check(void)
     }
 
     printf("{\"event\":\"nvs_epoch_check\",\"session\":\"%s\",\"status\":\"ok\","
-           "\"namespace\":\"dmp_test_nvs\",\"key\":\"s1_epoch_test\","
+           "\"namespace\":\"dmp_test_nvs\",\"key\":\"%s\","
            "\"has_previous\":%s,\"previous_epoch\":%" PRIu64 ",\"reserved_epoch\":%" PRIu64 "}\n",
-           session, has_prev ? "true" : "false", prev_epoch, reserved_epoch);
+           session, epoch_key, has_prev ? "true" : "false", prev_epoch, reserved_epoch);
 }
 
 /* Endpoint notice callback */
@@ -465,7 +529,12 @@ static void on_endpoint_notice(void *user, const dmp_endpoint_notice *notice)
 
     if (notice->event == DMP_ENDPOINT_ASSEMBLED) {
         ++g_state.stats_assembled_transfers;
-        uint32_t fragments = (uint32_t)((notice->payload.size + QUAL_CHUNK_BYTES - 1U) / QUAL_CHUNK_BYTES);
+        uint32_t chunk_bytes = g_profile_config.chunk_bytes;
+        if (chunk_bytes == 0U) {
+            ESP_LOGE(TAG, "assembled Service-2 message without an active profile chunk size");
+            return;
+        }
+        uint32_t fragments = (uint32_t)((notice->payload.size + chunk_bytes - 1U) / chunk_bytes);
         bool match = true;
         for (size_t i = 0; i < notice->payload.size; ++i) {
             uint8_t expected = (uint8_t)((i * 31U + 17U) & 0xFFU);
@@ -476,9 +545,9 @@ static void on_endpoint_notice(void *user, const dmp_endpoint_notice *notice)
         }
         printf("{\"event\":\"rx_assembled\",\"session\":\"%s\",\"peer_handle\":%u,"
                "\"service_id\":%" PRIu32 ",\"bytes\":%u,\"fragments\":%" PRIu32 ","
-               "\"chunk_bytes\":%u,\"payload_match\":%s,\"max_frame_bytes\":%u}\n",
+               "\"chunk_bytes\":%" PRIu32 ",\"payload_match\":%s,\"max_frame_bytes\":%u}\n",
                session, (unsigned)notice->peer.slot, notice->service_id,
-               (unsigned)notice->payload.size, fragments, QUAL_CHUNK_BYTES,
+               (unsigned)notice->payload.size, fragments, chunk_bytes,
                match ? "true" : "false",
                (unsigned)g_state.max_observed_rx_frame_bytes);
     } else if (notice->event == DMP_ENDPOINT_REQUEST) {
@@ -523,6 +592,14 @@ static dmp_status espnow_transport_submit(void *context,
     if (peer_idx >= QUAL_MAX_PEERS || !g_state.peers[peer_idx].in_use) {
         return DMP_STALE_HANDLE;
     }
+    /* Endpoint application TX requires both local activation and confirmation
+     * transport readiness. Handshake TX uses its adapter as owner and remains
+     * available to complete the confirmation exchange. */
+    if (submission->owner == &g_endpoint &&
+        !dmp_qual_application_tx_allowed(g_state.peers[peer_idx].handshake_done,
+                                         g_state.peers[peer_idx].handshake_tx_ready)) {
+        return DMP_BUSY;
+    }
     if (g_state.tx_live) {
         return DMP_BUSY;
     }
@@ -557,13 +634,19 @@ static dmp_status espnow_transport_cancel(void *context, dmp_tx_token token)
 static void send_callback(const esp_now_send_info_t *info,
                           esp_now_send_status_t status)
 {
-    qual_wifi_event event;
-    if (g_wifi_events == NULL || info == NULL || info->des_addr == NULL) return;
-    memset(&event, 0, sizeof event);
-    event.kind = EVENT_TX_DONE;
-    memcpy(event.mac, info->des_addr, 6);
-    event.send_status = status;
-    (void)xQueueSend(g_wifi_events, &event, 0U);
+    dmp_qual_tx_completion_event event;
+    if (info == NULL || info->des_addr == NULL) return;
+    memcpy(event.mac, info->des_addr, sizeof event.mac);
+    event.status = (int)status;
+
+    /* One transport TX may be live at a time. Keep its terminal callback in a
+     * dedicated single-slot mailbox so RX queue pressure cannot drop it and
+     * strand a COPY/BORROW frame. Serialize with the event-loop consumer. */
+    portENTER_CRITICAL(&g_callback_diag_mux);
+    if (!dmp_qual_tx_completion_post(&g_tx_completion, &event)) {
+        ++g_tx_callback_duplicates;
+    }
+    portEXIT_CRITICAL(&g_callback_diag_mux);
 }
 
 static void receive_callback(const esp_now_recv_info_t *info,
@@ -574,6 +657,10 @@ static void receive_callback(const esp_now_recv_info_t *info,
         data_length < 0 || (data_length > 0 && data == NULL)) {
         return;
     }
+    portENTER_CRITICAL(&g_callback_diag_mux);
+    ++g_rx_callback_count;
+    portEXIT_CRITICAL(&g_callback_diag_mux);
+
     memset(&event, 0, sizeof event);
     memcpy(event.mac, info->src_addr, 6);
     event.length = (size_t)data_length;
@@ -585,38 +672,44 @@ static void receive_callback(const esp_now_recv_info_t *info,
             memcpy(event.bytes, data, event.length);
         }
     }
-    (void)xQueueSend(g_wifi_events, &event, 0U);
+    if (xQueueSend(g_wifi_events, &event, 0U) != pdTRUE) {
+        portENTER_CRITICAL(&g_callback_diag_mux);
+        ++g_rx_callback_queue_drops;
+        portEXIT_CRITICAL(&g_callback_diag_mux);
+    }
 }
 
 static void command_reader_task(void *unused)
 {
-    char pending[QUAL_COMMAND_BYTES];
-    size_t pending_length = 0U;
+    dmp_qual_console_line_reader reader;
     (void)unused;
-    memset(pending, 0, sizeof pending);
+    dmp_qual_console_line_reader_init(&reader);
 
     for (;;) {
-        qual_command_message command;
         char chunk[QUAL_COMMAND_BYTES];
-        if (fgets(chunk, sizeof chunk, stdin) == NULL) {
-            clearerr(stdin);
-            vTaskDelay(pdMS_TO_TICKS(20));
+        ssize_t chunk_length = read(STDIN_FILENO, chunk, sizeof chunk);
+        if (chunk_length <= 0) {
+            if (chunk_length < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                printf("{\"event\":\"command_input_error\",\"errno\":%d}\n", errno);
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-        size_t chunk_len = strlen(chunk);
-        for (size_t i = 0; i < chunk_len; ++i) {
-            char c = chunk[i];
-            if (c == '\r' || c == '\n') {
-                if (pending_length > 0U) {
-                    pending[pending_length] = '\0';
-                    memcpy(command.line, pending, pending_length + 1U);
-                    (void)xQueueSend(g_commands, &command, pdMS_TO_TICKS(100));
-                    pending_length = 0U;
+        for (ssize_t i = 0; i < chunk_length; ++i) {
+            qual_command_message command;
+            dmp_qual_console_line_result result = dmp_qual_console_line_reader_feed(
+                &reader, (uint8_t)chunk[i], command.line);
+            if (result == DMP_QUAL_CONSOLE_LINE_READY) {
+                uint32_t line_bytes = (uint32_t)strlen(command.line);
+                BaseType_t queued = xQueueSend(g_commands, &command, pdMS_TO_TICKS(100));
+                printf("{\"event\":\"console_command_received\",\"line_bytes\":%" PRIu32 ","
+                       "\"queued\":%s}\n",
+                       line_bytes, queued == pdTRUE ? "true" : "false");
+                if (queued != pdTRUE) {
+                    printf("{\"event\":\"command_queue_overflow\"}\n");
                 }
-            } else if (pending_length + 1U < sizeof pending) {
-                pending[pending_length++] = c;
-            } else {
-                pending_length = 0U;
+            } else if (result == DMP_QUAL_CONSOLE_LINE_TOO_LONG) {
+                printf("{\"event\":\"command_rejected\",\"reason\":\"command-too-long\"}\n");
             }
         }
     }
@@ -675,6 +768,52 @@ static bool init_dmp_stack(const char *profile_name)
         g_profile_config.service_id[1] = QUAL_SERVICE_DATA;
     } else {
         return false;
+    }
+
+    /* Keep runtime scheduling bounds aligned with the selected deployment
+     * manifest. Stream R endpoint initialization needs frame and record bounds;
+     * the reliability and reassembly layers also consume the remaining timers. */
+    g_profile_config.frame_tx_ms = 1U;
+    g_profile_config.forward_delay_ms = 20U;
+    g_profile_config.return_delay_ms = 20U;
+    g_profile_config.feedback_guard_ms = 4U;
+    g_profile_config.record_margin_ms = 5U;
+    g_profile_config.max_bursts = 3U;
+    g_profile_config.max_probes = 0U;
+    g_profile_config.max_status = 0U;
+    g_profile_config.jitter_ms = 0U;
+    g_profile_config.receipt_limit = 3U;
+    g_profile_config.late_result_ms = 64U;
+    if (strcmp(profile_name, "retry-2") == 0) {
+        g_profile_config.queue_ms = 64U;
+        g_profile_config.receipt_delay_ms = 110U;
+        g_profile_config.burst_span_ms = 1024U;
+        g_profile_config.feedback_delay_ms = 110U;
+        g_profile_config.response_timeout_ms = 1280U;
+        g_profile_config.send_horizon_ms = 5632U;
+        g_profile_config.collect_ms = 5652U;
+        g_profile_config.assembly_ms = 5657U;
+        g_profile_config.dedup_ms = 6000U;
+        g_profile_config.rejection_ms = 6000U;
+        g_profile_config.result_cache_ms = 6000U;
+        g_profile_config.result_deadline_ms = 12000U;
+        g_profile_config.correlation_ms = 12288U;
+        g_profile_config.tombstone_ms = 12288U;
+    } else {
+        g_profile_config.queue_ms = 1000U;
+        g_profile_config.receipt_delay_ms = 1500U;
+        g_profile_config.burst_span_ms = 35000U;
+        g_profile_config.feedback_delay_ms = 1500U;
+        g_profile_config.response_timeout_ms = 2000U;
+        g_profile_config.send_horizon_ms = 120000U;
+        g_profile_config.collect_ms = 120100U;
+        g_profile_config.assembly_ms = 120105U;
+        g_profile_config.dedup_ms = 130000U;
+        g_profile_config.rejection_ms = 130000U;
+        g_profile_config.result_cache_ms = 130000U;
+        g_profile_config.result_deadline_ms = 250000U;
+        g_profile_config.correlation_ms = 260000U;
+        g_profile_config.tombstone_ms = 260000U;
     }
 
     g_profile_config.recovery[0] = DMP_PROFILE_RECOVERY_RETRY_ALL;
@@ -746,7 +885,9 @@ static bool init_dmp_stack(const char *profile_name)
     context.local.namespace_id = TEST_ONLY_NAMESPACE_ID;
     context.peer.namespace_id = TEST_ONLY_NAMESPACE_ID;
     context.local.origin_id = g_state.local_node_id;
-    context.peer.origin_id = profile_controller_node_id(profile_name);
+    context.peer.origin_id = g_state.role == ROLE_CONTROLLER
+                                 ? profile_peer_node_id(profile_name, 0U)
+                                 : profile_controller_node_id(profile_name);
     context.security = 1U;
     storage.context = context;
     storage.transport = &g_transport;
@@ -791,6 +932,10 @@ static bool init_dmp_stack(const char *profile_name)
     storage.frame_capacity = sizeof(g_frames);
     storage.receive_payload = g_receive_payload;
     storage.receive_payload_capacity = sizeof(g_receive_payload);
+    storage.stream_tx = g_stream_tx;
+    storage.stream_tx_capacity = sizeof(g_stream_tx);
+    storage.stream_rx = g_stream_rx;
+    storage.stream_rx_capacity = sizeof(g_stream_rx);
     storage.assemblies = g_assemblies;
     storage.assembly_capacity = g_profile_config.assembly_slots;
     storage.tombstones = g_tombstones;
@@ -830,8 +975,10 @@ static bool init_dmp_stack(const char *profile_name)
                 return false;
             }
         }
-        dmp_sample1_nvs_epoch_anchor_init(&g_sample_anchor, g_sample_nvs_handle, "s1_anch_test", NULL);
-        dmp_sample1_nvs_epoch_store_init(&g_sample_store, g_sample_nvs_handle, "s1_epoch_test",
+        dmp_sample1_nvs_epoch_anchor_init(&g_sample_anchor, g_sample_nvs_handle,
+                                          profile_sample1_anchor_key(profile_name), NULL);
+        dmp_sample1_nvs_epoch_store_init(&g_sample_store, g_sample_nvs_handle,
+                                         profile_sample1_epoch_key(profile_name),
                                          cb_allow_first_provisioning, NULL, NULL, NULL, NULL,
                                          &dmp_sample1_nvs_anchor_ops, &g_sample_anchor);
         dmp_sample1_endpoint_hooks hooks;
@@ -866,9 +1013,21 @@ static bool init_dmp_stack(const char *profile_name)
     return true;
 }
 
+static void log_peer_setup_stage(const char *stage, uint64_t started_us)
+{
+    char session[QUAL_SESSION_BYTES * 2U + 1U];
+    uint64_t now_us = (uint64_t)esp_timer_get_time();
+    format_session(session);
+    printf("{\"event\":\"peer_setup_stage\",\"session\":\"%s\","
+           "\"stage\":\"%s\",\"elapsed_us\":%" PRIu64 "}\n",
+           session, stage, now_us >= started_us ? now_us - started_us : 0U);
+}
+
 static bool setup_peer_handshake(qual_peer_entry *peer)
 {
+    uint64_t started_us = (uint64_t)esp_timer_get_time();
     dmp_hs_config hs_cfg;
+    log_peer_setup_stage("handshake_begin", started_us);
     memset(&hs_cfg, 0, sizeof hs_cfg);
     hs_cfg.namespace_id = TEST_ONLY_NAMESPACE_ID;
     hs_cfg.local_id = g_state.local_node_id;
@@ -886,6 +1045,7 @@ static bool setup_peer_handshake(qual_peer_entry *peer)
 
     hs_cfg.budget.max_pending = g_profile_config.peers;
     hs_cfg.budget.max_scratch = g_state.handshake_scratch_slots;
+    hs_cfg.budget.episode_work = 1000U;
     if (strcmp(g_state.profile_name, "retry-2") == 0) {
         hs_cfg.budget.episode_attempts = 2U;
         hs_cfg.budget.episode_deadline_ms = 41000U;
@@ -921,9 +1081,11 @@ static bool setup_peer_handshake(qual_peer_entry *peer)
 
     peer->hs = (dmp_hs *)calloc(1U, dmp_hs_size());
     if (peer->hs == NULL) return false;
+    log_peer_setup_stage("handshake_storage_allocated", started_us);
 
     struct dmp_hs_admission *adm = dmp_endpoint_handshake_admission(&g_endpoint);
     dmp_hs_status st = dmp_hs_init_shared(peer->hs, g_provider, &hs_cfg, &hs_ports, adm);
+    log_peer_setup_stage("handshake_init_returned", started_us);
     if (st != DMP_HS_OK) {
         ESP_LOGE(TAG, "dmp_hs_init_shared failed: %d", (int)st);
         return false;
@@ -932,6 +1094,7 @@ static bool setup_peer_handshake(qual_peer_entry *peer)
         ESP_LOGE(TAG, "dmp_hs_begin_episode failed");
         return false;
     }
+    log_peer_setup_stage("handshake_episode_started", started_us);
 
     peer->hs_tx = (dmp_hs_tx *)calloc(1U, dmp_hs_tx_size());
     if (peer->hs_tx == NULL) return false;
@@ -948,11 +1111,90 @@ static bool setup_peer_handshake(qual_peer_entry *peer)
     dmp_hs_tx_status tx_st = dmp_hs_tx_init(peer->hs_tx, peer->hs, &g_transport,
                                            &hs_tx_cfg, &peer->hs_lifetime,
                                            peer->hs_buffers);
+    log_peer_setup_stage("handshake_tx_init_returned", started_us);
     if (tx_st != DMP_HS_TX_ACCEPTED) {
         ESP_LOGE(TAG, "dmp_hs_tx_init failed: %d", (int)tx_st);
         return false;
     }
+
+    dmp_stream_config rx_config = {
+        .mode = DMP_STREAM_R,
+        .max_core_bytes = QUAL_DECODED_CORE_MTU_BYTES,
+        .partial_timeout_ms = (uint64_t)g_profile_config.frame_tx_ms +
+                              (g_profile_config.forward_delay_ms > g_profile_config.return_delay_ms
+                                   ? g_profile_config.forward_delay_ms
+                                   : g_profile_config.return_delay_ms) +
+                              g_profile_config.record_margin_ms
+    };
+    dmp_status rx_status = dmp_stream_init(
+        &peer->hs_rx_decoder, rx_config,
+        (dmp_buffer){ peer->hs_rx_bytes, sizeof(peer->hs_rx_bytes) },
+        (dmp_time_ms)(esp_timer_get_time() / 1000LL));
+    if (rx_status != DMP_OK) {
+        ESP_LOGE(TAG, "handshake receive stream init failed: %d", (int)rx_status);
+        return false;
+    }
+    peer->hs_rx_ready = true;
+    log_peer_setup_stage("handshake_stream_ready", started_us);
     return true;
+}
+
+static void rollback_peer_setup(qual_peer_entry *peer, uint32_t peer_idx,
+                                bool endpoint_peer_registered, bool esp_peer_added)
+{
+    dmp_time_ms now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
+
+    /* Slot zero is the endpoint's configured initial peer. Keep that context
+     * intact so the same peer command can retry after a transient setup error. */
+    if (endpoint_peer_registered && peer_idx != 0U && peer->handle.generation != 0U) {
+        dmp_status revoke_status = dmp_endpoint_revoke_peer(&g_endpoint, peer->handle, now);
+        if (revoke_status != DMP_OK) {
+            ESP_LOGE(TAG, "endpoint peer rollback failed: %d", (int)revoke_status);
+        }
+    }
+
+    if (peer->hs != NULL) {
+        /* Cleanup is safe for a zeroed or partially initialized handshake and
+         * wipes provider-owned state before the storage is released. */
+        dmp_hs_cleanup(peer->hs);
+        free(peer->hs);
+    }
+    free(peer->hs_tx);
+
+    if (esp_peer_added) {
+        esp_err_t delete_status = esp_now_del_peer(peer->mac);
+        if (delete_status != ESP_OK) {
+            ESP_LOGW(TAG, "ESP-NOW peer rollback failed: %s", esp_err_to_name(delete_status));
+        }
+    }
+    memset(peer, 0, sizeof *peer);
+}
+
+static void trigger_handshake_sync(qual_peer_entry *peer)
+{
+    char session[QUAL_SESSION_BYTES * 2U + 1U];
+    char peer_mac[18];
+    dmp_tx_token token = {0};
+    format_session(session);
+    format_mac(peer->mac, peer_mac);
+
+    if (peer->hs_sync_requested) {
+        printf("{\"event\":\"handshake_stream_sync_failed\",\"session\":\"%s\","
+               "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"reason\":\"already-requested\"}\n",
+               session, peer_mac, (unsigned)peer->handle.slot);
+        return;
+    }
+    dmp_hs_tx_status status = dmp_hs_tx_sync(peer->hs_tx, peer->handle, &token);
+    if (status != DMP_HS_TX_ACCEPTED) {
+        printf("{\"event\":\"handshake_stream_sync_failed\",\"session\":\"%s\","
+               "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"status\":%d}\n",
+               session, peer_mac, (unsigned)peer->handle.slot, (int)status);
+        return;
+    }
+    peer->hs_sync_requested = true;
+    printf("{\"event\":\"handshake_stream_sync_submitted\",\"session\":\"%s\","
+           "\"peer_mac\":\"%s\",\"peer_handle\":%u}\n",
+           session, peer_mac, (unsigned)peer->handle.slot);
 }
 
 static void trigger_handshake(qual_peer_entry *peer)
@@ -961,6 +1203,10 @@ static void trigger_handshake(qual_peer_entry *peer)
     char peer_mac[18];
     format_session(session);
     format_mac(peer->mac, peer_mac);
+
+    printf("{\"event\":\"handshake_schedule_started\",\"session\":\"%s\","
+           "\"peer_mac\":\"%s\",\"peer_handle\":%u}\n",
+           session, peer_mac, (unsigned)peer->handle.slot);
 
     if (peer->handshake_poll_failed) {
         printf("{\"event\":\"handshake_failed\",\"session\":\"%s\",\"peer_mac\":\"%s\","
@@ -971,6 +1217,9 @@ static void trigger_handshake(qual_peer_entry *peer)
 
     dmp_time_ms now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
     dmp_hs_status st = dmp_hs_schedule(peer->hs, &peer->attempt_index);
+    printf("{\"event\":\"handshake_schedule_done\",\"session\":\"%s\","
+           "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"status\":%d}\n",
+           session, peer_mac, (unsigned)peer->handle.slot, (int)st);
     if (st != DMP_HS_OK) {
         printf("{\"event\":\"handshake_failed\",\"session\":\"%s\",\"peer_mac\":\"%s\","
                "\"reason\":\"schedule-failed\",\"status\":%d}\n",
@@ -979,9 +1228,15 @@ static void trigger_handshake(qual_peer_entry *peer)
     }
 
     dmp_tx_token token = {0};
+    printf("{\"event\":\"handshake_submit_started\",\"session\":\"%s\","
+           "\"peer_mac\":\"%s\",\"peer_handle\":%u}\n",
+           session, peer_mac, (unsigned)peer->handle.slot);
     dmp_hs_tx_status tx_st = dmp_hs_tx_submit(peer->hs_tx, peer->attempt_index,
                                              DMP_HS_TX_CACHED_FLIGHT,
                                              peer->handle, 0U, now, &token);
+    printf("{\"event\":\"handshake_submit_done\",\"session\":\"%s\","
+           "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"status\":%d}\n",
+           session, peer_mac, (unsigned)peer->handle.slot, (int)tx_st);
     if (tx_st != DMP_HS_TX_ACCEPTED) {
         printf("{\"event\":\"handshake_failed\",\"session\":\"%s\",\"peer_mac\":\"%s\","
                "\"reason\":\"m1-submit-failed\",\"status\":%d}\n",
@@ -992,6 +1247,55 @@ static void trigger_handshake(qual_peer_entry *peer)
     peer->pending_hs_submit = true;
     printf("{\"event\":\"handshake_started\",\"session\":\"%s\",\"peer_mac\":\"%s\","
            "\"peer_handle\":%u}\n", session, peer_mac, (unsigned)peer->handle.slot);
+}
+
+static bool activate_authenticated_peer(qual_peer_entry *peer, uint32_t attempt_index)
+{
+    const uint32_t permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT |
+                            DMP_ENDPOINT_PERMIT_TELEM | DMP_ENDPOINT_PERMIT_CONTROL;
+    dmp_endpoint_grant grants[4] = {
+        { g_state.local_node_id, QUAL_SERVICE_DATA, permit },
+        { peer->node_id, QUAL_SERVICE_DATA, permit },
+        { g_state.local_node_id, QUAL_SERVICE_SAMPLE1, permit },
+        { peer->node_id, QUAL_SERVICE_SAMPLE1, permit },
+    };
+    char session[QUAL_SESSION_BYTES * 2U + 1U];
+    char peer_mac[18];
+    dmp_time_ms now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
+    dmp_status endpoint_status = dmp_endpoint_bind_peer(
+        &g_endpoint, peer->handle, peer->hs, attempt_index);
+    dmp_sample1_owner_result sample_status = DMP_SAMPLE1_OWNER_OK;
+
+    if (endpoint_status == DMP_OK) {
+        endpoint_status = dmp_endpoint_set_peer_grants(
+            &g_endpoint, peer->handle, grants, sizeof grants / sizeof grants[0]);
+    }
+    if (endpoint_status == DMP_OK && g_sample1_active) {
+        sample_status = dmp_sample1_endpoint_activate_peer(
+            &g_sample_endpoint, peer->handle);
+    }
+
+    format_session(session);
+    format_mac(peer->mac, peer_mac);
+    if (endpoint_status != DMP_OK || sample_status != DMP_SAMPLE1_OWNER_OK) {
+        peer->handshake_activation_failed = true;
+        dmp_status revoke_status = dmp_endpoint_revoke_peer(
+            &g_endpoint, peer->handle, now);
+        printf("{\"event\":\"handshake_failed\",\"session\":\"%s\","
+               "\"peer_mac\":\"%s\",\"peer_handle\":%u,"
+               "\"reason\":\"endpoint-activation-failed\","
+               "\"endpoint_status\":%d,\"sample_status\":%d,"
+               "\"revoke_status\":%d}\n",
+               session, peer_mac, (unsigned)peer->handle.slot,
+               (int)endpoint_status, (int)sample_status, (int)revoke_status);
+        return false;
+    }
+
+    peer->handshake_done = true;
+    printf("{\"event\":\"handshake_done\",\"session\":\"%s\","
+           "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"status\":\"success\"}\n",
+           session, peer_mac, (unsigned)peer->handle.slot);
+    return true;
 }
 
 static void handle_rx_packet(const qual_wifi_event *event)
@@ -1022,24 +1326,28 @@ static void handle_rx_packet(const qual_wifi_event *event)
     }
     ++g_state.stats_rx_frames;
 
-    /* The active profile is Stream R. Decode only for handshake dispatch and
-     * the isolated raw v2 capability probe; the endpoint receives the original
-     * encoded frame and owns normal Stream R state/reassembly. */
-    dmp_stream_decoder decoder;
-    uint8_t decoded_storage[QUAL_DECODED_CORE_MTU_BYTES + 32U];
-    dmp_stream_config stream_config = {
-        .mode = DMP_STREAM_R,
-        .max_core_bytes = QUAL_DECODED_CORE_MTU_BYTES,
-        .partial_timeout_ms = 1000U
-    };
-    if (dmp_stream_init(&decoder, stream_config,
-                        (dmp_buffer){ decoded_storage, sizeof(decoded_storage) }, now) != DMP_OK) {
+    /* Keep a decoder per peer because ESP-NOW reports each datagram separately,
+     * while Stream R synchronization and candidate state span submissions. */
+    if (!peer->hs_rx_ready) {
         printf("{\"event\":\"rx_rejected\",\"session\":\"%s\",\"src_mac\":\"%s\","
-               "\"reason\":\"stream-decoder-init-failed\"}\n", session, src_mac);
+               "\"reason\":\"handshake-stream-not-initialized\"}\n", session, src_mac);
         return;
     }
     dmp_stream_result stream_result = dmp_stream_feed(
-        &decoder, (dmp_bytes){ event->bytes, event->length }, now);
+        &peer->hs_rx_decoder, (dmp_bytes){ event->bytes, event->length }, now);
+    if (!peer->handshake_done) {
+        printf("{\"event\":\"handshake_rx_datagram\",\"session\":\"%s\","
+               "\"src_mac\":\"%s\",\"bytes\":%u,\"stream_event\":%d}\n",
+               session, src_mac, (unsigned)event->length, (int)stream_result.event);
+    }
+    if (event->length == 1U && event->bytes[0] == 0U) {
+        /* The endpoint and handshake adapter own separate Stream R decoders. */
+        (void)dmp_endpoint_rx_from(&g_endpoint, peer->handle,
+                                   (dmp_bytes){ event->bytes, event->length }, now);
+    }
+    if (stream_result.event == DMP_STREAM_NONE) {
+        return;
+    }
     if (stream_result.event != DMP_STREAM_FRAME) {
         printf("{\"event\":\"rx_rejected\",\"session\":\"%s\",\"src_mac\":\"%s\","
                "\"reason\":\"incomplete-or-invalid-stream-r-frame\",\"bytes\":%u}\n",
@@ -1059,23 +1367,41 @@ static void handle_rx_packet(const qual_wifi_event *event)
         return;
     }
 
-    if (parse_res.status == DMP_OK && view.fields.type == DMP_TYPE_HELLO) {
+    dmp_qual_handshake_frame_kind handshake_frame =
+        dmp_qual_classify_handshake_frame(&view);
+    if (handshake_frame == DMP_QUAL_FRAME_BOOTSTRAP) {
         /* Handshake M1 or M2 */
         dmp_hs_ingress ingress;
         dmp_hs_completion completion;
+        dmp_qual_bootstrap_context wire_context;
         memset(&ingress, 0, sizeof ingress);
         ingress.payload = view.payload.data;
         ingress.payload_len = view.payload.size;
-        ingress.origin_id = peer->node_id;
+        if (dmp_qual_parse_bootstrap_context(&view, &wire_context) != DMP_OK) {
+            printf("{\"event\":\"handshake_bootstrap_context_rejected\","
+                   "\"session\":\"%s\",\"src_mac\":\"%s\","
+                   "\"sequence\":%u}\n",
+                   session, src_mac, (unsigned)view.fields.seq);
+            return;
+        }
+        ingress.origin_id = wire_context.origin_id;
         ingress.destination_id = g_state.local_node_id;
-        ingress.namespace_id = TEST_ONLY_NAMESPACE_ID;
-        ingress.context_epoch = 1U;
+        ingress.namespace_id = wire_context.namespace_id;
+        ingress.context_epoch = wire_context.provisional_epoch;
         ingress.seq = view.fields.seq;
 
-        dmp_hs_status hst = dmp_hs_offer(peer->hs, &ingress, &completion);
+        dmp_hs_status offer_status = dmp_hs_offer(peer->hs, &ingress, &completion);
+        dmp_hs_status hst = offer_status;
         if (hst == DMP_HS_AWAITING) {
             hst = dmp_hs_accept(peer->hs, &completion);
         }
+        printf("{\"event\":\"handshake_ingress_result\",\"session\":\"%s\","
+               "\"src_mac\":\"%s\",\"role\":%u,\"sequence\":%u,"
+               "\"context_epoch\":%" PRIu64 ",\"payload_bytes\":%u,"
+               "\"offer_status\":%d,\"final_status\":%d}\n",
+               session, src_mac, (unsigned)g_state.role, (unsigned)ingress.seq,
+               ingress.context_epoch, (unsigned)ingress.payload_len,
+               (int)offer_status, (int)hst);
 
         if (hst == DMP_HS_CANDIDATE) {
             if (g_state.role == ROLE_PEER) {
@@ -1085,6 +1411,11 @@ static void handle_rx_packet(const qual_wifi_event *event)
                 dmp_hs_tx_status s = dmp_hs_tx_submit(peer->hs_tx, peer->resp_attempt_index,
                                                      DMP_HS_TX_CACHED_FLIGHT,
                                                      peer->handle, 0U, now, &token);
+                printf("{\"event\":\"handshake_response_submit\",\"session\":\"%s\","
+                       "\"peer_mac\":\"%s\",\"peer_handle\":%u,"
+                       "\"attempt_index\":%" PRIu32 ",\"status\":%d}\n",
+                       session, src_mac, (unsigned)peer->handle.slot,
+                       peer->resp_attempt_index, (int)s);
                 if (s == DMP_HS_TX_ACCEPTED) {
                     peer->pending_hs_token = token;
                     peer->pending_hs_submit = true;
@@ -1106,8 +1437,9 @@ static void handle_rx_packet(const qual_wifi_event *event)
         return;
     }
 
-    if (!peer->handshake_done) {
-        /* Check for FINISH or READY during handshake */
+    if (handshake_frame == DMP_QUAL_FRAME_PROTECTED_HELLO) {
+        /* FINISH/READY are protected HELLO frames. Keep routing duplicates
+         * through SEC-1 after activation so fresh-PN retries can be answered. */
         dmp_hs_protected incoming;
         memset(&incoming, 0, sizeof incoming);
         incoming.frame = stream_result.frame.data;
@@ -1115,47 +1447,59 @@ static void handle_rx_packet(const qual_wifi_event *event)
         incoming.origin_id = peer->node_id;
         incoming.destination_id = g_state.local_node_id;
         incoming.namespace_id = TEST_ONLY_NAMESPACE_ID;
-        incoming.context_epoch = 1U;
+        uint32_t attempt_index = g_state.role == ROLE_CONTROLLER
+                                     ? peer->attempt_index
+                                     : peer->resp_attempt_index;
+        uint64_t initiator_epoch = 0U;
+        uint64_t responder_epoch = 0U;
+        if (!dmp_hs_epochs(peer->hs, attempt_index, &initiator_epoch, &responder_epoch)) {
+            printf("{\"event\":\"handshake_protected_context_failed\","
+                   "\"session\":\"%s\",\"src_mac\":\"%s\","
+                   "\"peer_handle\":%u,\"attempt_index\":%" PRIu32 "}\n",
+                   session, src_mac, (unsigned)peer->handle.slot, attempt_index);
+            return;
+        }
+        incoming.context_epoch = g_state.role == ROLE_CONTROLLER
+                                     ? responder_epoch
+                                     : initiator_epoch;
 
-        if (dmp_hs_offer_protected(peer->hs, &incoming) == DMP_HS_OK) {
+        dmp_hs_status protected_status = dmp_hs_offer_protected(peer->hs, &incoming);
+        if (protected_status == DMP_HS_OK) {
             if (g_state.role == ROLE_PEER) {
                 /* Responder received FINISH -> send READY */
                 dmp_tx_token token = {0};
                 dmp_hs_tx_status s = dmp_hs_tx_submit(peer->hs_tx, peer->resp_attempt_index,
                                                      DMP_HS_TX_PROTECTED_FRAME,
                                                      peer->handle, 0U, now, &token);
+                printf("{\"event\":\"handshake_ready_submit\",\"session\":\"%s\","
+                       "\"peer_mac\":\"%s\",\"peer_handle\":%u,"
+                       "\"attempt_index\":%" PRIu32 ",\"accepted\":%s,"
+                       "\"status\":%d,\"status_name\":\"%s\"}\n",
+                       session, src_mac, (unsigned)peer->handle.slot,
+                       peer->resp_attempt_index,
+                       s == DMP_HS_TX_ACCEPTED ? "true" : "false", (int)s,
+                       hs_tx_status_name(s));
                 if (s == DMP_HS_TX_ACCEPTED) {
                     peer->pending_hs_token = token;
                     peer->pending_hs_submit = true;
+                    peer->handshake_tx_ready = true;
                 }
+            } else if (g_state.role == ROLE_CONTROLLER) {
+                /* A valid protected READY is the initiator's confirmation. */
+                peer->handshake_tx_ready = true;
             }
-            if (dmp_hs_association_active(peer->hs)) {
-                peer->handshake_done = true;
+            if (!peer->handshake_done && !peer->handshake_activation_failed &&
+                dmp_hs_association_active(peer->hs)) {
                 uint32_t active_idx = (g_state.role == ROLE_CONTROLLER) ? peer->attempt_index
                                                                        : peer->resp_attempt_index;
-                dmp_status bst = dmp_endpoint_bind_peer(&g_endpoint, peer->handle, peer->hs, active_idx);
-                if (bst == DMP_OK) {
-                    dmp_endpoint_grant grants[2];
-                    grants[0].principal = peer->node_id;
-                    grants[0].service_id = QUAL_SERVICE_DATA;
-                    grants[0].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT |
-                                       DMP_ENDPOINT_PERMIT_TELEM | DMP_ENDPOINT_PERMIT_CONTROL;
-                    grants[1].principal = peer->node_id;
-                    grants[1].service_id = QUAL_SERVICE_SAMPLE1;
-                    grants[1].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT |
-                                       DMP_ENDPOINT_PERMIT_TELEM | DMP_ENDPOINT_PERMIT_CONTROL;
-                    (void)dmp_endpoint_set_peer_grants(&g_endpoint, peer->handle, grants, 2U);
-                    if (g_sample1_active) {
-                        (void)dmp_sample1_endpoint_activate_peer(&g_sample_endpoint, peer->handle);
-                    }
-
-                    printf("{\"event\":\"handshake_done\",\"session\":\"%s\",\"peer_mac\":\"%s\","
-                           "\"peer_handle\":%u,\"status\":\"success\"}\n",
-                           session, src_mac, (unsigned)peer->handle.slot);
-                }
+                (void)activate_authenticated_peer(peer, active_idx);
             }
-            return;
         }
+        return;
+    }
+
+    if (!peer->handshake_done) {
+        return;
     }
 
     static const uint8_t probe_magic[8] = { 'D', 'M', 'P', 'V', '2', 'P', 'R', 'B' };
@@ -1176,7 +1520,7 @@ static void handle_rx_packet(const qual_wifi_event *event)
                                (dmp_bytes){ event->bytes, event->length }, now);
 }
 
-static void handle_tx_done(const qual_wifi_event *event)
+static void handle_tx_done(const dmp_qual_tx_completion_event *event)
 {
     char session[QUAL_SESSION_BYTES * 2U + 1U];
     char peer_mac[18];
@@ -1192,7 +1536,7 @@ static void handle_tx_done(const qual_wifi_event *event)
     g_state.tx_live = false;
     g_state.current_tx_probe = false;
     ++g_state.stats_tx_frames;
-    const bool ok = (event->send_status == ESP_NOW_SEND_SUCCESS);
+    const bool ok = (event->status == (int)ESP_NOW_SEND_SUCCESS);
     if (ok) {
         ++g_state.stats_tx_ok;
     } else {
@@ -1209,12 +1553,14 @@ static void handle_tx_done(const qual_wifi_event *event)
         return;
     }
     printf("{\"event\":\"tx_done\",\"session\":\"%s\",\"peer_mac\":\"%s\","
-           "\"peer_handle\":%u,\"frame_bytes\":%u,\"status\":\"%s\"}\n",
+           "\"peer_handle\":%u,\"frame_bytes\":%u,\"status\":\"%s\","
+           "\"transport_outcome\":\"%s\"}\n",
            session, peer_mac, (unsigned)g_state.current_tx_peer_idx,
-           (unsigned)g_state.current_tx_len, ok ? "success" : "failed");
+           (unsigned)g_state.current_tx_len, ok ? "success" : "failed",
+           ok ? "transmitted" : "possibly-transmitted");
 
     dmp_time_ms now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
-    dmp_tx_outcome outcome = ok ? DMP_TX_TRANSMITTED : DMP_TX_FAILED_UNSENT;
+    dmp_tx_outcome outcome = dmp_qual_espnow_tx_outcome(ok);
 
     if (g_state.current_tx_complete != NULL) {
         dmp_tx_complete_fn fn = g_state.current_tx_complete;
@@ -1229,31 +1575,24 @@ static void handle_tx_done(const qual_wifi_event *event)
         if (g_state.peers[i].hs_tx != NULL) {
             dmp_hs_tx_result res;
             while (dmp_hs_tx_take(g_state.peers[i].hs_tx, &res) == DMP_HS_TX_ACCEPTED) {
+                if (res.synchronization) {
+                    char sync_peer_mac[18];
+                    format_mac(g_state.peers[i].mac, sync_peer_mac);
+                    printf("{\"event\":\"handshake_stream_sync_done\",\"session\":\"%s\","
+                           "\"peer_mac\":\"%s\",\"peer_handle\":%u,\"status\":\"%s\"}\n",
+                           session, sync_peer_mac,
+                           (unsigned)g_state.peers[i].handle.slot,
+                           res.outcome == DMP_TX_TRANSMITTED ? "success" : "failed");
+                    continue;
+                }
                 if (g_state.peers[i].in_use && !g_state.peers[i].handshake_poll_failed &&
                     dmp_hs_association_active(g_state.peers[i].hs) &&
-                    !g_state.peers[i].handshake_done) {
-                    g_state.peers[i].handshake_done = true;
+                    !g_state.peers[i].handshake_done &&
+                    !g_state.peers[i].handshake_activation_failed) {
                     uint32_t active_idx = (g_state.role == ROLE_CONTROLLER)
                                               ? g_state.peers[i].attempt_index
                                               : g_state.peers[i].resp_attempt_index;
-                    (void)dmp_endpoint_bind_peer(&g_endpoint, g_state.peers[i].handle,
-                                                g_state.peers[i].hs, active_idx);
-                    dmp_endpoint_grant grants[2];
-                    grants[0].principal = g_state.peers[i].node_id;
-                    grants[0].service_id = QUAL_SERVICE_DATA;
-                    grants[0].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT |
-                                       DMP_ENDPOINT_PERMIT_TELEM | DMP_ENDPOINT_PERMIT_CONTROL;
-                    grants[1].principal = g_state.peers[i].node_id;
-                    grants[1].service_id = QUAL_SERVICE_SAMPLE1;
-                    grants[1].permit = DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT |
-                                       DMP_ENDPOINT_PERMIT_TELEM | DMP_ENDPOINT_PERMIT_CONTROL;
-                    (void)dmp_endpoint_set_peer_grants(&g_endpoint, g_state.peers[i].handle, grants, 2U);
-                    if (g_sample1_active) {
-                        (void)dmp_sample1_endpoint_activate_peer(&g_sample_endpoint, g_state.peers[i].handle);
-                    }
-                    printf("{\"event\":\"handshake_done\",\"session\":\"%s\",\"peer_mac\":\"%s\","
-                           "\"peer_handle\":%u,\"status\":\"success\"}\n",
-                           session, peer_mac, (unsigned)g_state.peers[i].handle.slot);
+                    (void)activate_authenticated_peer(&g_state.peers[i], active_idx);
                 }
             }
         }
@@ -1283,6 +1622,19 @@ static void trigger_service2_transfer(uint32_t peer_idx, size_t bytes)
                "\"reason\":\"unauthenticated-peer\"}\n", session, (unsigned)peer_idx);
         return;
     }
+    if (!g_state.peers[peer_idx].handshake_tx_ready) {
+        printf("{\"event\":\"transfer_failed\",\"session\":\"%s\",\"peer_handle\":%u,"
+               "\"reason\":\"confirmation-not-ready\"}\n",
+               session, (unsigned)peer_idx);
+        return;
+    }
+    uint32_t chunk_bytes = g_profile_config.chunk_bytes;
+    if (chunk_bytes == 0U) {
+        printf("{\"event\":\"transfer_failed\",\"session\":\"%s\",\"peer_handle\":%u,"
+               "\"reason\":\"profile-chunk-size-unavailable\"}\n",
+               session, (unsigned)peer_idx);
+        return;
+    }
 
     /* Initialize deterministic test pattern */
     for (size_t i = 0; i < bytes; ++i) {
@@ -1301,11 +1653,11 @@ static void trigger_service2_transfer(uint32_t peer_idx, size_t bytes)
         return;
     }
 
-    uint32_t fragments = (uint32_t)((bytes + QUAL_CHUNK_BYTES - 1U) / QUAL_CHUNK_BYTES);
+    uint32_t fragments = (uint32_t)((bytes + chunk_bytes - 1U) / chunk_bytes);
     printf("{\"event\":\"transfer_started\",\"session\":\"%s\",\"peer_handle\":%u,"
-           "\"peer_mac\":\"%s\",\"bytes\":%u,\"chunk_bytes\":%u,\"fragments\":%" PRIu32 ","
+           "\"peer_mac\":\"%s\",\"bytes\":%u,\"chunk_bytes\":%" PRIu32 ",\"fragments\":%" PRIu32 ","
            "\"sender_ack_required\":false,\"delivery_evidence\":\"receiver-rx_assembled\"}\n",
-           session, (unsigned)peer_idx, peer_mac, (unsigned)bytes, QUAL_CHUNK_BYTES, fragments);
+           session, (unsigned)peer_idx, peer_mac, (unsigned)bytes, chunk_bytes, fragments);
 }
 
 static void trigger_v2_frame(uint32_t peer_idx)
@@ -1323,6 +1675,11 @@ static void trigger_v2_frame(uint32_t peer_idx)
         return;
     }
     qual_peer_entry *peer = &g_state.peers[peer_idx];
+    if (!peer->handshake_done || !peer->handshake_tx_ready) {
+        printf("{\"event\":\"v2_frame_failed\",\"session\":\"%s\","
+               "\"reason\":\"confirmation-not-ready\"}\n", session);
+        return;
+    }
 
     /* Build a valid 256-byte Core frame: 2-byte header + 254-byte payload */
     uint8_t core_buf[QUAL_DECODED_CORE_MTU_BYTES];
@@ -1542,13 +1899,19 @@ static void handle_command(const char *line)
             }
         }
         qual_peer_entry *peer = &g_state.peers[peer_idx];
+        uint64_t peer_setup_started_us = (uint64_t)esp_timer_get_time();
+        log_peer_setup_stage("peer_setup_begin", peer_setup_started_us);
         memcpy(peer->mac, mac, 6);
         peer->node_id = expected_node_id;
         peer->in_use = true;
         peer->handshake_done = false;
+        peer->handshake_tx_ready = false;
+        peer->handshake_poll_failed = false;
+        peer->handshake_activation_failed = false;
 
         /* Register in ESP-NOW driver */
         esp_now_peer_info_t esp_peer;
+        bool esp_peer_added = false;
         memset(&esp_peer, 0, sizeof esp_peer);
         memcpy(esp_peer.peer_addr, mac, 6);
         esp_peer.channel = QUAL_CHANNEL;
@@ -1556,7 +1919,9 @@ static void handle_command(const char *line)
         esp_peer.encrypt = false;
         if (!esp_now_is_peer_exist(mac)) {
             ESP_ERROR_CHECK(esp_now_add_peer(&esp_peer));
+            esp_peer_added = true;
         }
+        log_peer_setup_stage("esp_now_peer_ready", peer_setup_started_us);
 
         /* Register in DMP endpoint */
         dmp_identity_context_config ctx;
@@ -1567,9 +1932,24 @@ static void handle_command(const char *line)
         ctx.peer.origin_id = peer->node_id;
         ctx.security = 1U;
         dmp_time_ms now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
-        dmp_peer_handle out_handle = {0};
-        dmp_status ast = dmp_endpoint_add_peer(&g_endpoint, &ctx, now, &out_handle);
+        dmp_peer_handle out_handle = {0U, 0U};
+        dmp_status ast = DMP_OK;
+        if (peer_idx == 0U) {
+            /* dmp_endpoint_init installs the configured initial context in
+             * slot zero. The add_peer API is only for additional peers and
+             * correctly rejects endpoints whose configured capacity is one. */
+            if (g_endpoint.peers == NULL || g_endpoint.peer_count == 0U ||
+                g_endpoint.peers[0].live == 0U) {
+                ast = DMP_INVALID_ARGUMENT;
+            } else {
+                out_handle = g_endpoint.peers[0].handle;
+            }
+        } else {
+            ast = dmp_endpoint_add_peer(&g_endpoint, &ctx, now, &out_handle);
+        }
+        log_peer_setup_stage("endpoint_peer_add_returned", peer_setup_started_us);
         if (ast != DMP_OK) {
+            rollback_peer_setup(peer, peer_idx, false, esp_peer_added);
             printf("{\"event\":\"command_rejected\",\"reason\":\"endpoint-add-peer-failed\","
                    "\"status\":%d}\n", (int)ast);
             return;
@@ -1577,17 +1957,35 @@ static void handle_command(const char *line)
         peer->handle = out_handle;
 
         /* Setup handshake structures for peer */
-        if (!setup_peer_handshake(peer)) {
+        bool handshake_setup_ok = setup_peer_handshake(peer);
+        log_peer_setup_stage("handshake_setup_returned", peer_setup_started_us);
+        if (!handshake_setup_ok) {
+            rollback_peer_setup(peer, peer_idx, peer_idx != 0U, esp_peer_added);
             printf("{\"event\":\"command_rejected\",\"reason\":\"handshake-setup-failed\"}\n");
             return;
         }
 
         ++g_state.peer_count;
+        log_peer_setup_stage("peer_count_incremented", peer_setup_started_us);
+        log_peer_setup_stage("peer_added_emit_begin", peer_setup_started_us);
         printf("{\"event\":\"peer_added\",\"session\":\"%s\",\"peer_mac\":\"%s\","
                "\"node_id\":%" PRIu32 ",\"peer_handle\":%u,\"peer_count\":%" PRIu32 "}\n",
                session, arg1, peer->node_id, (unsigned)peer->handle.slot, g_state.peer_count);
+        log_peer_setup_stage("peer_added_emit_returned", peer_setup_started_us);
     } else if (strcmp(line, "NVS_CHECK") == 0) {
         execute_nvs_check();
+    } else if (strncmp(line, "HS_SYNC ", 8U) == 0) {
+        unsigned int h = 0U;
+        if (sscanf(line, "HS_SYNC %u %c", &h, &extra) != 1) {
+            printf("{\"event\":\"command_rejected\",\"reason\":\"handshake-stream-sync-usage\"}\n");
+            return;
+        }
+        if (h >= g_state.peer_count || !g_state.peers[h].in_use ||
+            g_state.peers[h].hs_tx == NULL) {
+            printf("{\"event\":\"command_rejected\",\"reason\":\"invalid-peer-handle\"}\n");
+            return;
+        }
+        trigger_handshake_sync(&g_state.peers[h]);
     } else if (strncmp(line, "HANDSHAKE ", 10U) == 0) {
         unsigned int h = 0;
         if (sscanf(line, "HANDSHAKE %u %c", &h, &extra) != 1) {
@@ -1598,6 +1996,8 @@ static void handle_command(const char *line)
             printf("{\"event\":\"command_rejected\",\"reason\":\"invalid-peer-handle\"}\n");
             return;
         }
+        printf("{\"event\":\"handshake_command_received\",\"session\":\"%s\","
+               "\"peer_handle\":%u}\n", session, h);
         trigger_handshake(&g_state.peers[h]);
     } else if (strncmp(line, "TRANSFER ", 9U) == 0) {
         unsigned int h = 0;
@@ -1621,7 +2021,8 @@ static void handle_command(const char *line)
             printf("{\"event\":\"command_rejected\",\"reason\":\"invalid-peer-handle\"}\n");
             return;
         }
-        if (g_state.role != ROLE_PEER || !g_state.peers[h].handshake_done) {
+        if (g_state.role != ROLE_PEER || !g_state.peers[h].handshake_done ||
+            !g_state.peers[h].handshake_tx_ready) {
             printf("{\"event\":\"command_rejected\",\"reason\":\"sample-read-requires-active-reader\"}\n");
             return;
         }
@@ -1661,6 +2062,10 @@ static void handle_command(const char *line)
                g_state.stats_assembled_transfers,
                (unsigned)g_state.max_observed_rx_frame_bytes,
                (unsigned)g_state.max_observed_tx_frame_bytes);
+    } else if (strcmp(line, "CORE_DUMP_TEST") == 0) {
+        printf("{\"event\":\"core_dump_test\",\"action\":\"intentional-abort\"}\n");
+        (void)fflush(stdout);
+        abort();
     } else {
         printf("{\"event\":\"command_rejected\",\"reason\":\"unknown-command\"}\n");
     }
@@ -1671,6 +2076,11 @@ void app_main(void)
     wifi_init_config_t wifi_config = WIFI_INIT_CONFIG_DEFAULT();
     qual_command_message command;
     qual_wifi_event event;
+    dmp_qual_tx_completion_event tx_event;
+    dmp_time_ms last_rx_callback_diag_ms = 0U;
+    uint32_t last_rx_callback_count = 0U;
+    uint32_t last_rx_callback_queue_drops = 0U;
+    uint32_t last_tx_callback_duplicates = 0U;
 
     (void)setvbuf(stdout, NULL, _IONBF, 0);
     memset(&g_state, 0, sizeof g_state);
@@ -1730,12 +2140,31 @@ void app_main(void)
 
     for (;;) {
         dmp_time_ms now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
+        bool tx_event_pending;
+        uint32_t tx_callback_duplicates;
+
+        portENTER_CRITICAL(&g_callback_diag_mux);
+        tx_event_pending = dmp_qual_tx_completion_take(&g_tx_completion, &tx_event);
+        tx_callback_duplicates = g_tx_callback_duplicates;
+        portEXIT_CRITICAL(&g_callback_diag_mux);
+
+        if (tx_event_pending) {
+            handle_tx_done(&tx_event);
+        }
+        if (tx_callback_duplicates != last_tx_callback_duplicates) {
+            char session[QUAL_SESSION_BYTES * 2U + 1U];
+            format_session(session);
+            printf("{\"event\":\"error\",\"session\":\"%s\","
+                   "\"status\":\"fail_closed\","
+                   "\"reason\":\"duplicate-espnow-send-callback\","
+                   "\"callbacks\":%" PRIu32 "}\n",
+                   session, tx_callback_duplicates);
+            last_tx_callback_duplicates = tx_callback_duplicates;
+        }
 
         /* Process WiFi event */
         if (xQueueReceive(g_wifi_events, &event, pdMS_TO_TICKS(10)) == pdTRUE) {
-            if (event.kind == EVENT_TX_DONE) {
-                handle_tx_done(&event);
-            } else if (event.kind == EVENT_RX_OVERSIZE) {
+            if (event.kind == EVENT_RX_OVERSIZE) {
                 printf("{\"event\":\"rx_rejected\",\"reason\":\"oversize-espnow-payload\","
                        "\"bytes\":%u,\"v1_limit\":%u,\"v2_limit\":%u}\n",
                        (unsigned)event.length, QUAL_ESPNOW_V1_PAYLOAD_MTU_BYTES,
@@ -1747,11 +2176,36 @@ void app_main(void)
 
         /* Process console command */
         if (xQueueReceive(g_commands, &command, 0U) == pdTRUE) {
+            printf("{\"event\":\"console_command_dispatch\",\"line_bytes\":%u}\n",
+                   (unsigned)strlen(command.line));
             handle_command(command.line);
         }
 
         /* Refresh monotonic now after queue wait */
         now = (dmp_time_ms)(esp_timer_get_time() / 1000LL);
+
+        /* Distinguish an RF receive callback from a dropped qualification
+         * event without printing from the high-priority Wi-Fi callback. */
+        if (now - last_rx_callback_diag_ms >= 1000U) {
+            uint32_t callback_count;
+            uint32_t queue_drops;
+            portENTER_CRITICAL(&g_callback_diag_mux);
+            callback_count = g_rx_callback_count;
+            queue_drops = g_rx_callback_queue_drops;
+            portEXIT_CRITICAL(&g_callback_diag_mux);
+            if (callback_count != last_rx_callback_count ||
+                queue_drops != last_rx_callback_queue_drops) {
+                char session[QUAL_SESSION_BYTES * 2U + 1U];
+                format_session(session);
+                printf("{\"event\":\"rx_callback_stats\",\"session\":\"%s\","
+                       "\"callbacks\":%" PRIu32 ",\"queue_drops\":%" PRIu32 ","
+                       "\"handled_frames\":%" PRIu32 "}\n",
+                       session, callback_count, queue_drops, g_state.stats_rx_frames);
+                last_rx_callback_count = callback_count;
+                last_rx_callback_queue_drops = queue_drops;
+            }
+            last_rx_callback_diag_ms = now;
+        }
 
         /* Service handshake polling and TX expiry for all in-use peers */
         for (size_t i = 0; i < QUAL_MAX_PEERS; ++i) {

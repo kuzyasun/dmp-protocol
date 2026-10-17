@@ -3045,3 +3045,16 @@ DMP endpoint. Remaining P12/P01/P25 work is target and physical storage,
 reset, entropy, resource, and authenticated transport qualification on
 selected ESP32-S3 and ESP32-C3 hardware. ARM ABI and non-Espressif physical
 checks remain deferred.
+
+## 2026-10-17 — P15 SEC-1 authenticated header mutation matrix
+
+Added a primary C endpoint regression for SEC-1 S10 case 7. The existing `test_ttl` remains the positive TTL-only case. `test_protected_header_mutations` creates a real SEC-1 association for each negative case and mutates destination, SEQ, payload descriptor, service extension, CONTEXT epoch, receive CID, PN, ciphertext, and tag. Each changed frame is rejected with `DMP_AUTHENTICATION_FAILURE`; the unmodified frame at the same PN is then accepted and dispatched, proving the failed mutation did not consume replay state. The receiver grants service 2 telemetry explicitly for this fixture.
+
+Host build and test commands:
+
+```text
+cmake --build build/host --target dmp_test_endpoint_sec
+ctest --test-dir build/host --output-on-failure -R '^endpoint.security.(ttl|aad_mutations)$'
+```
+
+The targeted build succeeded and CTest passed 2/2 (`endpoint.security.ttl`, `endpoint.security.aad_mutations`). This is local Windows host evidence. A prior RBO attempt did not register `dmp_test_endpoint_sec` because that snapshot did not include the ignored pinned libsodium source tree required by `DMP_SODIUM_SOURCE_DIR`; it did not run the endpoint test. The overall normative row remains `partial` because the P23 interop sub-result is still partial; only `primary_result` is now `passed`.

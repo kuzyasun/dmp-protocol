@@ -7,7 +7,8 @@ Exercises:
 3. Monotonic SAMPLE-1 NVS epoch store and reservation check.
 4. Real production SEC-1 Noise handshake establishment.
 5. Authenticated SAMPLE-1 initialization READ request/response.
-6. Authenticated Service-2 transfer up to 4096 bytes with 128-byte DMP fragments.
+6. Authenticated Service-2 transfer up to the retry-2 profile limit of 1024 bytes
+   with 64-byte DMP fragments.
 7. Verification that frames fit within ESP-NOW v1 bounds while explicitly
    reporting decoded Core MTU 256, Stream R MTU 263, ESP-NOW v1 250, and ESP-NOW v2 1470.
 """
@@ -33,13 +34,15 @@ from serial_dmp_common import (
     default_serial_factory,
     validate_nvs_check,
     validate_ready_event,
-    wait_for_handshake_result,
+    wait_for_handshake_start,
+    wait_for_handshake_pair,
 )
 
 DEFAULT_S3_PORT = "COM37"
 DEFAULT_C3_PORT = "COM36"
-DEFAULT_TRANSFER_BYTES = 4096
-CHUNK_BYTES = 128
+PAIR_PROFILE_MAX_TRANSFER_BYTES = 1024
+DEFAULT_TRANSFER_BYTES = PAIR_PROFILE_MAX_TRANSFER_BYTES
+CHUNK_BYTES = 64
 
 
 def validate_dmp_pair_events(
@@ -52,6 +55,11 @@ def validate_dmp_pair_events(
     """Validate authenticated pair evidence from S3 controller and C3 peer."""
     if not SESSION_PATTERN.match(session):
         raise DmpTestError(f"Session token must be 16 lowercase hex characters, got {session!r}")
+    if bytes_to_transfer <= 0 or bytes_to_transfer > PAIR_PROFILE_MAX_TRANSFER_BYTES:
+        raise DmpTestError(
+            "retry-2 pair profile supports Service-2 payloads from 1 through "
+            f"{PAIR_PROFILE_MAX_TRANSFER_BYTES} bytes"
+        )
 
     by_side: dict[str, list[dict[str, Any]]] = {"s3": [], "c3": []}
     for side, event in tagged_events:
@@ -129,6 +137,20 @@ def validate_dmp_pair_events(
     if not any(str(e.get("peer_mac", "")).lower() == s3_mac and e.get("node_id") == 10 for e in c3_peers):
         raise DmpTestError("C3 did not add S3 (node 10) as peer")
 
+    # Both the endpoint and handshake adapter use Stream R over the same
+    # packet transport. Require each handshake adapter's separate sync to be
+    # transmitted after both sides have registered the peer.
+    for side in ("s3", "c3"):
+        sync_events = [
+            e for e in by_side[side]
+            if e.get("event") == "handshake_stream_sync_done"
+            and e.get("session") == session
+            and e.get("status") == "success"
+            and e.get("peer_handle") == 0
+        ]
+        if not sync_events:
+            raise DmpTestError(f"{side.upper()} did not synchronize the handshake Stream R binding")
+
     # Validate NVS check on S3 producer
     s3_nvs = [e for e in by_side["s3"] if e.get("event") == "nvs_epoch_check"]
     if not s3_nvs:
@@ -149,10 +171,19 @@ def validate_dmp_pair_events(
     if not c3_hs_done or c3_hs_done[-1].get("status") != "success":
         raise DmpTestError("C3 did not complete handshake with status success")
 
+    c3_ready_submits = [e for e in by_side["c3"] if e.get("event") == "handshake_ready_submit"]
+    if not any(e.get("accepted") is True for e in c3_ready_submits):
+        raise DmpTestError("C3 did not accept protected READY transport submission")
+
     # Validate SAMPLE-1 read on C3 reader
     sample_submits = [e for e in by_side["c3"] if e.get("event") == "sample_read_submitted"]
-    if not sample_submits or sample_submits[-1].get("status") != 0:
-        raise DmpTestError("C3 reader did not successfully submit SAMPLE-1 READ request")
+    if not sample_submits:
+        raise DmpTestError("C3 reader did not submit SAMPLE-1 READ request")
+    if sample_submits[-1].get("status") != 0:
+        raise DmpTestError(
+            "C3 SAMPLE-1 READ submission failed with DMP status "
+            f"{sample_submits[-1].get('status')!r}"
+        )
 
     sample_results = [e for e in by_side["c3"] if e.get("event") == "rx_result" and e.get("service_id") == 1]
     if not sample_results or sample_results[-1].get("wire_status") != 0:
@@ -172,6 +203,8 @@ def validate_dmp_pair_events(
     for ev in s3_transfers_started:
         if ev.get("bytes") != bytes_to_transfer:
             raise DmpTestError(f"S3 did not report transfer_started for {bytes_to_transfer} bytes")
+        if ev.get("chunk_bytes") != CHUNK_BYTES or ev.get("fragments") != expected_fragments:
+            raise DmpTestError("S3 transfer geometry does not match the retry-2 profile")
 
     c3_assembled = [
         e for e in by_side["c3"]
@@ -185,6 +218,8 @@ def validate_dmp_pair_events(
     for ev in c3_assembled:
         if ev.get("bytes") != bytes_to_transfer:
             raise DmpTestError(f"C3 did not assemble Service-2 transfer of {bytes_to_transfer} bytes")
+        if ev.get("chunk_bytes") != CHUNK_BYTES:
+            raise DmpTestError("C3 assembly chunk size does not match the retry-2 profile")
         if ev.get("fragments") != expected_fragments:
             raise DmpTestError(
                 f"Fragment count mismatch on C3: expected {expected_fragments}, got {ev.get('fragments')}"
@@ -205,6 +240,8 @@ def validate_dmp_pair_events(
         for ev in c3_transfers_started:
             if ev.get("bytes") != bytes_to_transfer:
                 raise DmpTestError(f"C3 did not report transfer_started for {bytes_to_transfer} bytes")
+            if ev.get("chunk_bytes") != CHUNK_BYTES or ev.get("fragments") != expected_fragments:
+                raise DmpTestError("C3 transfer geometry does not match the retry-2 profile")
         if len(s3_assembled) != count:
             raise DmpTestError(
                 f"S3 rx_assembled count mismatch: got {len(s3_assembled)}, expected {count}"
@@ -212,6 +249,8 @@ def validate_dmp_pair_events(
         for ev in s3_assembled:
             if ev.get("bytes") != bytes_to_transfer:
                 raise DmpTestError(f"S3 did not assemble Service-2 transfer of {bytes_to_transfer} bytes")
+            if ev.get("chunk_bytes") != CHUNK_BYTES:
+                raise DmpTestError("S3 assembly chunk size does not match the retry-2 profile")
             if ev.get("fragments") != expected_fragments:
                 raise DmpTestError(
                     f"Fragment count mismatch on S3: expected {expected_fragments}, got {ev.get('fragments')}"
@@ -248,6 +287,10 @@ def validate_dmp_pair_events(
                 f"v2 frame received classification mismatch: expected 'raw-v2-capability-probe', got {ev.get('classification')!r}"
             )
 
+    v2_tx_done = [e for e in by_side["s3"] if e.get("event") == "v2_frame_tx_done"]
+    if not v2_tx_done or v2_tx_done[-1].get("status") != "success":
+        raise DmpTestError("S3 raw v2 capability probe did not complete its transport send")
+
     # Frame size validation
     tx_frames = [e for e in by_side["s3"] + by_side["c3"] if e.get("event") == "tx_done"]
     frame_bytes_list = [e.get("frame_bytes") for e in tx_frames if isinstance(e.get("frame_bytes"), int)]
@@ -275,6 +318,7 @@ def validate_dmp_pair_events(
         "handshake_scratch_slots": 1,
         "channel": s3_ready["channel"],
         "transfer_bytes": bytes_to_transfer,
+        "pair_profile_max_transfer_bytes": PAIR_PROFILE_MAX_TRANSFER_BYTES,
         "chunk_bytes": CHUNK_BYTES,
         "fragments": expected_fragments,
         "max_observed_frame_bytes": max_frame,
@@ -322,6 +366,11 @@ def run_dmp_pair(
         raise DmpTestError("Explicit C3 serial port is required")
     if s3_port.strip().lower() == c3_port.strip().lower():
         raise DmpTestError(f"S3 and C3 cannot use duplicate serial port {s3_port!r}")
+    if transfer_bytes <= 0 or transfer_bytes > PAIR_PROFILE_MAX_TRANSFER_BYTES:
+        raise DmpTestError(
+            "retry-2 pair profile supports Service-2 payloads from 1 through "
+            f"{PAIR_PROFILE_MAX_TRANSFER_BYTES} bytes"
+        )
 
     factory = serial_factory or default_serial_factory
     session = secrets.token_hex(8)
@@ -333,8 +382,12 @@ def run_dmp_pair(
     try:
         s3_raw = factory(s3_port, baudrate=115200, timeout=1.0)
         c3_raw = factory(c3_port, baudrate=115200, timeout=1.0)
-        s3_dev = SerialDeviceSession("s3", s3_port, s3_raw, ev_dir, cmd_log)
-        c3_dev = SerialDeviceSession("c3", c3_port, c3_raw, ev_dir, cmd_log)
+        s3_dev = SerialDeviceSession(
+            "s3", s3_port, s3_raw, ev_dir, cmd_log, expected_session=session
+        )
+        c3_dev = SerialDeviceSession(
+            "c3", c3_port, c3_raw, ev_dir, cmd_log, expected_session=session
+        )
 
         # 1. INFO: Verify target readiness and extract MAC addresses
         s3_dev.send_command("INFO")
@@ -396,18 +449,50 @@ def run_dmp_pair(
             desc="peer_added on C3",
         )
 
-        # 5. Handshake triggered at S3
-        s3_dev.send_command("HANDSHAKE 0")
+        # 5. Synchronize each per-peer handshake Stream R adapter only after
+        # both devices know the peer MAC and can consume the one-byte delimiter.
+        s3_dev.send_command("HS_SYNC 0")
         s3_dev.wait_for_event(
-            lambda e: e.get("event") == "handshake_started" and e.get("session") == session,
+            lambda e: e.get("event") == "handshake_stream_sync_done"
+            and e.get("session") == session and e.get("peer_handle") == 0
+            and e.get("status") == "success",
+            timeout=timeout,
+            desc="handshake Stream R sync on S3",
+        )
+        c3_dev.send_command("HS_SYNC 0")
+        c3_dev.wait_for_event(
+            lambda e: e.get("event") == "handshake_stream_sync_done"
+            and e.get("session") == session and e.get("peer_handle") == 0
+            and e.get("status") == "success",
+            timeout=timeout,
+            desc="handshake Stream R sync on C3",
+        )
+
+        # Confirm the S3 command queue remains responsive after the async sync
+        # completion. This distinguishes a command-loop stall from a handshake
+        # scheduling or transport failure in physical evidence.
+        s3_info_start = s3_dev.event_count
+        s3_dev.send_command("INFO")
+        s3_dev.wait_for_event(
+            lambda e: e.get("event") == "ready"
+            and e.get("target") == "esp32s3"
+            and e.get("mac", "").lower() == s3_mac,
+            timeout=timeout,
+            desc="S3 command-channel INFO response after Stream R sync",
+            start_index=s3_info_start,
+        )
+
+        # 6. Handshake triggered at S3
+        s3_dev.send_command("HANDSHAKE 0")
+        wait_for_handshake_start(
+            s3_dev,
+            session,
             timeout=timeout,
             desc="handshake_started on S3",
+            peer_handle=0,
         )
-        wait_for_handshake_result(
-            s3_dev, session, timeout, "handshake completion on S3", peer_handle=0
-        )
-        wait_for_handshake_result(
-            c3_dev, session, timeout, "handshake completion on C3", peer_handle=0
+        wait_for_handshake_pair(
+            s3_dev, c3_dev, session, timeout, "pair handshake", 0, 0
         )
 
         # 6. Producer NVS check at S3
@@ -419,13 +504,35 @@ def run_dmp_pair(
         )
 
         # 7. SAMPLE_READ on C3 reader
+        s3_sample_start = s3_dev.event_count
         c3_dev.send_command("SAMPLE_READ 0")
-        c3_dev.wait_for_event(
+        sample_submit = c3_dev.wait_for_event(
             lambda e: e.get("event") == "sample_read_submitted" and e.get("session") == session,
             timeout=timeout,
             desc="sample_read_submitted on C3",
         )
-        c3_dev.wait_for_event(
+        if sample_submit.get("status") != 0:
+            raise DmpTestError(
+                "C3 SAMPLE-1 READ submission failed with DMP status "
+                f"{sample_submit.get('status')!r}"
+            )
+        s3_sample_request = s3_dev.wait_for_event(
+            lambda e: (
+                e.get("event") == "rx_request"
+                and e.get("session") == session
+                and e.get("peer_handle") == 0
+                and e.get("service_id") == 1
+            ),
+            timeout=timeout,
+            desc="SAMPLE-1 READ request on S3",
+            start_index=s3_sample_start,
+        )
+        s3_events_after_request = s3_dev.get_events()
+        s3_request_index = next(
+            index for index in range(s3_sample_start, len(s3_events_after_request))
+            if s3_events_after_request[index] is s3_sample_request
+        )
+        sample_result = c3_dev.wait_for_event(
             lambda e: (
                 e.get("event") == "rx_result"
                 and e.get("session") == session
@@ -434,19 +541,48 @@ def run_dmp_pair(
             timeout=timeout,
             desc="rx_result on C3",
         )
+        if sample_result.get("wire_status") != 0 or sample_result.get("bytes") != 17:
+            raise DmpTestError("C3 SAMPLE-1 READ returned an unsuccessful or malformed result")
+        s3_sample_tx = s3_dev.wait_for_event(
+            lambda e: (
+                e.get("event") == "tx_done"
+                and e.get("session") == session
+                and e.get("peer_handle") == 0
+            ),
+            timeout=timeout,
+            desc="SAMPLE-1 response TX completion on S3",
+            start_index=s3_request_index + 1,
+        )
+        if s3_sample_tx.get("status") != "success" or s3_sample_tx.get("transport_outcome") != "transmitted":
+            raise DmpTestError("S3 SAMPLE-1 response transport did not complete successfully")
 
         # 8. Unauthenticated V2_FRAME probe separately
+        s3_v2_start = s3_dev.event_count
         s3_dev.send_command("V2_FRAME 0")
-        s3_dev.wait_for_event(
-            lambda e: e.get("event") == "v2_frame_emitted" and e.get("session") == session,
+        s3_v2_event = s3_dev.wait_for_event(
+            lambda e: e.get("event") in ("v2_frame_emitted", "v2_frame_failed")
+            and e.get("session") == session,
             timeout=timeout,
-            desc="v2_frame_emitted on S3",
+            desc="V2_FRAME probe submission on S3",
+            start_index=s3_v2_start,
         )
+        if s3_v2_event.get("event") != "v2_frame_emitted":
+            raise DmpTestError(
+                "S3 V2_FRAME probe submission failed: "
+                f"{s3_v2_event.get('reason', 'unknown reason')}"
+            )
         c3_dev.wait_for_event(
             lambda e: e.get("event") == "v2_frame_received" and e.get("session") == session,
             timeout=timeout,
             desc="v2_frame_received on C3",
         )
+        s3_v2_tx = s3_dev.wait_for_event(
+            lambda e: e.get("event") == "v2_frame_tx_done" and e.get("session") == session,
+            timeout=timeout,
+            desc="v2_frame_tx_done on S3",
+        )
+        if s3_v2_tx.get("status") != "success":
+            raise DmpTestError("S3 raw v2 capability probe transport send failed")
 
         # 9. Authenticated Service-2 bidirectional transfer
         for iter_idx in range(count):

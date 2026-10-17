@@ -88,7 +88,10 @@ request a reset. The `serial_coredump.py` hardware-only utility sends
 `CORE_DUMP_TEST`, records raw serial bytes through the panic and reboot, reads
 the coredump partition without writing flash, verifies it is not entirely
 erased, and extracts its length-prefixed ELF image as `core.elf`. Decode that
-file with the matching target ELF from the ESP-IDF build:
+file with the matching target ELF from the ESP-IDF build. The 1 MiB flash read
+defaults to 115200 baud; this was selected after a 460800-baud read on the
+bench returned a corrupted serial frame. Override it with `--read-baud` only
+when the selected serial adapter has been verified at a higher rate:
 
 ```powershell
 python tests/embedded/espnow_pair/serial_coredump.py --port COM37 --target esp32s3

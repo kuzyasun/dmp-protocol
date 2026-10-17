@@ -9,7 +9,11 @@ from pathlib import Path
 EMBEDDED_DIR = Path(__file__).resolve().parents[2] / "embedded" / "espnow_dmp"
 sys.path.insert(0, str(EMBEDDED_DIR))
 
-from serial_dmp_common import DmpTestError, validate_nvs_check
+from serial_dmp_common import (
+    DmpTestError,
+    MULTI_PEER_EPOCH_NVS_KEY,
+    validate_nvs_check,
+)
 
 SESSION = "0123456789abcdef"
 
@@ -44,6 +48,38 @@ class TestNvsCheck(unittest.TestCase):
         validated = validate_nvs_check(event, SESSION)
         self.assertEqual(validated["status"], "ok")
         self.assertEqual(validated["reserved_epoch"], 6)
+
+    def test_multi_peer_profile_uses_principal_specific_epoch_key(self):
+        event = {
+            "event": "nvs_epoch_check",
+            "session": SESSION,
+            "status": "ok",
+            "namespace": "dmp_test_nvs",
+            "key": MULTI_PEER_EPOCH_NVS_KEY,
+            "has_previous": False,
+            "previous_epoch": 0,
+            "reserved_epoch": 1,
+        }
+        validated = validate_nvs_check(
+            event, SESSION, expected_key=MULTI_PEER_EPOCH_NVS_KEY
+        )
+        self.assertEqual(validated["key"], MULTI_PEER_EPOCH_NVS_KEY)
+
+    def test_multi_peer_profile_rejects_pair_epoch_key(self):
+        event = {
+            "event": "nvs_epoch_check",
+            "session": SESSION,
+            "status": "ok",
+            "namespace": "dmp_test_nvs",
+            "key": "s1_epoch_test",
+            "has_previous": False,
+            "previous_epoch": 0,
+            "reserved_epoch": 1,
+        }
+        with self.assertRaisesRegex(DmpTestError, "Unexpected NVS key"):
+            validate_nvs_check(
+                event, SESSION, expected_key=MULTI_PEER_EPOCH_NVS_KEY
+            )
 
     def test_nvs_rejects_monotonic_violation(self):
         event = {

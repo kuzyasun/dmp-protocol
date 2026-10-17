@@ -1,4 +1,4 @@
-"""Host tests for 4-peer (four_serial and four_parallel) qualification event validation."""
+"""Host tests for multi-peer ESP-NOW qualification event validation."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from serial_dmp_common import (
     DmpTestError,
     MULTI_PEER_PROFILE_HASH,
 )
-from serial_dmp_four import run_dmp_four, validate_dmp_four_events
+from serial_dmp_four import run_dmp_four, run_dmp_three_peer_serial, validate_dmp_four_events
 
 S3_MAC = "28:37:2f:75:5d:64"
 PEER_MACS = [
@@ -49,6 +49,44 @@ def make_ready(target: str, mac: str, espnow_version: int = 2) -> dict:
     }
 
 
+def append_passing_sample1_reads(
+    events: list[tuple[str, dict]], peer_count: int, session: str = SESSION
+) -> None:
+    for peer_idx in range(peer_count):
+        side = f"c3_{peer_idx}"
+        events.extend([
+            (side, {
+                "event": "sample_read_submitted",
+                "session": session,
+                "peer_handle": 0,
+                "status": 0,
+            }),
+            ("s3", {
+                "event": "rx_request",
+                "session": session,
+                "peer_handle": peer_idx,
+                "service_id": 1,
+                "bytes": 1,
+            }),
+            (side, {
+                "event": "rx_result",
+                "session": session,
+                "peer_handle": 0,
+                "service_id": 1,
+                "wire_status": 0,
+                "bytes": 17,
+            }),
+            ("s3", {
+                "event": "tx_done",
+                "session": session,
+                "peer_handle": peer_idx,
+                "frame_bytes": 63,
+                "status": "success",
+                "transport_outcome": "transmitted",
+            }),
+        ])
+
+
 def make_passing_four_events(
     mode: str = "four_serial",
     bytes_per_peer: int = 4096,
@@ -68,19 +106,12 @@ def make_passing_four_events(
             (side, {"event": "session_set", "session": SESSION, "target": "esp32c3", "mac": mac}),
             (side, {"event": "role_set", "session": SESSION, "role": "peer", "profile": "multi-peer", "profile_hash": MULTI_PEER_PROFILE_HASH, "node_id": node_id, "handshake_scratch_slots": 1}),
             (side, {"event": "peer_added", "session": SESSION, "peer_mac": S3_MAC, "node_id": 20, "peer_handle": 0, "peer_count": 1}),
-            (side, {
-                "event": "nvs_epoch_check",
-                "session": SESSION,
-                "status": "ok",
-                "namespace": "dmp_test_nvs",
-                "key": "s1_epoch_test",
-                "has_previous": True,
-                "previous_epoch": 1,
-                "reserved_epoch": 2,
-            }),
+            (side, {"event": "handshake_stream_sync_done", "session": SESSION, "peer_mac": S3_MAC, "peer_handle": 0, "status": "success"}),
             ("s3", {"event": "peer_added", "session": SESSION, "peer_mac": mac, "node_id": node_id, "peer_handle": i, "peer_count": i + 1}),
+            ("s3", {"event": "handshake_stream_sync_done", "session": SESSION, "peer_mac": mac, "peer_handle": i, "status": "success"}),
             ("s3", {"event": "handshake_started", "session": SESSION, "peer_mac": mac, "peer_handle": i}),
             ("s3", {"event": "handshake_done", "session": SESSION, "peer_mac": mac, "peer_handle": i, "status": "success"}),
+            (side, {"event": "handshake_ready_submit", "session": SESSION, "peer_mac": S3_MAC, "peer_handle": 0, "accepted": True, "status": 0, "status_name": "accepted"}),
             (side, {"event": "handshake_done", "session": SESSION, "peer_mac": S3_MAC, "peer_handle": 0, "status": "success"}),
         ])
 
@@ -89,11 +120,12 @@ def make_passing_four_events(
         "session": SESSION,
         "status": "ok",
         "namespace": "dmp_test_nvs",
-        "key": "s1_epoch_test",
+        "key": "s1_epoch_mp",
         "has_previous": True,
         "previous_epoch": 1,
         "reserved_epoch": 2,
     }))
+    append_passing_sample1_reads(events, len(PEER_MACS))
 
     for _ in range(count_per_peer):
         for i in range(4):
@@ -123,6 +155,176 @@ def make_passing_four_events(
     return events
 
 
+def make_passing_three_peer_events(
+    mode: str = "three_peer_serial",
+    bytes_per_peer: int = 4096,
+    count_per_peer: int = 1,
+    peer_node_ids: list[int] | None = None,
+    peer_macs: list[str] | None = None,
+) -> list[tuple[str, dict]]:
+    macs = peer_macs or PEER_MACS[:3]
+    node_ids = peer_node_ids or PEER_NODE_IDS[:3]
+    fragments = (bytes_per_peer + 127) // 128
+    events = [
+        ("s3", make_ready("esp32s3", S3_MAC)),
+        ("s3", {"event": "session_set", "session": SESSION, "target": "esp32s3", "mac": S3_MAC}),
+        ("s3", {
+            "event": "role_set",
+            "session": SESSION,
+            "role": "controller",
+            "profile": "multi-peer",
+            "profile_hash": MULTI_PEER_PROFILE_HASH,
+            "node_id": 20,
+            "handshake_scratch_slots": 1,
+        }),
+    ]
+    for i, mac in enumerate(macs):
+        side = f"c3_{i}"
+        node_id = node_ids[i]
+        events.extend([
+            (side, make_ready("esp32c3", mac)),
+            (side, {"event": "session_set", "session": SESSION, "target": "esp32c3", "mac": mac}),
+            (side, {
+                "event": "role_set",
+                "session": SESSION,
+                "role": "peer",
+                "profile": "multi-peer",
+                "profile_hash": MULTI_PEER_PROFILE_HASH,
+                "node_id": node_id,
+                "handshake_scratch_slots": 1,
+            }),
+            (side, {
+                "event": "peer_added",
+                "session": SESSION,
+                "peer_mac": S3_MAC,
+                "node_id": 20,
+                "peer_handle": 0,
+                "peer_count": 1,
+            }),
+            (side, {
+                "event": "handshake_stream_sync_done",
+                "session": SESSION,
+                "peer_mac": S3_MAC,
+                "peer_handle": 0,
+                "status": "success",
+            }),
+            (
+                "s3",
+                {
+                    "event": "peer_added",
+                    "session": SESSION,
+                    "peer_mac": mac,
+                    "node_id": node_id,
+                    "peer_handle": i,
+                    "peer_count": i + 1,
+                },
+            ),
+            (
+                "s3",
+                {
+                    "event": "handshake_stream_sync_done",
+                    "session": SESSION,
+                    "peer_mac": mac,
+                    "peer_handle": i,
+                    "status": "success",
+                },
+            ),
+            (
+                "s3",
+                {
+                    "event": "handshake_started",
+                    "session": SESSION,
+                    "peer_mac": mac,
+                    "peer_handle": i,
+                },
+            ),
+            (
+                "s3",
+                {
+                    "event": "handshake_done",
+                    "session": SESSION,
+                    "peer_mac": mac,
+                    "peer_handle": i,
+                    "status": "success",
+                },
+            ),
+            (
+                side,
+                {
+                    "event": "handshake_ready_submit",
+                    "session": SESSION,
+                    "peer_mac": S3_MAC,
+                    "peer_handle": 0,
+                    "accepted": True,
+                    "status": 0,
+                    "status_name": "accepted",
+                },
+            ),
+            (
+                side,
+                {
+                    "event": "handshake_done",
+                    "session": SESSION,
+                    "peer_mac": S3_MAC,
+                    "peer_handle": 0,
+                    "status": "success",
+                },
+            ),
+        ])
+
+    events.append(("s3", {
+        "event": "nvs_epoch_check",
+        "session": SESSION,
+        "status": "ok",
+        "namespace": "dmp_test_nvs",
+        "key": "s1_epoch_mp",
+        "has_previous": True,
+        "previous_epoch": 1,
+        "reserved_epoch": 2,
+    }))
+    append_passing_sample1_reads(events, len(macs))
+
+    for _ in range(count_per_peer):
+        for i in range(len(macs)):
+            side = f"c3_{i}"
+            events.append(("s3", {
+                "event": "transfer_started",
+                "session": SESSION,
+                "peer_handle": i,
+                "peer_mac": macs[i],
+                "bytes": bytes_per_peer,
+                "chunk_bytes": 128,
+                "fragments": fragments,
+            }))
+            for _ in range(fragments):
+                events.append((
+                    "s3",
+                    {
+                        "event": "tx_done",
+                        "session": SESSION,
+                        "peer_mac": macs[i],
+                        "peer_handle": i,
+                        "frame_bytes": 168,
+                        "status": "success",
+                    },
+                ))
+            events.append((
+                side,
+                {
+                    "event": "rx_assembled",
+                    "session": SESSION,
+                    "peer_handle": 0,
+                    "service_id": 2,
+                    "bytes": bytes_per_peer,
+                    "fragments": fragments,
+                    "payload_match": True,
+                    "max_frame_bytes": 168,
+                },
+            ))
+
+    return events
+
+
 class TestDmpFour(unittest.TestCase):
     def test_serial_runner_cli_help(self):
         result = subprocess.run(
@@ -135,6 +337,7 @@ class TestDmpFour(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--s3-port", result.stdout)
         self.assertIn("--c3-ports", result.stdout)
+        self.assertIn("three_peer_serial", result.stdout)
 
     def test_passing_four_serial(self):
         events = make_passing_four_events("four_serial", 4096)
@@ -170,6 +373,14 @@ class TestDmpFour(unittest.TestCase):
         self.assertEqual(res["result"], "PASS")
         self.assertEqual(res["count_per_peer"], 2)
         self.assertEqual(res["controller_handshake_scratch_slots"], 2)
+
+    def test_rejects_missing_peer_handshake_stream_sync(self):
+        events = [
+            event for event in make_passing_four_events("four_serial", 4096)
+            if not (event[0] == "c3_2" and event[1].get("event") == "handshake_stream_sync_done")
+        ]
+        with self.assertRaisesRegex(DmpTestError, "Peer c3_2 did not synchronize its handshake Stream R binding"):
+            validate_dmp_four_events(events, "four_serial", 4, 4096, SESSION)
 
     def test_rejects_invalid_mode(self):
         events = make_passing_four_events("four_serial", 4096)
@@ -245,6 +456,24 @@ class TestDmpFour(unittest.TestCase):
         events = make_passing_four_events("four_serial", 4096)
         events = [e for e in events if not (e[0] == "c3_2" and e[1].get("event") == "handshake_done")]
         with self.assertRaisesRegex(DmpTestError, "Peer c3_2 did not complete handshake"):
+            validate_dmp_four_events(events, "four_serial", 4, 4096, SESSION)
+
+    def test_rejects_missing_peer_ready_transport_acceptance(self):
+        events = [
+            e for e in make_passing_four_events("four_serial", 4096)
+            if not (e[0] == "c3_2" and e[1].get("event") == "handshake_ready_submit")
+        ]
+        with self.assertRaisesRegex(DmpTestError, "Peer c3_2 did not accept protected READY transport submission"):
+            validate_dmp_four_events(events, "four_serial", 4, 4096, SESSION)
+
+    def test_rejects_failed_peer_ready_transport_submission(self):
+        events = make_passing_four_events("four_serial", 4096)
+        events = [
+            (side, {**event, "accepted": False, "status": 4}
+             if side == "c3_2" and event.get("event") == "handshake_ready_submit" else event)
+            for side, event in events
+        ]
+        with self.assertRaisesRegex(DmpTestError, "Peer c3_2 did not accept protected READY transport submission"):
             validate_dmp_four_events(events, "four_serial", 4, 4096, SESSION)
 
     def test_rejects_expired_handshake(self):
@@ -377,6 +606,118 @@ class TestDmpFour(unittest.TestCase):
     def test_run_dmp_four_rejects_invalid_port_count(self):
         with self.assertRaisesRegex(DmpTestError, "requires exactly 4 C3 ports"):
             run_dmp_four(s3_port="COM1", c3_ports=["COM2", "COM3", "COM4"])
+
+
+class TestDmpThreePeer(unittest.TestCase):
+    def test_passing_three_peer_serial(self):
+        events = make_passing_three_peer_events(bytes_per_peer=1024, count_per_peer=2)
+        result = validate_dmp_four_events(
+            events, "three_peer_serial", 3, 1024, SESSION, count_per_peer=2
+        )
+        self.assertEqual(result["result"], "PASS")
+        self.assertEqual(result["mode"], "three_peer_serial")
+        self.assertEqual(result["peer_count"], 3)
+        self.assertEqual(result["total_boards"], 4)
+        self.assertEqual(result["sample1_read_peer_count"], 3)
+        self.assertEqual(result["decoded_core_mtu_bytes"], 256)
+        self.assertEqual(result["stream_r_encoded_mtu_bytes"], 263)
+
+    def test_rejects_missing_sample1_result(self):
+        events = [
+            item for item in make_passing_three_peer_events()
+            if not (item[0] == "c3_1" and item[1].get("event") == "rx_result")
+        ]
+        with self.assertRaisesRegex(DmpTestError, "Peer c3_1 did not receive exactly one SAMPLE-1 result"):
+            validate_dmp_four_events(events, "three_peer_serial", 3, 4096, SESSION)
+
+    def test_rejects_cross_peer_sample1_request(self):
+        events = [
+            (
+                side,
+                {**event, "peer_handle": 0}
+                if side == "s3"
+                and event.get("event") == "rx_request"
+                and event.get("service_id") == 1
+                and event.get("peer_handle") == 1
+                else event,
+            )
+            for side, event in make_passing_three_peer_events()
+        ]
+        with self.assertRaisesRegex(DmpTestError, "SAMPLE-1 READ requests were not mapped one-to-one"):
+            validate_dmp_four_events(events, "three_peer_serial", 3, 4096, SESSION)
+
+    def test_rejects_failed_sample1_response_transport(self):
+        events = [
+            (
+                side,
+                {**event, "transport_outcome": "possibly-transmitted"}
+                if side == "s3"
+                and event.get("event") == "tx_done"
+                and event.get("peer_handle") == 2
+                and event.get("frame_bytes") == 63
+                else event,
+            )
+            for side, event in make_passing_three_peer_events()
+        ]
+        with self.assertRaisesRegex(DmpTestError, "S3 SAMPLE-1 response TX failed for peer handle 2"):
+            validate_dmp_four_events(events, "three_peer_serial", 3, 4096, SESSION)
+
+    def test_rejects_nvs_epoch_check_on_non_producer_peer(self):
+        events = make_passing_three_peer_events()
+        events.append(("c3_0", {
+            "event": "nvs_epoch_check",
+            "session": SESSION,
+            "status": "ok",
+            "namespace": "dmp_test_nvs",
+            "key": "s1_epoch_mp",
+            "has_previous": True,
+            "previous_epoch": 1,
+            "reserved_epoch": 2,
+        }))
+        with self.assertRaisesRegex(DmpTestError, "reserved exactly once by the S3 producer"):
+            validate_dmp_four_events(events, "three_peer_serial", 3, 4096, SESSION)
+
+    def test_rejects_missing_third_peer_stream(self):
+        events = [
+            item for item in make_passing_three_peer_events()
+            if item[0] != "c3_2"
+        ]
+        with self.assertRaisesRegex(DmpTestError, "Expected exactly 3 peer streams, found 2"):
+            validate_dmp_four_events(events, "three_peer_serial", 3, 4096, SESSION)
+
+    def test_rejects_extra_peer_registration(self):
+        events = make_passing_three_peer_events()
+        events.append(("s3", {
+            "event": "peer_added",
+            "session": SESSION,
+            "peer_mac": PEER_MACS[3],
+            "node_id": PEER_NODE_IDS[3],
+            "peer_handle": 3,
+            "peer_count": 4,
+        }))
+        with self.assertRaisesRegex(DmpTestError, "S3 registered 4 peers, expected exactly 3"):
+            validate_dmp_four_events(events, "three_peer_serial", 3, 4096, SESSION)
+
+    def test_rejects_cross_peer_transfer_mapping(self):
+        events = make_passing_three_peer_events()
+        events = [
+            (
+                side,
+                {**event, "peer_mac": PEER_MACS[0]}
+                if side == "s3"
+                and event.get("event") == "transfer_started"
+                and event.get("peer_handle") == 1
+                else event,
+            )
+            for side, event in events
+        ]
+        with self.assertRaisesRegex(DmpTestError, "Cross-peer transfer detected on S3 for handle 1"):
+            validate_dmp_four_events(events, "three_peer_serial", 3, 4096, SESSION)
+
+    def test_four_peer_modes_still_reject_three_peers(self):
+        events = make_passing_three_peer_events()
+        with self.assertRaisesRegex(DmpTestError, "Four-peer qualification requires exactly 4 peers"):
+            validate_dmp_four_events(events, "four_serial", 3, 4096, SESSION)
 
 
 if __name__ == "__main__":

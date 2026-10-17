@@ -229,6 +229,9 @@ endforeach()
 add_test(NAME endpoint.security.ttl COMMAND dmp_test_endpoint_sec ttl)
 set_tests_properties(endpoint.security.ttl PROPERTIES TIMEOUT 60 LABELS "endpoint;security")
 
+add_test(NAME endpoint.security.aad_mutations COMMAND dmp_test_endpoint_sec aad_mutations)
+set_tests_properties(endpoint.security.aad_mutations PROPERTIES TIMEOUT 60 LABELS "endpoint;security")
+
 add_test(NAME endpoint.security.control_reserve COMMAND dmp_test_endpoint_sec control_reserve)
 set_tests_properties(endpoint.security.control_reserve PROPERTIES TIMEOUT 60 LABELS "endpoint;security")
 

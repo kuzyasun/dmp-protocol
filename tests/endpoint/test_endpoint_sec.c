@@ -2845,6 +2845,260 @@ static int test_ttl(void)
     return 0;
 }
 
+typedef struct protected_header_offsets {
+    size_t sequence;
+    size_t destination;
+    size_t descriptor_codec;
+    size_t receive_cid;
+    size_t packet_number;
+    size_t context_epoch;
+    size_t service_id;
+    size_t payload;
+    size_t tag;
+} protected_header_offsets;
+
+static int skip_test_uleb(const uint8_t *frame, size_t frame_size, size_t *cursor)
+{
+    size_t index;
+
+    if (frame == NULL || cursor == NULL) {
+        return 0;
+    }
+    for (index = 0U; index < 10U && *cursor < frame_size; ++index) {
+        uint8_t byte = frame[(*cursor)++];
+        if ((byte & 0x80U) == 0U) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int protected_frame_offsets(const uint8_t *frame, size_t frame_size,
+                                   const dmp_frame_view *view,
+                                   protected_header_offsets *offsets)
+{
+    size_t cursor = 2U;
+    uint8_t options;
+
+    if (frame == NULL || view == NULL || offsets == NULL || frame_size < 3U ||
+        view->header.size > frame_size) {
+        return 0;
+    }
+    memset(offsets, 0xff, sizeof(*offsets));
+    options = frame[cursor++];
+    if ((options & DMP_OPT_SEQ) != 0U) {
+        offsets->sequence = cursor;
+        if (!skip_test_uleb(frame, view->header.size, &cursor)) {
+            return 0;
+        }
+    }
+    if ((options & DMP_OPT_ROUTE) != 0U) {
+        ++cursor; /* Route control byte; TTL is the only mutable AAD field. */
+        if (!skip_test_uleb(frame, view->header.size, &cursor)) {
+            return 0;
+        }
+        offsets->destination = cursor;
+        if (!skip_test_uleb(frame, view->header.size, &cursor)) {
+            return 0;
+        }
+    }
+    if ((options & DMP_OPT_FRAG) != 0U) {
+        for (size_t field = 0U; field < 3U; ++field) {
+            if (!skip_test_uleb(frame, view->header.size, &cursor)) {
+                return 0;
+            }
+        }
+    }
+    if ((options & DMP_OPT_PAYLOAD_DESC) != 0U) {
+        uint8_t flags;
+        if (cursor >= view->header.size) {
+            return 0;
+        }
+        flags = frame[cursor++];
+        offsets->descriptor_codec = cursor;
+        if (!skip_test_uleb(frame, view->header.size, &cursor) ||
+            ((flags & 1U) != 0U && !skip_test_uleb(frame, view->header.size, &cursor)) ||
+            ((flags & 2U) != 0U && !skip_test_uleb(frame, view->header.size, &cursor))) {
+            return 0;
+        }
+    }
+    if ((options & DMP_OPT_INTEGRITY) != 0U) {
+        ++cursor;
+    }
+    if ((options & DMP_OPT_SECURITY) != 0U) {
+        ++cursor; /* Cipher. */
+        offsets->receive_cid = cursor;
+        if (!skip_test_uleb(frame, view->header.size, &cursor)) {
+            return 0;
+        }
+        offsets->packet_number = cursor;
+        if (!skip_test_uleb(frame, view->header.size, &cursor)) {
+            return 0;
+        }
+    }
+    if (cursor > view->header.size) {
+        return 0;
+    }
+    {
+        size_t extension_cursor = 0U;
+        while (extension_cursor < view->extensions.size) {
+            dmp_extension_view extension;
+            size_t value_offset;
+            dmp_status status = dmp_extension_next(view->extensions, &extension_cursor,
+                                                    &extension);
+            if (status != DMP_OK) {
+                return 0;
+            }
+            value_offset = (size_t)(extension.value.data - frame);
+            if ((extension.tag >> 2U) == 2U) {
+                offsets->context_epoch = value_offset + 1U; /* Namespace is one byte. */
+            } else if ((extension.tag >> 2U) == 4U) {
+                offsets->service_id = value_offset;
+            }
+        }
+    }
+    offsets->payload = view->header.size;
+    if (view->trailer.size != 16U || frame_size < view->trailer.size) {
+        return 0;
+    }
+    offsets->tag = frame_size - view->trailer.size;
+    return offsets->sequence != SIZE_MAX && offsets->destination != SIZE_MAX &&
+           offsets->descriptor_codec != SIZE_MAX && offsets->receive_cid != SIZE_MAX &&
+           offsets->packet_number != SIZE_MAX && offsets->context_epoch != SIZE_MAX &&
+           offsets->service_id != SIZE_MAX && offsets->payload < offsets->tag;
+}
+
+static int protected_header_mutation_case(unsigned mutation, dmp_time_ms now)
+{
+    const noise_fixture_probe_fixture_t *fixture = find_fixture("nnpsk0");
+    session env;
+    port_ctx port;
+    uint32_t index = 0U;
+    uint8_t payload[2] = {0x11U, 0x22U};
+    uint8_t extensions[14];
+    uint8_t sealed[MTU];
+    uint8_t mutated[MTU];
+    uint8_t wrapped[FRAME_CAP];
+    size_t extensions_size = 0U;
+    size_t sealed_size = 0U;
+    size_t wrapped_size = 0U;
+    uint64_t epoch_i = 0U;
+    uint64_t epoch_r = 0U;
+    dmp_frame_spec spec;
+    dmp_frame_view view;
+    dmp_core_limits limits = { MTU, MESSAGE, 32U };
+    dmp_endpoint_grant grants[5] = {
+        { ID_INIT, 1U, DMP_ENDPOINT_PERMIT_TELEM | DMP_ENDPOINT_PERMIT_RESULT },
+        { ID_RESP, 1U, DMP_ENDPOINT_PERMIT_REQ },
+        { ID_INIT, 2U, DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT },
+        { ID_RESP, 2U, DMP_ENDPOINT_PERMIT_REQ | DMP_ENDPOINT_PERMIT_RESULT },
+        { ID_INIT, 2U, DMP_ENDPOINT_PERMIT_TELEM },
+    };
+    dmp_status status;
+
+    if (fixture == NULL || !make_pair(&env, &port, fixture, NULL, NULL, 0) ||
+        !drive_nn(&env, &index) || !activate(&env, index)) {
+        return 1;
+    }
+    CHECK(boot_node(&left, 1, 64U, 16U, now) == 0);
+    CHECK(boot_node(&right, 0, 64U, 16U, now) == 0);
+    CHECK(bind_pair(&env, index) == 0);
+    CHECK(dmp_endpoint_set_peer_grants(&right.endpoint, (dmp_peer_handle){ 0U, 1U },
+                                       grants, sizeof grants / sizeof grants[0]) == DMP_OK);
+    CHECK(dmp_hs_epochs(env.initiator, index, &epoch_i, &epoch_r) == 1);
+    (void)epoch_r;
+
+    extensions[extensions_size++] = 11U;
+    extensions[extensions_size++] = 9U;
+    extensions[extensions_size++] = 1U;
+    for (size_t byte = 0U; byte < 8U; ++byte) {
+        extensions[extensions_size++] = (uint8_t)(epoch_i >> (8U * byte));
+    }
+    extensions[extensions_size++] = 17U;
+    extensions[extensions_size++] = 1U;
+    extensions[extensions_size++] = 2U;
+
+    memset(&spec, 0, sizeof spec);
+    spec.fields.type = (uint8_t)DMP_TYPE_TELEM;
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_EXT |
+                                    DMP_OPT_PAYLOAD_DESC);
+    spec.fields.route.mode = 1U;
+    spec.fields.route.ttl = 4U;
+    spec.fields.route.source = ID_INIT;
+    spec.fields.route.destination = ID_RESP;
+    spec.fields.descriptor.flags = 1U;
+    spec.fields.descriptor.codec = 1U;
+    spec.fields.descriptor.schema = 1U;
+    spec.extensions = span(extensions, extensions_size);
+    spec.payload = span(payload, sizeof payload);
+
+    protected_header_offsets offsets;
+    spec.fields.seq = 1U;
+    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof sealed,
+                              &sealed_size) == DMP_HS_OK);
+    CHECK(dmp_core_parse(span(sealed, sealed_size), &limits, &view).status == DMP_OK);
+    CHECK(protected_frame_offsets(sealed, sealed_size, &view, &offsets) == 1);
+    memcpy(mutated, sealed, sealed_size);
+    switch (mutation) {
+    case 0U:
+        mutated[offsets.destination] ^= 1U;
+        break;
+    case 1U:
+        mutated[offsets.sequence] ^= 1U;
+        break;
+    case 2U:
+        mutated[offsets.descriptor_codec] ^= 1U;
+        break;
+    case 3U:
+        mutated[offsets.service_id] ^= 1U;
+        break;
+    case 4U:
+        mutated[offsets.context_epoch + 7U] ^= 1U;
+        break;
+    case 5U:
+        mutated[offsets.receive_cid] ^= 1U;
+        break;
+    case 6U:
+        mutated[offsets.packet_number] += 1U;
+        break;
+    case 7U:
+        mutated[offsets.payload] ^= 1U;
+        break;
+    default:
+        mutated[offsets.tag] ^= 1U;
+        break;
+    }
+    CHECK(dmp_core_parse(span(mutated, sealed_size), &limits, &view).status == DMP_OK);
+    CHECK(wrap_core(mutated, sealed_size, wrapped, sizeof wrapped, &wrapped_size) == 1);
+    status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_size), now);
+    CHECK(status == DMP_AUTHENTICATION_FAILURE);
+    CHECK(right.app.telems == 0);
+
+    CHECK(wrap_core(sealed, sealed_size, wrapped, sizeof wrapped, &wrapped_size) == 1);
+    status = dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_size), now);
+    if (status != DMP_OK) {
+        (void)fprintf(stderr, "mutation %u left replay state at status %d\n",
+                      mutation, (int)status);
+        close_session(&env);
+        return 1;
+    }
+    CHECK(right.app.telems == 1);
+    close_session(&env);
+    return 0;
+}
+
+static int test_protected_header_mutations(void)
+{
+    const dmp_time_ms now = 20000U;
+
+    for (unsigned mutation = 0U; mutation < 9U; ++mutation) {
+        if (protected_header_mutation_case(mutation, now) != 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int offer_indexed(dmp_hs *hs, const uint8_t *payload, size_t length, uint32_t origin,
                          uint32_t destination, uint32_t seq, uint64_t epoch, dmp_hs_status expected,
                          uint32_t *index_out)
@@ -9254,6 +9508,9 @@ int main(int argc, char **argv) {
   if (strcmp(name, "ttl") == 0 || strcmp(name, "all") == 0) {
     failed |= test_ttl();
   }
+  if (strcmp(name, "aad_mutations") == 0 || strcmp(name, "all") == 0) {
+    failed |= test_protected_header_mutations();
+  }
   if (strcmp(name, "acl") == 0 || strcmp(name, "all") == 0) {
     failed |= test_acl();
   }
@@ -9313,6 +9570,7 @@ int main(int argc, char **argv) {
       strcmp(name, "retained_rejection_reassembly") != 0 &&
       strcmp(name, "freshness_terminal_rejection") != 0 &&
       strcmp(name, "reassembly") != 0 && strcmp(name, "ttl") != 0 &&
+      strcmp(name, "aad_mutations") != 0 &&
       strcmp(name, "acl") != 0 && strcmp(name, "rotation") != 0 &&
       strcmp(name, "result") != 0 && strcmp(name, "fragdeny") != 0 &&
       strcmp(name, "drain") != 0 && strcmp(name, "context") != 0 &&

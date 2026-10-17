@@ -7,10 +7,27 @@ sys.path.insert(0, str(HARDWARE_RUNNER_DIR))
 
 import struct
 
-from serial_coredump import CoreDumpTestError, extract_core_elf, validate_capture_events
+from serial_coredump import (
+    DEFAULT_READ_BAUD,
+    CoreDumpTestError,
+    build_argument_parser,
+    extract_core_elf,
+    validate_capture_events,
+)
 
 
 class CoreDumpCaptureTests(unittest.TestCase):
+    def test_default_read_baud_uses_reliable_capture_rate(self):
+        args = build_argument_parser().parse_args(["--port", "COM1", "--target", "esp32c3"])
+        self.assertEqual(DEFAULT_READ_BAUD, 115200)
+        self.assertEqual(args.read_baud, DEFAULT_READ_BAUD)
+
+    def test_read_baud_can_be_overridden(self):
+        args = build_argument_parser().parse_args(
+            ["--port", "COM1", "--target", "esp32c3", "--read-baud", "460800"]
+        )
+        self.assertEqual(args.read_baud, 460800)
+
     def test_extracts_length_prefixed_elf(self):
         core = b"\x7fELFtest-core"
         partition = struct.pack("<I", len(core)) + b"\x04\x01\x05\x00\x04\x00\x00\x00" + core

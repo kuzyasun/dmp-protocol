@@ -7,6 +7,14 @@
 
 #include <string.h>
 
+#ifdef DMP_HANDSHAKE_QUAL_DIAGNOSTICS
+extern void dmp_handshake_qual_diagnostic(void *context, const char *stage, int status);
+#define DMP_HS_QUAL_DIAGNOSTIC(hs, stage, status) \
+    dmp_handshake_qual_diagnostic((hs)->ports.ctx, (stage), (int)(status))
+#else
+#define DMP_HS_QUAL_DIAGNOSTIC(hs, stage, status) ((void)0)
+#endif
+
 #define DMP_HS_MAGIC 0xD3131301u
 #define DMP_HS_PROLOGUE_LEN 85u
 #define DMP_HS_PREFIX_LEN 72u
@@ -916,6 +924,7 @@ static int open_handshake(dmp_hs *hs, struct hs_attempt *attempt)
     dmp_provider_status status;
 
     if (name == NULL) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "provider-suite", DMP_HS_UNSUPPORTED);
         return 0;
     }
     memset(&keys, 0, sizeof(keys));
@@ -932,6 +941,7 @@ static int open_handshake(dmp_hs *hs, struct hs_attempt *attempt)
     }
     status = dmp_provider_handshake_open(hs->provider, &attempt->handshake, name, role, &keys);
     if (status != DMP_PROVIDER_OK) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "provider-open", status);
         return 0;
     }
     attempt->handshake_open = 1;
@@ -1002,7 +1012,16 @@ static int write_flight(dmp_hs *hs, struct hs_attempt *attempt, uint8_t flight)
     size_t plain_len = 0U;
     dmp_provider_status status;
 
-    if (expect == 0U || !charge(hs) || !traffic_room(hs, prefix_len + expect)) {
+    if (expect == 0U) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "flight-size-invalid", DMP_HS_INVALID);
+        return 0;
+    }
+    if (!charge(hs)) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "flight-work-budget", DMP_HS_REFUSED);
+        return 0;
+    }
+    if (!traffic_room(hs, prefix_len + expect)) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "flight-traffic-budget", DMP_HS_REFUSED);
         return 0;
     }
     if (flight == 2U) {
@@ -1014,6 +1033,8 @@ static int write_flight(dmp_hs *hs, struct hs_attempt *attempt, uint8_t flight)
                                           noise, sizeof(noise), &noise_len);
     wipe(body, sizeof(body));
     if (status != DMP_PROVIDER_OK || noise_len != expect || prefix_len + noise_len > DMP_HS_PAYLOAD_MAX) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, status != DMP_PROVIDER_OK ? "provider-write" : "flight-length",
+                               status != DMP_PROVIDER_OK ? status : DMP_HS_INVALID);
         wipe(noise, sizeof(noise));
         return 0;
     }
@@ -1700,17 +1721,33 @@ dmp_hs_status dmp_hs_schedule(dmp_hs *hs, uint32_t *attempt_index_out)
         return DMP_HS_REFUSED;
     }
     copy_identity(hs, attempt, 1);
-    if (!fill_entropy(hs, attempt->attempt_id, 16U) || !fill_entropy(hs, attempt->ephemeral, 32U) ||
-        !boot_epoch_of(hs->epoch_hash, attempt->attempt_id, &attempt->boot_epoch)) {
+    if (!fill_entropy(hs, attempt->attempt_id, 16U)) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "attempt-id-entropy", DMP_HS_ABORTED);
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_ABORTED;
+    }
+    if (!fill_entropy(hs, attempt->ephemeral, 32U)) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "ephemeral-entropy", DMP_HS_ABORTED);
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_ABORTED;
+    }
+    if (!boot_epoch_of(hs->epoch_hash, attempt->attempt_id, &attempt->boot_epoch)) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "boot-epoch-hash", DMP_HS_ABORTED);
         abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
         return DMP_HS_ABORTED;
     }
     build_prefix(attempt);
-    if (!open_handshake(hs, attempt) || !write_flight(hs, attempt, 1U)) {
+    if (!open_handshake(hs, attempt)) {
+        abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
+        return DMP_HS_ABORTED;
+    }
+    if (!write_flight(hs, attempt, 1U)) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "first-flight-write-invalid", DMP_HS_ABORTED);
         abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
         return DMP_HS_ABORTED;
     }
     if (!release_scratch(hs, attempt)) {
+        DMP_HS_QUAL_DIAGNOSTIC(hs, "scratch-release", DMP_HS_ABORTED);
         abort_attempt(hs, attempt, DMP_HS_VIEW_REJECTED);
         return DMP_HS_ABORTED;
     }

@@ -50,28 +50,47 @@ The firmware and test runners distinguish and validate four distinct MTU layers:
 > Stream R frames up to 263 encoded bytes; this is not a v1-compatible 250-byte transport cap.
 > The pair runner separately sends a 256-byte decoded / greater-than-250-byte encoded raw v2
 > capability probe. That probe is unauthenticated and is reported separately from DMP traffic.
-> Service-2 uses 128-byte fragments; each observed encoded frame size is recorded in evidence.
+> Pair mode uses the `retry-2` profile's 64-byte chunks and 1024-byte message bound. The
+> multi-peer profile used by `four_serial` and `four_parallel` uses 128-byte chunks and a
+> 4096-byte message bound. Each observed encoded frame size is recorded in evidence.
 > Decoded Core MTU and encoded Stream R MTU are separate limits and must not be conflated.
 
-## 4. Workload Geometry: Service-2 4096-Byte Transfers
+## 4. Workload Geometry: Pair Mode
 
-The target exercises high-volume protected data transfers using the accepted DMP profile geometry:
+The S3/C3 pair runner uses the two-attempt `retry-2` profile:
+- Message body: up to `1024` bytes.
+- Chunk size: `64` bytes.
+- Maximum fragments: `16` fragments.
+- The runner rejects larger payloads before opening a serial port.
+
+## 5. Workload Geometry: Multi-Peer Service-2 4096-Byte Transfers
+
+The `four_serial` and `four_parallel` runners exercise high-volume protected data transfers
+using the accepted multi-peer DMP profile geometry:
 - Message body: `4096` bytes (deterministic pseudo-random test pattern).
 - Chunk size: `128` bytes.
 - Total fragments: `32` fragments.
 - Over-the-wire frame: `~168` bytes per fragment (DMP header + 128B chunk + Poly1305 AEAD tag).
 - Each fragment easily fits within the ESP-NOW 250-byte limit without application-level re-segmentation.
 
-## 5. SAMPLE-1 NVS Monotonic Epoch Check
+The `three_peer_serial` mode uses the same multi-peer profile with exactly three authenticated
+C3 peers attached to one S3 endpoint. It reserves one producer epoch, performs one protected
+SAMPLE-1 initialization READ from each peer, then transfers Service-2 data to each peer. It is a
+four-board integration smoke and does not qualify the four-peer resource or lifecycle acceptance
+cases.
+
+## 6. SAMPLE-1 NVS Monotonic Epoch Check
 
 To qualify persistent replay defense and crash recovery:
 - Namespace: `"dmp_test_nvs"`.
-- Key: `"s1_epoch_test"`.
+- The `retry-2` profile uses epoch/anchor keys `"s1_epoch_test"` and `"s1_anch_test"`;
+  `multi-peer` uses `"s1_epoch_mp"` and `"s1_anch_mp"`. Each pair binds durable state to its
+  controller principal so changing test profiles does not mix principals or reset their epochs.
 - The test command `NVS_CHECK` initializes `dmp_sample1_nvs_epoch_store` and calls `dmp_sample1_nvs_reserve_next`.
 - It verifies that the reserved epoch strictly increments (`reserved_epoch > previous_epoch` when previous exists).
 - It fails closed immediately if NVS returns a storage error or monotonicity violation.
 
-## 6. Serial Control Interface
+## 7. Serial Control Interface
 
 The qualification firmware responds to line-oriented ASCII commands over USB Serial/JTAG or UART0:
 - `INFO`: Emit target specifications, MAC, and MTU bounds as a JSON `ready` event.
@@ -84,8 +103,12 @@ The qualification firmware responds to line-oriented ASCII commands over USB Ser
 - `NVS_CHECK`: Execute the SAMPLE-1 NVS monotonic epoch reservation test.
 - `HANDSHAKE <peer_handle>`: Start a SEC-1 Noise handshake with the given peer.
 - `SAMPLE_READ <peer_handle>`: Submit an authenticated SAMPLE-1 initialization READ request.
-- `TRANSFER <peer_handle> <bytes>`: Initiate a fragmented Service-2 transfer (e.g. 4096 bytes).
+- `TRANSFER <peer_handle> <bytes>`: Initiate a fragmented Service-2 transfer within the active
+  profile bound (`retry-2`: up to 1024 bytes; `multi-peer`: up to 4096 bytes).
 - `STATS`: Emit frame and transfer assembly statistics.
+- `CORE_DUMP_TEST`: Emit an intentional-abort event and panic so the hardware-only coredump
+  runner can verify flash coredump capture and reboot. This command is destructive to the
+  current in-memory test session and must only be sent by the physical qualification runner.
 
 The Python runners own repeat counts and serial/parallel transfer scheduling by issuing
 `TRANSFER` commands. Firmware rejects the reserved `RUN_*` command names because those
@@ -93,7 +116,7 @@ commands do not implement the runner's full scheduling and repeat-count contract
 The default per-operation timeout is 25 seconds for pair mode and 60 seconds for four-peer
 mode, covering the respective 20-second and 50-second single-attempt handshake deadlines.
 
-## 7. CI vs Hardware Separation
+## 8. CI vs Hardware Separation
 
 - **Host Tests & CI (No COM ports / No hardware required)**:
   - Located in `tests/host/espnow_dmp/`.
@@ -102,8 +125,10 @@ mode, covering the respective 20-second and 50-second single-attempt handshake d
 - **Physical Hardware Execution**:
   - Pair mode requires one physical ESP32-S3 and one ESP32-C3. Either four-peer mode requires
     one S3 plus four C3 boards (five distinct serial ports).
+  - `three_peer_serial` requires one S3 plus exactly three C3 boards (four distinct serial ports).
   - Executed manually by the operator:
     ```bash
     python tests/embedded/espnow_dmp/serial_dmp_pair.py --s3-port S3_PORT --c3-port C3_PORT --count 2
+    python tests/embedded/espnow_dmp/serial_dmp_four.py --s3-port S3_PORT --c3-ports C3_NODE10 C3_NODE35 C3_NODE34 --mode three_peer_serial --bytes-per-peer 1024
     python tests/embedded/espnow_dmp/serial_dmp_four.py --s3-port S3_PORT --c3-ports C3_NODE10 C3_NODE35 C3_NODE34 C3_NODE36 --mode four_serial --count-per-peer 2
     ```

@@ -2225,11 +2225,12 @@
       "scope": "host simulation; SEC-1 endpoint",
       "status": "partial",
       "source_case_number": 7,
-      "primary_result": "partial",
+      "primary_result": "passed",
       "primary_checks": [
-        "tests/endpoint/test_endpoint_sec.c::test_ttl"
+        "tests/endpoint/test_endpoint_sec.c::test_ttl",
+        "tests/endpoint/test_endpoint_sec.c::test_protected_header_mutations"
       ],
-      "primary_evidence": "P23 final host/simulation verification, recorded in dev/DMP_P23_plan_2026-10-12.md.",
+      "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-17--p15-sec1-authenticated-header-mutation-matrix",
       "peer_result": "passed",
       "peer_checks": [
         "tests/peer/tests/test_p21c_s10.py::TestP21CS10SecurityLifecycle.test_s10_07_ttl_mutation_preserves_aead",
@@ -2241,7 +2242,7 @@
         "tests/peer/tests/test_p23_mixed_endpoint_path.py::TestP23MixedEndpointPath.test_sec1_sample_exchange_crosses_mixed_path_in_both_directions"
       ],
       "interop_evidence": "P23 focused C/Python matrix and negative suites; see dev/DMP_P23_plan_2026-10-12.md.",
-      "primary_remaining": "The primary endpoint test proves TTL-only mutation preserves authenticated ciphertext; the full non-TTL mutation matrix is not covered by a primary endpoint regression.",
+      "primary_remaining": "",
       "interop_remaining": "Selected mixed-path interop covers one authenticated exchange, not the row's complete mutation matrix."
     },
     {

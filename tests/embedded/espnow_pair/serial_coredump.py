@@ -27,6 +27,7 @@ from serial_pair import parse_json_event
 DEFAULT_EVIDENCE_ROOT = Path("dev/evidence/espnow-pair")
 COREDUMP_OFFSET = 0x300000
 COREDUMP_SIZE = 0x100000
+DEFAULT_READ_BAUD = 115200
 
 
 class CoreDumpTestError(RuntimeError):
@@ -80,14 +81,23 @@ def _write_json_line(file, value: dict[str, Any]) -> None:
     file.flush()
 
 
-def main() -> int:
+def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True, help="serial console COM port")
     parser.add_argument("--target", required=True, choices=("esp32s3", "esp32c3"))
     parser.add_argument("--evidence-root", type=Path, default=DEFAULT_EVIDENCE_ROOT)
     parser.add_argument("--event-timeout", type=float, default=35.0)
-    parser.add_argument("--read-baud", type=int, default=460800)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--read-baud",
+        type=int,
+        default=DEFAULT_READ_BAUD,
+        help="baud rate for the 1 MiB read-flash operation",
+    )
+    return parser
+
+
+def main() -> int:
+    args = build_argument_parser().parse_args()
 
     try:
         import serial
