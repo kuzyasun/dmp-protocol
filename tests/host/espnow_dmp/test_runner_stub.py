@@ -88,6 +88,7 @@ class EspNowDmpStub:
         self.v2_frame_started_while_sample_response_tx_pending = False
         self.v2_tx_pending = False
         self.transfer_started_while_v2_tx_pending = False
+        self.raw_mtu_probe_payload_bytes = 0
         self.nvs_epoch = 1
         self.port: MockSerialPort | None = None
 
@@ -145,22 +146,23 @@ class EspNowDmpStub:
                 "target": self.target,
                 "status": "ok",
                 "entropy_ready": True,
-                "heap_internal_free_bytes": 100000,
-                "heap_internal_min_free_bytes": 90000,
+                "heap_internal_free_bytes": 100000 - self.raw_mtu_probe_payload_bytes,
+                "heap_internal_min_free_bytes": 90000 - self.raw_mtu_probe_payload_bytes,
                 "heap_internal_largest_block_bytes": 80000,
                 "heap_internal_used_since_ready_bytes": 1000,
                 "heap_spiram_free_bytes": 0,
                 "heap_spiram_min_free_bytes": 0,
                 "heap_spiram_largest_block_bytes": 0,
-                "qualification_static_bytes": 40000,
+                "qualification_static_bytes": 40000 + (1470 if self.target == "esp32s3" else 0),
                 "qualification_dynamic_object_bytes": 3000,
+                "raw_mtu_probe_buffer_bytes": 1470 if self.target == "esp32s3" else 0,
                 "provider_live_requested_bytes": 1000,
                 "provider_peak_requested_bytes": 12000,
                 "provider_largest_allocation_bytes": 8192,
                 "provider_retained_bytes": 1000,
                 "provider_scratch_limit_bytes": 16384,
                 "provider_retained_limit_bytes": 131072,
-                "main_stack_min_free_bytes": 1500,
+                "main_stack_min_free_bytes": 1500 - self.raw_mtu_probe_payload_bytes // 10,
                 "main_stack_configured_bytes": 7168,
                 "command_stack_min_free_bytes": 1400,
                 "command_stack_configured_bytes": 4096,
@@ -545,6 +547,47 @@ class EspNowDmpStub:
                 timer.start()
             else:
                 complete_v2_tx()
+        elif cmd == "RAW_MTU_PROBE" and len(parts) == 4:
+            peer_handle = int(parts[1])
+            payload_bytes = int(parts[2])
+            probe_sequence = int(parts[3])
+            if self.target != "esp32s3" or peer_handle >= len(self.peers) or not 22 <= payload_bytes <= 1470:
+                self._emit(side, {
+                    "event": "raw_mtu_probe_failed",
+                    "session": self.session,
+                    "reason": "invalid-controller-peer-or-size",
+                    "authenticated": False,
+                }, event_queue)
+                return
+            peer_mac = self.peers[peer_handle][0]
+            self.raw_mtu_probe_payload_bytes = payload_bytes
+            if network:
+                peer_stub = network.stubs_by_mac.get(peer_mac.lower())
+                peer_port = network.ports_by_mac.get(peer_mac.lower())
+                if peer_stub is not None:
+                    peer_stub.raw_mtu_probe_payload_bytes = payload_bytes
+                if peer_port is not None:
+                    peer_port.emit_event({
+                        "event": "raw_mtu_probe_received",
+                        "session": self.session,
+                        "peer_handle": 0,
+                        "probe_sequence": probe_sequence,
+                        "raw_payload_bytes": payload_bytes,
+                        "status": "ok",
+                        "pattern_valid": True,
+                        "authenticated": False,
+                        "classification": "raw-espnow-v2-test-probe",
+                    })
+            self._emit(side, {
+                "event": "raw_mtu_probe_tx_done",
+                "session": self.session,
+                "peer_handle": peer_handle,
+                "probe_sequence": probe_sequence,
+                "raw_payload_bytes": payload_bytes,
+                "status": "success",
+                "authenticated": False,
+                "classification": "raw-espnow-v2-test-probe",
+            }, event_queue)
         elif cmd == "TRANSFER" and len(parts) >= 3:
             h = int(parts[1])
             b = int(parts[2])
@@ -1345,6 +1388,7 @@ class TestRunnerStub(unittest.TestCase):
                 evidence_dir=tmpdir,
                 timeout=5.0,
                 serial_factory=net.make_factory(),
+                raw_mtu_sweep=True,
             )
             self.assertTrue(Path(result["evidence_dir"]).is_dir())
             command_log = Path(result["evidence_dir"]) / "commands.log"
@@ -1365,6 +1409,32 @@ class TestRunnerStub(unittest.TestCase):
         self.assertEqual(result["peer_node_ids"], list(FOUR_PEER_NODE_IDS[:3]))
         self.assertEqual(result["decoded_core_mtu_bytes"], 256)
         self.assertEqual(result["stream_r_encoded_mtu_bytes"], 263)
+        self.assertEqual(result["raw_mtu_sweep_payload_sizes_bytes"], [263, 512, 1024, 1470])
+        self.assertEqual(len(result["raw_mtu_probe_events"]), 36)
+        self.assertEqual(len(result["raw_mtu_resource_snapshots"]), 5)
+        self.assertEqual(
+            set(result["raw_mtu_resource_snapshots"][0]["boards"]),
+            {"s3", "c3_0", "c3_1", "c3_2"},
+        )
+        self.assertEqual(
+            result["raw_mtu_resource_snapshots"][0]["boards"]["s3"][
+                "raw_mtu_probe_buffer_bytes"
+            ],
+            1470,
+        )
+        for peer_index in range(3):
+            self.assertEqual(
+                result["raw_mtu_resource_snapshots"][0]["boards"][f"c3_{peer_index}"][
+                    "raw_mtu_probe_buffer_bytes"
+                ],
+                0,
+            )
+        self.assertEqual(
+            result["raw_mtu_resource_changes"][-1]["changes_from_connected_dmp_baseline"]["c3_2"][
+                "internal_heap_free_bytes_change"
+            ],
+            -1470,
+        )
         self.assertEqual(len(s3_stub.peers), 3)
         self.assertEqual(read_ports, set(c3_ports))
 

@@ -16,7 +16,15 @@ from serial_dmp_common import (
     DmpTestError,
     MULTI_PEER_PROFILE_HASH,
 )
-from serial_dmp_four import run_dmp_four, run_dmp_three_peer_serial, validate_dmp_four_events
+from serial_dmp_four import (
+    DEFAULT_RAW_MTU_SWEEP_BYTES,
+    matches_raw_mtu_receive,
+    run_dmp_four,
+    run_dmp_three_peer_serial,
+    summarize_raw_mtu_memory_deltas,
+    validate_dmp_four_events,
+    validate_raw_mtu_sweep_plan,
+)
 
 S3_MAC = "28:37:2f:75:5d:64"
 PEER_MACS = [
@@ -623,6 +631,146 @@ class TestDmpThreePeer(unittest.TestCase):
         self.assertEqual(result["sample1_read_peer_count"], 3)
         self.assertEqual(result["decoded_core_mtu_bytes"], 256)
         self.assertEqual(result["stream_r_encoded_mtu_bytes"], 263)
+
+    def test_raw_mtu_sweep_keeps_link_and_dmp_mtu_units_separate(self):
+        events = make_passing_three_peer_events()
+        sequence = 1
+        for payload_bytes in DEFAULT_RAW_MTU_SWEEP_BYTES:
+            for peer_idx in range(3):
+                events.extend([
+                    ("s3", {
+                        "event": "raw_mtu_probe_tx_done",
+                        "session": SESSION,
+                        "peer_handle": peer_idx,
+                        "probe_sequence": sequence,
+                        "raw_payload_bytes": payload_bytes,
+                        "status": "success",
+                        "authenticated": False,
+                        "classification": "raw-espnow-v2-test-probe",
+                    }),
+                    (f"c3_{peer_idx}", {
+                        "event": "raw_mtu_probe_received",
+                        "session": SESSION,
+                        "peer_handle": 0,
+                        "probe_sequence": sequence,
+                        "raw_payload_bytes": payload_bytes,
+                        "status": "ok",
+                        "pattern_valid": True,
+                        "authenticated": False,
+                        "classification": "raw-espnow-v2-test-probe",
+                    }),
+                ])
+                sequence += 1
+
+        result = validate_dmp_four_events(
+            events,
+            "three_peer_serial",
+            3,
+            4096,
+            SESSION,
+            raw_mtu_payload_sizes=DEFAULT_RAW_MTU_SWEEP_BYTES,
+            raw_mtu_repeats_per_peer=1,
+        )
+        self.assertEqual(result["decoded_core_mtu_bytes"], 256)
+        self.assertEqual(result["stream_r_encoded_mtu_bytes"], 263)
+        self.assertEqual(result["espnow_v2_payload_mtu_bytes"], 1470)
+        self.assertEqual(len(result["raw_mtu_probe_events"]), 12)
+        self.assertEqual(result["raw_mtu_probe_events"][-1]["raw_espnow_payload_bytes"], 1470)
+
+    def test_raw_mtu_sweep_rejects_missing_receive_and_authenticated_claim(self):
+        events = make_passing_three_peer_events()
+        payload_bytes = 1470
+        for peer_idx in range(3):
+            events.extend([
+                ("s3", {
+                    "event": "raw_mtu_probe_tx_done", "session": SESSION,
+                    "peer_handle": peer_idx, "probe_sequence": peer_idx + 1,
+                    "raw_payload_bytes": payload_bytes, "status": "success",
+                    "authenticated": False, "classification": "raw-espnow-v2-test-probe",
+                }),
+                (f"c3_{peer_idx}", {
+                    "event": "raw_mtu_probe_received", "session": SESSION,
+                    "peer_handle": 0, "probe_sequence": peer_idx + 1,
+                    "raw_payload_bytes": payload_bytes, "status": "ok",
+                    "pattern_valid": True,
+                    "authenticated": peer_idx == 0,
+                    "classification": "raw-espnow-v2-test-probe",
+                }),
+            ])
+        with self.assertRaisesRegex(DmpTestError, "wrong C3 peer|invalid"):
+            validate_dmp_four_events(
+                events,
+                "three_peer_serial",
+                3,
+                4096,
+                SESSION,
+                raw_mtu_payload_sizes=(1470,),
+                raw_mtu_repeats_per_peer=1,
+            )
+
+        missing_receive = [
+            (side, event) for side, event in events
+            if not (side == "c3_2" and event.get("event") == "raw_mtu_probe_received")
+        ]
+        with self.assertRaisesRegex(DmpTestError, "receive sequences mismatch"):
+            validate_dmp_four_events(
+                missing_receive,
+                "three_peer_serial",
+                3,
+                4096,
+                SESSION,
+                raw_mtu_payload_sizes=(1470,),
+                raw_mtu_repeats_per_peer=1,
+            )
+
+        with self.assertRaisesRegex(DmpTestError, "between 22 and 1470"):
+            validate_raw_mtu_sweep_plan((1471,), 1, 3)
+
+    def test_raw_mtu_memory_delta_covers_each_attached_board(self):
+        sides = ["s3", "c3_0", "c3_1", "c3_2"]
+        baseline = {
+            side: {
+                "heap_internal_free_bytes": 100000,
+                "heap_internal_min_free_bytes": 90000,
+                "main_stack_min_free_bytes": 1500,
+                "qualification_static_bytes": 41470,
+                "qualification_dynamic_object_bytes": 3000,
+            }
+            for side in sides
+        }
+        after = {
+            side: {
+                **baseline[side],
+                "heap_internal_free_bytes": 98530,
+                "heap_internal_min_free_bytes": 88530,
+                "main_stack_min_free_bytes": 1353,
+            }
+            for side in sides
+        }
+        samples = [
+            {"raw_espnow_payload_bytes": None, "boards": baseline},
+            {"raw_espnow_payload_bytes": 1470, "boards": after},
+        ]
+        comparisons = summarize_raw_mtu_memory_deltas(samples, sides)
+        self.assertEqual(comparisons[0]["raw_espnow_payload_bytes"], 1470)
+        self.assertEqual(len(comparisons[0]["changes_from_connected_dmp_baseline"]), 4)
+        self.assertEqual(
+            comparisons[0]["changes_from_connected_dmp_baseline"]["c3_2"][
+                "main_stack_min_free_bytes_change"
+            ],
+            -147,
+        )
+
+    def test_raw_mtu_receive_wait_matches_exact_sequence(self):
+        stale = {
+            "event": "raw_mtu_probe_received",
+            "session": SESSION,
+            "probe_sequence": 40,
+        }
+        current = {**stale, "probe_sequence": 41}
+        self.assertFalse(matches_raw_mtu_receive(stale, SESSION, 41))
+        self.assertFalse(matches_raw_mtu_receive(current, "ffffffffffffffff", 41))
+        self.assertTrue(matches_raw_mtu_receive(current, SESSION, 41))
 
     def test_rejects_missing_sample1_result(self):
         events = [

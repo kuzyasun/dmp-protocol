@@ -22,7 +22,7 @@ import json
 import secrets
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 from serial_dmp_common import (
     DmpTestError,
@@ -36,6 +36,7 @@ from serial_dmp_common import (
     create_evidence_dir,
     default_serial_factory,
     validate_nvs_check,
+    validate_resources_event,
     validate_ready_event,
     wait_for_handshake_start,
     wait_for_handshake_pair,
@@ -43,6 +44,165 @@ from serial_dmp_common import (
 
 DEFAULT_BYTES_PER_PEER = 4096
 CHUNK_BYTES = 128
+DEFAULT_RAW_MTU_SWEEP_BYTES = (263, 512, 1024, 1470)
+DEFAULT_RAW_MTU_SWEEP_REPEATS = 3
+
+
+def validate_raw_mtu_sweep_plan(
+    payload_sizes: Sequence[int], repeats_per_peer: int, peer_count: int
+) -> tuple[int, ...]:
+    """Validate raw ESP-NOW v2 test sizes independently of DMP profile MTUs."""
+    sizes = tuple(payload_sizes)
+    if not sizes:
+        raise DmpTestError("Raw ESP-NOW MTU sweep requires at least one payload size")
+    if len(set(sizes)) != len(sizes):
+        raise DmpTestError("Raw ESP-NOW MTU sweep payload sizes must be unique")
+    for size in sizes:
+        if not isinstance(size, int) or isinstance(size, bool) or not 22 <= size <= 1470:
+            raise DmpTestError(f"Raw ESP-NOW payload size must be between 22 and 1470 bytes; got {size!r}")
+    if not isinstance(repeats_per_peer, int) or isinstance(repeats_per_peer, bool) or repeats_per_peer < 1:
+        raise DmpTestError("Raw ESP-NOW MTU sweep repeats per peer must be a positive integer")
+    if peer_count < 1:
+        raise DmpTestError("Raw ESP-NOW MTU sweep requires at least one peer")
+    return sizes
+
+
+def validate_raw_mtu_sweep_events(
+    tagged_events: Iterable[tuple[str, dict[str, Any]]],
+    peer_count: int,
+    session: str,
+    payload_sizes: Sequence[int],
+    repeats_per_peer: int,
+) -> list[dict[str, int]]:
+    """Validate raw link probes and receiver pattern checks; this is not DMP evidence."""
+    sizes = validate_raw_mtu_sweep_plan(payload_sizes, repeats_per_peer, peer_count)
+    expected_by_sequence: dict[int, tuple[int, int]] = {}
+    sequence = 1
+    for size in sizes:
+        for peer_idx in range(peer_count):
+            for _ in range(repeats_per_peer):
+                expected_by_sequence[sequence] = (size, peer_idx)
+                sequence += 1
+
+    tx_by_sequence: dict[int, dict[str, Any]] = {}
+    rx_by_sequence: dict[int, tuple[str, dict[str, Any]]] = {}
+    for side, event in tagged_events:
+        if event.get("session") != session:
+            continue
+        event_name = event.get("event")
+        if event_name == "raw_mtu_probe_tx_done":
+            probe_sequence = event.get("probe_sequence")
+            if probe_sequence in tx_by_sequence:
+                raise DmpTestError(f"Duplicate raw MTU TX completion for sequence {probe_sequence}")
+            tx_by_sequence[probe_sequence] = event
+        elif event_name == "raw_mtu_probe_received":
+            probe_sequence = event.get("probe_sequence")
+            if probe_sequence in rx_by_sequence:
+                raise DmpTestError(f"Duplicate raw MTU receive event for sequence {probe_sequence}")
+            rx_by_sequence[probe_sequence] = (side, event)
+        elif event_name == "raw_mtu_probe_failed":
+            raise DmpTestError(f"Raw ESP-NOW MTU probe failed: {event.get('reason', 'unspecified')}")
+
+    if set(tx_by_sequence) != set(expected_by_sequence):
+        raise DmpTestError(
+            f"Raw MTU TX completion sequences mismatch: expected {len(expected_by_sequence)}, "
+            f"got {len(tx_by_sequence)}"
+        )
+    if set(rx_by_sequence) != set(expected_by_sequence):
+        raise DmpTestError(
+            f"Raw MTU receive sequences mismatch: expected {len(expected_by_sequence)}, "
+            f"got {len(rx_by_sequence)}"
+        )
+
+    validated: list[dict[str, int]] = []
+    for probe_sequence, (expected_bytes, peer_idx) in expected_by_sequence.items():
+        tx = tx_by_sequence[probe_sequence]
+        tx_fields = ("peer_handle", "raw_payload_bytes", "status", "authenticated", "classification")
+        if (
+            tx.get("peer_handle") != peer_idx
+            or tx.get("raw_payload_bytes") != expected_bytes
+            or tx.get("status") != "success"
+            or tx.get("authenticated") is not False
+            or tx.get("classification") != "raw-espnow-v2-test-probe"
+        ):
+            raise DmpTestError(
+                f"Raw MTU TX completion {probe_sequence} does not match peer {peer_idx} "
+                f"and {expected_bytes}-byte payload ({tx_fields})"
+            )
+        side, rx = rx_by_sequence[probe_sequence]
+        if (
+            side != f"c3_{peer_idx}"
+            or rx.get("peer_handle") != 0
+            or rx.get("raw_payload_bytes") != expected_bytes
+            or rx.get("status") != "ok"
+            or rx.get("pattern_valid") is not True
+            or rx.get("authenticated") is not False
+            or rx.get("classification") != "raw-espnow-v2-test-probe"
+        ):
+            raise DmpTestError(
+                f"Raw MTU receive {probe_sequence} was invalid or arrived at the wrong C3 peer"
+            )
+        validated.append({
+            "probe_sequence": probe_sequence,
+            "peer_handle": peer_idx,
+            "raw_espnow_payload_bytes": expected_bytes,
+        })
+    return validated
+
+
+def matches_raw_mtu_receive(event: dict[str, Any], session: str, probe_sequence: int) -> bool:
+    """Match the exact receive completion for one outstanding raw probe."""
+    return (
+        event.get("session") == session
+        and event.get("event") == "raw_mtu_probe_received"
+        and event.get("probe_sequence") == probe_sequence
+    )
+
+
+def summarize_raw_mtu_memory_deltas(
+    snapshots: Sequence[dict[str, Any]], board_sides: Sequence[str]
+) -> list[dict[str, Any]]:
+    """Compare post-sweep target memory against the connected-DMP baseline."""
+    if len(snapshots) < 2 or snapshots[0].get("raw_espnow_payload_bytes") is not None:
+        raise DmpTestError("Raw MTU memory samples require a baseline followed by at least one payload size")
+    baseline = snapshots[0].get("boards")
+    if not isinstance(baseline, dict) or any(side not in baseline for side in board_sides):
+        raise DmpTestError("Raw MTU memory baseline is missing one or more connected boards")
+
+    comparisons: list[dict[str, Any]] = []
+    for snapshot in snapshots[1:]:
+        payload_bytes = snapshot.get("raw_espnow_payload_bytes")
+        boards = snapshot.get("boards")
+        if not isinstance(payload_bytes, int) or not isinstance(boards, dict):
+            raise DmpTestError("Raw MTU memory sample has invalid payload size or board data")
+        deltas: dict[str, dict[str, int]] = {}
+        for side in board_sides:
+            if side not in boards:
+                raise DmpTestError(f"Raw MTU memory sample {payload_bytes} is missing {side}")
+            before = baseline[side]
+            after = boards[side]
+            deltas[side] = {
+                "internal_heap_free_bytes_change": (
+                    after["heap_internal_free_bytes"] - before["heap_internal_free_bytes"]
+                ),
+                "internal_heap_min_free_bytes_change": (
+                    after["heap_internal_min_free_bytes"] - before["heap_internal_min_free_bytes"]
+                ),
+                "main_stack_min_free_bytes_change": (
+                    after["main_stack_min_free_bytes"] - before["main_stack_min_free_bytes"]
+                ),
+                "qualification_static_bytes_change": (
+                    after["qualification_static_bytes"] - before["qualification_static_bytes"]
+                ),
+                "qualification_dynamic_object_bytes_change": (
+                    after["qualification_dynamic_object_bytes"] - before["qualification_dynamic_object_bytes"]
+                ),
+            }
+        comparisons.append({
+            "raw_espnow_payload_bytes": payload_bytes,
+            "changes_from_connected_dmp_baseline": deltas,
+        })
+    return comparisons
 
 
 def validate_dmp_four_events(
@@ -52,6 +212,8 @@ def validate_dmp_four_events(
     bytes_per_peer: int,
     session: str,
     count_per_peer: int = 1,
+    raw_mtu_payload_sizes: Sequence[int] = (),
+    raw_mtu_repeats_per_peer: int = DEFAULT_RAW_MTU_SWEEP_REPEATS,
 ) -> dict[str, Any]:
     """Validate qualification events in four_serial, four_parallel, or three_peer_serial mode."""
     if mode not in ("four_serial", "four_parallel", "three_peer_serial"):
@@ -64,6 +226,10 @@ def validate_dmp_four_events(
         raise DmpTestError(f"Three-peer qualification requires exactly 3 peers; got {peer_count}")
     if not SESSION_PATTERN.match(session):
         raise DmpTestError(f"Session token must be 16 lowercase hex characters, got {session!r}")
+    raw_mtu_sizes = (
+        validate_raw_mtu_sweep_plan(raw_mtu_payload_sizes, raw_mtu_repeats_per_peer, peer_count)
+        if raw_mtu_payload_sizes else ()
+    )
 
     by_side: dict[str, list[dict[str, Any]]] = {}
     for side, event in tagged_events:
@@ -345,6 +511,17 @@ def validate_dmp_four_events(
     if max_frame > 263:
         raise DmpTestError(f"Observed frame size {max_frame} exceeds Stream R MTU limit 263")
 
+    raw_mtu_probe_events = (
+        validate_raw_mtu_sweep_events(
+            tagged_events,
+            peer_count=peer_count,
+            session=session,
+            payload_sizes=raw_mtu_sizes,
+            repeats_per_peer=raw_mtu_repeats_per_peer,
+        )
+        if raw_mtu_sizes else []
+    )
+
     total_boards = peer_count + 1
     return {
         "result": "PASS",
@@ -367,6 +544,10 @@ def validate_dmp_four_events(
         "stream_r_encoded_mtu_bytes": 263,
         "espnow_v1_payload_mtu_bytes": 250,
         "espnow_v2_payload_mtu_bytes": 1470,
+        "raw_mtu_sweep_payload_sizes_bytes": list(raw_mtu_sizes),
+        "raw_mtu_sweep_repeats_per_peer": raw_mtu_repeats_per_peer if raw_mtu_sizes else 0,
+        "raw_mtu_probe_authentication": "unauthenticated test-only ESP-NOW frames",
+        "raw_mtu_probe_events": raw_mtu_probe_events,
         "boards_description": (
             f"{total_boards} physical boards total: 1 ESP32-S3 controller (node {FOUR_CONTROLLER_NODE_ID}) "
             f"and {peer_count} ESP32-C3 peers"
@@ -388,6 +569,9 @@ def run_dmp_four(
     evidence_dir: Path | str | None = None,
     timeout: float = 60.0,
     serial_factory: Callable[..., Any] | None = None,
+    raw_mtu_sweep: bool = False,
+    raw_mtu_payload_sizes: Sequence[int] = DEFAULT_RAW_MTU_SWEEP_BYTES,
+    raw_mtu_repeats_per_peer: int = DEFAULT_RAW_MTU_SWEEP_REPEATS,
 ) -> dict[str, Any]:
     """Execute authenticated multi-peer qualification between 1 S3 and 3 or 4 C3 devices."""
     if not s3_port or not isinstance(s3_port, str) or not s3_port.strip():
@@ -397,6 +581,12 @@ def run_dmp_four(
         raise DmpTestError(
             f"Invalid mode {mode!r}; expected 'four_serial', 'four_parallel', or 'three_peer_serial'"
         )
+    if raw_mtu_sweep and mode != "three_peer_serial":
+        raise DmpTestError("Raw ESP-NOW MTU sweep currently requires three_peer_serial mode")
+    sweep_sizes = (
+        validate_raw_mtu_sweep_plan(raw_mtu_payload_sizes, raw_mtu_repeats_per_peer, 3)
+        if raw_mtu_sweep else ()
+    )
 
     expected_peers = 3 if mode == "three_peer_serial" else 4
 
@@ -723,6 +913,77 @@ def run_dmp_four(
                         start_index=c3_start_indices[i],
                     )
 
+        resource_snapshots: list[dict[str, Any]] = []
+        if raw_mtu_sweep:
+            resource_devices = [("s3", s3_dev, "esp32s3")] + [
+                (f"c3_{i}", dev, "esp32c3") for i, dev in enumerate(c3_devs)
+            ]
+
+            def capture_resource_snapshot(stage: str, raw_payload_bytes: int | None) -> None:
+                board_samples: dict[str, dict[str, Any]] = {}
+                for side, device, target in resource_devices:
+                    start_index = device.event_count
+                    device.send_command("RESOURCES")
+                    event = device.wait_for_event(
+                        lambda e: e.get("event") == "resources" and e.get("session") == session,
+                        timeout=timeout,
+                        desc=f"resource sample on {side} after {stage}",
+                        start_index=start_index,
+                    )
+                    checked = validate_resources_event(event, target, session)
+                    expected_probe_buffer_bytes = 1470 if target == "esp32s3" else 0
+                    if checked.get("raw_mtu_probe_buffer_bytes") != expected_probe_buffer_bytes:
+                        raise DmpTestError(
+                            f"{side} reported raw MTU test buffer size "
+                            f"{checked.get('raw_mtu_probe_buffer_bytes')}; "
+                            f"expected {expected_probe_buffer_bytes} bytes for {target}"
+                        )
+                    board_samples[side] = checked
+                resource_snapshots.append({
+                    "stage": stage,
+                    "raw_espnow_payload_bytes": raw_payload_bytes,
+                    "boards": board_samples,
+                })
+
+            capture_resource_snapshot("connected-dmp-baseline", None)
+            probe_sequence = 1
+            for raw_payload_bytes in sweep_sizes:
+                for peer_idx in range(expected_peers):
+                    for _ in range(raw_mtu_repeats_per_peer):
+                        tx_start = s3_dev.event_count
+                        rx_start = c3_devs[peer_idx].event_count
+                        s3_dev.send_command(
+                            f"RAW_MTU_PROBE {peer_idx} {raw_payload_bytes} {probe_sequence}"
+                        )
+                        tx_event = s3_dev.wait_for_event(
+                            lambda e, seq=probe_sequence: e.get("session") == session and (
+                                (e.get("event") == "raw_mtu_probe_tx_done" and
+                                 e.get("probe_sequence") == seq)
+                                or e.get("event") == "raw_mtu_probe_failed"
+                            ),
+                            timeout=timeout,
+                            desc=f"raw {raw_payload_bytes}-byte ESP-NOW TX completion {probe_sequence}",
+                            start_index=tx_start,
+                        )
+                        if tx_event.get("event") != "raw_mtu_probe_tx_done" or tx_event.get("status") != "success":
+                            raise DmpTestError(
+                                f"Raw ESP-NOW TX failed at {raw_payload_bytes} bytes: "
+                                f"{tx_event.get('reason', tx_event.get('status'))}"
+                            )
+                        rx_event = c3_devs[peer_idx].wait_for_event(
+                            lambda e, seq=probe_sequence: matches_raw_mtu_receive(e, session, seq),
+                            timeout=timeout,
+                            desc=f"raw {raw_payload_bytes}-byte ESP-NOW receive on c3_{peer_idx}",
+                            start_index=rx_start,
+                        )
+                        if rx_event.get("status") != "ok" or rx_event.get("pattern_valid") is not True:
+                            raise DmpTestError(
+                                f"C3 peer {peer_idx} rejected raw {raw_payload_bytes}-byte probe "
+                                f"sequence {probe_sequence}"
+                            )
+                        probe_sequence += 1
+                capture_resource_snapshot(f"raw-mtu-{raw_payload_bytes}", raw_payload_bytes)
+
         tagged_events = [("s3", ev) for ev in s3_dev.get_events()]
         for i, dev in enumerate(c3_devs):
             tagged_events.extend([(f"c3_{i}", ev) for ev in dev.get_events()])
@@ -734,7 +995,15 @@ def run_dmp_four(
             bytes_per_peer=bytes_per_peer,
             session=session,
             count_per_peer=count_per_peer,
+            raw_mtu_payload_sizes=sweep_sizes,
+            raw_mtu_repeats_per_peer=raw_mtu_repeats_per_peer,
         )
+        if raw_mtu_sweep:
+            board_sides = ["s3", *(f"c3_{i}" for i in range(expected_peers))]
+            result["raw_mtu_resource_snapshots"] = resource_snapshots
+            result["raw_mtu_resource_changes"] = summarize_raw_mtu_memory_deltas(
+                resource_snapshots, board_sides
+            )
         result["evidence_dir"] = str(ev_dir)
 
         evidence_file = ev_dir / "evidence.json"
@@ -757,6 +1026,9 @@ def run_dmp_three_peer_serial(
     evidence_dir: Path | str | None = None,
     timeout: float = 60.0,
     serial_factory: Callable[..., Any] | None = None,
+    raw_mtu_sweep: bool = False,
+    raw_mtu_payload_sizes: Sequence[int] = DEFAULT_RAW_MTU_SWEEP_BYTES,
+    raw_mtu_repeats_per_peer: int = DEFAULT_RAW_MTU_SWEEP_REPEATS,
 ) -> dict[str, Any]:
     """Execute authenticated 3-peer qualification between 1 S3 and 3 C3 devices."""
     return run_dmp_four(
@@ -768,6 +1040,9 @@ def run_dmp_three_peer_serial(
         evidence_dir=evidence_dir,
         timeout=timeout,
         serial_factory=serial_factory,
+        raw_mtu_sweep=raw_mtu_sweep,
+        raw_mtu_payload_sizes=raw_mtu_payload_sizes,
+        raw_mtu_repeats_per_peer=raw_mtu_repeats_per_peer,
     )
 
 
@@ -791,6 +1066,23 @@ def main() -> None:
     parser.add_argument("--bytes-per-peer", type=int, default=DEFAULT_BYTES_PER_PEER)
     parser.add_argument("--evidence-dir", type=Path, default=None, help="Evidence directory")
     parser.add_argument("--timeout", type=float, default=60.0, help="Operation timeout in seconds")
+    parser.add_argument(
+        "--raw-mtu-sweep",
+        action="store_true",
+        help="After authenticated three-peer DMP traffic, probe raw ESP-NOW v2 payload sizes and sample resources on all four boards",
+    )
+    parser.add_argument(
+        "--raw-mtu-sizes",
+        nargs="+",
+        type=int,
+        default=list(DEFAULT_RAW_MTU_SWEEP_BYTES),
+        help="Raw ESP-NOW payload sizes in bytes (default: 263 512 1024 1470); these are not DMP MTUs",
+    )
+    parser.add_argument(
+        "--raw-mtu-repeats-per-peer",
+        type=int,
+        default=DEFAULT_RAW_MTU_SWEEP_REPEATS,
+    )
     args = parser.parse_args()
 
     if args.mode == "three_peer_serial":
@@ -801,6 +1093,9 @@ def main() -> None:
             bytes_per_peer=args.bytes_per_peer,
             evidence_dir=args.evidence_dir,
             timeout=args.timeout,
+            raw_mtu_sweep=args.raw_mtu_sweep,
+            raw_mtu_payload_sizes=args.raw_mtu_sizes,
+            raw_mtu_repeats_per_peer=args.raw_mtu_repeats_per_peer,
         )
     else:
         result = run_dmp_four(
@@ -811,6 +1106,9 @@ def main() -> None:
             bytes_per_peer=args.bytes_per_peer,
             evidence_dir=args.evidence_dir,
             timeout=args.timeout,
+            raw_mtu_sweep=args.raw_mtu_sweep,
+            raw_mtu_payload_sizes=args.raw_mtu_sizes,
+            raw_mtu_repeats_per_peer=args.raw_mtu_repeats_per_peer,
         )
     print(json.dumps(result, indent=2))
 

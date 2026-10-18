@@ -37,3 +37,4 @@ Thumbs.db
 /dev/
 /tests/embedded/espnow_dmp/managed_components
 /tests/embedded/esp32s3/managed_components
+docs/.obsidian

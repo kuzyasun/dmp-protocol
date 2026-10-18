@@ -79,6 +79,24 @@ SAMPLE-1 initialization READ from each peer, then transfers Service-2 data to ea
 four-board integration smoke and does not qualify the four-peer resource or lifecycle acceptance
 cases.
 
+The optional `three_peer_serial --raw-mtu-sweep` stage probes raw ESP-NOW payload sizes of 263,
+512, 1024 and 1470 bytes, three times per peer. It runs after authenticated DMP handshakes,
+SAMPLE-1 READs and Service-2 transfers, while all three C3 associations remain active. The
+22-byte test marker is included in each reported ESP-NOW payload size. Every received test frame
+is checked against its session marker, sequence, declared length and deterministic payload
+pattern. These are unauthenticated test-only link frames; they do not enter DMP or change the
+active manifest.
+
+The runner captures integrated heap, provider, static object and task stack counters on the S3
+and all three C3 boards after DMP workload, then after each raw ESP-NOW size. Resource deltas are
+relative to that connected-DMP baseline. The S3 controller includes a 1470-byte static test probe
+buffer, reported as `raw_mtu_probe_buffer_bytes` and included in `qualification_static_bytes`.
+The C3 receivers do not allocate this transmit-only buffer and report zero bytes for it.
+The active authenticated DMP profile remains 256 bytes decoded Core / 263 bytes encoded Stream R,
+with 128-byte Service-2 chunks. The 1470-byte sweep proves link payload delivery and samples the
+integrated application under that traffic; it does not qualify a larger protected DMP chunk or
+change the frozen profile geometry.
+
 ## 6. SAMPLE-1 NVS Monotonic Epoch Check
 
 To qualify persistent replay defense and crash recovery:
@@ -156,5 +174,6 @@ validation using stubs; the hardware result remains separate evidence.
     ```bash
     python tests/embedded/espnow_dmp/serial_dmp_pair.py --s3-port S3_PORT --c3-port C3_PORT --count 2
     python tests/embedded/espnow_dmp/serial_dmp_four.py --s3-port S3_PORT --c3-ports C3_NODE10 C3_NODE35 C3_NODE34 --mode three_peer_serial --bytes-per-peer 1024
+    python tests/embedded/espnow_dmp/serial_dmp_four.py --s3-port COM37 --c3-ports COM36 COM38 COM40 --mode three_peer_serial --bytes-per-peer 4096 --raw-mtu-sweep
     python tests/embedded/espnow_dmp/serial_dmp_four.py --s3-port S3_PORT --c3-ports C3_NODE10 C3_NODE35 C3_NODE34 C3_NODE36 --mode four_serial --count-per-peer 2
     ```

@@ -58,6 +58,7 @@
 #define QUAL_STREAM_R_ENCODED_MTU_BYTES 263U
 #define QUAL_ESPNOW_V1_PAYLOAD_MTU_BYTES 250U
 #define QUAL_ESPNOW_V2_PAYLOAD_MTU_BYTES 1470U
+#define QUAL_RAW_MTU_PROBE_HEADER_BYTES 22U
 #define QUAL_MAX_PEERS 4U
 #define QUAL_MAX_PAYLOAD_BYTES 4096U
 #define QUAL_CHUNK_BYTES 128U
@@ -76,6 +77,8 @@ _Static_assert(ESP_NOW_MAX_DATA_LEN == 250,
                "ESP-NOW v1 maximum payload is 250 bytes");
 _Static_assert(ESP_NOW_MAX_TOTAL_PEER_NUM >= QUAL_MAX_PEERS,
                "ESP-NOW peer table must fit qualification peers");
+_Static_assert(QUAL_RAW_MTU_PROBE_HEADER_BYTES < QUAL_ESPNOW_V2_PAYLOAD_MTU_BYTES,
+               "Raw MTU probe header must fit inside an ESP-NOW v2 payload");
 
 /*
  * TEST-ONLY FIXED CREDENTIALS - NOT FOR PRODUCTION USE.
@@ -111,6 +114,7 @@ static const uint8_t MULTI_PEER_PROFILE_HASH[32] = {
 #define QUAL_MAX_TOMBSTONE_SLOTS (QUAL_MAX_PEERS * 16U)
 
 static const uint32_t MULTI_PEER_NODE_IDS[QUAL_MAX_PEERS] = { 10U, 35U, 34U, 36U };
+static const uint8_t RAW_MTU_PROBE_MAGIC[8] = { 'D', 'M', 'P', 'M', 'T', 'U', '1', 0U };
 
 typedef enum {
     EVENT_RX = 1,
@@ -177,7 +181,9 @@ typedef struct {
     /* Transport TX tracking */
     bool tx_live;
     bool current_tx_probe;
+    bool current_tx_raw_mtu_probe;
     uint32_t current_tx_peer_idx;
+    uint32_t current_tx_raw_probe_sequence;
     dmp_tx_token current_tx_token;
     dmp_tx_complete_fn current_tx_complete;
     void *current_tx_owner;
@@ -282,6 +288,12 @@ static portMUX_TYPE g_callback_diag_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t g_rx_callback_count;
 static uint32_t g_rx_callback_queue_drops;
 static uint8_t g_telemetry_frame[256];
+#if CONFIG_IDF_TARGET_ESP32S3
+static uint8_t g_raw_mtu_probe_buffer[QUAL_ESPNOW_V2_PAYLOAD_MTU_BYTES];
+#define QUAL_RAW_MTU_PROBE_BUFFER_BYTES QUAL_ESPNOW_V2_PAYLOAD_MTU_BYTES
+#else
+#define QUAL_RAW_MTU_PROBE_BUFFER_BYTES 0U
+#endif
 static uint8_t g_entropy_sample[QUAL_ENTROPY_DIAGNOSTIC_BYTES];
 static uint16_t g_entropy_bucket_counts[QUAL_ENTROPY_BUCKETS];
 static portMUX_TYPE g_provider_alloc_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -515,7 +527,8 @@ static size_t qualification_static_storage_bytes(void)
            sizeof(g_assembly_payload) + sizeof(g_assembly_metadata) +
            sizeof(g_fragment_message) + sizeof(g_fragment_frame) +
            sizeof(g_telemetry_payload) + sizeof(g_telemetry_next) +
-           sizeof(g_telemetry_frame) + sizeof(g_test_transfer_payload) +
+           sizeof(g_telemetry_frame) + QUAL_RAW_MTU_PROBE_BUFFER_BYTES +
+           sizeof(g_test_transfer_payload) +
            sizeof(g_sample_endpoint) + sizeof(g_sample_anchor) +
            sizeof(g_sample_store) + sizeof(g_entropy_sample) +
            sizeof(g_entropy_bucket_counts);
@@ -589,6 +602,7 @@ static void report_resources(void)
            "\"heap_spiram_free_bytes\":%zu,\"heap_spiram_min_free_bytes\":%zu,"
            "\"heap_spiram_largest_block_bytes\":%zu,"
            "\"qualification_static_bytes\":%zu,\"qualification_dynamic_object_bytes\":%zu,"
+           "\"raw_mtu_probe_buffer_bytes\":%u,"
            "\"provider_live_requested_bytes\":%zu,\"provider_peak_requested_bytes\":%zu,"
            "\"provider_largest_allocation_bytes\":%zu,\"provider_retained_bytes\":%zu,"
            "\"provider_scratch_limit_bytes\":%u,\"provider_retained_limit_bytes\":%u,"
@@ -602,6 +616,7 @@ static void report_resources(void)
            internal_free, internal_min, internal_largest, internal_used_since_ready,
            spiram_free, spiram_min, spiram_largest,
            qualification_static_storage_bytes(), qualification_dynamic_object_bytes(),
+           (unsigned)QUAL_RAW_MTU_PROBE_BUFFER_BYTES,
            provider_live, provider_peak, provider_largest,
            g_provider != NULL ? dmp_provider_retained(g_provider) : 0U,
            (unsigned)DMP_PROVIDER_SCRATCH_MAX, (unsigned)DMP_PROVIDER_RETAINED_MAX,
@@ -1614,6 +1629,44 @@ static void handle_rx_packet(const qual_wifi_event *event)
         return;
     }
 
+    if (event->length >= sizeof(RAW_MTU_PROBE_MAGIC) &&
+        memcmp(event->bytes, RAW_MTU_PROBE_MAGIC, sizeof(RAW_MTU_PROBE_MAGIC)) == 0) {
+        uint32_t probe_sequence = 0U;
+        uint16_t declared_bytes = 0U;
+        bool valid = event->length >= QUAL_RAW_MTU_PROBE_HEADER_BYTES &&
+                     g_state.role == ROLE_PEER && g_state.session_set &&
+                     peer->handshake_done && peer->handshake_tx_ready;
+        if (event->length >= QUAL_RAW_MTU_PROBE_HEADER_BYTES) {
+            declared_bytes = (uint16_t)event->bytes[16] |
+                             ((uint16_t)event->bytes[17] << 8U);
+            probe_sequence = (uint32_t)event->bytes[18] |
+                             ((uint32_t)event->bytes[19] << 8U) |
+                             ((uint32_t)event->bytes[20] << 16U) |
+                             ((uint32_t)event->bytes[21] << 24U);
+            valid = valid && declared_bytes == event->length && probe_sequence != 0U &&
+                    memcmp(event->bytes + 8U, g_state.session_token,
+                           QUAL_SESSION_BYTES) == 0;
+            for (size_t i = QUAL_RAW_MTU_PROBE_HEADER_BYTES;
+                 valid && i < event->length; ++i) {
+                size_t pattern_index = i - QUAL_RAW_MTU_PROBE_HEADER_BYTES;
+                uint8_t expected = (uint8_t)((pattern_index * 31U +
+                                              probe_sequence * 17U +
+                                              g_state.session_token[pattern_index % QUAL_SESSION_BYTES]) &
+                                             0xffU);
+                valid = event->bytes[i] == expected;
+            }
+        }
+        printf("{\"event\":\"raw_mtu_probe_received\",\"session\":\"%s\","
+               "\"peer_handle\":%u,\"probe_sequence\":%" PRIu32 ","
+               "\"raw_payload_bytes\":%u,\"status\":\"%s\","
+               "\"pattern_valid\":%s,\"authenticated\":false,"
+               "\"classification\":\"raw-espnow-v2-test-probe\"}\n",
+               session, (unsigned)peer->handle.slot, probe_sequence,
+               (unsigned)event->length, valid ? "ok" : "invalid",
+               valid ? "true" : "false");
+        return;
+    }
+
     if (event->length > g_state.max_observed_rx_frame_bytes) {
         g_state.max_observed_rx_frame_bytes = event->length;
     }
@@ -1829,8 +1882,11 @@ static void handle_tx_done(const dmp_qual_tx_completion_event *event)
     }
 
     bool is_probe = g_state.current_tx_probe;
+    bool is_raw_mtu_probe = g_state.current_tx_raw_mtu_probe;
+    uint32_t raw_probe_sequence = g_state.current_tx_raw_probe_sequence;
     g_state.tx_live = false;
     g_state.current_tx_probe = false;
+    g_state.current_tx_raw_mtu_probe = false;
     ++g_state.stats_tx_frames;
     const bool ok = (event->status == (int)ESP_NOW_SEND_SUCCESS);
     if (ok) {
@@ -1846,6 +1902,17 @@ static void handle_tx_done(const dmp_qual_tx_completion_event *event)
                "\"authenticated\":false}\n",
                session, peer_mac, (unsigned)g_state.current_tx_peer_idx,
                (unsigned)g_state.current_tx_len, ok ? "success" : "failed");
+        return;
+    }
+    if (is_raw_mtu_probe) {
+        printf("{\"event\":\"raw_mtu_probe_tx_done\",\"session\":\"%s\","
+               "\"peer_mac\":\"%s\",\"peer_handle\":%u,"
+               "\"probe_sequence\":%" PRIu32 ",\"raw_payload_bytes\":%u,"
+               "\"status\":\"%s\",\"authenticated\":false,"
+               "\"classification\":\"raw-espnow-v2-test-probe\"}\n",
+               session, peer_mac, (unsigned)g_state.current_tx_peer_idx,
+               raw_probe_sequence, (unsigned)g_state.current_tx_len,
+               ok ? "success" : "failed");
         return;
     }
     printf("{\"event\":\"tx_done\",\"session\":\"%s\",\"peer_mac\":\"%s\","
@@ -2045,6 +2112,96 @@ static void trigger_v2_frame(uint32_t peer_idx)
     printf("{\"event\":\"v2_frame_emitted\",\"session\":\"%s\",\"peer_handle\":%u,"
            "\"decoded_bytes\":%u,\"encoded_bytes\":%u,\"authenticated\":false}\n",
            session, (unsigned)peer_idx, (unsigned)core_written, (unsigned)encoded_written);
+}
+
+/* Test-only raw ESP-NOW traffic; deliberately bypasses DMP and is never authenticated. */
+static void trigger_raw_mtu_probe(uint32_t peer_idx, size_t payload_bytes,
+                                  uint32_t probe_sequence)
+{
+    char session[QUAL_SESSION_BYTES * 2U + 1U];
+    format_session(session);
+
+#if CONFIG_IDF_TARGET_ESP32S3
+    if (g_state.role != ROLE_CONTROLLER || !g_state.session_set ||
+        peer_idx >= QUAL_MAX_PEERS || !g_state.peers[peer_idx].in_use) {
+        printf("{\"event\":\"raw_mtu_probe_failed\",\"session\":\"%s\","
+               "\"reason\":\"invalid-controller-or-peer\","
+               "\"authenticated\":false}\n", session);
+        return;
+    }
+    qual_peer_entry *peer = &g_state.peers[peer_idx];
+    if (!peer->handshake_done || !peer->handshake_tx_ready) {
+        printf("{\"event\":\"raw_mtu_probe_failed\",\"session\":\"%s\","
+               "\"peer_handle\":%u,\"reason\":\"confirmation-not-ready\","
+               "\"authenticated\":false}\n", session, (unsigned)peer_idx);
+        return;
+    }
+    if (payload_bytes < QUAL_RAW_MTU_PROBE_HEADER_BYTES ||
+        payload_bytes > QUAL_ESPNOW_V2_PAYLOAD_MTU_BYTES || probe_sequence == 0U) {
+        printf("{\"event\":\"raw_mtu_probe_failed\",\"session\":\"%s\","
+               "\"peer_handle\":%u,\"reason\":\"invalid-payload-size-or-sequence\","
+               "\"raw_payload_bytes\":%u,\"v2_limit\":%u,"
+               "\"authenticated\":false}\n",
+               session, (unsigned)peer_idx, (unsigned)payload_bytes,
+               QUAL_ESPNOW_V2_PAYLOAD_MTU_BYTES);
+        return;
+    }
+    if (g_state.tx_live) {
+        printf("{\"event\":\"raw_mtu_probe_failed\",\"session\":\"%s\","
+               "\"peer_handle\":%u,\"reason\":\"transport-busy\","
+               "\"authenticated\":false}\n", session, (unsigned)peer_idx);
+        return;
+    }
+
+    memcpy(g_raw_mtu_probe_buffer, RAW_MTU_PROBE_MAGIC, sizeof(RAW_MTU_PROBE_MAGIC));
+    memcpy(g_raw_mtu_probe_buffer + 8U, g_state.session_token, QUAL_SESSION_BYTES);
+    g_raw_mtu_probe_buffer[16] = (uint8_t)(payload_bytes & 0xffU);
+    g_raw_mtu_probe_buffer[17] = (uint8_t)((payload_bytes >> 8U) & 0xffU);
+    g_raw_mtu_probe_buffer[18] = (uint8_t)(probe_sequence & 0xffU);
+    g_raw_mtu_probe_buffer[19] = (uint8_t)((probe_sequence >> 8U) & 0xffU);
+    g_raw_mtu_probe_buffer[20] = (uint8_t)((probe_sequence >> 16U) & 0xffU);
+    g_raw_mtu_probe_buffer[21] = (uint8_t)((probe_sequence >> 24U) & 0xffU);
+    for (size_t i = QUAL_RAW_MTU_PROBE_HEADER_BYTES; i < payload_bytes; ++i) {
+        size_t pattern_index = i - QUAL_RAW_MTU_PROBE_HEADER_BYTES;
+        g_raw_mtu_probe_buffer[i] = (uint8_t)((pattern_index * 31U +
+                                               probe_sequence * 17U +
+                                               g_state.session_token[pattern_index % QUAL_SESSION_BYTES]) &
+                                              0xffU);
+    }
+
+    g_state.tx_live = true;
+    g_state.current_tx_probe = false;
+    g_state.current_tx_raw_mtu_probe = true;
+    g_state.current_tx_raw_probe_sequence = probe_sequence;
+    g_state.current_tx_peer_idx = peer_idx;
+    g_state.current_tx_complete = NULL;
+    g_state.current_tx_owner = NULL;
+    g_state.current_tx_len = payload_bytes;
+    memcpy(g_state.current_tx_mac, peer->mac, sizeof(g_state.current_tx_mac));
+    esp_err_t err = esp_now_send(peer->mac, g_raw_mtu_probe_buffer, payload_bytes);
+    if (err != ESP_OK) {
+        g_state.tx_live = false;
+        g_state.current_tx_raw_mtu_probe = false;
+        printf("{\"event\":\"raw_mtu_probe_failed\",\"session\":\"%s\","
+               "\"peer_handle\":%u,\"reason\":\"espnow-send-failed\","
+               "\"error\":%d,\"authenticated\":false}\n",
+               session, (unsigned)peer_idx, (int)err);
+        return;
+    }
+
+    printf("{\"event\":\"raw_mtu_probe_emitted\",\"session\":\"%s\","
+           "\"peer_handle\":%u,\"probe_sequence\":%" PRIu32 ","
+           "\"raw_payload_bytes\":%u,\"authenticated\":false,"
+           "\"classification\":\"raw-espnow-v2-test-probe\"}\n",
+           session, (unsigned)peer_idx, probe_sequence, (unsigned)payload_bytes);
+#else
+    (void)peer_idx;
+    (void)payload_bytes;
+    (void)probe_sequence;
+    printf("{\"event\":\"raw_mtu_probe_failed\",\"session\":\"%s\","
+           "\"reason\":\"controller-target-required\","
+           "\"authenticated\":false}\n", session);
+#endif
 }
 
 static const char *sample_owner_result_name(dmp_sample1_owner_result result)
@@ -2424,6 +2581,17 @@ static void handle_command(const char *line)
             return;
         }
         trigger_v2_frame((uint32_t)h);
+    } else if (strncmp(line, "RAW_MTU_PROBE ", 14U) == 0) {
+        unsigned int h = 0U;
+        unsigned int bytes = 0U;
+        unsigned int sequence = 0U;
+        if (sscanf(line, "RAW_MTU_PROBE %u %u %u %c",
+                   &h, &bytes, &sequence, &extra) != 3) {
+            printf("{\"event\":\"command_rejected\",\"reason\":\"raw-mtu-probe-usage\","
+                   "\"expected\":\"RAW_MTU_PROBE <peer_handle> <raw_payload_bytes> <sequence>\"}\n");
+            return;
+        }
+        trigger_raw_mtu_probe((uint32_t)h, (size_t)bytes, (uint32_t)sequence);
     } else if (strncmp(line, "RUN_PAIR", 8U) == 0 && (line[8] == ' ' || line[8] == '\0')) {
         printf("{\"event\":\"command_rejected\",\"reason\":\"runner-owned-scheduling\"}\n");
     } else if (strncmp(line, "RUN_FOUR_SERIAL", 15U) == 0 && (line[15] == ' ' || line[15] == '\0')) {
