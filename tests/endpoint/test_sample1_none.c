@@ -43,6 +43,16 @@ enum {
 typedef struct node node;
 
 typedef struct {
+    dmp_tx_complete_fn complete;
+    void *owner;
+    dmp_tx_token token;
+    const uint8_t *borrowed_data;
+    size_t borrowed_size;
+    uint8_t borrowed_snapshot[CORE_MTU];
+    uint8_t live;
+} delayed_tx_completion;
+
+typedef struct {
     uint8_t frame[QUEUE_CAPACITY][CORE_MTU];
     size_t length[QUEUE_CAPACITY];
     uint32_t peer_slot[QUEUE_CAPACITY];
@@ -52,6 +62,9 @@ typedef struct {
     uint8_t route_peer_override;
     uint32_t blocked_peer_slot;
     uint8_t block_peer;
+    uint32_t delayed_peer_slot;
+    uint8_t delay_peer_completion;
+    delayed_tx_completion delayed;
 } loopback;
 
 typedef struct {
@@ -179,6 +192,7 @@ static dmp_parse_result parse_outbound_core(const uint8_t *data, size_t size,
     }
 }
 
+#if SAMPLE_PEERS > 1U
 #if defined(__GNUC__)
 __attribute__((noinline))
 #endif
@@ -191,6 +205,7 @@ static uint8_t churn_stack(void)
     }
     return bytes[sizeof(bytes) - 1U];
 }
+#endif
 
 static void store_u32_le(uint8_t *out, uint32_t value)
 {
@@ -315,6 +330,7 @@ static void fill_none_profile(dmp_config *config, uint32_t local_id,
 static dmp_status tx_submit(void *context, const dmp_tx_submission *submission)
 {
     loopback *wire = (loopback *)context;
+    uint32_t peer_slot;
     if (wire == NULL || submission == NULL || submission->frame.data == NULL ||
         submission->complete == NULL || submission->frame.size > CORE_MTU ||
         wire->count >= QUEUE_CAPACITY) {
@@ -326,17 +342,49 @@ static dmp_status tx_submit(void *context, const dmp_tx_submission *submission)
             wire->blocked_peer_slot) {
         return DMP_BUSY;
     }
+    peer_slot = wire->route_peer_override != 0U ? wire->route_peer_slot
+                                                : submission->peer.slot;
+    if (wire->delay_peer_completion != 0U &&
+        peer_slot == wire->delayed_peer_slot && wire->delayed.live != 0U) {
+        return DMP_BUSY;
+    }
     (void)memcpy(wire->frame[wire->count], submission->frame.data,
                  submission->frame.size);
     wire->length[wire->count] = submission->frame.size;
-    wire->peer_slot[wire->count] = wire->route_peer_override != 0U
-                                       ? wire->route_peer_slot
-                                       : submission->peer.slot;
+    wire->peer_slot[wire->count] = peer_slot;
     wire->count++;
+    if (wire->delay_peer_completion != 0U &&
+        peer_slot == wire->delayed_peer_slot) {
+        wire->delayed.complete = submission->complete;
+        wire->delayed.owner = submission->owner;
+        wire->delayed.token = submission->token;
+        wire->delayed.borrowed_data = submission->frame.data;
+        wire->delayed.borrowed_size = submission->frame.size;
+        (void)memcpy(wire->delayed.borrowed_snapshot, submission->frame.data,
+                     submission->frame.size);
+        wire->delayed.live = 1U;
+        wire->delay_peer_completion = 0U;
+        return DMP_OK;
+    }
     submission->complete(submission->owner, submission->token,
                          DMP_TX_TRANSMITTED, wire->now);
     return DMP_OK;
 }
+
+#if SAMPLE_PEERS > 1U
+static int complete_delayed_tx(node *self, dmp_time_ms now)
+{
+    delayed_tx_completion completion;
+    if (self == NULL || self->tx.delayed.live == 0U) {
+        return -1;
+    }
+    completion = self->tx.delayed;
+    (void)memset(&self->tx.delayed, 0, sizeof(self->tx.delayed));
+    completion.complete(completion.owner, completion.token,
+                        DMP_TX_TRANSMITTED, now);
+    return 0;
+}
+#endif
 
 static dmp_status tx_cancel(void *context, dmp_tx_token token)
 {
@@ -380,6 +428,22 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice)
                       notice->payload.size);
     }
 }
+
+#if SAMPLE_PEERS > 1U
+static uint32_t live_senders_for_peer(const node *self, dmp_peer_handle peer)
+{
+    uint32_t count = 0U;
+    uint32_t i;
+    for (i = 0U; i < SENDERS; i++) {
+        const dmp_reliability_sender_slot *sender = &self->senders[i];
+        if (sender->live != 0U && sender->peer.slot == peer.slot &&
+            sender->peer.generation == peer.generation) {
+            count++;
+        }
+    }
+    return count;
+}
+#endif
 
 static bool hook_try_enter(void *user)
 {
@@ -1230,6 +1294,7 @@ static int run_persistent_consumer_history(void)
     dmp_peer_handle handles[MAX_SAMPLE_PEERS];
     dmp_reliability_handle request_handles[MAX_SAMPLE_PEERS];
     dmp_message_key request_keys[MAX_SAMPLE_PEERS];
+    dmp_peer_handle replacement_handle;
     dmp_identity_context_config context;
     uint32_t i;
 
@@ -1315,11 +1380,29 @@ static int run_persistent_consumer_history(void)
         CHECK(queued == SAMPLE_PEERS);
     }
     g_defer_sample_flush = 0U;
+    producer.tx.delayed_peer_slot = 1U;
+    producer.tx.delay_peer_completion = 1U;
     CHECK(dmp_sample1_endpoint_flush(&producer.sample_endpoint, now + 1U) ==
           DMP_SAMPLE1_OWNER_OK);
-    producer.tx.block_peer = 1U;
-    producer.tx.blocked_peer_slot = 0U;
-    CHECK(collect_sample_responses(now + 1U, SAMPLE_PEERS - 1U,
+    CHECK(collect_sample_responses(now + 1U, 2U,
+                                   response_frames, response_lengths) == 0);
+    CHECK(producer.tx.delayed.live != 0U);
+    CHECK(response_lengths[0] != 0U);
+    CHECK(dmp_endpoint_rx_packet_from(
+              &persistent_consumers[0].endpoint,
+              persistent_consumers[0].endpoint.peers[0].handle,
+              span(response_frames[0], response_lengths[0]), now + 2U) ==
+          DMP_OK);
+    CHECK(persistent_consumers[0].result_count == 1U);
+    expected_read(expected, sample_epoch, 1U, 0x111U);
+    CHECK(memcmp(persistent_consumers[0].last_result, expected,
+                 sizeof(expected)) == 0);
+    CHECK(persistent_consumers[0].tx.count == 1U);
+    g_route_peer_slot = 0U;
+    CHECK(deliver(&persistent_consumers[0], &producer, now + 2U) >= 0);
+    producer.tx.count = 0U;
+    CHECK(complete_delayed_tx(&producer, now + 2U) == 0);
+    CHECK(collect_sample_responses(now + 2U, SAMPLE_PEERS - 2U,
                                    response_frames, response_lengths) == 0);
 
     /* A valid RSP for peer i must not complete peer i+1, even when the
@@ -1385,30 +1468,8 @@ static int run_persistent_consumer_history(void)
         g_route_peer_slot = peer;
         CHECK(deliver(c, &producer, now + 2U) >= 0);
     }
-    producer.tx.block_peer = 0U;
-    CHECK(collect_sample_responses(now + 2U, 1U, response_frames,
-                                   response_lengths) == 0);
-    CHECK(response_lengths[0] != 0U);
-    g_route_peer_slot = 0U;
-    producer.tx.count = 1U;
-    producer.tx.peer_slot[0] = 0U;
-    producer.tx.length[0] = response_lengths[0];
-    (void)memcpy(producer.tx.frame[0], response_frames[0], response_lengths[0]);
-    CHECK(deliver(&producer, &consumer, now + 2U) >= 0);
     CHECK(persistent_consumers[0].result_count == 1U);
-    expected_read(expected, sample_epoch, 1U, 0x111U);
-    CHECK(memcmp(persistent_consumers[0].last_result, expected,
-                 sizeof(expected)) == 0);
-    CHECK(persistent_consumers[0].tx.count == 1U);
-    {
-        dmp_frame_view result_ack;
-        CHECK(parse_outbound_core(persistent_consumers[0].tx.frame[0],
-                                  persistent_consumers[0].tx.length[0],
-                                  now + 2U, &result_ack,
-                                  persistent_consumers[0].parsed_view_storage).status == DMP_OK);
-        CHECK(result_ack.fields.type == DMP_TYPE_ACK);
-    }
-    CHECK(deliver(&persistent_consumers[0], &producer, now + 2U) >= 0);
+    producer.tx.count = 0U;
     for (i = 0U; i < SENDERS; i++) {
         CHECK(producer.senders[i].live == 0U);
     }
@@ -1553,6 +1614,281 @@ static int run_persistent_consumer_history(void)
             CHECK(c->result_request.peer.generation == newer.peer.generation);
         }
     }
+    {
+        dmp_identity_context_config replacement_context;
+        dmp_peer_handle old_a = handles[0];
+        dmp_peer_handle peer_b = handles[1];
+        (void)memset(&replacement_context, 0, sizeof(replacement_context));
+        replacement_context.local.namespace_id = 1U;
+        replacement_context.local.origin_id = 10U;
+        replacement_context.local.epoch = producer_epoch;
+        replacement_context.peer.namespace_id = 1U;
+        replacement_context.peer.origin_id = 20U;
+        replacement_context.peer.epoch = consumer_epoch + 1U;
+        replacement_context.security = 0U;
+        CHECK(dmp_endpoint_replace_none_peer_context(
+                  &producer.endpoint, old_a, &replacement_context, now + 6U,
+                  &replacement_handle) == DMP_OK);
+        CHECK(replacement_handle.slot == old_a.slot);
+        CHECK(replacement_handle.generation == old_a.generation + 1U);
+        CHECK(producer.endpoint.peer_count == SAMPLE_PEERS);
+        CHECK(producer.endpoint.peers[peer_b.slot].live != 0U);
+        CHECK(producer.endpoint.peers[peer_b.slot].handle.generation ==
+              peer_b.generation);
+        CHECK(producer.sample_peers[peer_b.slot].live != 0U);
+        CHECK(producer.sample_peers[peer_b.slot].peer.generation ==
+              peer_b.generation);
+        CHECK(dmp_endpoint_rx_packet_from(
+                  &producer.endpoint, replacement_handle,
+                  span(request_frames[0], request_lengths[0]), now + 6U) !=
+              DMP_OK);
+        CHECK(producer.pending_read == 0U);
+        CHECK(producer.endpoint.peer_count == SAMPLE_PEERS);
+    }
+    g_persistent_consumers_active = 0U;
+    return 0;
+}
+
+static int run_shared_replace_borrow_fence(void)
+{
+    const dmp_time_ms now = 20000U;
+    const uint64_t producer_epoch = 0x1901U;
+    const uint64_t consumer_epoch = 0x1a01U;
+    const uint64_t sample_epoch = 2100U;
+    uint8_t read_request[1] = {DMP_SAMPLE1_READ_OPCODE};
+    uint8_t request_frame[2][CORE_MTU];
+    size_t request_length[2] = {0U, 0U};
+    uint8_t response_frame[MAX_SAMPLE_PEERS][CORE_MTU];
+    uint8_t old_a_response[CORE_MTU];
+    size_t response_length[MAX_SAMPLE_PEERS] = {0U};
+    size_t old_a_response_length;
+    uint8_t expected[DMP_SAMPLE1_READ_BYTES];
+    dmp_reliability_handle request_handle[2];
+    dmp_message_key request_key[2];
+    dmp_peer_handle producer_peer[2];
+    dmp_peer_handle replacement;
+    dmp_identity_context_config context;
+    delayed_tx_completion stale_completion;
+    uint32_t i;
+
+    (void)memset(&store, 0, sizeof(store));
+    store.next_epoch = sample_epoch - 1U;
+    CHECK(init_node(&producer, &store, true, 10U, 20U,
+                    producer_epoch, consumer_epoch, now) == 0);
+    producer_peer[0] = producer.endpoint.peers[0].handle;
+    (void)memset(&context, 0, sizeof(context));
+    context.local.namespace_id = 1U;
+    context.local.origin_id = 10U;
+    context.local.epoch = producer_epoch;
+    context.peer.namespace_id = 1U;
+    context.peer.origin_id = 21U;
+    context.peer.epoch = consumer_epoch;
+    context.security = 0U;
+    CHECK(dmp_endpoint_add_peer(&producer.endpoint, &context, now,
+                                &producer_peer[1]) == DMP_OK);
+    CHECK(init_sample_endpoint(&producer) == 0);
+    CHECK(dmp_sample1_endpoint_begin_epoch(&producer.sample_endpoint, now) ==
+          DMP_SAMPLE1_OWNER_OK);
+    for (i = 0U; i < 2U; i++) {
+        CHECK(dmp_sample1_endpoint_activate_peer(&producer.sample_endpoint,
+                                                  producer_peer[i]) ==
+              DMP_SAMPLE1_OWNER_OK);
+        g_route_peer_slot = i;
+        CHECK(init_node(&persistent_consumers[i], &store, false, 20U + i,
+                        10U, consumer_epoch, producer_epoch, now) == 0);
+        persistent_consumers[i].tx.route_peer_override = 1U;
+        persistent_consumers[i].tx.route_peer_slot = i;
+    }
+    g_persistent_consumers_active = 1U;
+    CHECK(dmp_sample1_endpoint_publish(&producer.sample_endpoint, 0x123U, now) ==
+          DMP_SAMPLE1_OWNER_OK);
+    CHECK(dmp_endpoint_poll(&producer.endpoint, now) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&producer.endpoint, now) == DMP_OK);
+    CHECK(producer.tx.count == 2U);
+    for (i = 0U; i < 2U; i++) {
+        g_route_peer_slot = i;
+        CHECK(deliver(&producer, &consumer, now) >= 0);
+        CHECK(persistent_consumers[i].telem_count == 1U);
+    }
+
+    /* Both SAMPLE-1 requests are accepted by the same production endpoint.
+     * Keep their copied result work queued until A's delayed transport send is
+     * fenced, while B's exact result remains outstanding across replacement. */
+    g_defer_sample_flush = 1U;
+    for (i = 0U; i < 2U; i++) {
+        node *c = &persistent_consumers[i];
+        dmp_frame_view view;
+        CHECK(dmp_endpoint_submit_req_to(
+                  &c->endpoint, c->endpoint.peers[0].handle, 1U,
+                  span(read_request, sizeof(read_request)), now + 1U,
+                  &request_handle[i]) == DMP_OK);
+        CHECK(dmp_endpoint_poll(&c->endpoint, now + 1U) == DMP_OK);
+        CHECK(c->tx.count == 1U);
+        CHECK(parse_outbound_core(c->tx.frame[0], c->tx.length[0], now + 1U,
+                                  &view, c->parsed_view_storage).status == DMP_OK);
+        CHECK(view.fields.type == DMP_TYPE_REQ);
+        request_key[i].origin.namespace_id = 1U;
+        request_key[i].origin.origin_id = 20U + i;
+        request_key[i].origin.epoch = consumer_epoch;
+        request_key[i].seq = view.fields.seq;
+        request_length[i] = c->tx.length[0];
+        (void)memcpy(request_frame[i], c->tx.frame[0], request_length[i]);
+        g_route_peer_slot = i;
+        CHECK(deliver(c, &producer, now + 1U) >= 0);
+    }
+    CHECK(producer.sample_endpoint.results[0].live != 0U);
+    CHECK(producer.sample_endpoint.results[1].live != 0U);
+    g_defer_sample_flush = 0U;
+    producer.tx.delayed_peer_slot = 0U;
+    producer.tx.delay_peer_completion = 1U;
+    CHECK(dmp_sample1_endpoint_flush(&producer.sample_endpoint, now + 1U) ==
+          DMP_SAMPLE1_OWNER_OK);
+    CHECK(collect_sample_responses(now + 1U, 1U, response_frame,
+                                   response_length) == 0);
+    CHECK(producer.tx.delayed.live != 0U);
+    CHECK(response_length[0] != 0U);
+    old_a_response_length = response_length[0];
+    (void)memcpy(old_a_response, response_frame[0], old_a_response_length);
+    CHECK(producer.endpoint.peers[0].revoked == 0U);
+    CHECK(producer.endpoint.peer_count == 2U);
+    CHECK(live_senders_for_peer(&producer, producer_peer[1]) == 1U);
+
+    (void)memset(&context, 0, sizeof(context));
+    context.local.namespace_id = 1U;
+    context.local.origin_id = 10U;
+    context.local.epoch = producer_epoch;
+    context.peer.namespace_id = 1U;
+    context.peer.origin_id = 20U;
+    context.peer.epoch = consumer_epoch + 1U;
+    context.security = 0U;
+    CHECK(dmp_endpoint_replace_none_peer_context(
+              &producer.endpoint, producer_peer[0], &context, now + 2U,
+              &replacement) == DMP_BUSY);
+    CHECK(producer.endpoint.peers[0].live != 0U);
+    CHECK(producer.endpoint.peers[0].revoked != 0U);
+    CHECK(producer.endpoint.peers[0].handle.generation ==
+          producer_peer[0].generation);
+    CHECK(producer.endpoint.peer_count == 2U);
+    CHECK(producer.tx.delayed.borrowed_data != NULL);
+    CHECK(producer.tx.delayed.borrowed_size != 0U);
+    CHECK(memcmp(producer.tx.delayed.borrowed_data,
+                 producer.tx.delayed.borrowed_snapshot,
+                 producer.tx.delayed.borrowed_size) == 0);
+    stale_completion = producer.tx.delayed;
+    CHECK(complete_delayed_tx(&producer, now + 2U) == 0);
+    CHECK(dmp_endpoint_poll(&producer.endpoint, now + 2U) == DMP_OK);
+    CHECK(dmp_endpoint_replace_none_peer_context(
+              &producer.endpoint, producer_peer[0], &context, now + 3U,
+              &replacement) == DMP_OK);
+    CHECK(replacement.slot == producer_peer[0].slot);
+    CHECK(replacement.generation == producer_peer[0].generation + 1U);
+    CHECK(producer.endpoint.peer_count == 2U);
+    CHECK(producer.endpoint.peers[1].handle.generation ==
+          producer_peer[1].generation);
+    CHECK(live_senders_for_peer(&producer, producer_peer[1]) == 1U);
+    CHECK(dmp_sample1_endpoint_activate_peer(&producer.sample_endpoint,
+                                              replacement) ==
+          DMP_SAMPLE1_OWNER_OK);
+    CHECK(collect_sample_responses(now + 3U, 1U, response_frame,
+                                   response_length) == 0);
+    CHECK(response_length[1] != 0U);
+
+    /* B's accepted READ completes only after A has been fenced and the slot
+     * reused. Verify exact full correlation, payload, source and ACK release. */
+    producer.tx.count = 1U;
+    producer.tx.peer_slot[0] = 1U;
+    producer.tx.length[0] = response_length[1];
+    (void)memcpy(producer.tx.frame[0], response_frame[1], response_length[1]);
+    g_route_peer_slot = 1U;
+    CHECK(deliver(&producer, &consumer, now + 4U) >= 0);
+    CHECK(persistent_consumers[1].result_count == 1U);
+    expected_read(expected, sample_epoch, 1U, 0x123U);
+    CHECK(memcmp(persistent_consumers[1].last_result, expected,
+                 sizeof(expected)) == 0);
+    CHECK(persistent_consumers[1].result_source.origin_id == 10U);
+    CHECK(persistent_consumers[1].result_source.epoch == producer_epoch);
+    CHECK(persistent_consumers[1].result_request.slot == request_handle[1].slot);
+    CHECK(persistent_consumers[1].result_request.peer.generation ==
+          request_handle[1].peer.generation);
+    {
+        dmp_frame_view view;
+        dmp_message_key reply;
+        CHECK(parse_outbound_core(response_frame[1], response_length[1], now + 4U,
+                                  &view, persistent_consumers[1].parsed_view_storage).status == DMP_OK);
+        CHECK(dmp_identity_reply_to(&view,
+                                    &persistent_consumers[1].endpoint.identity,
+                                    persistent_consumers[1].endpoint.peers[0].context,
+                                    now + 4U, &reply) == DMP_OK);
+        CHECK(reply.origin.origin_id == request_key[1].origin.origin_id);
+        CHECK(reply.origin.namespace_id == request_key[1].origin.namespace_id);
+        CHECK(reply.origin.epoch == request_key[1].origin.epoch);
+        CHECK(reply.seq == request_key[1].seq);
+    }
+    g_route_peer_slot = 1U;
+    CHECK(deliver(&persistent_consumers[1], &producer, now + 4U) >= 0);
+    CHECK(live_senders_for_peer(&producer, producer_peer[1]) == 0U);
+
+    /* Restart A under its explicitly selected new boot epoch. A's old RSP is
+     * rejected while a fresh READ is live, then that new READ completes. */
+    CHECK(init_node(&persistent_consumers[0], &store, false, 20U, 10U,
+                    consumer_epoch + 1U, producer_epoch, now + 5U) == 0);
+    persistent_consumers[0].tx.route_peer_override = 1U;
+    persistent_consumers[0].tx.route_peer_slot = 0U;
+    CHECK(dmp_endpoint_submit_req_to(
+              &persistent_consumers[0].endpoint,
+              persistent_consumers[0].endpoint.peers[0].handle, 1U,
+              span(read_request, sizeof(read_request)), now + 5U,
+              &request_handle[0]) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&persistent_consumers[0].endpoint, now + 5U) == DMP_OK);
+    CHECK(persistent_consumers[0].tx.count == 1U);
+    g_route_peer_slot = 0U;
+    g_defer_sample_flush = 1U;
+    CHECK(deliver(&persistent_consumers[0], &producer, now + 5U) >= 0);
+    CHECK(producer.sample_endpoint.results[0].live != 0U);
+    producer.tx.delayed_peer_slot = 0U;
+    producer.tx.delay_peer_completion = 1U;
+    g_defer_sample_flush = 0U;
+    CHECK(dmp_sample1_endpoint_flush(&producer.sample_endpoint, now + 6U) ==
+          DMP_SAMPLE1_OWNER_OK);
+    CHECK(collect_sample_responses(now + 6U, 1U, response_frame,
+                                   response_length) == 0);
+    CHECK(producer.tx.delayed.live != 0U);
+    CHECK(producer.tx.delayed.token.generation != stale_completion.token.generation ||
+          producer.tx.delayed.token.slot != stale_completion.token.slot);
+    /* Deliberately invalid duplicate terminal callback: transport contract
+     * permits exactly one terminal completion per accepted submission. This
+     * robustness injection must not match or release the newer TX generation. */
+    stale_completion.complete(stale_completion.owner, stale_completion.token,
+                              DMP_TX_TRANSMITTED, now + 7U);
+    CHECK(producer.tx.delayed.live != 0U);
+    CHECK(producer.tx.delayed.borrowed_data != NULL);
+    CHECK(memcmp(producer.tx.delayed.borrowed_data,
+                 producer.tx.delayed.borrowed_snapshot,
+                 producer.tx.delayed.borrowed_size) == 0);
+    CHECK(persistent_consumers[0].result_count == 0U);
+    producer.tx.count = 1U;
+    producer.tx.peer_slot[0] = 0U;
+    producer.tx.length[0] = old_a_response_length;
+    (void)memcpy(producer.tx.frame[0], old_a_response,
+                 old_a_response_length);
+    CHECK(dmp_endpoint_rx_packet_from(
+              &persistent_consumers[0].endpoint,
+              persistent_consumers[0].endpoint.peers[0].handle,
+              span(old_a_response, old_a_response_length), now + 7U) != DMP_OK);
+    CHECK(persistent_consumers[0].result_count == 0U);
+    CHECK(persistent_consumers[0].senders[request_handle[0].slot].live != 0U);
+    CHECK(complete_delayed_tx(&producer, now + 8U) == 0);
+    CHECK(dmp_endpoint_rx_packet_from(
+              &persistent_consumers[0].endpoint,
+              persistent_consumers[0].endpoint.peers[0].handle,
+              span(response_frame[0], response_length[0]), now + 8U) == DMP_OK);
+    CHECK(persistent_consumers[0].result_count == 1U);
+    expected_read(expected, sample_epoch, 1U, 0x123U);
+    CHECK(memcmp(persistent_consumers[0].last_result, expected,
+                 sizeof(expected)) == 0);
+    CHECK(persistent_consumers[0].result_request.slot == request_handle[0].slot);
+    CHECK(persistent_consumers[0].result_request.peer.generation ==
+          request_handle[0].peer.generation);
     g_persistent_consumers_active = 0U;
     return 0;
 }
@@ -1614,7 +1950,10 @@ int main(void)
     }
     if (SAMPLE_RADIO == 0 &&
         SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_PACKET) {
-        return run_persistent_consumer_history();
+        if (run_persistent_consumer_history() != 0) {
+            return 1;
+        }
+        return run_shared_replace_borrow_fence();
     }
     return 0;
 #endif

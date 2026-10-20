@@ -41,7 +41,25 @@ static dmp_sample1_peer_epoch *peer_record(dmp_sample1_endpoint *sample,
     }
     record = &sample->peers[peer.slot];
     if (record->live != 0U && !handle_equal(record->peer, peer)) {
-        return NULL;
+        const dmp_endpoint_peer_state *current =
+            &sample->endpoint->peers[peer.slot];
+        uint32_t i;
+        /* A NONE context replacement retires the endpoint association before
+         * SAMPLE-1 is told to activate the new generation. Reclaim the old
+         * slot only after the endpoint has installed that generation and no
+         * accepted application result still refers to the retired handle. */
+        if (current->live == 0U || current->revoked != 0U ||
+            !handle_equal(current->handle, peer)) {
+            return NULL;
+        }
+        for (i = 0U; i < sample->result_capacity; i++) {
+            if (sample->results[i].live != 0U &&
+                handle_equal(sample->results[i].request_handle.peer,
+                             record->peer)) {
+                return NULL;
+            }
+        }
+        (void)memset(record, 0, sizeof(*record));
     }
     return record;
 }
