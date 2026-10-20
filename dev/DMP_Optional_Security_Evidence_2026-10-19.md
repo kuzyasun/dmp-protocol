@@ -1,7 +1,7 @@
 # Optional security implementation evidence
 
-Date: 2026-10-19  
-Plan: [`DMP_Optional_Security_Plan_2026-10-19.md`](DMP_Optional_Security_Plan_2026-10-19.md)  
+Date: 2026-10-19
+Plan: [`DMP_Optional_Security_Plan_2026-10-19.md`](DMP_Optional_Security_Plan_2026-10-19.md)
 Baseline: `feat/initial-version`, `0c7f2f3e37275b68e57b2454bf91aeb4e604d10`.
 
 ## Implemented behavior
