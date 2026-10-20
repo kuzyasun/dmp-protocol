@@ -5,6 +5,7 @@
 #include "sample1_endpoint.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifndef SAMPLE_PEERS
@@ -1959,7 +1960,151 @@ static int publish_and_check(dmp_time_ms now, uint32_t value,
     return 0;
 }
 
-int main(void)
+#if SAMPLE_PEERS == 5U && SAMPLE_RADIO == 0 && \
+    SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R
+static int driver_drain_frames(void)
+{
+    size_t i;
+    for (i = 0U; i < producer.tx.count; i++) {
+        size_t j;
+        (void)printf("F %u ", (unsigned)producer.tx.peer_slot[i]);
+        for (j = 0U; j < producer.tx.length[i]; j++) {
+            (void)printf("%02x", (unsigned)producer.tx.frame[i][j]);
+        }
+        (void)printf("\n");
+    }
+    producer.tx.count = 0U;
+    (void)printf(".\n");
+    (void)fflush(stdout);
+    return 0;
+}
+
+static int run_shared_producer_peer_driver(void)
+{
+    static const uint32_t peer_ids[5] = {20U, 30U, 40U, 50U, 60U};
+    const uint64_t producer_epoch = 11U;
+    const uint64_t peer_epoch = 20U;
+    char line[1200];
+    uint32_t i;
+    (void)memset(&store, 0, sizeof(store));
+    store.next_epoch = 2U;
+    if (init_node(&producer, &store, true, 10U, peer_ids[0],
+                  producer_epoch, peer_epoch, 1U) != 0) {
+        return 2;
+    }
+    for (i = 1U; i < 5U; i++) {
+        dmp_identity_context_config context;
+        dmp_peer_handle handle;
+        (void)memset(&context, 0, sizeof(context));
+        context.local.namespace_id = 1U;
+        context.local.origin_id = 10U;
+        context.local.epoch = producer_epoch;
+        context.peer.namespace_id = 1U;
+        context.peer.origin_id = peer_ids[i];
+        context.peer.epoch = peer_epoch;
+        context.security = 0U;
+        if (dmp_endpoint_add_peer(&producer.endpoint, &context, 1U,
+                                  &handle) != DMP_OK || handle.slot != i) {
+            return 3;
+        }
+    }
+    if (init_sample_endpoint(&producer) != 0 ||
+        dmp_sample1_endpoint_begin_epoch(&producer.sample_endpoint, 1U) !=
+            DMP_SAMPLE1_OWNER_OK) {
+        return 4;
+    }
+    for (i = 0U; i < 5U; i++) {
+        if (dmp_sample1_endpoint_activate_peer(
+                &producer.sample_endpoint,
+                producer.endpoint.peers[i].handle) != DMP_SAMPLE1_OWNER_OK) {
+            return 5;
+        }
+    }
+    (void)printf("READY\n");
+    for (i = 0U; i < 5U; i++) {
+        (void)printf("F %u 00\n", (unsigned)i);
+    }
+    (void)printf(".\n");
+    (void)fflush(stdout);
+    while (fgets(line, sizeof(line), stdin) != NULL) {
+        if (strncmp(line, "RX ", 3U) == 0) {
+            char *hex = line + 3;
+            char *end = NULL;
+            unsigned long parsed_slot = strtoul(hex, &end, 10);
+            size_t hex_length;
+            size_t frame_length;
+            uint8_t frame[CORE_MTU];
+            size_t i_byte;
+            if (end == hex || *end != ' ' || parsed_slot >= 5U) {
+                return 6;
+            }
+            hex = end + 1;
+            end = strchr(hex, '\r');
+            if (end == NULL) {
+                end = strchr(hex, '\n');
+            }
+            hex_length = end != NULL ? (size_t)(end - hex) : strlen(hex);
+            if (hex_length == 0U || (hex_length & 1U) != 0U ||
+                hex_length / 2U > sizeof(frame)) {
+                return 7;
+            }
+            frame_length = hex_length / 2U;
+            for (i_byte = 0U; i_byte < frame_length; i_byte++) {
+                char pair[3] = {hex[i_byte * 2U], hex[i_byte * 2U + 1U], '\0'};
+                char *byte_end = NULL;
+                unsigned long octet = strtoul(pair, &byte_end, 16);
+                if (byte_end == pair || *byte_end != '\0' || octet > 255U) {
+                    return 8;
+                }
+                frame[i_byte] = (uint8_t)octet;
+            }
+            producer.tx.now++;
+            if (dmp_endpoint_rx_from(
+                    &producer.endpoint,
+                    producer.endpoint.peers[parsed_slot].handle,
+                    span(frame, frame_length), producer.tx.now) != DMP_OK) {
+                (void)printf("ERR RX\n.\n");
+                (void)fflush(stdout);
+                continue;
+            }
+            if (process_sample_notice(&producer, producer.tx.now) < 0) {
+                return 9;
+            }
+        } else if (strncmp(line, "PUB ", 4U) == 0) {
+            char *end = NULL;
+            unsigned long value = strtoul(line + 4, &end, 10);
+            if (end == line + 4 || value > UINT32_MAX ||
+                dmp_sample1_endpoint_publish(&producer.sample_endpoint,
+                                             (uint32_t)value,
+                                             ++producer.tx.now) !=
+                    DMP_SAMPLE1_OWNER_OK) {
+                return 10;
+            }
+        } else if (strcmp(line, "STATE\n") == 0 ||
+                   strcmp(line, "STATE\r\n") == 0) {
+            uint32_t live = 0U;
+            for (i = 0U; i < SENDERS; i++) {
+                live += producer.senders[i].live != 0U;
+            }
+            (void)printf("S %u\n", (unsigned)live);
+            (void)driver_drain_frames();
+            continue;
+        } else if (strcmp(line, "POLL\n") != 0 &&
+                   strcmp(line, "POLL\r\n") != 0) {
+            return 11;
+        }
+        for (i = 0U; i < 6U; i++) {
+            if (dmp_endpoint_poll(&producer.endpoint, ++producer.tx.now) != DMP_OK) {
+                return 12;
+            }
+        }
+        (void)driver_drain_frames();
+    }
+    return 0;
+}
+#endif
+
+int main(int argc, char **argv)
 {
     const dmp_time_ms now = 100U;
     const uint64_t first_sample_epoch = 700U;
@@ -1974,6 +2119,16 @@ int main(void)
     uint8_t expected[DMP_SAMPLE1_READ_BYTES];
     dmp_reliability_handle request;
     dmp_status stale_status;
+
+#if SAMPLE_PEERS == 5U && SAMPLE_RADIO == 0 && \
+    SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R
+    if (argc == 2 && strcmp(argv[1], "s3-driver") == 0) {
+        return run_shared_producer_peer_driver();
+    }
+#else
+    (void)argc;
+    (void)argv;
+#endif
 
 #if SAMPLE_PEERS > 1U
     if (run_multi_peer_round_trips() != 0) {
