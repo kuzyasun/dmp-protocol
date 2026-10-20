@@ -135,6 +135,9 @@ static uint8_t g_defer_sample_flush;
 static uint8_t g_last_response_frame[CORE_MTU];
 static size_t g_last_response_frame_len;
 static uint32_t g_last_response_peer_slot;
+#if SAMPLE_PEERS > 1U
+static uint32_t g_sample_control_ack_count;
+#endif
 
 static dmp_bytes span(const void *data, size_t size)
 {
@@ -1379,31 +1382,33 @@ static int run_persistent_consumer_history(void)
         }
         CHECK(queued == SAMPLE_PEERS);
     }
+    {
+        /* The N accepted results fill the endpoint's finite result storage.
+         * The applicable earlier admission boundary is one live operation
+         * per peer; a second READ must be rejected before it can overrun that
+         * reserved queue slot or replace the accepted request. */
+        dmp_reliability_handle rejected;
+        dmp_status status = dmp_endpoint_submit_req_to(
+            &persistent_consumers[0].endpoint,
+            persistent_consumers[0].endpoint.peers[0].handle, 1U,
+            span(read_request, sizeof(read_request)), now + 2U, &rejected);
+        CHECK(status == DMP_BUSY);
+        CHECK(persistent_consumers[0].tx.count == 0U);
+        CHECK(persistent_consumers[0].senders[request_handles[0].slot].live != 0U);
+        CHECK(producer.sample_endpoint.results[0].live != 0U);
+        CHECK(producer.sample_endpoint.results[1].live != 0U);
+    }
     g_defer_sample_flush = 0U;
-    producer.tx.delayed_peer_slot = 1U;
-    producer.tx.delay_peer_completion = 1U;
+    producer.tx.block_peer = 1U;
+    producer.tx.blocked_peer_slot = 0U;
+    g_sample_control_ack_count = 0U;
     CHECK(dmp_sample1_endpoint_flush(&producer.sample_endpoint, now + 1U) ==
           DMP_SAMPLE1_OWNER_OK);
-    CHECK(collect_sample_responses(now + 1U, 2U,
+    CHECK(collect_sample_responses(now + 1U, SAMPLE_PEERS - 1U,
                                    response_frames, response_lengths) == 0);
-    CHECK(producer.tx.delayed.live != 0U);
-    CHECK(response_lengths[0] != 0U);
-    CHECK(dmp_endpoint_rx_packet_from(
-              &persistent_consumers[0].endpoint,
-              persistent_consumers[0].endpoint.peers[0].handle,
-              span(response_frames[0], response_lengths[0]), now + 2U) ==
-          DMP_OK);
-    CHECK(persistent_consumers[0].result_count == 1U);
-    expected_read(expected, sample_epoch, 1U, 0x111U);
-    CHECK(memcmp(persistent_consumers[0].last_result, expected,
-                 sizeof(expected)) == 0);
-    CHECK(persistent_consumers[0].tx.count == 1U);
-    g_route_peer_slot = 0U;
-    CHECK(deliver(&persistent_consumers[0], &producer, now + 2U) >= 0);
-    producer.tx.count = 0U;
-    CHECK(complete_delayed_tx(&producer, now + 2U) == 0);
-    CHECK(collect_sample_responses(now + 2U, SAMPLE_PEERS - 2U,
-                                   response_frames, response_lengths) == 0);
+    CHECK(response_lengths[0] == 0U);
+    CHECK(live_senders_for_peer(&producer,
+                                producer.endpoint.peers[0].handle) == 1U);
 
     /* A valid RSP for peer i must not complete peer i+1, even when the
      * remote producer identity and wire SEQ collide. Destination and full
@@ -1465,10 +1470,36 @@ static int run_persistent_consumer_history(void)
                                       c->parsed_view_storage).status == DMP_OK);
             CHECK(result_ack.fields.type == DMP_TYPE_ACK);
         }
+        g_sample_control_ack_count++;
         g_route_peer_slot = peer;
         CHECK(deliver(c, &producer, now + 2U) >= 0);
     }
+    CHECK(g_sample_control_ack_count >= SAMPLE_PEERS - 1U);
+    CHECK(persistent_consumers[0].result_count == 0U);
+    CHECK(live_senders_for_peer(&producer,
+                                producer.endpoint.peers[0].handle) == 1U);
+    CHECK(producer.sample_endpoint.results[0].live == 0U);
+    producer.tx.block_peer = 0U;
+    CHECK(collect_sample_responses(now + 2U, 1U, response_frames,
+                                   response_lengths) == 0);
+    CHECK(response_lengths[0] != 0U);
+    producer.tx.count = 1U;
+    producer.tx.peer_slot[0] = 0U;
+    producer.tx.length[0] = response_lengths[0];
+    (void)memcpy(producer.tx.frame[0], response_frames[0], response_lengths[0]);
+    g_route_peer_slot = 0U;
+    CHECK(deliver(&producer, &consumer, now + 2U) >= 0);
     CHECK(persistent_consumers[0].result_count == 1U);
+    expected_read(expected, sample_epoch, 1U, 0x111U);
+    CHECK(memcmp(persistent_consumers[0].last_result, expected,
+                 sizeof(expected)) == 0);
+    CHECK(persistent_consumers[0].result_request.slot == request_handles[0].slot);
+    CHECK(persistent_consumers[0].result_request.peer.generation ==
+          request_handles[0].peer.generation);
+    g_route_peer_slot = 0U;
+    CHECK(deliver(&persistent_consumers[0], &producer, now + 2U) >= 0);
+    CHECK(live_senders_for_peer(&producer,
+                                producer.endpoint.peers[0].handle) == 0U);
     producer.tx.count = 0U;
     for (i = 0U; i < SENDERS; i++) {
         CHECK(producer.senders[i].live == 0U);
