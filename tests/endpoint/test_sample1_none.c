@@ -13,6 +13,9 @@
 #ifndef SAMPLE_FRAMING_MODE
 #define SAMPLE_FRAMING_MODE DMP_ENDPOINT_FRAMING_PACKET
 #endif
+#ifndef SAMPLE_RADIO
+#define SAMPLE_RADIO 0
+#endif
 
 #define CHECK(condition)                                                          \
     do {                                                                          \
@@ -212,8 +215,14 @@ static void fill_none_profile(dmp_config *config, uint32_t local_id,
     config->security_mode = DMP_PROFILE_SECURITY_NONE;
     config->service_id[0] = 1U;
     config->service_id[1] = 2U;
+#if SAMPLE_RADIO
+    config->recovery[0] = DMP_PROFILE_RECOVERY_SELECTIVE32;
+    config->recovery[1] = DMP_PROFILE_RECOVERY_SELECTIVE32;
+    config->origin_route = 1U;
+#else
     config->recovery[0] = DMP_PROFILE_RECOVERY_RETRY_ALL;
     config->recovery[1] = DMP_PROFILE_RECOVERY_RETRY_ALL;
+#endif
     config->peers = SAMPLE_PEERS;
     config->operations_per_service = 1U;
     config->assemblies_per_peer = 1U;
@@ -238,6 +247,27 @@ static void fill_none_profile(dmp_config *config, uint32_t local_id,
     config->response_timeout_ms = 1280U;
     config->send_horizon_ms = 5632U;
     config->max_bursts = 3U;
+#if SAMPLE_RADIO
+    config->forward_delay_ms = 20U;
+    config->return_delay_ms = 20U;
+    config->record_margin_ms = 5U;
+    config->burst_span_ms = 1U;
+    config->feedback_guard_ms = 1U;
+    config->feedback_delay_ms = 1U;
+    config->max_probes = 1U;
+    config->max_status = 1U;
+    config->receipt_delay_ms = 110U;
+    config->receipt_limit = 3U;
+    config->dedup_ms = 6000U;
+    config->rejection_ms = 6000U;
+    config->result_cache_ms = 6000U;
+    config->result_deadline_ms = 12000U;
+    config->correlation_ms = 12288U;
+    config->tombstone_ms = 12288U;
+    config->late_result_ms = 64U;
+    config->collect_ms = 5652U;
+    config->assembly_ms = 5657U;
+#endif
     config->receipt_delay_ms = 110U;
     config->receipt_limit = 3U;
     config->dedup_ms = 6000U;
@@ -789,6 +819,22 @@ static int run_multi_peer_round_trips(void)
         CHECK(dmp_endpoint_poll(&producer.endpoint, now) == DMP_OK);
     }
     CHECK(producer.tx.count == SAMPLE_PEERS);
+    for (i = 0U; i < SAMPLE_PEERS; i++) {
+        dmp_frame_view telem_view;
+        dmp_parse_result parsed = parse_outbound_core(
+            producer.tx.frame[i], producer.tx.length[i], now, &telem_view);
+        CHECK(parsed.status == DMP_OK);
+        CHECK(telem_view.fields.type == DMP_TYPE_TELEM);
+        CHECK((telem_view.fields.options & DMP_OPT_INTEGRITY) != 0U);
+#if SAMPLE_RADIO
+        CHECK((telem_view.fields.options & DMP_OPT_ROUTE) != 0U);
+        CHECK(telem_view.fields.route.mode == 1U);
+        CHECK(telem_view.fields.route.source == 10U);
+        CHECK(telem_view.fields.route.destination == 20U + i);
+#else
+        CHECK((telem_view.fields.options & DMP_OPT_ROUTE) == 0U);
+#endif
+    }
 
     for (i = 0U; i < SAMPLE_PEERS; i++) {
         dmp_reliability_handle request;
@@ -824,6 +870,14 @@ static int run_multi_peer_round_trips(void)
                                      &request_view);
         CHECK(parsed.status == DMP_OK);
         CHECK(request_view.fields.type == DMP_TYPE_REQ);
+#if SAMPLE_RADIO
+        CHECK((request_view.fields.options & DMP_OPT_ROUTE) != 0U);
+        CHECK(request_view.fields.route.mode == 1U);
+        CHECK(request_view.fields.route.source == local_id);
+        CHECK(request_view.fields.route.destination == 10U);
+#else
+        CHECK((request_view.fields.options & DMP_OPT_ROUTE) == 0U);
+#endif
         if (i == 0U) {
             first_status_seq = request_view.fields.seq;
             duplicate_status_frame_len = consumer.tx.length[0];

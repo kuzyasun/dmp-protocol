@@ -234,6 +234,22 @@ if(DMP_BUILD_TESTS)
 
     endforeach()
 
+    foreach(_sample_capacity IN ITEMS 5 16)
+        add_executable(dmp_test_sample1_none_radio_${_sample_capacity}
+            tests/endpoint/test_sample1_none.c)
+        target_compile_definitions(dmp_test_sample1_none_radio_${_sample_capacity}
+            PRIVATE SAMPLE_PEERS=${_sample_capacity} SAMPLE_RADIO=1)
+        target_link_libraries(dmp_test_sample1_none_radio_${_sample_capacity}
+            PRIVATE dmp::sample1_none)
+        set_target_properties(dmp_test_sample1_none_radio_${_sample_capacity}
+            PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+        dmp_strict_target(dmp_test_sample1_none_radio_${_sample_capacity})
+        add_test(NAME endpoint.none.sample1_radio_capacity_${_sample_capacity}
+            COMMAND dmp_test_sample1_none_radio_${_sample_capacity})
+        set_tests_properties(endpoint.none.sample1_radio_capacity_${_sample_capacity}
+            PROPERTIES TIMEOUT 30 LABELS "endpoint;none;sample1;capacity;radio;selective")
+    endforeach()
+
     add_executable(dmp_test_radio_none_selective
         tests/endpoint/test_radio_none_selective.c)
     target_link_libraries(dmp_test_radio_none_selective PRIVATE dmp::dmp_none)
