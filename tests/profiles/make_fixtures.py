@@ -20,7 +20,7 @@ def _services(recovery, fresh_service_2):
             "id": 1,
             "reply_service": 1,
             "service_encoding": "omitted",
-            "schema": "DMP-reference/SAMPLE-1/2",
+            "schema": "DMP-reference/SAMPLE-1/3",
             "payload_desc": "omitted",
             "recovery": recovery,
             "security": "SEC-1",
@@ -103,7 +103,7 @@ def manifest(kind):
     retry_all = kind in ("direct", "test-radio-retry-all")
     recovery = "retry-all" if retry_all else "selective-32"
     if direct:
-        profile = {"owner": "DMP-reference", "id": "DIRECT-1", "revision": 4}
+        profile = {"owner": "DMP-reference", "id": "DIRECT-1", "revision": 5}
         binding = {
             "id": "DMP-test/SIM-STREAM-R", "revision": 1, "kind": "stream-r",
             "segmentation": "none", "route_change": "fail-active-transfer",
@@ -125,7 +125,7 @@ def manifest(kind):
         profile = {
             "owner": "DMP-test" if is_test else "DMP-reference",
             "id": "TEST-RADIO-RETRY-ALL" if is_test else "RADIO-1",
-            "revision": 1 if is_test else 4,
+            "revision": 1 if is_test else 5,
         }
         binding = {
             "id": "DMP-test/SIM-PACKET", "revision": 1, "kind": "packet",
@@ -174,9 +174,9 @@ def manifest(kind):
                                     1, relay_cache_count))
 
     return {
-        "contract": "DMP-test-manifest/1.0",
-        "revisions": {"core": 10, "security": 5, "bootstrap": 2,
-                      "recovery": 1, "application": 2},
+        "contract": "DMP-test-manifest/1.1",
+        "revisions": {"core": 11, "security": 5, "bootstrap": 2,
+                      "recovery": 2, "application": 3},
         "profile": profile,
         "identity": {
             "namespace": 1, "nodes": [10, 20], "default_service": 1,
@@ -196,7 +196,7 @@ def manifest(kind):
             "adapter_slots": (4 if freshness_enabled else 2) + 1,
         },
         "security": {
-            "mode": "NNpsk0", "cipher": 1,
+            "mode": "SEC-1", "noise_mode": "NNpsk0", "cipher": 1,
             "credential": "provisioned-pairwise-psk",
             "trust_change": "owner-authorized-atomic-pin-and-acl",
             "pending_per_pair": 1, "active_per_pair": 1, "draining_per_pair": 1,

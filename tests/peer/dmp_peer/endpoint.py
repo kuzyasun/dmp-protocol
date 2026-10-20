@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import struct
 import time
+from dataclasses import replace
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -108,20 +109,46 @@ class PeerEndpoint:
         self.nodes = ident["nodes"]
         self.default_service = ident["default_service"]
         self.sample_producer_node = ident["sample_producer"]
+        sec_cfg = self.manifest.values.get("security", {})
+        self.security_policy = sec_cfg.get("mode", "SEC-1")
 
         # Determine local and remote node identities
         if isinstance(test_credentials, dict):
             self.local_node_id = test_credentials.get(
                 "node_id", test_credentials.get("local_node", self.nodes[0])
             )
-            self.local_epoch = test_credentials.get("epoch", 7 if self.local_node_id == self.nodes[0] else 9)
-            self.remote_epoch = test_credentials.get("remote_epoch", 9 if self.local_node_id == self.nodes[0] else 7)
+            if self.security_policy == "NONE":
+                if "epoch" in test_credentials:
+                    self.local_epoch = test_credentials["epoch"]
+                else:
+                    raw_epoch = entropy_source(8)
+                    if not isinstance(raw_epoch, bytes) or len(raw_epoch) != 8:
+                        raise ValueError("NONE boot epoch entropy source must return exactly 8 bytes")
+                    self.local_epoch = int.from_bytes(raw_epoch, "little")
+                if not 0 < self.local_epoch < (1 << 64):
+                    raise ValueError("NONE boot epoch must be a nonzero uint64")
+                self.remote_epoch = test_credentials.get("remote_epoch")
+                if self.remote_epoch is None or not 0 < self.remote_epoch < (1 << 64):
+                    raise ValueError("NONE peer epoch must be explicitly installed as a nonzero uint64")
+            else:
+                self.local_epoch = test_credentials.get("epoch", 7 if self.local_node_id == self.nodes[0] else 9)
+                self.remote_epoch = test_credentials.get("remote_epoch", 9 if self.local_node_id == self.nodes[0] else 7)
         elif isinstance(test_credentials, int):
             self.local_node_id = test_credentials
+            if self.security_policy == "NONE":
+                raw_epoch = entropy_source(8)
+                if not isinstance(raw_epoch, bytes) or len(raw_epoch) != 8:
+                    raise ValueError("NONE boot epoch entropy source must return exactly 8 bytes")
+                self.local_epoch = int.from_bytes(raw_epoch, "little")
+                if not 0 < self.local_epoch < (1 << 64):
+                    raise ValueError("NONE boot epoch must be a nonzero uint64")
+                raise ValueError("NONE peer epoch must be explicitly installed in test credentials")
             self.local_epoch = 7 if self.local_node_id == self.nodes[0] else 9
             self.remote_epoch = 9 if self.local_node_id == self.nodes[0] else 7
         else:
             self.local_node_id = self.nodes[0]
+            if self.security_policy == "NONE":
+                raise ValueError("NONE requires explicit local and remote endpoint contexts")
             self.local_epoch = 7
             self.remote_epoch = 9
 
@@ -227,10 +254,12 @@ class PeerEndpoint:
         }
 
         # SEC-1 security configuration
-        sec_cfg = self.manifest.values.get("security", {})
         self.test_only_disable_sec1 = test_only_disable_sec1
-        self.sec_mode_str = None if test_only_disable_sec1 else sec_cfg.get("mode")
-        if self.sec_mode_str == "NNpsk0":
+        self.sec_mode_str = None if test_only_disable_sec1 else sec_cfg.get("noise_mode")
+        if self.security_policy == "NONE":
+            self.sec_mode = None
+            self.sec_mode_str = None
+        elif self.sec_mode_str == "NNpsk0":
             self.sec_mode = MODE_NNPSK0
         elif self.sec_mode_str == "XX":
             self.sec_mode = MODE_XX
@@ -354,6 +383,27 @@ class PeerEndpoint:
     @remote_epoch.setter
     def remote_epoch(self, value: int) -> None:
         self._remote_epoch = value
+
+    def replace_none_peer_context(self, peer_node_id: int, peer_epoch: int) -> None:
+        """Install a NONE peer identity explicitly; received frames never rebind it."""
+        if self.security_policy != "NONE":
+            raise SecurityError("Explicit plaintext context replacement is available only in NONE")
+        if peer_node_id not in self.nodes or peer_node_id == self.local_node_id:
+            raise ValueError("NONE peer node is outside the configured endpoint identities")
+        if isinstance(peer_epoch, bool) or not isinstance(peer_epoch, int) or not 0 < peer_epoch < (1 << 64):
+            raise ValueError("NONE peer epoch must be a nonzero uint64")
+        if (self.active_submissions or self.tx_queue or
+                self.delivery.active_outgoing or self.delivery.queue or self.delivery.retained_results or
+                self.delivery.pending_results or self.delivery.accepted_messages or
+                self.delivery.rejections or self.delivery.caller_tombstones or
+                self.outgoing_data or self.reassembly.active or self.reassembly.completed or
+                self.reassembly.tombstones):
+            raise SecurityError("NONE context cannot be replaced while transmissions or accepted work remain")
+        # Fence delayed adapter callbacks and any stale event that carries the
+        # generation of the context being replaced.
+        self.generation = (self.generation + 1) & 0xFFFFFFFF
+        self.remote_node_id = peer_node_id
+        self.remote_epoch = peer_epoch
 
     @property
     def next_seq(self) -> int:
@@ -2243,6 +2293,11 @@ class PeerEndpoint:
         except Exception:
             return  # FrameError: reject frame
 
+        if self.security_policy == "NONE" and (frame.security is not None or frame.integrity != 1):
+            return
+        if self.security_policy == "NONE" and not self._none_inbound_identity_matches(frame):
+            return
+
         # Dispatch protected frames (SECURITY=1)
         if frame.security is not None:
             self._handle_protected_frame(raw_frame, frame, out)
@@ -2260,10 +2315,48 @@ class PeerEndpoint:
 
         # Unprotected frame received while SEC-1 association is active:
         # Strictly reject plaintext downgrade (§S1, S10.03)!
-        if self.sec_mode is not None and not self.test_only_disable_sec1:
+        if self.security_policy == "SEC-1" and not self.test_only_disable_sec1:
             return
 
         self._dispatch_core_frame(frame, out)
+
+    def _none_inbound_identity_matches(self, frame: CoreFrame) -> bool:
+        """Validate the explicitly installed NONE peer before state can change."""
+        context_extensions = [ext for ext in frame.extensions if ext.extension_id == 2]
+        if len(context_extensions) != 1:
+            return False
+        try:
+            namespace, offset = decode_uleb(context_extensions[0].value, 0)
+        except Exception:
+            return False
+        if (namespace != self.namespace or len(context_extensions[0].value) - offset != 8
+                or int.from_bytes(context_extensions[0].value[offset:], "little") != self.remote_epoch):
+            return False
+
+        topology = self.manifest.values.get("binding", {}).get("topology")
+        routed = topology in ("static-unicast", "relay-routed")
+        origin_extensions = [ext for ext in frame.extensions if ext.extension_id == 3]
+        if routed:
+            route = frame.route
+            if (route is None or route.mode != 1 or route.source_id != self.remote_node_id
+                    or route.destination_id != self.local_node_id):
+                return False
+            if origin_extensions:
+                try:
+                    origin, end = decode_uleb(origin_extensions[0].value, 0)
+                except Exception:
+                    return False
+                if len(origin_extensions) != 1 or end != len(origin_extensions[0].value) or origin != route.source_id:
+                    return False
+            return True
+
+        if frame.route is not None or len(origin_extensions) != 1:
+            return False
+        try:
+            origin, end = decode_uleb(origin_extensions[0].value, 0)
+        except Exception:
+            return False
+        return end == len(origin_extensions[0].value) and origin == self.remote_node_id
 
     @staticmethod
     def _has_unknown_critical_extension(frame: CoreFrame) -> bool:
@@ -2272,6 +2365,25 @@ class PeerEndpoint:
             ext.critical and ext.extension_id not in known_extension_ids
             for ext in frame.extensions
         )
+
+    def _encode_endpoint_frame(self, frame: CoreFrame) -> bytes:
+        if self.security_policy == "NONE" and frame.security is None:
+            extensions = list(frame.extensions)
+            extension_ids = {extension.extension_id for extension in extensions}
+            topology = self.manifest.values.get("binding", {}).get("topology")
+            if 2 not in extension_ids:
+                extensions.append(Extension(
+                    2, True, True,
+                    encode_uleb(self.namespace) + self.local_epoch.to_bytes(8, "little"),
+                ))
+            if topology not in ("static-unicast", "relay-routed") and 3 not in extension_ids:
+                extensions.append(Extension(3, True, True, encode_uleb(self.local_node_id)))
+            extensions.sort(key=lambda extension: extension.extension_id)
+            options = frame.options | 0x10
+            if extensions:
+                options |= 0x80
+            frame = replace(frame, options=options, extensions=tuple(extensions), integrity=1)
+        return encode_frame(frame, max_frame=self.forward_mtu)
 
     def _dispatch_core_frame(self, frame: CoreFrame, out: list[Any]) -> None:
         # Resolve service ID
@@ -2304,12 +2416,19 @@ class PeerEndpoint:
         else:
             namespace = self.namespace
             epoch = self.remote_epoch
+            has_explicit_context = False
             for ext in frame.extensions:
-                if ext.extension_id == 2:
+                if ext.extension_id in (2, 11):
                     ns, at = decode_uleb(ext.value)
                     namespace = ns
                     epoch = int.from_bytes(ext.value[at : at + 8], "little")
+                    has_explicit_context = True
                     break
+            if self.security_policy == "NONE" and (
+                not has_explicit_context or namespace != self.namespace or
+                epoch != self.remote_epoch or origin != self.remote_node_id
+            ):
+                return
 
         seq = frame.sequence if frame.sequence is not None else 0
         sender_key = (namespace, origin, epoch, seq)
@@ -2616,8 +2735,11 @@ class PeerEndpoint:
             self._process_data(frame, service_id, sender_key, out, geometry=frag_geom)
 
     def _selective_frame_eligible(self, frame: CoreFrame, service_id: int) -> bool:
+        protected = self.security_policy == "SEC-1"
         if (not self._selective_enabled(service_id) or service_id == 0
-                or self.association is None or frame.security is None
+                or (protected and (self.association is None or frame.security is None))
+                or (not protected and (self.association is not None or frame.security is not None
+                                       or frame.integrity != 1))
                 or frame.fragment is None or not (frame.options & 2)
                 or frame.message_type not in (0, 1, 2, 4, 7)):
             return False
@@ -2653,12 +2775,21 @@ class PeerEndpoint:
     def _build_fragment_status(
         self, target_key: tuple[int, int, int, int], service_id: int, missing_mask: int
     ) -> bytes | None:
-        if (self.association is None or self.association.status not in ("active", "draining")
-                or (self.association.status == "draining" and not self._allow_draining_tx)
-                or service_id == 0 or not self._selective_enabled(service_id)):
+        if (self.security_policy == "SEC-1" and
+                (self.association is None or self.association.status not in ("active", "draining")
+                 or (self.association.status == "draining" and not self._allow_draining_tx))):
+            return None
+        if (self.security_policy == "NONE" and self.association is not None):
+            return None
+        if service_id == 0 or not self._selective_enabled(service_id):
             return None
         route, context = self._routed_fields()
-        exts = [Extension(1, True, False, encode_uleb(target_key[3]))]
+        if self.security_policy == "SEC-1":
+            reply_to = encode_uleb(target_key[3])
+        else:
+            reply_to = (encode_uleb(target_key[0]) + encode_uleb(target_key[1])
+                        + target_key[2].to_bytes(8, "little") + encode_uleb(target_key[3]))
+        exts = [Extension(1, True, False, reply_to)]
         if context is not None:
             exts.append(context)
         if service_id != self.default_service:
@@ -2666,19 +2797,24 @@ class PeerEndpoint:
         exts.sort(key=lambda item: item.extension_id)
         frame = CoreFrame(
             message_type=8,
-            options=1 | 0x80 | (4 if route else 0),
+            options=1 | 0x80 | (4 if route else 0) | (0x40 if self.security_policy == "SEC-1" else 0),
             sequence=self._alloc_seq(),
             route=route,
             extensions=tuple(exts),
             payload=b"",
         )
-        wire = self._encrypt_and_encode(frame, plaintext=missing_mask.to_bytes(4, "little"))
+        if self.security_policy == "SEC-1":
+            wire = self._encrypt_and_encode(frame, plaintext=missing_mask.to_bytes(4, "little"))
+        else:
+            frame = replace(frame, payload=missing_mask.to_bytes(4, "little"))
+            wire = self._encode_endpoint_frame(frame)
         if len(wire) > self.manifest.values["binding"]["return_mtu"]:
             return None
         return wire
 
     def _emit_due_fragment_statuses(self, out: list[Any]) -> None:
-        if self.association is None or self.association.status != "active":
+        if (self.security_policy == "SEC-1" and
+                (self.association is None or self.association.status != "active")):
             return
         timing = self.manifest.values["timing"]
         feedback_limit = timing.get("feedback_buffers", 1)
@@ -2704,11 +2840,14 @@ class PeerEndpoint:
                 continue
             assoc = next((item for item in self._all_associations()
                           if item.peer_epoch == key[2] and item.status in ("active", "draining")), None)
-            if assoc is None:
+            if self.security_policy == "SEC-1" and assoc is None:
                 session.selective_feedback_due_ms = None
                 continue
-            with self._use_association(assoc, allow_draining=assoc.status == "draining"):
+            if assoc is None:
                 status = self._build_fragment_status(key, session.service_id, missing)
+            else:
+                with self._use_association(assoc, allow_draining=assoc.status == "draining"):
+                    status = self._build_fragment_status(key, session.service_id, missing)
             if status is None:
                 session.selective_feedback_due_ms = None
                 continue
@@ -2742,10 +2881,16 @@ class PeerEndpoint:
             return
         sequence = owner.seq if kind in ("exchange", "data") else owner.result_seq
         transfer_assoc = self._association_by_hash(owner.association_h)
-        if transfer_assoc is None or transfer_assoc.status not in ("active", "draining"):
-            state.terminate()
-            return
-        allow_drain = transfer_assoc.status == "draining"
+        if self.security_policy == "SEC-1":
+            if transfer_assoc is None or transfer_assoc.status not in ("active", "draining"):
+                state.terminate()
+                return
+            allow_drain = transfer_assoc.status == "draining"
+        else:
+            if owner.association_h:
+                state.terminate()
+                return
+            allow_drain = False
         if action.kind == "stop":
             self._retire_selective_attempts(sequence, out, association_h=owner.association_h)
             if kind == "exchange":
@@ -2892,15 +3037,23 @@ class PeerEndpoint:
             self._drive_selective_transfer(kind, owner, out)
 
     def _process_frag_status(self, frame: CoreFrame, service_id: int, sender_key: tuple, out: list[Any]) -> None:
-        """Authenticate first, then bind feedback to one live same-service transfer."""
+        """Validate the selected policy before binding feedback to a live transfer."""
         assoc = self.association
-        if (frame.security is None or assoc is None
-                or assoc.status not in ("active", "draining") or service_id == 0
-                or not self._selective_enabled(service_id)):
+        if self.security_policy == "SEC-1":
+            if (frame.security is None or assoc is None
+                    or assoc.status not in ("active", "draining")):
+                return
+            association_h = assoc.h
+        else:
+            if frame.security is not None or frame.integrity != 1 or assoc is not None:
+                return
+            association_h = b""
+        if service_id == 0 or not self._selective_enabled(service_id):
             return
         topology = self.manifest.values.get("binding", {}).get("topology")
         routed = topology in ("static-unicast", "relay-routed")
-        required_options = 1 | 0x40 | 0x80 | (4 if routed else 0)
+        required_options = (1 | 0x80 | (4 if routed else 0)
+                            | (0x40 if self.security_policy == "SEC-1" else 0x10))
         if frame.options != required_options or frame.fragment is not None or frame.payload_descriptor is not None:
             return
         ext_ids = {ext.extension_id for ext in frame.extensions}
@@ -2922,11 +3075,11 @@ class PeerEndpoint:
         target_key = self._extract_reply_to(frame)
         if target_key is None or target_key[:3] != (self.namespace, self.local_node_id, self.local_epoch):
             return
-        matched = self._selective_transfer_for_sequence(target_key[3], assoc.h)
+        matched = self._selective_transfer_for_sequence(target_key[3], association_h)
         if matched is None:
             return
         kind, owner = matched
-        if owner.association_h != assoc.h:
+        if owner.association_h != association_h:
             return
         state: SelectiveTransfer = owner.selective_state
         if kind == "exchange":
@@ -4117,8 +4270,16 @@ class PeerEndpoint:
             )
             frame_bytes = self._encrypt_and_encode(frame, plaintext=payload)
         else:
-            frame = CoreFrame(message_type=5, options=0, payload=payload)
-            frame_bytes = encode_frame(frame, max_frame=self.forward_mtu)
+            route, context = self._routed_fields()
+            frame = CoreFrame(
+                message_type=5,
+                options=(1 if route else 0) | (4 if route else 0) | (0x80 if context else 0),
+                sequence=self._alloc_seq() if route else None,
+                route=route,
+                extensions=(context,) if context else (),
+                payload=payload,
+            )
+            frame_bytes = self._encode_endpoint_frame(frame)
         self._enqueue_tx(frame_bytes, not_after_ms=None, service_id=1, is_sample_telemetry=True, out=out)
 
     def _enqueue_tx(
@@ -4430,7 +4591,7 @@ class PeerEndpoint:
         )
         if self.association is not None:
             return self._encrypt_and_encode(frame, plaintext=b"")
-        return encode_frame(frame, max_frame=self.forward_mtu)
+        return self._encode_endpoint_frame(frame)
 
     def _build_stable_result_ack_frame(
         self,
@@ -4506,7 +4667,7 @@ class PeerEndpoint:
                 if self.association is not None:
                     frames.append(self._encrypt_and_encode(frame, plaintext=slice_bytes))
                 else:
-                    frames.append(encode_frame(frame, max_frame=self.forward_mtu))
+                    frames.append(self._encode_endpoint_frame(frame))
             return frames, own_seq
         else:
             frame = CoreFrame(
@@ -4519,7 +4680,7 @@ class PeerEndpoint:
             )
             if self.association is not None:
                 return [self._encrypt_and_encode(frame, plaintext=payload)], own_seq
-            return [encode_frame(frame, max_frame=self.forward_mtu)], own_seq
+            return [self._encode_endpoint_frame(frame)], own_seq
 
     def _queue_data_transfer(
         self,
@@ -4642,7 +4803,7 @@ class PeerEndpoint:
                 )
                 frames.append(self._encrypt_and_encode(frame, plaintext=part)
                               if self.association is not None
-                              else encode_frame(frame, max_frame=self.forward_mtu))
+                              else self._encode_endpoint_frame(frame))
             return frames
         frame = CoreFrame(
             7, options, seq, route=route, extensions=tuple(exts),
@@ -4650,7 +4811,7 @@ class PeerEndpoint:
         )
         return [self._encrypt_and_encode(frame, plaintext=payload)
                 if self.association is not None
-                else encode_frame(frame, max_frame=self.forward_mtu)]
+                else self._encode_endpoint_frame(frame)]
 
     def _build_err_frame(
         self,
@@ -4697,7 +4858,7 @@ class PeerEndpoint:
         )
         if self.association is not None:
             return self._encrypt_and_encode(frame, plaintext=payload)
-        return encode_frame(frame, max_frame=self.forward_mtu)
+        return self._encode_endpoint_frame(frame)
 
     def _build_err_frame_reliable(
         self,
@@ -4742,7 +4903,7 @@ class PeerEndpoint:
         )
         if self.association is not None:
             return self._encrypt_and_encode(frame, plaintext=payload), own_seq
-        return encode_frame(frame, max_frame=self.forward_mtu), own_seq
+        return self._encode_endpoint_frame(frame), own_seq
 
     def _reprotect_retained_result(self, res: RetainedResult) -> None:
         """Re-encrypt a retained logical result with a fresh PN and stable identity."""
@@ -4819,7 +4980,7 @@ class PeerEndpoint:
                 if self.association is not None:
                     frames.append(self._encrypt_and_encode(frame, plaintext=slice_bytes))
                 else:
-                    frames.append(encode_frame(frame, max_frame=self.forward_mtu))
+                    frames.append(self._encode_endpoint_frame(frame))
             return frames
         else:
             frame = CoreFrame(
@@ -4832,4 +4993,4 @@ class PeerEndpoint:
             )
             if self.association is not None:
                 return [self._encrypt_and_encode(frame, plaintext=payload)]
-            return [encode_frame(frame, max_frame=self.forward_mtu)]
+            return [self._encode_endpoint_frame(frame)]

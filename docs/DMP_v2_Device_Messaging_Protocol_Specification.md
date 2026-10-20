@@ -1,13 +1,13 @@
 # DMP v2 — Device Messaging Protocol Specification
 
-**Status:** implementation draft, revision 10\
+**Status:** implementation draft, revision 11\
 **Date:** 2026-09-26\
 **Wire major version:** 2\
-**Document revision:** 10; not encoded in the VT byte\
+**Document revision:** 11; not encoded in the VT byte\
 **Payload:** opaque bytes; no required serializer\
 **Scope:** packet framing, stream bindings, message identity, optional delivery and fragmentation, transport-independent routing profiles
 
-> This unreleased draft uses document revision 10, SEC-1 profile revision 5 and BOOT_VERSION=2. Peers MUST explicitly agree on this revision and the selected modules/profile: VT=2 alone does not identify a compatible draft. Revision 10 changes handshake failure semantics, not bootstrap layout; old manifest digests must not be reinterpreted under the new policy. Other draft encodings/policies are unsupported and MUST NOT be autodetected. A released wire format will require a stable version/profile compatibility policy.
+> This unreleased draft uses document revision 11, SEC-1 profile revision 5 and BOOT_VERSION=2. Peers MUST explicitly agree on this revision and the selected modules/profile: VT=2 alone does not identify a compatible draft. Revision 11 makes SEC-1 optional in the reference deployment families, requires CRC32C on every NONE Core frame, and defines plaintext context/restart rules. It does not change SEC-1 bootstrap layout or protected-frame rules. Old manifest digests must not be reinterpreted under the new policy. Other draft encodings/policies are unsupported and MUST NOT be autodetected. A released wire format will require a stable version/profile compatibility policy.
 
 The informative [design tradeoffs and evaluation guide](DMP_v2_Design_Tradeoffs.md) records the prior-art review, candidate extensions and measurement plan. It does not allocate additional interoperable features.
 
@@ -50,7 +50,7 @@ DMP connects devices, gateways and applications over packet transports or explic
 
 Conformance is modular:
 
-| Module | Revision 10 status | Dependency |
+| Module | Revision 11 status | Dependency |
 |---|---|---|
 | Core packet encoder/parser | Defined | Agreed application/binding context |
 | Payload descriptor and extensions | Defined | Registry/profile agreement |
@@ -60,10 +60,10 @@ Conformance is modular:
 | Direct reliability | Defined rules; deployment parameters required | Identity, REPLY_TO, cache/timers |
 | Reliable request/result exchange | Single behavior for REQ with ACK_REQ; deployment parameters required | Direct reliability, result retention and correlation |
 | Fixed-stride fragmentation | Defined | Identity, total-length admission and bounded reassembly |
-| SELECTIVE-32 fragment recovery | Defined in normative recovery annex; optional implementation | SEC-1, reliable unicast, explicit service policy and bounded feedback schedule |
+| SELECTIVE-32 fragment recovery | Defined in normative recovery annex; optional implementation | NONE or SEC-1, reliable unicast, explicit service policy and bounded feedback schedule |
 | Mesh static-unicast / bounded-flood | Defined data-plane behavior; deployment parameters required | ROUTE, identity, forwarding policy |
 | Dynamic route discovery / tree control plane | Architecture only | Separate mesh-control profile |
-| SECURITY / SEC-1 AEAD | Defined in normative security annex | Noise PSK or authenticated pairing; association/replay state |
+| SECURITY / SEC-1 AEAD | Defined in normative security annex; selected per endpoint instance | Noise PSK or authenticated pairing; association/replay state |
 | HELLO security bootstrap/confirmation | Defined for SEC-1 | Configured profile, credentials and bounded handshake state |
 | SEC-1 freshness service | Optional implementation support; required only by services selecting it | SEC-1 and reliable request/result exchange |
 | Generic capability negotiation | Not defined | Static configuration supported |
@@ -121,7 +121,7 @@ VT = (2 << 5) | TYPE
 | 5 | TELEM | Telemetry |
 | 6 | ACK | Complete message accepted by final DMP endpoint |
 | 7 | DATA | Generic application bytes |
-| 8 | FRAG_STATUS | SELECTIVE-32 authenticated missing-fragment feedback; not a success receipt |
+| 8 | FRAG_STATUS | SELECTIVE-32 missing-fragment feedback; integrity/authentication follows the endpoint instance mode; not a success receipt |
 | 9–23 | Reserved | Reject at endpoint unless assigned by a later agreed revision |
 | 24–31 | Profile-defined | Meaning requires an agreed application profile |
 
@@ -215,6 +215,10 @@ Epoch rules MUST be specified by the deployment:
 - do not adopt an epoch from an unauthenticated packet as trusted security state.
 
 Random boot identifiers require a collision model. They do not alone provide replay protection or AEAD nonce uniqueness. An epoch may be implicit only if every relevant participant can resolve it unambiguously. Otherwise send CONTEXT.
+
+For a NONE endpoint instance, the application/platform MUST supply one fresh random 64-bit local epoch before traffic. The random source is fallible; failure prevents initialization. Persistence is not required. The application MUST reject a collision with locally retained endpoint identity state and MUST NOT silently reuse that state; implementations with such retained state SHOULD use the checked epoch-generation API. This epoch is a probabilistic message-identity namespace, not authentication, monotonic time or replay protection. Under the uniform 64-bit random-identifier model, a fresh epoch collides with any one retained epoch with probability `2^-64`; against `r` distinct retained epochs the probability is `r/2^64` for `r << 2^64`. For `n` independent boot epochs, the birthday approximation for any pair colliding is `n(n-1)/2^65` while that probability is small. These estimates assume independent uniform draws and do not replace checking retained values. A sample application may impose separate persistence rules on its own application epoch.
+
+A local `(namespace, node_id, epoch)` has one monotonically increasing SEQ allocator shared across all peers, services and message types, including ACK and FRAG_STATUS. SEQ MUST NOT wrap. Endpoint instances sharing an allocator may share this identity; instances with independent allocators MUST use distinct epochs. A new local epoch requires explicit endpoint/context replacement and the applicable outstanding-work termination rules. A receiving packet MUST NOT select or replace a configured epoch.
 
 SEQ is REQUIRED for ACK_REQ, ACK, every REQ/RSP/ERR, FRAG, SECURITY and all DMP mesh forwarding. Simple best-effort DATA/EVENT/TELEM may omit it when none of those features requires identity.
 
@@ -546,8 +550,8 @@ The [reference-profile document](DMP_v2_Deployment_Profiles.md#1-fixed-reference
 
 | Family | Fixed baseline | Parameters still required |
 |---|---|---|
-| DIRECT-1 | Direct UART Stream R or a named BLE binding; no ROUTE; SEC-1, best-effort live telemetry, reliable commands/results; retry-all fragmentation | Exact binding, MTU, schemas, credentials, finite queue/retry/result/cache bounds and global resources |
-| RADIO-1 | Named raw-radio packet binding; static unicast with explicit context/destination; pairwise SEC-1 through transparent relays; SELECTIVE-32 for eligible fragmented reliable traffic | PHY/path MTU, forward/return schedule, sleep, airtime budget, routes, relay cooldown, credentials and finite resource/lifetime bounds |
+| DIRECT-1 | Direct UART Stream R or a named BLE binding; no ROUTE; explicit NONE or SEC-1 per endpoint instance; best-effort live telemetry, reliable commands/results; retry-all fragmentation | Exact binding, MTU, schemas, context/epoch rules, finite queue/retry/result/cache bounds and global resources; credentials only for SEC-1 |
+| RADIO-1 | Named raw-radio packet binding; static unicast with explicit context/destination; NONE or pairwise SEC-1 through transparent relays; SELECTIVE-32 for eligible fragmented reliable traffic | PHY/path MTU, forward/return schedule, sleep, airtime budget, routes, relay cooldown, context/epoch rules and finite resource/lifetime bounds; credentials only for SEC-1 |
 
 The companion document specifies family ceilings and exclusions. Other deployments remain permitted by the general specification under their own explicit profiles. A device may use different profiles for different peer/service paths; an intermediate transparent gateway cannot silently switch the end-to-end recovery/security policy.
 
@@ -585,9 +589,15 @@ CRC32C parameters: polynomial 0x1EDC6F41, reflected implementation polynomial 0x
 
 Coverage is every current core-frame byte from VT through the final payload byte; exclude the four-byte CRC trailer and any stream envelope. A relay modifying TTL MUST recompute this checksum. This checksum detects accidental corruption of the current forwarded frame. Because a relay can recompute it, it is not immutable-origin proof or cryptographic authentication.
 
-INTEGRITY and SECURITY together are forbidden by Core/SEC-1. SEC-1 supplies a 16-byte authentication tag instead of a core CRC trailer. Native link checksums and the mandatory Stream R envelope checksum have independent scope and can surround a SEC-1 frame.
+Every Core frame emitted or accepted by a NONE endpoint instance MUST set INTEGRITY and carry this CRC32C descriptor and trailer, including DATA, EVENT, TELEM, REQ, RSP, ERR, ACK, every fragment and FRAG_STATUS. A receiver validates the CRC before the frame may affect identity admission, reliability, feedback, reassembly, deduplication or application delivery. Missing/wrong descriptor or CRC failure is a local drop/rejection; it MUST NOT acknowledge, terminate or otherwise mutate an active exchange. Stream R also retains its independent mandatory outer CRC32C, so its NONE frames intentionally have both checks.
+
+INTEGRITY and SECURITY together are forbidden by Core/SEC-1. SEC-1 supplies a 16-byte authentication tag instead of a core CRC trailer; do not add Core CRC to protected records. Native link checksums and the mandatory Stream R envelope checksum have independent scope and can surround a SEC-1 frame. CRC32C does not authenticate a plaintext sender.
 
 ## 14. Security requirements
+
+Security mode is a required configuration value fixed for one endpoint instance before traffic: `NONE` or `SEC-1`. Every admitted peer/service of that instance uses the selected mode. Separate endpoint instances may select different modes. Mixed-mode peers/services in one instance, mode inference from received bytes, automatic downgrade, and retry-time mode changes are forbidden. A mode mismatch is rejected; it never falls back to NONE.
+
+`SECURITY=0` is plaintext mode, not an authenticated association. It requires the §13 Core CRC32C and explicit configured identity/context. Direct un-routed origin frames carry CONTEXT and ORIGIN_ID; routed origin frames carry CONTEXT and ROUTE source/destination. ACK, RSP, ERR and FRAG_STATUS use the full plaintext REPLY_TO tuple. A local configured node/service mapping and a valid CRC establish only configuration consistency. They do not prove the remote principal, confidentiality, cryptographic freshness, or resistance to spoofing/replay. Unknown origins and epochs cannot create or replace peer contexts from packet input. Applications install/replace bounded contexts through the endpoint API; replacement retires the old generation and applies the existing callback, pending-operation, late-reply and unknown-outcome rules.
 
 SECURITY=1 uses the normative [SEC-1 security annex](DMP_v2_Security_Profile.md). It defines both provisioned pairwise PSKs and authenticated public-key pairing, using Noise with fresh ephemeral key agreement. ChaCha20-Poly1305 is mandatory for SEC-1 endpoints; AES-256-GCM is optional. Both use full 16-byte tags. Core-only implementations may return unsupported; they MUST NOT dispatch ciphertext as a guessed payload codec.
 
@@ -838,7 +848,7 @@ Unsupported modules SHOULD be removable at build time, including routing, reasse
 
 ## 22. Wire examples and conformance vectors
 
-All examples below use revision 10 encodings (unchanged from revision 9). Contextual identities are explicitly stated where omitted on wire. Protected examples and all cryptographic inputs/outputs are supplied separately in §22.11 and the normative annex. SELECTIVE-32 header/plaintext examples and mandatory loss cases are in its annex §R6; complete protected feedback vectors are an implementation verification deliverable.
+All examples below use revision 11 encodings. Contextual identities are explicitly stated where omitted on wire. Protected examples and all cryptographic inputs/outputs are supplied separately in §22.11 and the normative annex. SELECTIVE-32 header/plaintext examples and mandatory loss cases are in its annex §R6; complete protected feedback vectors are an implementation verification deliverable. NONE examples additionally require the Core CRC32C descriptor and trailer; SEC-1 examples retain their authentication tag without Core INTEGRITY.
 
 ### 22.1 Minimal telemetry
 

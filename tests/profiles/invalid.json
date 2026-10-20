@@ -490,7 +490,7 @@
       "mutations": [
         {
           "op": "set",
-          "path": "/security/mode",
+          "path": "/security/noise_mode",
           "value": "XX"
         },
         {

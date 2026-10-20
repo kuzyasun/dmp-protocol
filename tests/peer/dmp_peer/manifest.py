@@ -22,23 +22,19 @@ class Manifest:
     sha256: str
 
 
-_FROZEN = {
-    "direct-nnpsk0-async.json": "5cb5603473be180c4b70502c7a93dfc0c725703ea3ed0e7481fa71f16798d390",
-    "direct-nnpsk0.json": "40abedfbb1799ea6cb711f739101d40bae6454eac719858c79b066f2670ad0c1",
-    "direct-xx.json": "289ed444a458bba2801fbceb68346cfae23de79beaab2d3402a75539e11b23f9",
-    "radio-nnpsk0-n2.json": "6753a738f003e9dc9f7dafdf24735ee907a3904576718d18709b751c88476873",
-    "radio-nnpsk0.json": "a3887c44b06b4d2f905f89fae4b28b99c0f00d93d77c50b1f752ce77bde4922f",
-    "radio-xx.json": "b27b06ee7ad0a0d51e79cf894a373bf2b74d9f9b3674b24b9256418b9141641a",
-    "test-direct-minimal-128.json": "d987dbae6d7490d98d45aaca7d7af13c600d4c3557b3453c3598e5ffec9c0fa1",
-    "test-direct-minimal-256.json": "9cc6d8ae95c5f241166c9af9edc70d12e61fdb4404c10479bb68de32d0d344ea",
-    "test-direct-sample-retry-2-nnpsk0.json": "478af0bc4912d0fc46ed76c249ec5f30f8f64bc89ed7411e9b9231bbf487db5c",
-    "test-radio-retry-all-nnpsk0.json": "b33d39bffcb7c2750fbf860e4e040cd5b4e29101a6d6c0ca604faef9719ccf3f",
-    "test-radio-retry-all-xx.json": "369314bd7daf840b22d34e10c432fe08575ecd9e1c562cfd730a342bc5e1286a",
-    "test-peer-tcp-stream-r-nnpsk0.json": "8de56192f75e7677081d704d568ddb64b1292c6ded72449675ebceefd53d9a1a",
-    "test-peer-tcp-stream-r-sample20-nnpsk0.json": "b84132a086323d432492967755244b59a9a53405880d85f354c25353757c6aa6",
-    "test-mixed-tcp-stream-r-sim-packet-nnpsk0.json": "2bc3c2ee1c9e8f3aa87af4afd2f0cab996099fc69da1f0938c23e050c8c68faf",
-    "test-direct-multi-peer-nnpsk0.json": "001eb42d8f440e0ceaf1711e764ceacfc3c1dd034cfb2d7f320be7d877f7454f",
-}
+_DEPLOYMENTS = Path(__file__).resolve().parents[3] / "profiles" / "deployments"
+_FROZEN = json.loads((_DEPLOYMENTS / "digests.json").read_text(encoding="utf-8"))["manifests"]
+_R7_TOMBSTONE_PRESSURE_SHA256 = (
+    "0ab102c8b13b99b506539a78a87bf5f0c4f54d9c3e7c04dfd59235a177957ae3"
+)
+
+
+def frozen_manifest_digest(name: str) -> str:
+    """Return the expected digest from the repository's canonical index."""
+    try:
+        return _FROZEN[name]
+    except KeyError as error:
+        raise ManifestError("digest", "$.manifests", f"unknown frozen manifest {name!r}") from error
 
 
 def _pairs(pairs):
@@ -97,6 +93,25 @@ def _depth(value: Any, level: int = 0) -> int:
 
 
 def _schema_check(value: Any, schema: dict, path: str = "$") -> None:
+    if "oneOf" in schema:
+        if isinstance(value, dict) and "mode" in value:
+            selected = [alternative for alternative in schema["oneOf"]
+                        if value["mode"] in alternative.get("properties", {}).get("mode", {}).get("enum", [])]
+            if len(selected) == 1:
+                _schema_check(value, selected[0], path)
+                return
+            if not selected:
+                raise ManifestError("schema", path + ".mode", "value is outside the allowed mode enum")
+        matches = 0
+        for alternative in schema["oneOf"]:
+            try:
+                _schema_check(value, alternative, path)
+                matches += 1
+            except ManifestError:
+                pass
+        if matches != 1:
+            raise ManifestError("schema", path, "value must match exactly one permitted shape")
+        return
     expected = schema.get("type")
     types = {
         "object": lambda x: isinstance(x, dict),
@@ -189,9 +204,11 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     require(("multi_peer" in value) == multi_peer_profile, "profile", "$.multi_peer",
             "multi-peer settings must appear only on the shared-endpoint profile")
     identity = value["identity"]
-    expected_node_count = 5 if multi_peer_profile else 2
-    require(len(identity["nodes"]) == expected_node_count
-            and len(set(identity["nodes"])) == expected_node_count,
+    expected_node_count = 5 if multi_peer_profile else None
+    node_count_valid = (len(identity["nodes"]) == expected_node_count if expected_node_count is not None else
+                        (len(identity["nodes"]) >= 2 if value["security"]["mode"] == "NONE" else
+                         len(identity["nodes"]) == 2))
+    require(node_count_valid and len(set(identity["nodes"])) == len(identity["nodes"]),
             "identity", "$.identity.nodes",
             "selected profile requires an exact endpoint count with distinct IDs")
     message_ceiling = 4096 if multi_peer_profile else 1024
@@ -201,21 +218,25 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
             "$.identity.sample_producer", "SAMPLE producer must be an endpoint")
     require(identity["default_service"] == 1, "service", "$.identity.default_service",
             "service 1 is the application default")
-    require(identity["epoch_source"] == "sec1-association"
-            and identity["restart"] == "fresh-handshake"
+    none = value["security"]["mode"] == "NONE"
+    if none and not multi_peer_profile:
+        require(value["limits"]["peers"] == len(identity["nodes"]) - 1,
+                "quota", "$.limits.peers", "NONE peer quota must match configured remote identities")
+    require(identity["epoch_source"] == ("random-u64-none" if none else "sec1-association")
+            and identity["restart"] == ("explicit-context-rebind" if none else "fresh-handshake")
             and identity["sample_epoch"] == "persistent-never-reused-u64",
             "identity", "$.identity", "unsupported identity lifecycle")
 
     profile_key = (profile["owner"], profile["id"], profile["revision"])
     direct_profiles = {
-        ("DMP-reference", "DIRECT-1", 4),
+        ("DMP-reference", "DIRECT-1", 5),
         ("DMP-test", "TEST-DIRECT-ASYNC", 1),
         ("DMP-test", "TEST-DIRECT-MINIMAL-128", 1),
         ("DMP-test", "TEST-DIRECT-MINIMAL-256", 1),
         ("DMP-test", "TEST-DIRECT-SAMPLE-RETRY-2", 1),
     }
     radio_profiles = {
-        ("DMP-reference", "RADIO-1", 4),
+        ("DMP-reference", "RADIO-1", 5),
         ("DMP-test", "TEST-RADIO-N2", 1),
         ("DMP-test", "TEST-RADIO-RETRY-ALL", 1),
     }
@@ -281,7 +302,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
             "the manifest requires services 1 and 2 in order")
     sample_service, opaque_service = services
     require(all(service["reply_service"] == service["id"]
-                and service["security"] == "SEC-1"
+                and service["security"] == ("NONE" if none else "SEC-1")
                 and service["payload_desc"] == "omitted"
                 and service["recovery"] == expected_recovery
                 for service in services),
@@ -289,7 +310,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     require((sample_service["schema"], sample_service["service_encoding"],
              sample_service["freshness"], sample_service["request_bytes"],
              sample_service["result_bytes"]) ==
-            ("DMP-reference/SAMPLE-1/2", "omitted", False, 1, 17),
+            ("DMP-reference/SAMPLE-1/3", "omitted", False, 1, 17),
             "service", "$.services[0]", "service 1 must retain the SAMPLE-1 contract")
     require((opaque_service["schema"], opaque_service["service_encoding"],
              opaque_service["idempotent"]) ==
@@ -324,27 +345,34 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     require(opaque_service["freshness"] == (freshness["lease_ms"] > 0),
             "security", "$.services[1].freshness", "service freshness and grant configuration disagree")
 
-    allowed_security = {"NNpsk0": "provisioned-pairwise-psk",
-                        "XX": "authenticated-oob-xx"}
-    require(security["mode"] in allowed_security
-            and security["credential"] == allowed_security[security["mode"]]
-            and security["cipher"] == 1,
-            "security", "$.security", "mode, credential, and mandatory cipher do not match")
-    require(all(service["security"] == "SEC-1" for service in services),
-            "security", "$.services", "both application services require SEC-1")
-    require(security["crypto_slots"] <= security["pending_per_pair"]
-            * (limits["peers"] if multi_peer_profile else 1)
-            and security["pending_per_pair"] >= 1
-            and security["active_per_pair"] >= 1,
-            "security", "$.security", "crypto/pending/active admission limits are infeasible")
-    require((security["replay_window_bits"] & (security["replay_window_bits"] - 1)) == 0
-            and 64 <= security["replay_window_bits"] <= 1024,
-            "security", "$.security.replay_window_bits", "replay window must be a power of two from 64 to 1024")
-    require(security["preauth_slots"] >= 1
-            and security["preauth_bytes"] >= 120 * security["preauth_slots"],
-            "security", "$.security", "bootstrap admission must reserve one complete 120-byte flight")
-    require(security["association_ms"] > 0 and security["drain_ms"] < security["association_ms"],
-            "security", "$.security.drain_ms", "drain must fit within the original association lifetime")
+    if none:
+        require(security == {"mode": "NONE"} and not any(service["freshness"] for service in services),
+                "security", "$.security", "NONE cannot carry SEC-1 reservations or freshness")
+        require("bootstrap_integrity" not in binding and "bootstrap_chunk_bytes" not in limits
+                and "bootstrap_fragments" not in limits,
+                "security", "$.binding", "NONE cannot reserve bootstrap framing")
+    else:
+        allowed_security = {"NNpsk0": "provisioned-pairwise-psk",
+                            "XX": "authenticated-oob-xx"}
+        require(security["mode"] == "SEC-1" and security["noise_mode"] in allowed_security
+                and security["credential"] == allowed_security[security["noise_mode"]]
+                and security["cipher"] == 1,
+                "security", "$.security", "mode, credential, and mandatory cipher do not match")
+        require(all(service["security"] == "SEC-1" for service in services),
+                "security", "$.services", "both application services require SEC-1")
+        require(security["crypto_slots"] <= security["pending_per_pair"]
+                * (limits["peers"] if multi_peer_profile else 1)
+                and security["pending_per_pair"] >= 1
+                and security["active_per_pair"] >= 1,
+                "security", "$.security", "crypto/pending/active admission limits are infeasible")
+        require((security["replay_window_bits"] & (security["replay_window_bits"] - 1)) == 0
+                and 64 <= security["replay_window_bits"] <= 1024,
+                "security", "$.security.replay_window_bits", "replay window must be a power of two from 64 to 1024")
+        require(security["preauth_slots"] >= 1
+                and security["preauth_bytes"] >= 120 * security["preauth_slots"],
+                "security", "$.security", "bootstrap admission must reserve one complete 120-byte flight")
+        require(security["association_ms"] > 0 and security["drain_ms"] < security["association_ms"],
+                "security", "$.security.drain_ms", "drain must fit within the original association lifetime")
 
     message_bytes, chunk_bytes = limits["message_bytes"], limits["chunk_bytes"]
     require(0 < chunk_bytes < message_bytes, "geometry", "$.limits.chunk_bytes",
@@ -353,12 +381,13 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     family_cap = 32 if multi_peer_profile else (16 if direct else 32)
     require(2 <= fragments <= limits["fragments"] <= family_cap,
             "geometry", "$.limits.fragments", "message geometry exceeds its profile or manifest fragment cap")
-    bootstrap_chunk = limits["bootstrap_chunk_bytes"]
-    require(0 < bootstrap_chunk < 120, "geometry", "$.limits.bootstrap_chunk_bytes",
-            "bootstrap chunk must be positive and smaller than the 120-byte flight")
-    bootstrap_fragments = (120 + bootstrap_chunk - 1) // bootstrap_chunk
-    require(2 <= bootstrap_fragments <= limits["bootstrap_fragments"],
-            "geometry", "$.limits.bootstrap_fragments", "bootstrap flight exceeds its independent fragment quota")
+    bootstrap_chunk = limits.get("bootstrap_chunk_bytes", 1)
+    bootstrap_fragments = 0 if none else (120 + bootstrap_chunk - 1) // bootstrap_chunk
+    if not none:
+        require(0 < bootstrap_chunk < 120, "geometry", "$.limits.bootstrap_chunk_bytes",
+                "bootstrap chunk must be positive and smaller than the 120-byte flight")
+        require(2 <= bootstrap_fragments <= limits["bootstrap_fragments"],
+                "geometry", "$.limits.bootstrap_fragments", "bootstrap flight exceeds its independent fragment quota")
 
     nodes = identity["nodes"]
     ids = nodes + [relay["node"] for relay in value["relays"]]
@@ -373,16 +402,33 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     if freshness["lease_ms"] > 0:
         app_extensions += 2 + 16
     frag_header = width(fragments - 1) + width(chunk_bytes) + width(message_bytes)
-    app_header = base_protected + routed_context + app_extensions + frag_header
-    max_application_frame = app_header + chunk_bytes + 16
+    if none:
+        # NONE carries CRC32C descriptor/trailer, explicit CONTEXT and direct
+        # ORIGIN_ID (or an in-header ROUTE), plus a full REPLY_TO key.
+        none_base = 2 + 1 + 5 + 1 + (0 if direct else 1 + source_width + destination_width)
+        none_identity = (2 + namespace_width + 8) + ((2 + source_width) if direct else 0)
+        full_reply = 2 + namespace_width + source_width + 8 + 5
+        service_ext = max((0 if s["id"] == identity["default_service"] else 2 + width(s["id"]))
+                          for s in services)
+        app_header = none_base + none_identity + full_reply + service_ext + frag_header
+    else:
+        app_header = base_protected + routed_context + app_extensions + frag_header
+    trailer = 4 if none else 16
+    max_application_frame = app_header + chunk_bytes + trailer
     require(app_header <= 255, "mtu", "$.binding", "worst application HDR_LEN exceeds 255")
     require(max_application_frame <= min(binding["forward_mtu"], binding["return_mtu"]),
             "mtu", "$.binding", "worst protected application frame exceeds a path MTU")
-    sample_frame = base_protected + routed_context + 17 + 16
-    security_control_frame = base_protected + routed_context + (2 + width(0)) + 21 + 16
+    if none:
+        none_base = 2 + 1 + 5 + 1 + (0 if direct else 1 + source_width + destination_width)
+        none_identity = (2 + namespace_width + 8) + ((2 + source_width) if direct else 0)
+        sample_frame = none_base + none_identity + 17 + trailer
+        security_control_frame = none_base + none_identity + 21 + trailer
+    else:
+        sample_frame = base_protected + routed_context + 17 + trailer
+        security_control_frame = base_protected + routed_context + (2 + width(0)) + 21 + trailer
     reply_header = base_protected + routed_context + (2 + 5) + (2 + service_width)
-    protected_status_frame = reply_header + 4 + 16
-    ack_frame = reply_header + 16
+    protected_status_frame = reply_header + 4 + trailer
+    ack_frame = reply_header + trailer
     finish_ready_frame = base_protected + routed_context + 1
     require(max(sample_frame, security_control_frame, protected_status_frame, ack_frame,
                 finish_ready_frame)
@@ -469,7 +515,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
             + timing["late_result_ms"] + margin
             and timing["tombstone_ms"] >= timing["correlation_ms"],
             "timing", "$.timing", "request/result retention lifetimes are infeasible")
-    require(security["association_ms"] >= timing["correlation_ms"] + queue,
+    require(none or security["association_ms"] >= timing["correlation_ms"] + queue,
             "security", "$.security.association_ms", "association lifetime does not cover correlation and queueing")
     sample = value["sample"]
     sample_duration = (sample["init_attempts"] * timing["result_deadline_ms"]
@@ -502,34 +548,37 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
 
     # Establishment has separate bounded retries, crypto work, ingress, and wire budgets.
     boot_slots = bootstrap_fragments * period
-    flight_count = 2 if security["mode"] == "NNpsk0" else 3
-    extra_xx = security["confirmation_attempts"] if security["mode"] == "XX" else 0
-    flight_slot_count = (flight_count * security["flight_attempts"]
-                         + security["duplicate_responses_per_attempt"])
+    flight_count = 0 if none else (2 if security["noise_mode"] == "NNpsk0" else 3)
+    extra_xx = 0 if none else (security["confirmation_attempts"] if security["noise_mode"] == "XX" else 0)
+    flight_slot_count = 0 if none else (
+        flight_count * security["flight_attempts"] + security["duplicate_responses_per_attempt"]
+    )
     confirm_floor = 2 * (period + longest) + timing["receipt_delay_ms"]
-    if security["mode"] == "XX":
+    if not none and security["noise_mode"] == "XX":
         confirm_floor += boot_slots + longest
-    require(security["flight_retry_ms"] >=
+    require(none or security["flight_retry_ms"] >=
             2 * (boot_slots + longest) + security["crypto_per_attempt_ms"]
             + security["pairing_timeout_ms"]
             and security["flight_retry_ms"] % period == 0,
             "security", "$.security.flight_retry_ms", "bootstrap flight retry interval is infeasible")
-    require(security["confirmation_timeout_ms"] >= confirm_floor
+    require(none or security["confirmation_timeout_ms"] >= confirm_floor
             and security["confirmation_timeout_ms"] % period == 0,
             "security", "$.security.confirmation_timeout_ms", "confirmation interval is infeasible")
-    attempt_duration = (flight_slot_count * security["flight_retry_ms"]
+    attempt_duration = (0 if none else flight_slot_count * security["flight_retry_ms"]
                         + security["confirmation_attempts"] * security["confirmation_timeout_ms"]
                         + security["pairing_timeout_ms"] + security["crypto_per_attempt_ms"])
-    require(security["attempt_ms"] >= attempt_duration, "security", "$.security.attempt_ms",
+    require(none or security["attempt_ms"] >= attempt_duration, "security", "$.security.attempt_ms",
             "attempt deadline cannot cover reserved flights, confirmation, pairing, and crypto")
-    frame_slots = ((flight_slot_count + extra_xx) * bootstrap_fragments
-                   + 2 * security["confirmation_attempts"])
+    frame_slots = 0 if none else (
+        (flight_slot_count + extra_xx) * bootstrap_fragments
+        + 2 * security["confirmation_attempts"]
+    )
     required_attempt_bytes = frame_slots * binding["encoded_mtu"]
     response_count = flight_slot_count + extra_xx
-    require(security["attempt_tx_bytes"] >= required_attempt_bytes
+    require(none or security["attempt_tx_bytes"] >= required_attempt_bytes
             and security["episode_tx_bytes"] >= security["attempt_tx_bytes"] * security["episode_attempts"],
             "security", "$.security.attempt_tx_bytes", "attempt/episode wire budget is too small")
-    require(security["episode_crypto_ms"] >=
+    require(none or security["episode_crypto_ms"] >=
             security["crypto_per_attempt_ms"] * security["episode_attempts"]
             and security["episode_ms"] >=
             security["attempt_ms"] * security["episode_attempts"]
@@ -537,7 +586,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
             and security["global_crypto_ms_per_window"] >=
             security["episode_crypto_ms"] * security["later_episodes_per_window"],
             "security", "$.security", "episode or global establishment budget is too small")
-    require(security["response_window_ms"] <= security["attempt_ms"]
+    require(none or security["response_window_ms"] <= security["attempt_ms"]
             and security["responses_per_window"] >= response_count
             and security["response_bytes_per_window"] >=
             frame_slots * binding["encoded_mtu"]
@@ -547,7 +596,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
     # Encoded airtime budget covers both directions, application controls, and bootstrap.
     transfer_frames = (2 * timing["max_bursts"]
                        * (fragments + timing["max_status"] + timing["receipt_limit"])
-                       + frame_slots * security["episode_attempts"])
+                       + (0 if none else frame_slots * security["episode_attempts"]))
     require(transfer_frames * binding["frame_tx_ms"] <= timing["max_transfer_airtime_ms"],
             "schedule", "$.timing.max_transfer_airtime_ms", "transfer airtime cannot cover admitted traffic")
 
@@ -559,7 +608,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
         pair_service_concurrency = 2 * len(services)
         required_cache = (pair_service_concurrency * (fragments + bootstrap_fragments)
                           + timing["max_status"] + timing["receipt_limit"]
-                          + establishment_frames * security["episode_attempts"])
+                          + (0 if none else establishment_frames * security["episode_attempts"]))
         for direction in ("forward", "return"):
             ordered = relay_path if direction == "forward" else list(reversed(relay_path))
             require(all(relay[f"{direction}_arrival_min_ms"]
@@ -598,16 +647,16 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
                         "relay", "$.relays", "relay airtime reservation is too small")
                 retry_spacing = (boot_slots + maximum + copy_tail + cooldown)
                 confirm_spacing = (period + maximum + copy_tail + cooldown)
-                if security["mode"] == "XX":
+                if not none and security["noise_mode"] == "XX":
                     confirm_spacing = retry_spacing
-                require(security["flight_retry_ms"] >= retry_spacing
+                require(none or security["flight_retry_ms"] >= retry_spacing
                         and security["confirmation_timeout_ms"] >= confirm_spacing,
                         "relay", "$.relays", "relay cooldown conflicts with bootstrap/confirmation retries")
         require(all(relay["max_forwards_per_key"] >=
                     max(timing["max_bursts"] * (1 + relay["lower_duplicates"]),
-                        security["flight_attempts"]
+                        0 if none else security["flight_attempts"]
                         + security["duplicate_responses_per_attempt"] + extra_xx,
-                        security["confirmation_attempts"]) for relay in relay_path),
+                        0 if none else security["confirmation_attempts"]) for relay in relay_path),
                 "relay", "$.relays.max_forwards_per_key",
                 "relay per-key cap cannot cover application and establishment identities")
 
@@ -645,10 +694,12 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
             sums[charge["region"]] += charge["count"] * charge["bytes_each"]
         require(set(by_component) == components, "resources", "$.resources.charges",
                 "every resource component must appear exactly once")
-        require(all(charge["count"] >= 1 and charge["bytes_each"] >= 1
-                    for charge in by_component.values()),
+        zero_security = {"provider_retained", "provider_scratch", "association", "bootstrap", "freshness_tokens"}
+        require(all((charge["count"] == charge["bytes_each"] == 0 if none and name in zero_security
+                     else charge["count"] >= 1 and charge["bytes_each"] >= 1)
+                    for name, charge in by_component.items()),
                 "resources", "$.resources.charges",
-                "every component requires a nonzero design reserve")
+                "resource reservations do not match the selected security mode")
         require(all(sums[region] <= limit for region, limit in region_limits.items()),
                 "resources", "$.resources.charges", "component total exceeds a RAM region limit")
         charge = by_component
@@ -660,12 +711,12 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
                                    * len(services))
             operation_slots = max(service_concurrency, limits["sender_slots"])
             grant_count = freshness["grant_requests_per_pair"] * limits["peers"]
-            provider_slots = (security["pending_per_pair"] + security["active_per_pair"]
-                              + security["draining_per_pair"]) * limits["peers"]
+            provider_slots = (0 if none else (security["pending_per_pair"] + security["active_per_pair"]
+                              + security["draining_per_pair"]) * limits["peers"])
             require(charge["provider_retained"]["count"] >= provider_slots
-                    and charge["provider_scratch"]["count"] >= security["crypto_slots"]
+                    and charge["provider_scratch"]["count"] >= (0 if none else security["crypto_slots"])
                     and charge["association"]["count"] >= provider_slots
-                    and charge["bootstrap"]["count"] >= security["preauth_slots"],
+                    and charge["bootstrap"]["count"] >= (0 if none else security["preauth_slots"]),
                     "resources", "$.resources", "endpoint crypto/association/bootstrap reserves are too small")
             require(charge["sender"]["count"] >= operation_slots
                     and charge["result"]["count"] >= operation_slots + grant_count
@@ -679,7 +730,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
                     and charge["application_queue"]["count"] >= limits["application_queue_slots"]
                     and charge["adapter"]["count"] >= limits["adapter_slots"]
                     and charge["freshness_tokens"]["count"] >= max(
-                        1, limits["peers"] * freshness["tokens_per_principal"]),
+                        0 if none else 1, limits["peers"] * freshness.get("tokens_per_principal", 0)),
                     "resources", "$.resources", "endpoint assembly, control, queue, adapter, or token pool is insufficient")
             if multi_peer_profile:
                 require(charge["endpoint_metadata"]["count"] == 1
@@ -706,7 +757,7 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
                         message_bytes, opaque_service["result_bytes"], 21 if grant_count else 0)
                     and charge["application_queue"]["bytes_each"] >= message_bytes,
                     "resources", "$.resources", "endpoint message buffers are smaller than admitted payloads")
-            require(charge["bootstrap"]["bytes_each"] >= 120
+            require((none or charge["bootstrap"]["bytes_each"] >= 120)
                     and charge["control"]["bytes_each"] >= binding["encoded_mtu"]
                     and charge["adapter"]["bytes_each"] >= binding["encoded_mtu"]
                     and (not freshness_enabled or charge["freshness_tokens"]["bytes_each"] >= 16),
@@ -716,8 +767,14 @@ def _check_contract_feasibility(value: dict[str, Any]) -> None:
                     and charge["adapter"]["bytes_each"] >= binding["encoded_mtu"]
                     and charge["relay_cache"]["count"] >= required_cache,
                     "resources", "$.resources", "relay frame/cache reserves are too small")
+            relay_components = components - {"control", "adapter", "relay_cache"}
+            if none:
+                relay_components -= {
+                    "provider_retained", "provider_scratch", "association", "bootstrap",
+                    "freshness_tokens",
+                }
             require(all(charge[name]["count"] >= 1 and charge[name]["bytes_each"] >= 1
-                        for name in components - {"control", "adapter", "relay_cache"}),
+                        for name in relay_components),
                     "resources", "$.resources", "relay role requires minimal endpoint-only design reserves")
 
 
@@ -886,4 +943,6 @@ def identify_frozen_manifest(raw: bytes) -> Manifest:
     for name, expected in _FROZEN.items():
         if digest == expected:
             return parse_manifest(raw, expected)
+    if digest == _R7_TOMBSTONE_PRESSURE_SHA256:
+        return parse_manifest(raw, _R7_TOMBSTONE_PRESSURE_SHA256)
     raise ManifestError("digest", "$", "bytes do not match a frozen P20 manifest")

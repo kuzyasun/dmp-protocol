@@ -18,6 +18,7 @@
 
 #include "handshake.h"
 #include "noise_fixture_probe.h"
+#include "p23_profile_hashes.h"
 #include "sample1.h"
 #include "sample1_endpoint.h"
 
@@ -40,10 +41,10 @@
 
 enum {
     SENDERS = 4,
-    RESULTS = 6,
-    HISTORY = 12,
-    CORRELATIONS = 6,
-    ADAPTERS = 5,
+    RESULTS = 8,
+    HISTORY = 16,
+    CORRELATIONS = 8,
+    ADAPTERS = 10,
     MESSAGE = 1024,
     MAX_MESSAGE = 4096,
     MTU = 263,
@@ -259,6 +260,7 @@ static const uint8_t *g_psk_override;
 static int g_p23_copy_async_binding;
 static int g_endpoint_test_async_borrow;
 static uint8_t g_p23_profile_id;
+static int g_p23_tombstone_pressure_profile;
 static int p23_uses_packet_endpoint(void)
 {
   return g_p23_profile_id == P23_PROFILE_RADIO_SELECTIVE ||
@@ -726,18 +728,22 @@ static void p23_apply_profile_config(dmp_config *config) {
   config->freshness_grant_delivery_age_ms = 100U;
   config->freshness_tokens_per_association = 4U;
   config->freshness_tokens_per_principal = 8U;
-  config->freshness_grant_requests_per_pair = 2U;
   config->freshness_token_record_ms = 12000U;
   config->freshness_grant_result_ms = 11000U;
-  config->assembly_tombstones_per_peer = 16U;
+  config->assemblies_per_peer = g_p23_tombstone_pressure_profile ? 2U : 1U;
+  config->assembly_tombstones_per_peer =
+      g_p23_tombstone_pressure_profile ? 2U : 16U;
   config->sender_slots = 4U;
-  config->assembly_tombstone_slots = 16U;
-  config->result_slots = 6U;
-  config->history_slots = 12U;
-  config->correlation_slots = 6U;
-  config->adapter_slots = 5U;
+  config->assembly_slots = config->assemblies_per_peer;
+  config->assembly_tombstone_slots = config->assembly_tombstones_per_peer;
+  config->freshness_grant_requests_per_pair =
+      g_p23_tombstone_pressure_profile ? 4U : 2U;
+  config->result_slots = g_p23_tombstone_pressure_profile ? 8U : 6U;
+  config->history_slots = g_p23_tombstone_pressure_profile ? 16U : 12U;
+  config->correlation_slots = g_p23_tombstone_pressure_profile ? 8U : 6U;
+  config->adapter_slots = g_p23_tombstone_pressure_profile ? 10U : 5U;
   config->application_queue_slots = 2U;
-  config->control_slots = 4U;
+  config->control_slots = g_p23_tombstone_pressure_profile ? 9U : 4U;
   config->fragments = 32U;
   config->chunk_bytes = 32U;
   config->encoded_mtu = 256U;
@@ -860,6 +866,7 @@ static void fill_direct(dmp_config *config, uint32_t chunk,
   config->node_id[0] = ID_INIT;
   config->node_id[1] = ID_RESP;
   config->default_service = 1U;
+  config->security_mode = DMP_PROFILE_SECURITY_SEC1;
   config->service_id[0] = 1U;
   config->service_id[1] = 2U;
   config->recovery[0] = DMP_PROFILE_RECOVERY_RETRY_ALL;
@@ -1999,6 +2006,9 @@ static int test_activation(void)
     uint8_t req[1];
     uint8_t plain[32];
     uint8_t wrapped[128];
+    uint8_t extensions[32];
+    uint8_t trailer[4] = {0U, 0U, 0U, 0U};
+    uint8_t status_payload[4] = {0U, 0U, 0U, 0U};
     dmp_frame_spec spec;
     dmp_core_limits limits;
     dmp_buffer out;
@@ -2047,6 +2057,52 @@ static int test_activation(void)
     status = dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now);
     CHECK(status == DMP_AUTHENTICATION_FAILURE);
     CHECK(left.app.accepts == 1);
+    {
+        const uint8_t controls[] = {DMP_TYPE_ACK, DMP_TYPE_RSP, DMP_TYPE_ERR,
+                                    DMP_TYPE_FRAG_STATUS};
+        size_t i;
+        for (i = 0U; i < sizeof controls; i++) {
+            uint32_t crc;
+            size_t ext_n = 13U;
+            unsigned epoch_byte;
+            extensions[0] = 0x05U; /* NONE full REPLY_TO. */
+            extensions[1] = 11U;
+            extensions[2] = 1U; /* namespace */
+            extensions[3] = ID_RESP;
+            for (epoch_byte = 0U; epoch_byte < 8U; epoch_byte++) {
+                extensions[4U + epoch_byte] =
+                    (uint8_t)((uint64_t)CID_RESP >> (8U * epoch_byte));
+            }
+            extensions[12] = 1U; /* referenced sequence */
+            if (controls[i] == DMP_TYPE_ERR) {
+                extensions[13] = 0x15U; /* WIRE_STATUS */
+                extensions[14] = 1U;
+                extensions[15] = 64U;
+                ext_n = 16U;
+            }
+            memset(&spec, 0, sizeof spec);
+            spec.fields.type = controls[i];
+            spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_INTEGRITY | DMP_OPT_EXT);
+            spec.fields.seq = (uint32_t)(2U + i);
+            spec.fields.integrity = 1U;
+            spec.extensions = span(extensions, ext_n);
+            spec.trailer = span(trailer, sizeof trailer);
+            if (controls[i] == DMP_TYPE_FRAG_STATUS) {
+                spec.payload = span(status_payload, sizeof status_payload);
+            }
+            CHECK(dmp_core_encode(&spec, &limits, out, &written) == DMP_OK);
+            CHECK(written >= sizeof trailer);
+            CHECK(dmp_crc32c(span(plain, written - sizeof trailer), &crc) == DMP_OK);
+            plain[written - 4U] = (uint8_t)crc;
+            plain[written - 3U] = (uint8_t)(crc >> 8U);
+            plain[written - 2U] = (uint8_t)(crc >> 16U);
+            plain[written - 1U] = (uint8_t)(crc >> 24U);
+            CHECK(wrap_core(plain, written, wrapped, sizeof wrapped, &wrapped_n) == 1);
+            CHECK(dmp_endpoint_rx(&left.endpoint, span(wrapped, wrapped_n), now) ==
+                  DMP_AUTHENTICATION_FAILURE);
+            CHECK(left.app.accepts == 1);
+        }
+    }
     failed = 0;
     close_session(&env);
     return failed;
@@ -8488,72 +8544,46 @@ static int p23_encode_bootstrap(const uint8_t *payload, size_t payload_size,
   return 1;
 }
 
+static const uint8_t p23_hash_radio_tombstone_pressure[32];
+
 static const uint8_t *p23_expected_profile_hash(uint8_t profile_id) {
-  static const uint8_t radio_selective[32] = {
-      0xa3, 0x88, 0x7c, 0x44, 0xb0, 0x6b, 0x4d, 0x2f, 0x90, 0x5f, 0x89,
-      0xfa, 0xe4, 0xb2, 0x8b, 0x99, 0xc0, 0xf0, 0x0d, 0x93, 0xd7, 0x7c,
-      0x50, 0xb1, 0xf7, 0x52, 0xce, 0x77, 0xbd, 0xe4, 0x92, 0x2f};
-  static const uint8_t radio_retry_all[32] = {
-      0xb3, 0x3d, 0x39, 0xbf, 0xfc, 0xb7, 0xc2, 0x75, 0x0f, 0xbf, 0x86,
-      0x0e, 0x4e, 0x04, 0x0c, 0xd5, 0xb4, 0xe2, 0x91, 0x01, 0xa6, 0xd6,
-      0xc0, 0xca, 0x60, 0x4f, 0xae, 0xf9, 0x71, 0x9c, 0xcf, 0x3f};
-  static const uint8_t stream_r[32] = {
-      0x8d, 0xe5, 0x61, 0x92, 0xf7, 0x5e, 0x76, 0x77, 0x08, 0x1d, 0x70,
-      0x4d, 0x56, 0x8d, 0xdb, 0x64, 0xb1, 0x29, 0x2c, 0x6d, 0xed, 0x72,
-      0x44, 0x96, 0x75, 0xeb, 0xce, 0xef, 0xd5, 0x3d, 0x9a, 0x1a};
-  static const uint8_t mixed[32] = {
-      0x2b, 0xc3, 0xc2, 0xee, 0x1c, 0x9e, 0x8f, 0x3a, 0xa8, 0x7a, 0xf4,
-      0xaf, 0xd2, 0xf0, 0xca, 0xb9, 0x96, 0x09, 0x9f, 0xc6, 0x9d, 0xa1,
-      0xf0, 0x93, 0x8c, 0x23, 0xe0, 0x50, 0xc8, 0xc6, 0x8f, 0xaf};
-  static const uint8_t stream_r_sample20[32] = {
-      0xb8, 0x41, 0x32, 0xa0, 0x86, 0x32, 0x3d, 0x43, 0x24, 0x92, 0x96,
-      0x77, 0x55, 0x24, 0x4b, 0x59, 0xa9, 0xa5, 0x34, 0x05, 0x88, 0x0d,
-      0x85, 0xf3, 0x54, 0xc2, 0x53, 0x53, 0x75, 0x7c, 0x6a, 0xa6};
-  static const uint8_t direct_nnpsk0[32] = {
-      0x40, 0xab, 0xed, 0xfb, 0xb1, 0x79, 0x9e, 0xa6, 0xcb, 0x71, 0x1f,
-      0x73, 0x91, 0x01, 0xd4, 0x0b, 0xae, 0x64, 0x54, 0xea, 0xc7, 0x19,
-      0x85, 0x8c, 0x79, 0xb0, 0x66, 0xf2, 0x67, 0x0a, 0xd0, 0xc1};
-  static const uint8_t direct_xx[32] = {
-      0x28, 0x9e, 0xd4, 0x44, 0xa4, 0x58, 0xbb, 0xa2, 0x80, 0x1f, 0xbc,
-      0xeb, 0x68, 0x34, 0x6c, 0xfa, 0xe2, 0x3d, 0xe7, 0x9b, 0xea, 0xab,
-      0x2d, 0x34, 0x02, 0xa7, 0x55, 0x39, 0xe1, 0x1b, 0x23, 0xf9};
-  static const uint8_t radio_xx[32] = {
-      0xb2, 0x7b, 0x06, 0xee, 0x7a, 0xd0, 0xa0, 0xd5, 0x1e, 0x79, 0xcf,
-      0x89, 0x4a, 0x37, 0x3b, 0xf2, 0xb7, 0x4d, 0x9f, 0x9b, 0x36, 0x74,
-      0xb2, 0x4b, 0x92, 0x56, 0x41, 0x8b, 0x91, 0x41, 0x64, 0x1a};
-  static const uint8_t retry_all_xx[32] = {
-      0x36, 0x93, 0x14, 0xbd, 0x7d, 0xaf, 0x84, 0x0b, 0x22, 0xd3, 0x4e,
-      0x10, 0xc4, 0x32, 0xfe, 0x08, 0x57, 0x5e, 0xcd, 0x9e, 0x1c, 0x56,
-      0x2c, 0xfd, 0x73, 0x0a, 0x34, 0x2b, 0xc5, 0xe1, 0x28, 0x6a};
   if (profile_id == P23_PROFILE_RADIO_SELECTIVE) {
-    return radio_selective;
+    return p23_hash_radio_selective;
   }
   if (profile_id == P23_PROFILE_RADIO_RETRY_ALL) {
-    return radio_retry_all;
+    return p23_hash_radio_retry_all;
   }
   if (profile_id == P23_PROFILE_STREAM_R) {
-    return stream_r;
+    return p23_hash_stream_r;
   }
   if (profile_id == P23_PROFILE_MIXED) {
-    return mixed;
+    return p23_hash_mixed;
   }
   if (profile_id == P23_PROFILE_STREAM_R_SAMPLE20) {
-    return stream_r_sample20;
+    return p23_hash_stream_r_sample20;
   }
   if (profile_id == P23_PROFILE_DIRECT_XX) {
-    return direct_xx;
+    return p23_hash_direct_xx;
   }
   if (profile_id == P23_PROFILE_RADIO_XX) {
-    return radio_xx;
+    return p23_hash_radio_xx;
   }
   if (profile_id == P23_PROFILE_RADIO_RETRY_ALL_XX) {
-    return retry_all_xx;
+    return p23_hash_retry_all_xx;
   }
   if (profile_id == P23_PROFILE_DIRECT_NN) {
-    return direct_nnpsk0;
+    return p23_hash_direct_nnpsk0;
   }
   return NULL;
 }
+
+/* SHA-256 of tests/peer/fixtures/r7-tombstone-pressure.json. Keep this
+ * test-only identity separate from production deployment profile hashes. */
+static const uint8_t p23_hash_radio_tombstone_pressure[32] = {
+    0x0aU, 0xb1U, 0x02U, 0xc8U, 0xb1U, 0x3bU, 0x99U, 0xb5U,
+    0x06U, 0x53U, 0x9aU, 0x78U, 0xa8U, 0x7bU, 0xf5U, 0xf0U,
+    0xc4U, 0xf5U, 0x4dU, 0x9cU, 0x3eU, 0x7cU, 0x04U, 0xdfU,
+    0xd5U, 0x92U, 0x35U, 0xa1U, 0x77U, 0x95U, 0x7aU, 0xe3U};
 
 static uint8_t p23_profile_id_for_hash(const uint8_t *profile_hash) {
   uint8_t profile_id;
@@ -8567,6 +8597,10 @@ static uint8_t p23_profile_id_for_hash(const uint8_t *profile_hash) {
         memcmp(profile_hash, expected, sizeof p23_profile_hash) == 0) {
       return profile_id;
     }
+  }
+  if (memcmp(profile_hash, p23_hash_radio_tombstone_pressure,
+             sizeof p23_profile_hash) == 0) {
+    return P23_PROFILE_RADIO_RETRY_ALL;
   }
   return P23_PROFILE_NONE;
 }
@@ -8624,6 +8658,9 @@ static int p23_init(const uint8_t *profile_hash, const uint8_t *credential,
   p23_defer_tx_completions = defer_tx_completions != 0U;
   fixture = find_fixture(profile_mode == 2U ? "xx" : "nnpsk0");
   g_p23_profile_id = profile_id;
+  g_p23_tombstone_pressure_profile =
+      memcmp(profile_hash, p23_hash_radio_tombstone_pressure,
+             sizeof p23_profile_hash) == 0;
   g_p23_security_mode = profile_mode;
   g_p23_confirmation_route_ttl = p23_routed_profile() ? 2U : 0U;
   memcpy(p23_profile_hash, profile_hash, sizeof p23_profile_hash);

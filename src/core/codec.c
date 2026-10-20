@@ -223,7 +223,7 @@ dmp_parse_result dmp_core_parse(dmp_bytes input, const dmp_core_limits *limits,
         if (st != DMP_OK) return parse_error(out, st, bad);
     }
     if (v.fields.type == DMP_TYPE_ACK && ((opt & (DMP_OPT_ACK_REQ|DMP_OPT_FRAG|DMP_OPT_PAYLOAD_DESC)) != 0U)) return parse_error(out, DMP_MALFORMED, 2U);
-    if (v.fields.type == DMP_TYPE_FRAG_STATUS && ((opt & (DMP_OPT_ACK_REQ|DMP_OPT_FRAG|DMP_OPT_PAYLOAD_DESC)) != 0U || (opt & DMP_OPT_SECURITY) == 0U)) return parse_error(out, DMP_MALFORMED, 2U);
+    if (v.fields.type == DMP_TYPE_FRAG_STATUS && ((opt & (DMP_OPT_ACK_REQ|DMP_OPT_FRAG|DMP_OPT_PAYLOAD_DESC)) != 0U || (opt & (DMP_OPT_SECURITY | DMP_OPT_INTEGRITY)) == 0U)) return parse_error(out, DMP_MALFORMED, 2U);
     if (((v.fields.type == DMP_TYPE_REQ || v.fields.type == DMP_TYPE_RSP || v.fields.type == DMP_TYPE_ERR || v.fields.type == DMP_TYPE_ACK || v.fields.type == DMP_TYPE_FRAG_STATUS) || (opt & (DMP_OPT_ACK_REQ | DMP_OPT_SECURITY)) != 0U) && (opt & DMP_OPT_SEQ) == 0U) return parse_error(out, DMP_MALFORMED, 2U);
     if (v.fields.type == DMP_TYPE_ERR && ext_status <= 7U && (opt & DMP_OPT_ACK_REQ) != 0U) return parse_error(out, DMP_MALFORMED, 2U);
     if ((opt & DMP_OPT_FRAG) != 0U) {
@@ -369,7 +369,7 @@ static dmp_status encode_preflight(const dmp_frame_spec *f, const dmp_core_limit
     if (((f->fields.type == DMP_TYPE_REQ || f->fields.type == DMP_TYPE_RSP || f->fields.type == DMP_TYPE_ERR || f->fields.type == DMP_TYPE_ACK || f->fields.type == DMP_TYPE_FRAG_STATUS) || (opts & (DMP_OPT_ACK_REQ | DMP_OPT_SECURITY | DMP_OPT_FRAG | DMP_OPT_ROUTE)) != 0U) && (opts & DMP_OPT_SEQ) == 0U) return DMP_MALFORMED;
     if ((opts & DMP_OPT_ACK_REQ) != 0U && (opts & DMP_OPT_ROUTE) != 0U && f->fields.route.mode == 2U) return DMP_MALFORMED;
     if (f->fields.type == DMP_TYPE_ACK && (f->payload.size != 0U || (opts & (DMP_OPT_ACK_REQ|DMP_OPT_FRAG|DMP_OPT_PAYLOAD_DESC)) != 0U)) return DMP_MALFORMED;
-    if (f->fields.type == DMP_TYPE_FRAG_STATUS && (f->payload.size != 4U || (opts & (DMP_OPT_ACK_REQ|DMP_OPT_FRAG|DMP_OPT_PAYLOAD_DESC)) != 0U || (opts & DMP_OPT_SECURITY) == 0U)) return DMP_MALFORMED;
+    if (f->fields.type == DMP_TYPE_FRAG_STATUS && (f->payload.size != 4U || (opts & (DMP_OPT_ACK_REQ|DMP_OPT_FRAG|DMP_OPT_PAYLOAD_DESC)) != 0U || (opts & (DMP_OPT_SECURITY | DMP_OPT_INTEGRITY)) == 0U)) return DMP_MALFORMED;
     if (f->fields.type == DMP_TYPE_ERR && flags[2] && dummy[2] <= 7U && (opts & DMP_OPT_ACK_REQ) != 0U) return DMP_MALFORMED;
     if (h > DMP_MAX_HEADER_BYTES || !add_size(h, f->payload.size, total_size) || !add_size(*total_size, t, total_size) || *total_size > lim->max_frame_bytes || f->payload.size > lim->max_message_bytes || ((opts & DMP_OPT_SECURITY) != 0U && f->payload.size > 65519U)) return DMP_LIMIT_EXHAUSTED;
     *header_size = h; return DMP_OK;

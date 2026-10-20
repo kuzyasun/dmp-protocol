@@ -32,18 +32,18 @@ COMPONENTS = ("provider_retained", "provider_scratch", "association", "bootstrap
               "admission_owner")
 
 SCHEMA = obj(
-    contract=enum("DMP-test-manifest/1.0"),
-    revisions=obj(core=enum(10), security=enum(5), bootstrap=enum(2),
-                  recovery=enum(1), application=enum(2)),
+    contract=enum("DMP-test-manifest/1.1"),
+    revisions=obj(core=enum(11), security=enum(5), bootstrap=enum(2),
+                  recovery=enum(2), application=enum(3)),
     profile=obj(owner=enum("DMP-reference", "DMP-test"),
                 id=enum("DIRECT-1", "RADIO-1", "TEST-RADIO-RETRY-ALL",
                         "TEST-DIRECT-ASYNC", "TEST-RADIO-N2",
                         "TEST-DIRECT-MINIMAL-128", "TEST-DIRECT-MINIMAL-256",
                         "TEST-DIRECT-SAMPLE-RETRY-2", "PEER-TCP-STREAM-R",
                         "MIXED-TCP-STREAM-R-SIM-PACKET", "TEST-DIRECT-MULTIPEER"),
-                revision=integer(1, 4)),
-    identity=obj(namespace=U32, nodes=array(U32, 2, 5), default_service=enum(1),
-                 epoch_source=enum("sec1-association"), restart=enum("fresh-handshake"),
+                revision=integer(1, 5)),
+    identity=obj(namespace=U32, nodes=array(U32, 2, 65535), default_service=enum(1),
+                 epoch_source=enum("sec1-association", "random-u64-none"), restart=enum("fresh-handshake", "explicit-context-rebind"),
                  sample_epoch=enum("persistent-never-reused-u64"), sample_producer=U32),
     binding=obj(id=enum("DMP-test/SIM-STREAM-R", "DMP-test/SIM-PACKET",
                         "DMP-test/TCP-STREAM-R"), revision=enum(1),
@@ -63,18 +63,18 @@ SCHEMA = obj(
     services=array(obj(
         id=integer(1, 4294967295), reply_service=integer(1, 4294967295),
         service_encoding=enum("omitted", "explicit"),
-        schema=enum("DMP-reference/SAMPLE-1/2", "DMP-test/OPAQUE-1/1"),
+        schema=enum("DMP-reference/SAMPLE-1/3", "DMP-test/OPAQUE-1/1"),
         payload_desc=enum("omitted"), recovery=enum("retry-all", "selective-32"),
-        security=enum("SEC-1"), freshness=BOOL, idempotent=enum(True),
+        security=enum("NONE", "SEC-1"), freshness=BOOL, idempotent=enum(True),
         request_bytes=integer(1, 4096), result_bytes=integer(1, 4096), processing_ms=POS,
-        acl=array(obj(node=U32, actions=array(enum("produce", "read", "status", "data", "result"), 1, 5)), 2, 5)), 2, 2),
+        acl=array(obj(node=U32, actions=array(enum("produce", "read", "status", "data", "result"), 1, 5)), 2, 65535)), 2, 2),
     limits=obj(message_bytes=integer(17, 4096), fragments=integer(2, 32), chunk_bytes=integer(1, 1023),
                bootstrap_chunk_bytes=integer(1, 119), bootstrap_fragments=integer(2, 120),
-               peers=integer(1, 4), assemblies_per_peer=integer(1, 64),
+               peers=integer(1, 4294967295), assemblies_per_peer=integer(1, 64),
                assembly_tombstones_per_peer=integer(1, 64), operations_per_service=integer(1, 64),
                sender_slots=integer(1, 64),
                control_slots=integer(2, 64), application_queue_slots=POS, adapter_slots=POS),
-    security=obj(mode=enum("NNpsk0", "XX"), cipher=enum(1),
+    security=obj(mode=enum("SEC-1"), noise_mode=enum("NNpsk0", "XX"), cipher=enum(1),
                  credential=enum("provisioned-pairwise-psk", "authenticated-oob-xx"),
                  trust_change=enum("owner-authorized-atomic-pin-and-acl"),
                  pending_per_pair=integer(1, 4), active_per_pair=integer(1, 4),
@@ -127,7 +127,14 @@ SCHEMA = obj(
                                           count=integer(0), bytes_each=integer(0)), 1, 128)), 1, 2),
 )
 SCHEMA = {"$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "urn:dmp:test-manifest:1.0", **SCHEMA}
+          "$id": "urn:dmp:test-manifest:1.1", **SCHEMA}
+SEC1_SECURITY = SCHEMA["properties"]["security"]
+SCHEMA["properties"]["security"] = {"oneOf": [
+    obj(mode=enum("NONE")), SEC1_SECURITY]}
+SCHEMA["properties"]["binding"]["required"].remove("bootstrap_integrity")
+SCHEMA["properties"]["binding"]["properties"]["bootstrap_integrity"] = enum("CRC32C")
+SCHEMA["properties"]["limits"]["required"].remove("bootstrap_chunk_bytes")
+SCHEMA["properties"]["limits"]["required"].remove("bootstrap_fragments")
 SCHEMA["properties"]["tcp_binding"] = obj(
     id=enum("DMP-test/TCP-STREAM-R"), revision=enum(1),
     placement=enum("peer-pair", "endpoint-to-relay"),

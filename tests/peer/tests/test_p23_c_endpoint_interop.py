@@ -509,7 +509,7 @@ class TestP23CPrimaryInterop(unittest.TestCase):
         digest_index = json.loads((_ROOT / "profiles" / "deployments" / "digests.json").read_text())
         self.assertEqual(profile_hash.hex(), digest_index["manifests"][manifest_name])
         manifest = json.loads(manifest_bytes)
-        if manifest["security"]["mode"] == "XX":
+        if manifest["security"]["noise_mode"] == "XX":
             from cryptography.hazmat.primitives.asymmetric import x25519
 
             peer_static = b"\x20" * 32  # P20/P21C public test identity for node 10.
@@ -539,7 +539,7 @@ class TestP23CPrimaryInterop(unittest.TestCase):
         _activate_pair(c_endpoint, peer, clock)
         self.assertEqual(
             c_endpoint.last_state.effective_config["pin_commits"],
-            1 if manifest["security"]["mode"] == "XX" else 0,
+            1 if manifest["security"]["noise_mode"] == "XX" else 0,
         )
         return c_endpoint, peer, clock
 

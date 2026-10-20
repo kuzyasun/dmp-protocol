@@ -183,7 +183,8 @@ static int test_arguments_and_copy(void)
     REJECT(in_.chunk_bytes = in_.message_bytes, DMP_UNSUPPORTED);
     REJECT(in_.chunk_bytes = in_.message_bytes + 1U, DMP_UNSUPPORTED);
     REJECT(in_.peers = 0U, DMP_UNSUPPORTED);
-    REJECT(in_.peers = DMP_PROFILE_MAX_PEERS + 1U, DMP_UNSUPPORTED);
+    REJECT(in_.security_mode = DMP_PROFILE_SECURITY_SEC1;
+           in_.peers = DMP_PROFILE_SECURE_MAX_PEERS + 1U, DMP_UNSUPPORTED);
     REJECT(in_.assembly_tombstones_per_peer = 0U, DMP_UNSUPPORTED);
     REJECT(in_.assembly_tombstones_per_peer = DMP_PROFILE_MAX_TOMBSTONES_PER_PEER + 1U,
            DMP_UNSUPPORTED);
@@ -202,6 +203,8 @@ static int test_arguments_and_copy(void)
     REJECT(in_.default_service = 2U, DMP_OK);
     REJECT(in_.peers = 2U; in_.assembly_slots = 2U; in_.assembly_tombstone_slots = 2U,
            DMP_OK);
+    REJECT(in_.peers = 16U; in_.assembly_slots = 16U;
+           in_.assembly_tombstone_slots = 16U, DMP_OK);
     REJECT(in_.peers = 2U; in_.operations_per_service = 8U; in_.sender_slots = 2U;
            in_.result_slots = 2U; in_.history_slots = 4U; in_.correlation_slots = 2U;
            in_.assembly_slots = 2U; in_.assembly_tombstone_slots = 2U, DMP_OK);
@@ -479,6 +482,17 @@ static dmp_status budget_encode(void *context, const dmp_reliability_logical *lo
         budget_add_uleb(value, &value_n, sizeof value, logical->service_id);
         budget_add_tlv(enc->ext, &ext_n, sizeof enc->ext, 17U, value, value_n);
     }
+    /* NONE source frames carry an explicit origin context on the wire. */
+    value_n = 0U;
+    budget_add_uleb(value, &value_n, sizeof value,
+                    logical->own.origin.namespace_id);
+    budget_add_u64le(value, &value_n, sizeof value,
+                     logical->own.origin.epoch);
+    budget_add_tlv(enc->ext, &ext_n, sizeof enc->ext, 11U, value, value_n);
+    value_n = 0U;
+    budget_add_uleb(value, &value_n, sizeof value,
+                    logical->own.origin.origin_id);
+    budget_add_tlv(enc->ext, &ext_n, sizeof enc->ext, 15U, value, value_n);
     if (ext_n != 0U) {
         spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_EXT);
         spec.extensions.data = enc->ext;
@@ -720,16 +734,28 @@ static int budget_encode_slice(uint32_t seq, uint32_t index, uint32_t chunk, uin
     dmp_core_limits limits;
     dmp_buffer out;
     dmp_parse_result parsed;
+    uint8_t ext[32];
+    uint8_t value[16];
+    size_t ext_n = 0U;
+    size_t value_n = 0U;
     size_t written = 0U;
     memset(&spec, 0, sizeof spec);
     spec.fields.type = DMP_TYPE_DATA;
-    spec.fields.options =
-        (uint8_t)(DMP_OPT_SEQ | DMP_OPT_FRAG | DMP_OPT_ACK_REQ | DMP_OPT_PAYLOAD_DESC);
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_FRAG | DMP_OPT_ACK_REQ |
+                                   DMP_OPT_PAYLOAD_DESC | DMP_OPT_EXT);
     spec.fields.seq = seq;
     spec.fields.fragment.index = index;
     spec.fields.fragment.chunk_size = chunk;
     spec.fields.fragment.total_size = total;
     spec.fields.descriptor.codec = 7U;
+    budget_add_uleb(value, &value_n, sizeof value, 1U);
+    budget_add_u64le(value, &value_n, sizeof value, 7U);
+    budget_add_tlv(ext, &ext_n, sizeof ext, 11U, value, value_n);
+    value_n = 0U;
+    budget_add_uleb(value, &value_n, sizeof value, 20U);
+    budget_add_tlv(ext, &ext_n, sizeof ext, 15U, value, value_n);
+    spec.extensions.data = ext;
+    spec.extensions.size = ext_n;
     spec.payload = budget_span(plain, nplain);
     limits.max_frame_bytes = mtu;
     limits.max_message_bytes = message;

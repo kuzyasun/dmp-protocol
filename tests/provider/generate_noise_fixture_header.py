@@ -335,8 +335,8 @@ def main():
     try:
         source_path = args.input
         source = json.loads(source_path.read_text(encoding="utf-8"))
-        if "revision 10" not in source.get("specification", "") or "SEC-1 revision 5" not in source.get("specification", ""):
-            raise ValueError("input is not the expected DMP revision 10 / SEC-1 revision 5 fixture set")
+        if "revision 11" not in source.get("specification", "") or "SEC-1 revision 5" not in source.get("specification", ""):
+            raise ValueError("input is not the expected DMP revision 11 / SEC-1 revision 5 fixture set")
         matches = source.get("vectors")
         if not isinstance(matches, list):
             raise ValueError("input has no vectors array")

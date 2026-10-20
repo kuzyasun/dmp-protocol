@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 from dmp_peer.events import Advance, ApplicationEvent, ApplicationRequest, Open, Receive, TxAdmit, TxSubmit, TxTerminal
 from dmp_peer.frame import decode_uleb, parse_frame
 from dmp_peer.testing import PeerEndpoint
+from dmp_peer.manifest import frozen_manifest_digest
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -134,8 +135,8 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
             for ready in extract_and_settle(responder, response, at_ms=131):
                 initiator.handle(Receive(link=0, bytes=ready, at_ms=140))
 
-        self.assertEqual(initiator.manifest.values["security"]["mode"], "XX")
-        self.assertEqual(responder.manifest.values["security"]["mode"], "XX")
+        self.assertEqual(initiator.manifest.values["security"]["noise_mode"], "XX")
+        self.assertEqual(responder.manifest.values["security"]["noise_mode"], "XX")
         self.assertEqual(initiator.association.status, "active")
         self.assertEqual(responder.association.status, "active")
         return initiator, responder
@@ -174,7 +175,7 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
         profile = manifest_bytes("radio-xx.json")
         self.assertEqual(
             hashlib.sha256(profile).hexdigest(),
-            "b27b06ee7ad0a0d51e79cf894a373bf2b74d9f9b3674b24b9256418b9141641a",
+            frozen_manifest_digest("radio-xx.json"),
         )
         initiator, responder = self.pair("radio-xx.json")
         self.grant_service2_freshness(initiator, responder)
@@ -423,7 +424,7 @@ class P21DXXRadioMatrixTests(unittest.TestCase):
         profile = manifest_bytes("test-radio-retry-all-xx.json")
         self.assertEqual(
             hashlib.sha256(profile).hexdigest(),
-            "369314bd7daf840b22d34e10c432fe08575ecd9e1c562cfd730a342bc5e1286a",
+            frozen_manifest_digest("test-radio-retry-all-xx.json"),
         )
         initiator, responder = self.pair("test-radio-retry-all-xx.json")
         self.grant_service2_freshness(initiator, responder)

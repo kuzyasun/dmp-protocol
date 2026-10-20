@@ -1,6 +1,6 @@
 # DMP normative case ledger
 
-P03 case-to-future-test index for main revision 10, SEC-1 revision 5, SELECTIVE-32 revision 1 and SAMPLE-1 revision 2. The canonical rows and stable planned Test IDs are in [DMP_Normative_Cases.json](DMP_Normative_Cases.json); this index does not repeat them.
+P03 case-to-future-test index for main revision 11, SEC-1 revision 5, SELECTIVE-32 revision 2 and SAMPLE-1 revision 3. Optional-security acceptance cases are added in this implementation; historical result counts below remain scoped to their recorded 2026-10-15 checkout. The canonical rows and stable planned Test IDs are in [DMP_Normative_Cases.json](DMP_Normative_Cases.json); this index does not repeat them.
 
 Current disposition across all 137 requirements (2026-10-15): **36 whole-row
 passed, 101 partial, 0 not-run**. Separate evidence axes record primary C as
@@ -14,6 +14,14 @@ current RBO host run. The integrated Python peer suite ran 439 tests, passed
 438, and skipped one unreachable cross-endpoint quota state; the Node
 crypto-vector check passed. The DMP CTest selection excludes the owner-deferred
 ARM ABI probe and its seven dependent layout checks.
+
+OS-1 added optional-security cases in `tests/identity/test_identity.c`,
+`tests/endpoint/test_endpoint.c`, and
+`tests/peer/tests/test_optional_security_none.py`. Current results and exact
+RBO jobs are recorded in [DMP_Optional_Security_Evidence_2026-10-19.md](DMP_Optional_Security_Evidence_2026-10-19.md).
+Those results have not been retroactively assigned to the 137 historical
+requirement rows: the full per-row NONE loss/isolation/capacity and SAMPLE-1
+matrix remains open, and the 2026-10-15 disposition above remains historical.
 
 P12 has 34 rows: 10 whole-row passed / 24 partial; the primary axis is 29
 passed / 5 partial, the peer axis 10 passed / 24 partial, and interop 5 passed

@@ -33,6 +33,28 @@ function(dmp_strict_target target)
 endfunction()
 dmp_strict_target(libdmp)
 
+# NONE-only build composition: it compiles the same production core, endpoint,
+# relay and SAMPLE-1 sources, while omitting the SEC-1 provider/Noise/handshake
+# implementation. The tiny unavailable-entry stubs fail closed if a SEC-1 API
+# is called accidentally; production NONE code must not reach them.
+add_library(libdmp_none STATIC
+    src/core/base.c src/core/codec.c src/integrity/crc32c.c
+    src/stream/cobs.c src/stream/stream.c
+    src/identity/identity.c src/identity/profile_admit.c
+    src/reassembly/reassembly.c src/reliability/reliability.c
+    src/endpoint/endpoint.c src/mesh/relay.c)
+add_library(dmp::dmp_none ALIAS libdmp_none)
+set_target_properties(libdmp_none PROPERTIES OUTPUT_NAME dmp_none
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+target_compile_features(libdmp_none PUBLIC c_std_11)
+target_include_directories(libdmp_none PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(libdmp_none PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/security")
+target_compile_definitions(libdmp_none PRIVATE DMP_ENDPOINT_NONE_ONLY=1)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(libdmp_none PRIVATE -O2 -ffunction-sections -fdata-sections)
+endif()
+dmp_strict_target(libdmp_none)
+
 # RESCAN is not supported by every linker (notably Apple's ld64). Keep one
 # portable helper for cyclic static-library sets: supported linkers use the
 # native group feature; others rescan by repeating the archives in order.
@@ -61,6 +83,19 @@ target_include_directories(libdmp_sample1 PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/application")
 dmp_strict_target(libdmp_sample1)
 
+add_library(libdmp_sample1_none STATIC
+    src/application/sample1_epoch_owner.c
+    src/application/sample1_endpoint.c
+    src/application/sample1_epoch_store.c
+    src/application/sample1_epoch_anchor_nvs.c)
+add_library(dmp::sample1_none ALIAS libdmp_sample1_none)
+set_target_properties(libdmp_sample1_none PROPERTIES
+    OUTPUT_NAME dmp_sample1_none C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+target_link_libraries(libdmp_sample1_none PUBLIC dmp::dmp_none)
+target_include_directories(libdmp_sample1_none PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/application")
+dmp_strict_target(libdmp_sample1_none)
+
 option(DMP_BUILD_TESTS "Build library tests, host scaffold and provider experiments" ON)
 option(DMP_NOISE_EXPERIMENTS "Build opt-in Noise candidate characterization tests" OFF)
 option(DMP_FUZZ "Build bounded Clang libFuzzer targets with ASan/UBSan" OFF)
@@ -79,6 +114,137 @@ if(DMP_BUILD_TESTS)
     add_subdirectory(tests/reliability)
     add_subdirectory(tests/application)
     add_subdirectory(tests/endpoint)
+    add_executable(dmp_none_link_probe tests/endpoint/none_link_probe.c)
+    target_link_libraries(dmp_none_link_probe PRIVATE dmp::sample1_none)
+    set_target_properties(dmp_none_link_probe PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    dmp_strict_target(dmp_none_link_probe)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        if(APPLE)
+            target_link_options(dmp_none_link_probe PRIVATE -Wl,-dead_strip)
+        else()
+            target_link_options(dmp_none_link_probe PRIVATE -Wl,--gc-sections)
+        endif()
+    endif()
+    add_test(NAME endpoint.none_crypto_free_link COMMAND dmp_none_link_probe)
+    set_tests_properties(endpoint.none_crypto_free_link PROPERTIES
+        TIMEOUT 30 LABELS "endpoint;none;link")
+
+    # Run the production endpoint loopback against the same NONE-only archive.
+    # The test program supplies application callbacks and caller-owned storage;
+    # no SEC-1 provider or handshake implementation is linked.
+    add_executable(dmp_test_endpoint_none tests/endpoint/test_endpoint.c)
+    target_link_libraries(dmp_test_endpoint_none PRIVATE dmp::sample1_none)
+    set_target_properties(dmp_test_endpoint_none PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    set(_none_sample_manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/direct-none.json")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_none_sample_manifest}")
+    file(READ "${_none_sample_manifest}" _none_sample_manifest_json)
+    string(JSON _none_sample_init_attempts GET "${_none_sample_manifest_json}" sample init_attempts)
+    string(JSON _none_sample_init_retry_ms GET "${_none_sample_manifest_json}" sample init_retry_ms)
+    string(JSON _none_sample_init_deadline_ms GET "${_none_sample_manifest_json}" sample init_deadline_ms)
+    string(JSON _none_sample_status GET "${_none_sample_manifest_json}" sample no_sample_status)
+    string(JSON _none_sample_result_deadline_ms GET "${_none_sample_manifest_json}" timing result_deadline_ms)
+    target_compile_definitions(dmp_test_endpoint_none PRIVATE
+        SAMPLE_INIT_ATTEMPTS=${_none_sample_init_attempts}
+        SAMPLE_INIT_RETRY_MS=${_none_sample_init_retry_ms}
+        SAMPLE_INIT_DEADLINE_MS=${_none_sample_init_deadline_ms}
+        SAMPLE_RESULT_DEADLINE_MS=${_none_sample_result_deadline_ms}
+        SAMPLE_NO_SAMPLE=${_none_sample_status})
+    dmp_strict_target(dmp_test_endpoint_none)
+    if(MSVC)
+        target_compile_definitions(dmp_test_endpoint_none PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+    foreach(name sample1 packet fragment fragment_replay retry result_loss receipt_loss
+                 duplicate quota sample_no_sample sample_init_budget sample_same_epoch
+                 sample_new_epoch sample_late_assoc sample_superseded sample_invalid
+                 sample_epoch_restart sample_epoch_fail sample_epoch_indeterminate
+                 sample_epoch_index_exhaustion)
+        add_test(NAME endpoint.none.${name} COMMAND dmp_test_endpoint_none ${name})
+        set_tests_properties(endpoint.none.${name} PROPERTIES TIMEOUT 30 LABELS "endpoint;none")
+    endforeach()
+
+    # Higher-peer NONE cases use the same shared production endpoint with
+    # explicit caller-owned arenas. Exercise 1/5/16 peers and unknown traffic.
+    add_executable(dmp_test_none_capacity tests/endpoint/test_none_capacity.c)
+    target_link_libraries(dmp_test_none_capacity PRIVATE dmp::dmp_none)
+    target_include_directories(dmp_test_none_capacity PRIVATE src/application)
+    set_target_properties(dmp_test_none_capacity PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    dmp_strict_target(dmp_test_none_capacity)
+    foreach(capacity 1 5 16)
+        add_test(NAME endpoint.none.capacity_${capacity}
+            COMMAND dmp_test_none_capacity ${capacity})
+        set_tests_properties(endpoint.none.capacity_${capacity} PROPERTIES
+            TIMEOUT 30 LABELS "endpoint;none;capacity")
+    endforeach()
+    add_test(NAME endpoint.none.unknown_traffic
+        COMMAND dmp_test_none_capacity unknown)
+    set_tests_properties(endpoint.none.unknown_traffic PROPERTIES
+        TIMEOUT 30 LABELS "endpoint;none;capacity")
+
+    add_executable(dmp_test_none_multi_peer_traffic
+        tests/endpoint/test_none_multi_peer_traffic.c)
+    target_link_libraries(dmp_test_none_multi_peer_traffic PRIVATE dmp::sample1_none)
+    set_target_properties(dmp_test_none_multi_peer_traffic PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    dmp_strict_target(dmp_test_none_multi_peer_traffic)
+    add_test(NAME endpoint.none.multi_peer_traffic
+        COMMAND dmp_test_none_multi_peer_traffic traffic)
+    set_tests_properties(endpoint.none.multi_peer_traffic PROPERTIES
+        TIMEOUT 30 LABELS "endpoint;none;multi-peer;traffic")
+
+    add_executable(dmp_test_sample1_none tests/endpoint/test_sample1_none.c)
+    target_link_libraries(dmp_test_sample1_none PRIVATE dmp::sample1_none)
+    set_target_properties(dmp_test_sample1_none PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    dmp_strict_target(dmp_test_sample1_none)
+    add_test(NAME endpoint.none.sample1_production COMMAND dmp_test_sample1_none)
+    set_tests_properties(endpoint.none.sample1_production PROPERTIES
+        TIMEOUT 30 LABELS "endpoint;none;sample1")
+    foreach(_sample_capacity IN ITEMS 5 16)
+        add_executable(dmp_test_sample1_none_${_sample_capacity}
+            tests/endpoint/test_sample1_none.c)
+        target_compile_definitions(dmp_test_sample1_none_${_sample_capacity} PRIVATE
+            SAMPLE_PEERS=${_sample_capacity})
+        target_link_libraries(dmp_test_sample1_none_${_sample_capacity}
+            PRIVATE dmp::sample1_none)
+        set_target_properties(dmp_test_sample1_none_${_sample_capacity} PROPERTIES
+            C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+        dmp_strict_target(dmp_test_sample1_none_${_sample_capacity})
+        add_test(NAME endpoint.none.sample1_capacity_${_sample_capacity}
+            COMMAND dmp_test_sample1_none_${_sample_capacity})
+        set_tests_properties(endpoint.none.sample1_capacity_${_sample_capacity}
+            PROPERTIES TIMEOUT 30 LABELS "endpoint;none;sample1;capacity")
+
+        add_executable(dmp_test_sample1_none_stream_r_${_sample_capacity}
+            tests/endpoint/test_sample1_none.c)
+        target_compile_definitions(dmp_test_sample1_none_stream_r_${_sample_capacity}
+            PRIVATE SAMPLE_PEERS=${_sample_capacity}
+                    SAMPLE_FRAMING_MODE=DMP_ENDPOINT_FRAMING_STREAM_R)
+        target_link_libraries(dmp_test_sample1_none_stream_r_${_sample_capacity}
+            PRIVATE dmp::sample1_none)
+        set_target_properties(dmp_test_sample1_none_stream_r_${_sample_capacity}
+            PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+        dmp_strict_target(dmp_test_sample1_none_stream_r_${_sample_capacity})
+        add_test(NAME endpoint.none.sample1_stream_r_capacity_${_sample_capacity}
+            COMMAND dmp_test_sample1_none_stream_r_${_sample_capacity})
+        set_tests_properties(endpoint.none.sample1_stream_r_capacity_${_sample_capacity}
+            PROPERTIES TIMEOUT 30 LABELS "endpoint;none;sample1;capacity;stream-r")
+
+    endforeach()
+
+    add_executable(dmp_test_radio_none_selective
+        tests/endpoint/test_radio_none_selective.c)
+    target_link_libraries(dmp_test_radio_none_selective PRIVATE dmp::dmp_none)
+    set_target_properties(dmp_test_radio_none_selective PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    dmp_strict_target(dmp_test_radio_none_selective)
+    add_test(NAME endpoint.none.radio_selective_data
+        COMMAND dmp_test_radio_none_selective)
+    set_tests_properties(endpoint.none.radio_selective_data PROPERTIES
+        TIMEOUT 30 LABELS "endpoint;none;radio;selective")
+
     add_subdirectory(tests/provider)
     set(DMP_SODIUM_SOURCE_DIR "" CACHE PATH
         "Pinned prepared libsodium tree for the P01B adapter tests")

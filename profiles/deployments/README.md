@@ -1,6 +1,6 @@
 # Frozen host development deployments
 
-Every manifest in this directory uses the single format 1.0 described in
+Every manifest in this directory uses the single format 1.1 described in
 [the test manifest contract](../../docs/DMP_Test_Manifest_Contract.md). Profile
 identities select their constraints; every profile uses the same format and
 parser. These are complete configuration inputs for host implementations and
@@ -14,10 +14,12 @@ configuration for each name; SEC-1 binds those configuration bytes, not a filena
 
 | Files (suffix `-nnpsk0.json` or `-xx.json`) | Identity | Path | Recovery |
 |---|---|---|---|
-| `direct` | DMP-reference/DIRECT-1/4 | SIM-STREAM-R/1, nodes 10/20 | retry-all |
+| `direct` | DMP-reference/DIRECT-1/5 | SIM-STREAM-R/1, nodes 10/20 | retry-all |
+| `direct-none` | DMP-reference/DIRECT-1/5 | SIM-STREAM-R/1, nodes 10/20 | retry-all, Core CRC32C |
 | `test-direct-sample-retry-2-nnpsk0` | DMP-test/TEST-DIRECT-SAMPLE-RETRY-2/1 | SIM-STREAM-R/1, nodes 10/20 | retry-all; two SAMPLE-1 READ attempts |
 | `test-direct-multi-peer-nnpsk0` | DMP-test/TEST-DIRECT-MULTIPEER/1 | SIM-STREAM-R/1, one endpoint plus four peers | shared SEC-1 admission; `four_serial` / `four_parallel` sizing rows |
-| `radio` | DMP-reference/RADIO-1/4 | SIM-PACKET/1, 10/30/40/20 | selective-32 |
+| `radio` | DMP-reference/RADIO-1/5 | SIM-PACKET/1, 10/30/40/20 | selective-32 |
+| `radio-none` | DMP-reference/RADIO-1/5 | SIM-PACKET/1, 10/30/40/20 | selective-32, Core CRC32C |
 | `test-radio-retry-all` | DMP-test/TEST-RADIO-RETRY-ALL/1 | same packet path | retry-all |
 
 Each security mode has separate exact manifest bytes and PROFILE_HASH. Cipher 1
@@ -39,7 +41,7 @@ encoded Stream R frame, and a 1000/250 ms return schedule. Its separate 256 KiB
 `host-multipeer-sizing-only.v1` region is a host design reservation; it does not
 change the existing MCU experiment envelopes or qualify target hardware.
 
-SAMPLE-1/2 on default service 1 is unchanged. Service 2 is the contract's opaque,
+SAMPLE-1/3 on default service 1 is unchanged. Service 2 is the contract's opaque,
 idempotent test workload, with up to 1024 request/result bytes. Only radio enables
 its S7 freshness requirement (12-second lease); SAMPLE-1 has no freshness token.
 The separate two-attempt SAMPLE-1 initialization profile reserves a 24010 ms
@@ -51,7 +53,7 @@ outside these simulation profiles.
 
 ## TCP Stream R host bindings
 
-These are separate profile instances under the same format 1.0:
+These are separate profile instances under the same format 1.1:
 
 | Manifest | Profile | TCP/packet path | Recovery |
 | --- | --- | --- | --- |

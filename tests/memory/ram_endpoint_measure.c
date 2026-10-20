@@ -164,6 +164,7 @@ int main(int argc, char **argv)
     {
         dmp_config config;
         fill_config(&config, message);
+        config.security_mode = DMP_PROFILE_SECURITY_SEC1;
         status = dmp_config_admit(&config, &b->admitted);
         if (status != DMP_OK) { fprintf(stderr, "profile admission: %d\n", (int)status); return 1; }
     }

@@ -556,7 +556,7 @@
       "primary_checks": [
         "tests/reassembly/test_reassembly.c::test_stride_and_order",
         "tests/endpoint/test_endpoint.c::test_fragment",
-        "tests/reassembly/test_reassembly.c::test_v224_golden_fragments"
+        "tests/reassembly/test_reassembly.c::test_identity_and_integrity_fragments"
       ],
       "primary_evidence": "dev/DMP_Execution_Log.md#2026-10-13--p12-primary-c-golden-vector-crosswalk",
       "peer_result": "passed",

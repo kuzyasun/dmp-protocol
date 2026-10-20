@@ -1,4 +1,5 @@
 #include "dmp/reassembly.h"
+#include "dmp/integrity.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -38,14 +39,20 @@ static const uint8_t META_A[] = {0x05, 0x0B, 0x01, 0x0A, 0x09, 0x00, 0x00, 0x00,
                                  0x00, 0x00, 0x00, 0x00, 0x04};
 static const uint8_t META_B[] = {0x05, 0x0B, 0x01, 0x0A, 0x09, 0x00, 0x00, 0x00,
                                  0x00, 0x00, 0x00, 0x00, 0x05};
-static const uint8_t SVC1[] = {0x11, 0x01, 0x01};
 static const uint8_t SVC2[] = {0x11, 0x01, 0x02};
 /* Peer epoch 7, namespace 1. Routed fragments require this CONTEXT. */
 static const uint8_t ROUTE_CTX[] = {0x0b, 0x09, 0x01, 0x07, 0x00, 0x00, 0x00,
                                     0x00, 0x00, 0x00, 0x00};
 static const uint8_t ROUTE_CTX_SVC2[] = {0x0b, 0x09, 0x01, 0x07, 0x00, 0x00, 0x00,
                                          0x00, 0x00, 0x00, 0x00, 0x11, 0x01, 0x02};
-static const uint8_t SVC3[] = {0x11, 0x01, 0x03};
+static const uint8_t NONE_DIRECT_ID[] = {
+    0x0b, 0x09, 0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0f, 0x01, 0x14};
+static const uint8_t NONE_CRC[4] = {0U, 0U, 0U, 0U};
+static const uint8_t NONE_DIRECT_SVC1[] = {
+    0x11, 0x01, 0x01};
+static const uint8_t NONE_DIRECT_SVC3[] = {
+    0x11, 0x01, 0x03};
 
 static uint8_t frame_pad[160];
 
@@ -152,6 +159,10 @@ static frag base_frag(uint32_t seq, uint32_t index, uint32_t chunk, uint32_t tot
     frame.chunk = chunk;
     frame.total = total;
     frame.service = 1U;
+    frame.use_integrity = 1;
+    frame.ialg = 1U;
+    frame.trailer = NONE_CRC;
+    frame.ntrailer = sizeof NONE_CRC;
     frame.plain = plain;
     frame.nplain = nplain;
     return frame;
@@ -161,6 +172,8 @@ static dmp_status apply(const frag *frame, dmp_time_ms now, dmp_reassembly_handl
 {
     dmp_frame_view view;
     dmp_reassembly_input input;
+    uint8_t identity_ext[64];
+    size_t identity_ext_n = 0U;
 
     memset(&view, 0, sizeof view);
     view.fields.type = frame->type;
@@ -175,9 +188,34 @@ static dmp_status apply(const frag *frame, dmp_time_ms now, dmp_reassembly_handl
     view.fields.fragment.index = frame->index;
     view.fields.fragment.chunk_size = frame->chunk;
     view.fields.fragment.total_size = frame->total;
-    if (frame->next != 0U) {
+    if (frame->use_route) {
         view.fields.options = (uint8_t)(view.fields.options | DMP_OPT_EXT);
         view.extensions = span(frame->ext, frame->next);
+    } else {
+        const dmp_identity_slot *slot;
+        unsigned i;
+        if (frame->ctx.slot >= g.table.capacity) return DMP_STALE_HANDLE;
+        slot = &g.ids[frame->ctx.slot];
+        identity_ext[identity_ext_n++] = 0x0bU;
+        identity_ext[identity_ext_n++] = 0x09U;
+        identity_ext[identity_ext_n++] = (uint8_t)slot->peer.namespace_id;
+        for (i = 0U; i < 8U; ++i) {
+            identity_ext[identity_ext_n++] = (uint8_t)(slot->peer.epoch >> (8U * i));
+        }
+        identity_ext[identity_ext_n++] = 0x0fU;
+        identity_ext[identity_ext_n++] = 0x01U;
+        identity_ext[identity_ext_n++] = (uint8_t)slot->peer.origin_id;
+        if (frame->next != 0U) {
+            if (identity_ext_n + frame->next > sizeof identity_ext) return DMP_LIMIT_EXHAUSTED;
+            memcpy(identity_ext + identity_ext_n, frame->ext, frame->next);
+            identity_ext_n += frame->next;
+        }
+        view.fields.options = (uint8_t)(view.fields.options | DMP_OPT_EXT);
+        view.extensions = span(identity_ext, identity_ext_n);
+    }
+    if (frame->use_integrity) {
+        view.fields.options = (uint8_t)(view.fields.options | DMP_OPT_INTEGRITY);
+        view.fields.integrity = frame->ialg;
     }
     if (frame->use_route) {
         view.fields.options = (uint8_t)(view.fields.options | DMP_OPT_ROUTE);
@@ -203,6 +241,8 @@ static dmp_status apply(const frag *frame, dmp_time_ms now, dmp_reassembly_handl
     }
     if (frame->ntrailer != 0U) {
         view.trailer = span(frame->trailer, frame->ntrailer);
+    } else if (frame->use_integrity) {
+        view.trailer = span(NONE_CRC, sizeof NONE_CRC);
     }
     if (frame->frame_size != 0U) {
         view.frame.data = frame_pad;
@@ -270,6 +310,7 @@ static int boot(uint32_t assemblies, uint32_t tombstones, uint32_t per_asm, uint
     }
     memset(&g, 0, sizeof g);
     g.profile.namespace_id = 1U;
+    g.profile.security_mode = DMP_PROFILE_SECURITY_NONE;
     g.profile.node_id[0] = LOCAL_ID;
     g.profile.node_id[1] = PEER_ID;
     g.profile.default_service = 1U;
@@ -506,23 +547,39 @@ static int encode_slice(uint32_t seq, uint32_t index, uint32_t chunk, uint32_t t
     dmp_core_limits limits;
     dmp_buffer out;
     dmp_parse_result parsed;
+    uint8_t trailer[4] = {0U, 0U, 0U, 0U};
+    uint32_t crc = 0U;
     size_t written = 0U;
 
     memset(&spec, 0, sizeof spec);
     spec.fields.type = DMP_TYPE_DATA;
-    spec.fields.options =
-        (uint8_t)(DMP_OPT_SEQ | DMP_OPT_FRAG | DMP_OPT_ACK_REQ | DMP_OPT_PAYLOAD_DESC);
+    spec.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_FRAG | DMP_OPT_ACK_REQ |
+                                    DMP_OPT_PAYLOAD_DESC | DMP_OPT_EXT | DMP_OPT_INTEGRITY);
     spec.fields.seq = seq;
     spec.fields.fragment.index = index;
     spec.fields.fragment.chunk_size = chunk;
     spec.fields.fragment.total_size = total;
     spec.fields.descriptor.codec = 7U;
+    spec.fields.integrity = 1U;
+    spec.extensions = span(NONE_DIRECT_ID, sizeof NONE_DIRECT_ID);
     spec.payload = span(plain, nplain);
+    spec.trailer = span(trailer, sizeof trailer);
     limits.max_frame_bytes = MAX_MTU;
     limits.max_message_bytes = MAX_MSG;
     limits.max_fragments = 8U;
     out.data = raw;
     out.capacity = raw_cap;
+    if (dmp_core_encode(&spec, &limits, out, &written) != DMP_OK) {
+        return 1;
+    }
+    if (written < sizeof trailer ||
+        dmp_crc32c(span(raw, written - sizeof trailer), &crc) != DMP_OK) {
+        return 1;
+    }
+    trailer[0] = (uint8_t)crc;
+    trailer[1] = (uint8_t)(crc >> 8U);
+    trailer[2] = (uint8_t)(crc >> 16U);
+    trailer[3] = (uint8_t)(crc >> 24U);
     if (dmp_core_encode(&spec, &limits, out, &written) != DMP_OK) {
         return 1;
     }
@@ -621,12 +678,16 @@ static int test_stride_and_order(void)
     return 0;
 }
 
-static int test_v224_golden_fragments(void)
+static int test_identity_and_integrity_fragments(void)
 {
-    static const uint8_t final_first[] = {0x47, 0x07, 0x09, 0x09, 0x01, 0x02, 0x03, 0xCC};
-    static const uint8_t first_second[] = {0x47, 0x07, 0x09, 0x09, 0x00, 0x02, 0x03, 0xAA, 0xBB};
+    static const uint8_t tail[] = {0xCC};
+    static const uint8_t head[] = {0xAA, 0xBB};
     static const uint8_t expected[] = {0xAA, 0xBB, 0xCC};
     dmp_core_limits limits = {MAX_MTU, MAX_MSG, 8U};
+    uint8_t final_first[MAX_MTU];
+    uint8_t first_second[MAX_MTU];
+    size_t final_first_size = 0U;
+    size_t first_second_size = 0U;
     dmp_frame_view view;
     dmp_parse_result parsed;
     dmp_reassembly_input input;
@@ -634,8 +695,11 @@ static int test_v224_golden_fragments(void)
     dmp_reassembly_message message;
 
     CHECK(boot(1U, 1U, 1U, 1U, 8U, 2U, MAX_MTU, 1000U, 0) == 0);
-    parsed = dmp_core_parse(span(final_first, sizeof final_first), &limits, &view);
-    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof final_first);
+    CHECK(encode_slice(9U, 1U, 2U, 3U, tail, sizeof tail, final_first,
+                       sizeof final_first, &view) == 0);
+    final_first_size = view.frame.size;
+    parsed = dmp_core_parse(span(final_first, final_first_size), &limits, &view);
+    CHECK(parsed.status == DMP_OK && parsed.offset == final_first_size);
     memset(&input, 0, sizeof input);
     input.frame = &view;
     input.context = g.ctx;
@@ -644,8 +708,11 @@ static int test_v224_golden_fragments(void)
     CHECK(dmp_reassembly_on_fragment(&g.engine, &input, 10U, &handle) == DMP_INCOMPLETE);
     CHECK(untouched(handle));
 
-    parsed = dmp_core_parse(span(first_second, sizeof first_second), &limits, &view);
-    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof first_second);
+    CHECK(encode_slice(9U, 0U, 2U, 3U, head, sizeof head, first_second,
+                       sizeof first_second, &view) == 0);
+    first_second_size = view.frame.size;
+    parsed = dmp_core_parse(span(first_second, first_second_size), &limits, &view);
+    CHECK(parsed.status == DMP_OK && parsed.offset == first_second_size);
     input.frame = &view;
     input.plaintext = view.payload;
     CHECK(dmp_reassembly_on_fragment(&g.engine, &input, 20U, &handle) == DMP_OK);
@@ -895,11 +962,11 @@ static int test_limits_do_not_reserve(void)
     frame.service = 2U;
     CHECK(reject_keeps_empty(&frame, 1U, DMP_MALFORMED) == 0);
     frame.service = 1U;
-    frame.ext = SVC1;
-    frame.next = sizeof SVC1;
+    frame.ext = NONE_DIRECT_SVC1;
+    frame.next = sizeof NONE_DIRECT_SVC1;
     CHECK(reject_keeps_empty(&frame, 1U, DMP_MALFORMED) == 0);
-    frame.ext = SVC3;
-    frame.next = sizeof SVC3;
+    frame.ext = NONE_DIRECT_SVC3;
+    frame.next = sizeof NONE_DIRECT_SVC3;
     frame.service = 3U;
     CHECK(reject_keeps_empty(&frame, 1U, DMP_UNSUPPORTED) == 0);
     frame.ext = NULL;
@@ -1478,7 +1545,7 @@ int main(void)
     if (test_stride_and_order() != 0) {
         return 1;
     }
-    if (test_v224_golden_fragments() != 0) {
+    if (test_identity_and_integrity_fragments() != 0) {
         return 1;
     }
     if (test_conflicts_and_retries() != 0) {

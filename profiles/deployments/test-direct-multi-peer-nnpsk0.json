@@ -1,11 +1,11 @@
 {
-  "contract": "DMP-test-manifest/1.0",
+  "contract": "DMP-test-manifest/1.1",
   "revisions": {
-    "core": 10,
+    "core": 11,
     "security": 5,
     "bootstrap": 2,
-    "recovery": 1,
-    "application": 2
+    "recovery": 2,
+    "application": 3
   },
   "profile": {
     "owner": "DMP-test",
@@ -57,7 +57,7 @@
       "id": 1,
       "reply_service": 1,
       "service_encoding": "omitted",
-      "schema": "DMP-reference/SAMPLE-1/2",
+      "schema": "DMP-reference/SAMPLE-1/3",
       "payload_desc": "omitted",
       "recovery": "retry-all",
       "security": "SEC-1",
@@ -172,7 +172,6 @@
     "assembly_tombstones_per_peer": 16
   },
   "security": {
-    "mode": "NNpsk0",
     "cipher": 1,
     "credential": "provisioned-pairwise-psk",
     "trust_change": "owner-authorized-atomic-pin-and-acl",
@@ -211,7 +210,9 @@
     "later_window_ms": 10000000,
     "ingress_packets_per_window": 100,
     "ingress_window_ms": 1000,
-    "global_crypto_ms_per_window": 100000
+    "global_crypto_ms_per_window": 100000,
+    "noise_mode": "NNpsk0",
+    "mode": "SEC-1"
   },
   "timing": {
     "queue_ms": 1000,
@@ -379,7 +380,7 @@
           "component": "freshness_tokens",
           "region": "RAM",
           "count": 1,
-          "bytes_each": 1
+          "bytes_each": 104
         },
         {
           "component": "endpoint_metadata",

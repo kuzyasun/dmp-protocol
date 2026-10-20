@@ -15,7 +15,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 77398
+        "RAM": 81965
       }
     }
   },
@@ -35,7 +35,27 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 77398
+        "RAM": 81965
+      }
+    }
+  },
+  "direct-none.json": {
+    "fragment_count": 16,
+    "bootstrap_fragment_count": 0,
+    "app_frame_bytes": 115,
+    "status_frame_bytes": 41,
+    "bootstrap_frame_bytes": 0,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 150,
+    "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 51,
+    "establishment_frame_reserve": 0,
+    "establishment_wire_bytes": 0,
+    "establishment_ms": 0,
+    "bootstrap_flight_span_ms": 0,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 44549
       }
     }
   },
@@ -75,7 +95,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 81415
+        "RAM": 86391
       },
       "relay": {
         "RAM": 29441
@@ -98,10 +118,33 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 83748
+        "RAM": 88759
       },
       "relay": {
         "RAM": 29441
+      }
+    }
+  },
+  "radio-none.json": {
+    "fragment_count": 32,
+    "bootstrap_fragment_count": 0,
+    "app_frame_bytes": 83,
+    "status_frame_bytes": 41,
+    "bootstrap_frame_bytes": 0,
+    "encoded_frame_bytes": 256,
+    "response_floor_ms": 2222,
+    "freshness_required_ms": 10836,
+    "transfer_frame_reserve": 102,
+    "establishment_frame_reserve": 0,
+    "establishment_wire_bytes": 0,
+    "establishment_ms": 0,
+    "bootstrap_flight_span_ms": 0,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 50196
+      },
+      "relay": {
+        "RAM": 28161
       }
     }
   },
@@ -144,7 +187,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 55077
+        "RAM": 59644
       }
     }
   },
@@ -164,7 +207,67 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 56869
+        "RAM": 61436
+      }
+    }
+  },
+  "test-direct-multi-peer-nnpsk0.json": {
+    "fragment_count": 32,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 184,
+    "status_frame_bytes": 48,
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 1540,
+    "freshness_required_ms": 121020,
+    "transfer_frame_reserve": 105,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 39500,
+    "bootstrap_flight_span_ms": 2000,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 228276
+      }
+    }
+  },
+  "test-direct-none-five-peers.json": {
+    "fragment_count": 16,
+    "bootstrap_fragment_count": 0,
+    "app_frame_bytes": 115,
+    "status_frame_bytes": 41,
+    "bootstrap_frame_bytes": 0,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 150,
+    "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 51,
+    "establishment_frame_reserve": 0,
+    "establishment_wire_bytes": 0,
+    "establishment_ms": 0,
+    "bootstrap_flight_span_ms": 0,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 74495
+      }
+    }
+  },
+  "test-direct-sample-retry-2-nnpsk0.json": {
+    "fragment_count": 16,
+    "bootstrap_fragment_count": 2,
+    "app_frame_bytes": 119,
+    "status_frame_bytes": 48,
+    "bootstrap_frame_bytes": 86,
+    "encoded_frame_bytes": 263,
+    "response_floor_ms": 150,
+    "freshness_required_ms": 5716,
+    "transfer_frame_reserve": 57,
+    "establishment_frame_reserve": 14,
+    "establishment_wire_bytes": 3682,
+    "establishment_ms": 11804,
+    "bootstrap_flight_span_ms": 128,
+    "ram_reserved_bytes": {
+      "endpoint": {
+        "RAM": 81965
       }
     }
   },
@@ -184,7 +287,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 85612
+        "RAM": 90428
       },
       "relay": {
         "RAM": 29441
@@ -207,7 +310,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 77398
+        "RAM": 81965
       }
     }
   },
@@ -227,7 +330,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 77398
+        "RAM": 81965
       }
     }
   },
@@ -247,7 +350,7 @@
     "bootstrap_flight_span_ms": 128,
     "ram_reserved_bytes": {
       "endpoint": {
-        "RAM": 83748
+        "RAM": 88759
       },
       "relay": {
         "RAM": 29441
@@ -274,46 +377,6 @@
       },
       "relay": {
         "RAM": 29441
-      }
-    }
-  },
-  "test-direct-multi-peer-nnpsk0.json": {
-    "fragment_count": 32,
-    "bootstrap_fragment_count": 2,
-    "app_frame_bytes": 184,
-    "status_frame_bytes": 48,
-    "bootstrap_frame_bytes": 86,
-    "encoded_frame_bytes": 263,
-    "response_floor_ms": 1540,
-    "freshness_required_ms": 121020,
-    "transfer_frame_reserve": 105,
-    "establishment_frame_reserve": 14,
-    "establishment_wire_bytes": 3682,
-    "establishment_ms": 39500,
-    "bootstrap_flight_span_ms": 2000,
-    "ram_reserved_bytes": {
-      "endpoint": {
-        "RAM": 228173
-      }
-    }
-  },
-  "test-direct-sample-retry-2-nnpsk0.json": {
-    "fragment_count": 16,
-    "bootstrap_fragment_count": 2,
-    "app_frame_bytes": 119,
-    "status_frame_bytes": 48,
-    "bootstrap_frame_bytes": 86,
-    "encoded_frame_bytes": 263,
-    "response_floor_ms": 150,
-    "freshness_required_ms": 5716,
-    "transfer_frame_reserve": 57,
-    "establishment_frame_reserve": 14,
-    "establishment_wire_bytes": 3682,
-    "establishment_ms": 11804,
-    "bootstrap_flight_span_ms": 128,
-    "ram_reserved_bytes": {
-      "endpoint": {
-        "RAM": 77398
       }
     }
   }

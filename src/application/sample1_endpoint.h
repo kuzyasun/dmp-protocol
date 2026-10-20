@@ -52,8 +52,12 @@ typedef struct {
     dmp_sample1_epoch_owner owner;
     dmp_sample1_endpoint_hooks hooks;
     dmp_endpoint *endpoint;
-    dmp_sample1_peer_epoch peers[DMP_PROFILE_MAX_PEERS];
-    dmp_sample1_queued_result results[DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS];
+    dmp_sample1_peer_epoch *peers;
+    size_t peer_capacity;
+    dmp_sample1_queued_result *results;
+    size_t result_capacity;
+    dmp_sample1_peer_epoch default_peers[DMP_PROFILE_MAX_PEERS];
+    dmp_sample1_queued_result default_results[DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS];
     uint8_t initialized;
 } dmp_sample1_endpoint;
 
@@ -64,6 +68,21 @@ typedef struct {
 dmp_sample1_owner_result dmp_sample1_endpoint_init(
     dmp_sample1_endpoint *sample, dmp_endpoint *endpoint,
     dmp_sample1_principal principal, const dmp_sample1_endpoint_hooks *hooks);
+/* The convenience initializer uses the embedded four-entry peer and result
+ * tables. Larger NONE deployments must use init_with_storage with caller-owned
+ * peer and result tables sized for their endpoint quotas. */
+dmp_sample1_owner_result dmp_sample1_endpoint_init_with_peer_storage(
+    dmp_sample1_endpoint *sample, dmp_endpoint *endpoint,
+    dmp_sample1_principal principal, const dmp_sample1_endpoint_hooks *hooks,
+    dmp_sample1_peer_epoch *peer_storage, size_t peer_capacity);
+/* Provide result storage sized for the endpoint's per-peer operation quota
+ * (peers * operations_per_service); the convenience initializer retains the
+ * embedded four-entry queue for small profiles. */
+dmp_sample1_owner_result dmp_sample1_endpoint_init_with_storage(
+    dmp_sample1_endpoint *sample, dmp_endpoint *endpoint,
+    dmp_sample1_principal principal, const dmp_sample1_endpoint_hooks *hooks,
+    dmp_sample1_peer_epoch *peer_storage, size_t peer_capacity,
+    dmp_sample1_queued_result *result_storage, size_t result_capacity);
 
 dmp_sample1_owner_result dmp_sample1_endpoint_begin_epoch(dmp_sample1_endpoint *sample,
                                                           dmp_time_ms now);

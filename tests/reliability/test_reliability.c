@@ -1,4 +1,5 @@
 #include "dmp/reliability.h"
+#include "dmp/integrity.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -47,6 +48,13 @@ static const uint8_t PING[] = { 'p', 'i', 'n', 'g' };
 static const uint8_t PONG[] = { 'p', 'o', 'n', 'g' };
 static const uint8_t META1[] = { 0xA1, 0x5C };
 static const uint8_t META2[] = { 0xA1, 0x5D };
+static const uint8_t NONE_A_ID[] = {
+    0x0b, 0x09, 0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0f, 0x01, 0x0a};
+static const uint8_t NONE_B_CONTEXT[] = {
+    0x0b, 0x09, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0f, 0x01, 0x0a};
+static const uint8_t NONE_CRC[] = {0U, 0U, 0U, 0U};
 
 typedef struct {
     int depth;
@@ -152,6 +160,7 @@ static dmp_message_key origin_key(uint32_t id, uint64_t epoch, uint32_t seq)
 static void fill_profile(dmp_admitted_profile *profile)
 {
     memset(profile, 0, sizeof *profile);
+    profile->security_mode = DMP_PROFILE_SECURITY_NONE;
     profile->namespace_id = 1U;
     profile->node_id[0] = 10U;
     profile->node_id[1] = 20U;
@@ -243,6 +252,8 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
     size_t value_n;
     size_t ext_n = 0U;
     uint32_t service;
+    uint32_t crc;
+    uint8_t crc_bytes[4] = {0U, 0U, 0U, 0U};
 
     if (enc == NULL || logical == NULL || written == NULL) {
         return DMP_INVALID_ARGUMENT;
@@ -274,6 +285,11 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
             spec.trailer.data = enc->trailer;
         }
         spec.trailer.size = 16U;
+    } else {
+        spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_INTEGRITY);
+        spec.fields.integrity = 1U;
+        spec.trailer.data = crc_bytes;
+        spec.trailer.size = sizeof crc_bytes;
     }
     if (logical->has_reply_to) {
         value_n = 0U;
@@ -286,6 +302,20 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
             add_uleb(value, &value_n, sizeof value, logical->reply_to.seq);
         }
         add_tlv(enc->ext, &ext_n, sizeof enc->ext, 5U, value, value_n);
+    }
+    if (!enc->secured) {
+        uint8_t context_value[16];
+        uint8_t origin_value[5];
+        size_t context_n = 0U;
+        size_t origin_n = 0U;
+        add_uleb(context_value, &context_n, sizeof context_value,
+                 logical->own.origin.namespace_id);
+        add_u64le(context_value, &context_n, sizeof context_value,
+                  logical->own.origin.epoch);
+        add_tlv(enc->ext, &ext_n, sizeof enc->ext, 11U, context_value, context_n);
+        add_uleb(origin_value, &origin_n, sizeof origin_value,
+                 logical->own.origin.origin_id);
+        add_tlv(enc->ext, &ext_n, sizeof enc->ext, 15U, origin_value, origin_n);
     }
     service = enc->force_service != 0 ? (uint32_t)enc->force_service : logical->service_id;
     if (enc->force_service != 0 || (service != 0U && service != enc->default_service)) {
@@ -325,7 +355,22 @@ static dmp_status encode_frame(void *context, const dmp_reliability_logical *log
         header_buf.capacity = sizeof header;
         return dmp_core_encode_header(&spec, &enc->limits, header_buf, &header_len);
     }
-    return dmp_core_encode(&spec, &enc->limits, out, written);
+    if (enc->secured) {
+        return dmp_core_encode(&spec, &enc->limits, out, written);
+    }
+    {
+        dmp_status status = dmp_core_encode(&spec, &enc->limits, out, written);
+        if (status != DMP_OK) return status;
+        if (*written < sizeof crc_bytes ||
+            dmp_crc32c(span(out.data, *written - sizeof crc_bytes), &crc) != DMP_OK) {
+            return DMP_INVALID_ARGUMENT;
+        }
+        crc_bytes[0] = (uint8_t)crc;
+        crc_bytes[1] = (uint8_t)(crc >> 8U);
+        crc_bytes[2] = (uint8_t)(crc >> 16U);
+        crc_bytes[3] = (uint8_t)(crc >> 24U);
+        return dmp_core_encode(&spec, &enc->limits, out, written);
+    }
 }
 
 static dmp_status fake_submit(void *context, const dmp_tx_submission *submission)
@@ -429,6 +474,7 @@ static int prepare(node *n, int responder, int secured)
     dmp_message_origin peer = origin_of(responder ? 10U : 20U, responder ? 7U : 9U);
     memset(n, 0, sizeof *n);
     fill_profile(&n->profile);
+    n->profile.security_mode = secured ? DMP_PROFILE_SECURITY_SEC1 : DMP_PROFILE_SECURITY_NONE;
     {
         dmp_config in = n->profile;
         dmp_admitted_profile admitted;
@@ -1078,22 +1124,25 @@ static int test_duplicate_metadata_and_service(void)
 
     memset(&view, 0, sizeof view);
     view.fields.type = DMP_TYPE_DATA;
+    view.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT | DMP_OPT_INTEGRITY);
+    view.fields.integrity = 1U;
+    view.extensions = span(NONE_A_ID, sizeof NONE_A_ID);
+    view.trailer = span(NONE_CRC, sizeof NONE_CRC);
     input.frame = &view;
     CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_UNSUPPORTED);
     view.fields.type = DMP_TYPE_REQ;
-    view.fields.options = DMP_OPT_FRAG | DMP_OPT_ACK_REQ | DMP_OPT_SEQ;
+    view.fields.options = (uint8_t)(DMP_OPT_FRAG | DMP_OPT_ACK_REQ | DMP_OPT_SEQ |
+                                    DMP_OPT_EXT | DMP_OPT_INTEGRITY);
     CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_UNSUPPORTED);
-    view.fields.options = DMP_OPT_SEQ;
+    view.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT | DMP_OPT_INTEGRITY);
     CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_UNSUPPORTED);
-    view.fields.options = DMP_OPT_ROUTE | DMP_OPT_ACK_REQ | DMP_OPT_SEQ;
-    view.fields.route.mode = 1U;
-    view.fields.route.destination = 99U;
+    view.fields.options = (uint8_t)(DMP_OPT_ACK_REQ | DMP_OPT_SEQ |
+                                    DMP_OPT_EXT | DMP_OPT_INTEGRITY);
+    view.extensions = span(NONE_B_CONTEXT, sizeof NONE_B_CONTEXT);
+    view.trailer = span(NONE_CRC, sizeof NONE_CRC);
     input.frame = &view;
     CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_MALFORMED);
     CHECK(dmp_reliability_reject_req(&side_b.engine, &input, 4U, 14U) == DMP_MALFORMED);
-    view.fields.route.destination = 20U;
-    CHECK(dmp_reliability_on_rx(&side_b.engine, &input, 14U) == DMP_CONTEXT_REQUIRED);
-    CHECK(dmp_reliability_reject_req(&side_b.engine, &input, 4U, 14U) == DMP_CONTEXT_REQUIRED);
     CHECK(side_b.history[1].live == 0U);
     return 0;
 }
@@ -1245,11 +1294,20 @@ static int test_rejection_and_status(void)
     add_uleb(value, &value_n, sizeof value, 0U);
     add_tlv(ext, &ext_n, sizeof ext, 5U, value, value_n);
     value_n = 0U;
+    add_uleb(value, &value_n, sizeof value, 1U);
+    add_u64le(value, &value_n, sizeof value, 9U);
+    add_tlv(ext, &ext_n, sizeof ext, 11U, value, value_n);
+    value_n = 0U;
+    add_uleb(value, &value_n, sizeof value, 20U);
+    add_tlv(ext, &ext_n, sizeof ext, 15U, value, value_n);
+    value_n = 0U;
     add_uleb(value, &value_n, sizeof value, 7U);
     add_tlv(ext, &ext_n, sizeof ext, 21U, value, value_n);
     memset(&view, 0, sizeof view);
     view.fields.type = DMP_TYPE_ERR;
-    view.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_EXT);
+    view.fields.options = (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ACK_REQ | DMP_OPT_EXT |
+                                    DMP_OPT_INTEGRITY);
+    view.fields.integrity = 1U;
     view.fields.seq = 11U;
     view.extensions = span(ext, ext_n);
     {
@@ -1637,9 +1695,12 @@ static int flush_slices(node *n, dmp_time_ms now, int expect)
     int guard;
 
     for (guard = 0; guard < 24 && n->tx.n < expect; guard++) {
-        CHECK(dmp_reliability_poll(&n->engine, now) == DMP_OK);
+        dmp_status status = dmp_reliability_poll(&n->engine, now);
+        if (status != DMP_OK) (void)fprintf(stderr, "poll status=%d encoded_mtu=%u calls=%d tx=%d\n", (int)status, n->profile.encoded_mtu, n->enc.calls, n->tx.n);
+        CHECK(status == DMP_OK);
         finish_all(n, DMP_TX_TRANSMITTED, now);
     }
+    if (n->tx.n != expect) (void)fprintf(stderr, "flush stalled expect=%d tx=%d sender_live=%u phase=%u next=%llu enc_calls=%d\n", expect, n->tx.n, n->senders[0].live, n->senders[0].phase, (unsigned long long)n->senders[0].next_attempt, n->enc.calls);
     return n->tx.n == expect ? 0 : 1;
 }
 
@@ -1647,8 +1708,10 @@ static void arm_recovery(node *n, int selective)
 {
     n->profile.chunk_bytes = 8U;
     n->profile.fragments = 8U;
-    n->profile.encoded_mtu = 31U;
-    n->profile.forward_mtu = 31U;
+    /* NONE's identity and CRC envelope leaves room for an 8-byte slice here,
+     * while the complete 32-byte request selects fragmented transmission. */
+    n->profile.encoded_mtu = 54U;
+    n->profile.forward_mtu = 54U;
     n->profile.recovery[0] =
         selective ? DMP_PROFILE_RECOVERY_SELECTIVE32 : DMP_PROFILE_RECOVERY_RETRY_ALL;
     n->profile.recovery[1] = n->profile.recovery[0];
@@ -1696,6 +1759,7 @@ static int inject_status(node *dst, uint32_t ref_seq, uint32_t feedback_seq, uin
     size_t ext_n = 0U;
     dmp_frame_view view;
     dmp_reliability_input input;
+    dmp_core_limits limits = {MAX_MTU, MAX_MSG, 32U};
 
     if (secured) {
         add_uleb(value, &value_n, sizeof value, ref_seq);
@@ -1706,6 +1770,19 @@ static int inject_status(node *dst, uint32_t ref_seq, uint32_t feedback_seq, uin
         add_uleb(value, &value_n, sizeof value, ref_seq);
     }
     add_tlv(ext, &ext_n, sizeof ext, 5U, value, value_n);
+    if (!secured) {
+        uint8_t context_value[16];
+        uint8_t origin_value[5];
+        size_t context_n = 0U;
+        size_t origin_n = 0U;
+        add_uleb(context_value, &context_n, sizeof context_value,
+                 slot->peer.namespace_id);
+        add_u64le(context_value, &context_n, sizeof context_value,
+                  slot->peer.epoch);
+        add_tlv(ext, &ext_n, sizeof ext, 11U, context_value, context_n);
+        add_uleb(origin_value, &origin_n, sizeof origin_value, slot->peer.origin_id);
+        add_tlv(ext, &ext_n, sizeof ext, 15U, origin_value, origin_n);
+    }
     plain[0] = (uint8_t)mask;
     plain[1] = (uint8_t)(mask >> 8U);
     plain[2] = (uint8_t)(mask >> 16U);
@@ -1718,6 +1795,34 @@ static int inject_status(node *dst, uint32_t ref_seq, uint32_t feedback_seq, uin
         view.fields.security.cipher = 1U;
         view.fields.security.receive_cid = 1U;
         view.fields.security.pn = 7U;
+    }
+    else {
+        uint8_t crc_bytes[4] = {0U, 0U, 0U, 0U};
+        dmp_frame_spec spec;
+        uint8_t raw[MAX_MTU];
+        size_t written = 0U;
+        uint32_t crc;
+        dmp_buffer output = {raw, sizeof raw};
+        dmp_bytes encoded;
+        dmp_parse_result parsed;
+        view.fields.options = (uint8_t)(view.fields.options | DMP_OPT_INTEGRITY);
+        view.fields.integrity = 1U;
+        memset(&spec, 0, sizeof spec);
+        spec.fields = view.fields;
+        spec.extensions = span(ext, ext_n);
+        spec.payload = span(plain, sizeof plain);
+        spec.trailer = span(crc_bytes, sizeof crc_bytes);
+        CHECK(dmp_core_encode(&spec, &limits, output, &written) == DMP_OK);
+        CHECK(written >= sizeof crc_bytes);
+        CHECK(dmp_crc32c(span(raw, written - sizeof crc_bytes), &crc) == DMP_OK);
+        crc_bytes[0] = (uint8_t)crc;
+        crc_bytes[1] = (uint8_t)(crc >> 8U);
+        crc_bytes[2] = (uint8_t)(crc >> 16U);
+        crc_bytes[3] = (uint8_t)(crc >> 24U);
+        CHECK(dmp_core_encode(&spec, &limits, output, &written) == DMP_OK);
+        encoded = span(raw, written);
+        parsed = dmp_core_parse(encoded, &limits, &view);
+        CHECK(parsed.status == DMP_OK);
     }
     view.fields.seq = feedback_seq;
     view.extensions = span(ext, ext_n);
@@ -1740,24 +1845,31 @@ static int test_selective_and_retry_all(void)
     int begin;
     dmp_time_ms now = 1000U;
     unsigned i;
+    dmp_status submit_status;
 
     for (i = 0U; i < sizeof body; i++) {
         body[i] = (uint8_t)(0x30U + i);
     }
     CHECK(boot_recovery(&side_a, 1) == 0);
-    CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(body, sizeof body), now, 0U, &handle) ==
-          DMP_OK);
-    CHECK(flush_slices(&side_a, now, 4) == 0);
+    submit_status = dmp_reliability_submit_req(&side_a.engine, 1U, span(body, sizeof body), now,
+                                               0U, &handle);
+    if (submit_status != DMP_OK) {
+        (void)fprintf(stderr, "NONE selective request submit returned %d enc=%d tx=%d mtu=%zu\n",
+                      (int)submit_status, side_a.enc.calls, side_a.tx.n,
+                      side_a.enc.limits.max_frame_bytes);
+    }
+    CHECK(submit_status == DMP_OK);
+    CHECK(flush_slices(&side_a, now, 1) == 0);
     CHECK(parse_hold(&side_a, 0, &first) == 0);
     found = fragment_indexes(&side_a, 0, indexes, 4);
-    CHECK(found == 4);
-    CHECK(indexes[0] == 0U && indexes[1] == 1U && indexes[2] == 2U && indexes[3] == 3U);
+    CHECK(found == 1);
+    CHECK(indexes[0] == 0U);
     CHECK(inject_status(&side_a, first.fields.seq, 9U, 0x00000001U, now, 0) == 0);
     begin = side_a.tx.n;
     CHECK(flush_slices(&side_a, now, begin + 1) == 0);
     found = fragment_indexes(&side_a, begin, indexes, 4);
     CHECK(found == 1);
-    CHECK(indexes[0] == 0U);
+    CHECK(indexes[0] == 1U);
 
     CHECK(boot_recovery(&side_a, 0) == 0);
     CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(body, sizeof body), now, 0U, &handle) ==

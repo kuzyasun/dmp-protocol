@@ -239,36 +239,19 @@ static int read_file_bytes(const char *path, uint8_t *data, size_t capacity, siz
     *length = count;
     return 1;
 }
-static const char *pinned_digest(const char *basename)
-{
-    if (strcmp(basename, "test-direct-minimal-128.json") == 0)
-        return "d987dbae6d7490d98d45aaca7d7af13c600d4c3557b3453c3598e5ffec9c0fa1";
-    if (strcmp(basename, "test-direct-minimal-256.json") == 0)
-        return "9cc6d8ae95c5f241166c9af9edc70d12e61fdb4404c10479bb68de32d0d344ea";
-    if (strcmp(basename, "direct-nnpsk0.json") == 0)
-        return "40abedfbb1799ea6cb711f739101d40bae6454eac719858c79b066f2670ad0c1";
-    if (strcmp(basename, "radio-nnpsk0.json") == 0)
-        return "a3887c44b06b4d2f905f89fae4b28b99c0f00d93d77c50b1f752ce77bde4922f";
-    return NULL;
-}
 static int validate_manifest_digest(const char *path, uint8_t digest[32], char digest_hex[65])
 {
-    uint8_t manifest[65536], digest_file[8192];
+    uint8_t manifest[65536], digest_file[65536];
     size_t manifest_size, digest_size, directory_size;
     const char *base = strrchr(path, '/');
     const char *backslash = strrchr(path, '\\');
-    const char *expected;
+    char expected[65];
     char digests_path[4096], key[96];
     char computed[65];
     char *entry, *colon, *quote;
     if (backslash != NULL && (base == NULL || backslash > base)) base = backslash;
     base = base == NULL ? path : base + 1;
-    expected = pinned_digest(base);
-    if (expected == NULL || !read_file_bytes(path, manifest, sizeof manifest, &manifest_size)) return 0;
-    harness_sha256_hex(manifest, manifest_size, computed);
-    if (strcmp(computed, expected) != 0 || strlen(expected) != 64U) return 0;
-    harness_sha256(manifest, manifest_size, digest);
-    memcpy(digest_hex, expected, 65U);
+    if (!read_file_bytes(path, manifest, sizeof manifest, &manifest_size)) return 0;
     directory_size = (size_t)(base - path);
     if (directory_size + sizeof "digests.json" > sizeof digests_path) return 0;
     memcpy(digests_path, path, directory_size);
@@ -279,7 +262,14 @@ static int validate_manifest_digest(const char *path, uint8_t digest[32], char d
     entry = strstr((char *)digest_file, key);
     if (entry == NULL || (colon = strchr(entry, ':')) == NULL || (quote = strchr(colon, '"')) == NULL) return 0;
     ++quote;
-    return strncmp(quote, expected, 64U) == 0 && quote[64] == '"';
+    if (strlen(quote + 1U) < 65U || quote[64] != '"') return 0;
+    memcpy(expected, quote, 64U);
+    expected[64] = '\0';
+    harness_sha256_hex(manifest, manifest_size, computed);
+    if (strcmp(computed, expected) != 0) return 0;
+    harness_sha256(manifest, manifest_size, digest);
+    memcpy(digest_hex, expected, sizeof expected);
+    return 1;
 }
 static int startup_ready(void *ctx) { (void)ctx; return 0; }
 static int provider_entropy(void *ctx, void *out, size_t size)
@@ -542,6 +532,7 @@ static void fill_budget(dmp_hs_budget *b)
 static void fill_config(dmp_config *c, size_t message, const uint8_t profile_digest[32])
 {
     memset(c, 0, sizeof *c); memcpy(c->sha256, profile_digest, sizeof c->sha256);
+    c->security_mode = DMP_PROFILE_SECURITY_SEC1;
     c->namespace_id = (uint32_t)active_profile.namespace_id;
     c->node_id[0] = (uint32_t)active_profile.node_ids[0]; c->node_id[1] = (uint32_t)active_profile.node_ids[1];
     c->default_service = (uint32_t)active_profile.default_service;
@@ -765,7 +756,7 @@ static int manifest_parameters(const char *path, size_t *request)
         if (!json_string(binding, "kind", binding_kind, sizeof binding_kind) ||
             !json_string(binding, "context", context, sizeof context) ||
             !json_string(security, "mode", mode, sizeof mode)) return 0;
-        if (strcmp(mode, "NNpsk0") != 0) return 0;
+        if (strcmp(mode, "SEC-1") != 0 && strcmp(mode, "NNpsk0") != 0) return 0;
         if (strcmp(binding_kind, "stream-r") == 0 && strcmp(context, "association") == 0 &&
             strstr(buf, "\"relays\": []") != NULL) {
             active_profile.origin_route = 0U;
@@ -1839,9 +1830,13 @@ int main(int argc, char **argv)
         fputs("usage: dmp_ram_endpoint_process --manifest <supported-direct-profile.json> [--output report.json]\n", stderr); return 2;
     }
     for (i = 3; i + 1 < argc; ++i) if (strcmp(argv[i], "--output") == 0) report_path = argv[i+1];
-    if (!validate_manifest_digest(argv[2], profile_digest, profile_digest_hex) ||
-        !manifest_parameters(argv[2], &request) ||
-        (message = active_profile.message_bytes) == 0U || (chunk = active_profile.chunk_bytes) == 0U) {
+    if (!validate_manifest_digest(argv[2], profile_digest, profile_digest_hex)) {
+        fputs("RAM process probe: manifest digest mismatch\n", stderr); return 2;
+    }
+    if (!manifest_parameters(argv[2], &request)) {
+        fputs("RAM process probe: unsupported profile fields\n", stderr); return 2;
+    }
+    if ((message = active_profile.message_bytes) == 0U || (chunk = active_profile.chunk_bytes) == 0U) {
         fputs("RAM process probe: unsupported or invalid manifest\n", stderr); return 2;
     }
     if (report_path != NULL && (report_stream = fopen(report_path, "wb")) == NULL) {

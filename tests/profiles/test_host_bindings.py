@@ -39,8 +39,8 @@ class HostBindingManifestTests(unittest.TestCase):
 
     def test_frozen_tcp_manifests_match_exact_digests_and_independent_bounds(self):
         expected = {
-            DIRECT: ("PEER-TCP-STREAM-R", 16, 263, 77398),
-            MIXED: ("MIXED-TCP-STREAM-R-SIM-PACKET", 32, 256, 85612),
+            DIRECT: ("PEER-TCP-STREAM-R", 16, 263, 81965),
+            MIXED: ("MIXED-TCP-STREAM-R-SIM-PACKET", 32, 256, 90428),
         }
         for name, (profile_id, fragments, encoded, endpoint_ram) in expected.items():
             with self.subTest(manifest=name):
@@ -136,7 +136,7 @@ class HostBindingManifestTests(unittest.TestCase):
                 malformed = {"contract": marker}
                 self.assert_rejected(malformed, "schema", "$.contract")
 
-    def test_only_manifest_format_1_0_is_accepted(self):
+    def test_unsupported_manifest_format_is_rejected(self):
         direct = copy.deepcopy(self.values[DIRECT])
         direct["contract"] = "unsupported-manifest-format"
         self.assert_rejected(direct, "schema", "$.contract")

@@ -337,11 +337,22 @@ dmp_status dmp_endpoint_init(dmp_endpoint *endpoint, const dmp_endpoint_storage 
  * separate: application send and receive fail until that attempt is active. */
 dmp_status dmp_endpoint_bind(dmp_endpoint *endpoint, struct dmp_hs *handshake,
                              uint32_t attempt_index);
-/* Add an explicitly addressed authenticated principal. The context must use
- * the profile namespace and one of its local endpoint node IDs. */
+/* Add an explicitly addressed peer context. SEC-1 can authenticate its remote
+ * principal; NONE records configured identity only. The context must use the
+ * profile namespace and one of its local endpoint node IDs. */
 dmp_status dmp_endpoint_add_peer(dmp_endpoint *endpoint,
                                  const dmp_identity_context_config *context,
                                  dmp_time_ms now, dmp_peer_handle *out);
+/* Explicitly replace a NONE peer's configured identity. The call revokes the
+ * old generation and cancels unresolved operations using the normal endpoint
+ * ownership rules. If an accepted transport send still awaits its terminal
+ * callback, DMP_BUSY is returned; call again with the same old handle/context
+ * after the callback fence clears. On success, out receives the new handle.
+ * This never adopts an epoch from received traffic and is unavailable to SEC-1. */
+dmp_status dmp_endpoint_replace_none_peer_context(
+    dmp_endpoint *endpoint, dmp_peer_handle peer,
+    const dmp_identity_context_config *context, dmp_time_ms now,
+    dmp_peer_handle *out);
 struct dmp_hs_admission *dmp_endpoint_handshake_admission(dmp_endpoint *endpoint);
 dmp_status dmp_endpoint_bind_peer(dmp_endpoint *endpoint, dmp_peer_handle peer,
                                   struct dmp_hs *handshake, uint32_t attempt_index);
@@ -377,6 +388,9 @@ dmp_status dmp_endpoint_rotate_peer(dmp_endpoint *endpoint, dmp_peer_handle peer
 dmp_status dmp_endpoint_revoke(dmp_endpoint *endpoint, dmp_time_ms now);
 dmp_status dmp_endpoint_revoke_peer(dmp_endpoint *endpoint, dmp_peer_handle peer,
                                     dmp_time_ms now);
+/* Returns the active context handle for SEC-1 only after handshake activation;
+ * for NONE it returns the explicitly configured context identity and asserts
+ * no cryptographic authentication. */
 dmp_status dmp_endpoint_peer_association(dmp_endpoint *endpoint, dmp_peer_handle peer,
                                          dmp_identity_handle *association);
 /* After revocation, returns DMP_BUSY while an accepted outer transport send for this

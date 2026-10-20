@@ -87,8 +87,26 @@ def _schema(value, spec, path="$"):
     """
     supported = {"$schema", "$id", "type", "enum", "minimum", "maximum",
                  "minLength", "maxLength", "pattern", "additionalProperties",
-                 "required", "properties", "minItems", "maxItems", "items",
+                 "required", "properties", "minItems", "maxItems", "items", "oneOf",
                  "uniqueItems"}
+    if "oneOf" in spec:
+        if isinstance(value, dict) and "mode" in value:
+            selected = [alternative for alternative in spec["oneOf"]
+                        if value["mode"] in alternative.get("properties", {}).get("mode", {}).get("enum", [])]
+            if len(selected) == 1:
+                _schema(value, selected[0], path)
+                return
+            if not selected:
+                raise ProfileError("schema", path + ".mode", "not a permitted mode")
+        matches = 0
+        for alternative in spec["oneOf"]:
+            try:
+                _schema(value, alternative, path)
+                matches += 1
+            except ProfileError:
+                pass
+        require(matches == 1, "schema", path, "value must match exactly one permitted shape")
+        return
     if set(spec) - supported:
         raise RuntimeError("unsupported schema keyword")
     if "enum" in spec:
@@ -151,6 +169,7 @@ def origin_ttl_of(document):
 
 def _identity_and_services(m):
     p, b, ident, services = m["profile"], m["binding"], m["identity"], m["services"]
+    none = m["security"]["mode"] == "NONE"
     direct = p["id"] in {"DIRECT-1", "TEST-DIRECT-ASYNC", "TEST-DIRECT-MINIMAL-128",
                           "TEST-DIRECT-MINIMAL-256", "TEST-DIRECT-SAMPLE-RETRY-2",
                           "TEST-DIRECT-MULTIPEER",
@@ -165,7 +184,13 @@ def _identity_and_services(m):
     test = p["id"] in test_families
     require((p["id"] in {"DIRECT-1", "RADIO-1"} or test) and
             p["owner"] == ("DMP-test" if test else "DMP-reference") and
-            p["revision"] == (1 if test else 4), "profile", "$.profile", "family owner/revision mismatch")
+            p["revision"] == (1 if test else 5), "profile", "$.profile", "family owner/revision mismatch")
+    require((ident["epoch_source"], ident["restart"]) ==
+            (("random-u64-none", "explicit-context-rebind") if none else
+             ("sec1-association", "fresh-handshake")),
+            "identity", "$.identity", "epoch source/restart policy does not match endpoint security mode")
+    require(("bootstrap_integrity" in b) == (not none), "security", "$.binding.bootstrap_integrity",
+            "SEC-1 bootstrap reservations apply only to SEC-1")
     if p["id"] == "TEST-DIRECT-MULTIPEER":
         expected = ("DMP-test/SIM-STREAM-R", "stream-r", "shared-endpoint-multi-peer", "association")
     elif p["id"] == "PEER-TCP-STREAM-R":
@@ -180,8 +205,10 @@ def _identity_and_services(m):
     require((not direct or (not m["relays"] and b["ttl"] == 0)) and b["ttl"] >= len(m["relays"]),
             "profile", "$.binding.ttl", "route/TTL does not cover the selected path")
     nodes = ident["nodes"]
-    expected_node_count = 5 if p["id"] == "TEST-DIRECT-MULTIPEER" else 2
-    require(len(nodes) == expected_node_count and len(set(nodes)) == expected_node_count,
+    expected_node_count = 5 if p["id"] == "TEST-DIRECT-MULTIPEER" else None
+    node_count_valid = (len(nodes) == expected_node_count if expected_node_count is not None else
+                        (len(nodes) >= 2 if none else len(nodes) == 2))
+    require(node_count_valid and len(set(nodes)) == len(nodes),
             "identity", "$.identity.nodes", "selected profile has an invalid endpoint count or duplicate IDs")
     all_nodes = nodes + [relay["node"] for relay in m["relays"]]
     require(len(set(all_nodes)) == len(all_nodes) and ident["sample_producer"] in nodes,
@@ -198,8 +225,10 @@ def _identity_and_services(m):
                 "service", path, "noncanonical default or asymmetric reply service")
         require(service["recovery"] == ("selective-32" if selective else "retry-all"),
                 "profile", path + ".recovery", "recovery cannot change within the selected profile")
-        require(service["schema"] == ("DMP-reference/SAMPLE-1/2" if sid == 1 else "DMP-test/OPAQUE-1/1"),
+        require(service["schema"] == ("DMP-reference/SAMPLE-1/3" if sid == 1 else "DMP-test/OPAQUE-1/1"),
                 "service", path, "service/schema mismatch")
+        require(service["security"] == ("NONE" if none else "SEC-1"), "security",
+                path + ".security", "service security must match the endpoint mode")
         acl_nodes = [acl["node"] for acl in service["acl"]]
         require(len(acl_nodes) == len(nodes) and len(set(acl_nodes)) == len(acl_nodes)
                 and set(acl_nodes) == set(nodes),
@@ -366,7 +395,12 @@ def _multi_peer_profile(m):
 
 def _security(m):
     s, t = m["security"], m["timing"]
-    require(s["credential"] == ("provisioned-pairwise-psk" if s["mode"] == "NNpsk0" else "authenticated-oob-xx"),
+    if s["mode"] == "NONE":
+        require(set(s) == {"mode"}, "security", "$.security", "NONE cannot reserve or configure SEC-1 state")
+        require(not any(service["freshness"] for service in m["services"]),
+                "security", "$.services", "SEC-1 freshness is unavailable in NONE")
+        return
+    require(s["mode"] == "SEC-1" and s["credential"] == ("provisioned-pairwise-psk" if s["noise_mode"] == "NNpsk0" else "authenticated-oob-xx"),
             "security", "$.security.credential", "credential/mode mismatch")
     if m["profile"]["id"] == MULTI_PEER_PROFILE:
         pending = m["multi_peer"]["shared_endpoint"]["pending_attempts"]
@@ -399,33 +433,52 @@ def _security(m):
 
 def _frames(m, direct):
     l, b, ident = m["limits"], m["binding"], m["identity"]
+    none = m["security"]["mode"] == "NONE"
     size, chunk = l["message_bytes"], l["chunk_bytes"]
     require(chunk < size, "geometry", "$.limits.chunk_bytes", "fragment chunk must be smaller than logical maximum")
     count = (size + chunk - 1) // chunk
-    boot_chunk = l["bootstrap_chunk_bytes"]
-    boot_count = (120 + boot_chunk - 1) // boot_chunk
+    boot_chunk = l.get("bootstrap_chunk_bytes", 1)
+    boot_count = 0 if none else (120 + boot_chunk - 1) // boot_chunk
     fragment_limit = 32 if not direct or m["profile"]["id"] == MULTI_PEER_PROFILE else 16
     require(count <= l["fragments"] <= fragment_limit, "geometry", "$.limits.fragments", "fragment geometry exceeds family capacity")
-    require(boot_count <= l["bootstrap_fragments"], "geometry", "$.limits.bootstrap_fragments", "bootstrap requires its own sufficient fragment quota")
+    if not none:
+        require(boot_count <= l["bootstrap_fragments"], "geometry", "$.limits.bootstrap_fragments", "bootstrap requires its own sufficient fragment quota")
     node_width = max(width(n) for n in ident["nodes"])
     context = 2 + width(ident["namespace"]) + 8
-    route = 1 + sum(width(n) for n in ident["nodes"])
-    base = 18 + (0 if direct else route + context)
+    # ROUTE carries only the source and destination node IDs.  The profile's
+    # full node inventory determines their maximum allowed widths, but the
+    # unrelated peers are not serialized into each frame.
+    route = 1 + 2 * node_width
+    # SEC-1's PN/CID header is deliberately retained unchanged. NONE carries
+    # the full logical key on the wire and has its own CRC32C descriptor.
+    base = (9 + (0 if direct else route) if none else
+            18 + (0 if direct else route + context))
     app_frames, app_headers, status_frames = [], [], []
     frag = width(count - 1) + width(chunk) + width(size)
     for service in m["services"]:
         service_ext = 0 if service["id"] == ident["default_service"] else 2 + width(service["id"])
-        header = base + 7 + 7 + service_ext + (18 if service["freshness"] else 0) + frag
+        if none:
+            # NONE application replies carry the complete REPLY_TO key; the
+            # response STATUS reserve is checked as a separate frame below.
+            reply_to = 2 + width(ident["namespace"]) + node_width + 8 + 5
+            identity = context + (2 + node_width if direct else 0)
+            header = base + identity + reply_to + service_ext + frag
+        else:
+            header = base + 7 + 7 + service_ext + (18 if service["freshness"] else 0) + frag
         app_headers.append(header)
-        app_frames.append(header + chunk + 16)
-        status_frames.append(base + 7 + service_ext + 4 + 16)
+        trailer = 4 if none else 16
+        app_frames.append(header + chunk + trailer)
+        status_frames.append((base + (context + (2 + node_width if direct else 0)
+                                      if none else 0) + 7 + service_ext + 4 + trailer))
     # Service 0 grant/result requires REPLY_TO + explicit SERVICE_ID + 21 bytes.
-    control = base + 7 + 3 + 21 + 16
-    sample = base + 7 + 7 + 17 + 16
+    none_identity = context + (2 + node_width if direct else 0)
+    control = base + (none_identity if none else 0) + 7 + 3 + 21 + (4 if none else 16)
+    sample = base + (none_identity if none else 0) + 7 + 7 + 17 + (4 if none else 16)
     # VT, HDR_LEN, OPTIONS, SEQ=FLIGHT, INTEGRITY_DESC=CRC32C.
-    boot_header = 5 + context + (2 + node_width if direct else route)
-    boot_header += width(boot_count - 1) + width(boot_chunk) + width(120)
-    boot_frame = boot_header + boot_chunk + 4
+    boot_header = 0 if none else 5 + context + (2 + node_width if direct else route)
+    if not none:
+        boot_header += width(boot_count - 1) + width(boot_chunk) + width(120)
+    boot_frame = 0 if none else boot_header + boot_chunk + 4
     frame = max(*app_frames, *status_frames, control, sample, boot_frame)
     require(max(*app_headers, boot_header, base + 10) <= 255 and frame <= min(b["forward_mtu"], b["return_mtu"]),
             "mtu", "$.binding", "worst PN/header/index/application/bootstrap/control frame exceeds path MTU")
@@ -496,6 +549,10 @@ def _timing(m, selective, derived):
 
 def _establishment(m, derived):
     s, b, t = m["security"], m["binding"], m["timing"]
+    if s["mode"] == "NONE":
+        derived.update(establishment_frame_reserve=0, establishment_wire_bytes=0,
+                       establishment_ms=0, bootstrap_flight_span_ms=0)
+        return
     period, delay = b["return_slot_period_ms"], max(t["forward_delay_ms"], t["return_delay_ms"])
     flight_span = derived["bootstrap_fragment_count"] * period
     retry_floor = 2*(flight_span + delay) + s["crypto_per_attempt_ms"] + s["pairing_timeout_ms"]
@@ -503,13 +560,13 @@ def _establishment(m, derived):
             "security", "$.security.flight_retry_ms", "cached-flight retry cannot cover serialized peer flight/verification")
     # XX must keep retransmitting cached flight 3 while waiting for READY.
     # Reserve one complete flight-3 copy even in the initial confirmation slot.
-    xx_confirmation_flights = s["confirmation_attempts"] if s["mode"] == "XX" else 0
+    xx_confirmation_flights = s["confirmation_attempts"] if s["noise_mode"] == "XX" else 0
     confirmation_floor = 2*(period + delay) + t["receipt_delay_ms"]
     if xx_confirmation_flights:
         confirmation_floor += flight_span + delay
     require(s["confirmation_timeout_ms"] >= confirmation_floor and s["confirmation_timeout_ms"] % period == 0,
             "security", "$.security.confirmation_timeout_ms", "confirmation retry cannot cover FINISH/READY path")
-    flights = 2 if s["mode"] == "NNpsk0" else 3
+    flights = 2 if s["noise_mode"] == "NNpsk0" else 3
     responses = flights*s["flight_attempts"] + s["duplicate_responses_per_attempt"] + xx_confirmation_flights + 2*s["confirmation_attempts"]
     frames = (flights*s["flight_attempts"] + s["duplicate_responses_per_attempt"] + xx_confirmation_flights) * derived["bootstrap_fragment_count"] + 2*s["confirmation_attempts"]
     traffic = frames*derived["encoded_frame_bytes"]
@@ -533,6 +590,7 @@ def _establishment(m, derived):
 
 def _relays(m, derived):
     t, relays = m["timing"], m["relays"]
+    none = m["security"]["mode"] == "NONE"
     starts, span = t["burst_starts_ms"], t["burst_span_ms"]
     for direction, ordered in (("forward", relays), ("return", list(reversed(relays)))):
         preceding_end = 0
@@ -548,50 +606,57 @@ def _relays(m, derived):
             require(all(nxt + low >= prev + span + high + relay["duplicate_tail_ms"] + copies*relay["frame_tx_ms"] + relay["cooldown_ms"]
                         for prev, nxt in zip(starts, starts[1:])),
                     "relay", path, "arrival/duplicate tail can consume the next cooldown opportunity")
-            boot_opportunities = m["security"]["flight_attempts"] + m["security"]["duplicate_responses_per_attempt"]
+            boot_opportunities = 0 if none else m["security"]["flight_attempts"] + m["security"]["duplicate_responses_per_attempt"]
             confirmation_span = m["binding"]["return_slot_period_ms"]
-            if m["security"]["mode"] == "XX":
+            if not none and m["security"]["noise_mode"] == "XX":
                 boot_opportunities += m["security"]["confirmation_attempts"]
                 confirmation_span = derived["bootstrap_flight_span_ms"]
-            require(relay["max_forwards_per_key"] >= max(t["max_bursts"], boot_opportunities, m["security"]["confirmation_attempts"]) * copies,
+            require(relay["max_forwards_per_key"] >= max(t["max_bursts"], boot_opportunities,
+                                                          0 if none else m["security"]["confirmation_attempts"]) * copies,
                     "relay", path, "duplicate forwarding can exhaust per-key count")
             require(relay["expiry_ms"] >= starts[-1] + span + high - low + relay["duplicate_tail_ms"] + copies*relay["frame_tx_ms"] + t["record_margin_ms"],
                     "relay", path, "relay record expires before the final reserved opportunity")
-            require(m["security"]["flight_retry_ms"] + low >= derived["bootstrap_flight_span_ms"] + high + relay["duplicate_tail_ms"] + copies*relay["frame_tx_ms"] + relay["cooldown_ms"] and
-                    m["security"]["confirmation_timeout_ms"] + low >= confirmation_span + high + relay["duplicate_tail_ms"] + copies*relay["frame_tx_ms"] + relay["cooldown_ms"] and
-                    relay["expiry_ms"] >= derived["establishment_ms"] + high - low + relay["duplicate_tail_ms"] + copies*relay["frame_tx_ms"] + t["record_margin_ms"],
-                    "relay", path, "bootstrap duplicate/retry schedule exceeds relay cooldown or expiry")
-            airtime = (2 * len(m["services"]) * derived["transfer_frame_reserve"] + derived["establishment_frame_reserve"]*m["security"]["episode_attempts"])*copies*relay["frame_tx_ms"]
+            if not none:
+                require(m["security"]["flight_retry_ms"] + low >= derived["bootstrap_flight_span_ms"] + high + relay["duplicate_tail_ms"] + copies*relay["frame_tx_ms"] + relay["cooldown_ms"] and
+                        m["security"]["confirmation_timeout_ms"] + low >= confirmation_span + high + relay["duplicate_tail_ms"] + copies*relay["frame_tx_ms"] + relay["cooldown_ms"] and
+                        relay["expiry_ms"] >= derived["establishment_ms"] + high - low + relay["duplicate_tail_ms"] + copies*relay["frame_tx_ms"] + t["record_margin_ms"],
+                        "relay", path, "bootstrap duplicate/retry schedule exceeds relay cooldown or expiry")
+            airtime = (2 * len(m["services"]) * derived["transfer_frame_reserve"] +
+                       (0 if none else derived["establishment_frame_reserve"]*m["security"]["episode_attempts"]))*copies*relay["frame_tx_ms"]
             require(relay["per_origin_airtime_ms"] >= airtime and relay["global_airtime_ms"] >= 2*airtime,
                     "relay", path, "relay airtime does not cover both origins and admitted service concurrency")
 
 
 def _resources(m, derived):
     s, l = m["security"], m["limits"]
+    none = s["mode"] == "NONE"
     multi_peer = m["profile"]["id"] == MULTI_PEER_PROFILE
     roles = {r["role"] for r in m["resources"]}
     expected = {"endpoint", "relay"} if m["relays"] else {"endpoint"}
     require(roles == expected and len(roles) == len(m["resources"]), "resources", "$.resources", "resource roles missing or duplicated")
     peers = l["peers"]
-    associations = peers * (s["pending_per_pair"] + s["active_per_pair"] + s["draining_per_pair"])
+    if none and m["profile"]["id"] != MULTI_PEER_PROFILE:
+        require(peers == len(m["identity"]["nodes"]) - 1,
+                "resources", "$.limits.peers", "NONE peer quota must match the configured remote identities")
+    associations = 0 if none else peers * (s["pending_per_pair"] + s["active_per_pair"] + s["draining_per_pair"])
     operations = l["sender_slots"]
     require(operations <= 2 * len(m["services"]) * l["peers"] * l["operations_per_service"],
             "resources", "$.limits.sender_slots",
             "sender capacity exceeds the simultaneous per-service operation ceiling")
     fresh = m["freshness"]
-    grants = peers * fresh["grant_requests_per_pair"]
+    grants = 0 if none else peers * fresh["grant_requests_per_pair"]
     require(l["assembly_tombstones_per_peer"] >= l["assemblies_per_peer"],
             "resources", "$.limits.assembly_tombstones_per_peer",
             "each active assembly must reserve its future expiry tombstone")
     minimum_counts = {"provider_retained": associations,
-                      "provider_scratch": s["crypto_slots"] if multi_peer else peers * s["crypto_slots"],
-                      "association": associations, "bootstrap": peers * s["preauth_slots"],
+                      "provider_scratch": 0 if none else (s["crypto_slots"] if multi_peer else peers * s["crypto_slots"]),
+                      "association": associations, "bootstrap": 0 if none else peers * s["preauth_slots"],
                       "sender": operations, "assembly": peers * l["assemblies_per_peer"],
                       "assembly_tombstone": peers * l["assembly_tombstones_per_peer"],
                       "result": operations + grants, "history": 2*(operations + grants), "correlation": operations + grants,
                       "control": l["control_slots"], "application_queue": 1,
                       "adapter": l["adapter_slots"], "stacks": 1, "relay_cache": 1,
-                      "freshness_tokens": max(1, fresh["tokens_per_principal"] if grants else 0)}
+                      "freshness_tokens": max(0 if none else 1, fresh["tokens_per_principal"] if grants else 0)}
     if multi_peer:
         minimum_counts.update(endpoint_metadata=1, peer_state=peers,
                               identity_context=associations, stream_decoder=peers,
@@ -603,8 +668,10 @@ def _resources(m, derived):
         encoded_reserve = max(encoded_reserve, m["tcp_binding"]["encoded_mtu"])
     minimum_bytes.update(bootstrap=120, control=encoded_reserve,
                          adapter=encoded_reserve, relay_cache=1)
+    if none:
+        minimum_bytes.update(provider_retained=0, provider_scratch=0, association=0, bootstrap=0)
     minimum_bytes["result"] = max(l["message_bytes"], 21 if grants else 1)
-    minimum_bytes["freshness_tokens"] = max(16 if grants else 0, 1)
+    minimum_bytes["freshness_tokens"] = 0 if none else max(16 if grants else 0, 1)
     if multi_peer:
         minimum_bytes.update(endpoint_metadata=4096, peer_state=2048,
                              identity_context=64, stream_decoder=512,
@@ -630,11 +697,13 @@ def _resources(m, derived):
             require(charge["region"] in regions, "resources", path, "unknown charged memory region")
             # A relay-only role does not instantiate endpoint state, but keeps
             # explicit nonzero module reservations for its eventual layout.
-            count = max(1, minimum_counts[key]) if resource["role"] == "endpoint" else 1
-            size = max(1, minimum_bytes.get(key, 1)) if resource["role"] == "endpoint" else 1
+            no_security_component = none and key in {"provider_retained", "provider_scratch", "association", "bootstrap", "freshness_tokens"}
+            count = 0 if no_security_component else (minimum_counts[key] if none and resource["role"] == "endpoint" else (max(1, minimum_counts[key]) if resource["role"] == "endpoint" else 1))
+            size = 0 if no_security_component else (minimum_bytes.get(key, 1) if none and resource["role"] == "endpoint" and minimum_counts[key] == 0 else (max(1, minimum_bytes.get(key, 1)) if resource["role"] == "endpoint" else 1))
             if resource["role"] == "relay" and key == "relay_cache":
                 count = operations * (derived["fragment_count"] + derived["bootstrap_fragment_count"]) + m["timing"]["max_status"] + m["timing"]["receipt_limit"]
-                count += derived["establishment_frame_reserve"]*s["episode_attempts"]
+                if not none:
+                    count += derived["establishment_frame_reserve"]*s["episode_attempts"]
             require(charge["count"] >= count and charge["bytes_each"] >= size,
                     "resources", path + "." + key, "component pool cannot cover admitted concurrency or whole buffers")
             used[charge["region"]] += charge["count"] * charge["bytes_each"]

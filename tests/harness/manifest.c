@@ -144,7 +144,7 @@ static int keyword_ok(const char *key, size_t key_len)
     static const char *names[] = {
         "$schema", "$id", "type", "enum", "minimum", "maximum", "minLength",
         "maxLength", "pattern", "additionalProperties", "required", "properties",
-        "minItems", "maxItems", "items"
+        "minItems", "maxItems", "items", "oneOf"
     };
     size_t i;
     for (i = 0; i < sizeof names / sizeof names[0]; i++) {
@@ -185,6 +185,42 @@ static void schema_apply(vstate *st, const json_value *value, const json_value *
     for (i = 0; i < spec->count; i++) {
         if (!keyword_ok(spec->keys[i], spec->key_lens[i])) {
             fail(st, "internal", path);
+            return;
+        }
+    }
+    {
+        const json_value *one_of = json_object_get(spec, "oneOf");
+        if (one_of != NULL) {
+            size_t matches = 0U;
+            vstate best_failure;
+            size_t best_path = 0U;
+            memset(&best_failure, 0, sizeof best_failure);
+            if (one_of->type != JSON_ARRAY || one_of->count == 0U) {
+                fail(st, "internal", path);
+                return;
+            }
+            for (i = 0U; i < one_of->count; i++) {
+                vstate candidate;
+                memset(&candidate, 0, sizeof candidate);
+                schema_apply(&candidate, value, one_of->items[i], path);
+                if (candidate.internal) {
+                    *st = candidate;
+                    return;
+                }
+                if (!candidate.failed) {
+                    matches++;
+                } else if (strlen(candidate.path) > best_path) {
+                    best_failure = candidate;
+                    best_path = strlen(candidate.path);
+                }
+            }
+            if (matches != 1U) {
+                if (matches == 0U && best_path != 0U) {
+                    *st = best_failure;
+                } else {
+                    fail(st, "schema", path);
+                }
+            }
             return;
         }
     }
@@ -449,7 +485,7 @@ static void check_identity(vstate *st, const json_value *m, int *direct_out, int
         return;
     }
     if (!need(st, (test ? strcmp(owner, "DMP-test") == 0 : strcmp(owner, "DMP-reference") == 0) &&
-                     (test ? revision == 1U : revision == 4U),
+                     (test ? revision == 1U : revision == 5U),
               "profile", "$.profile")) {
         return;
     }
@@ -484,36 +520,46 @@ static void check_identity(vstate *st, const json_value *m, int *direct_out, int
         fail(st, "internal", "$.identity");
         return;
     }
-    if (!need(st, nodes->count == 2U, "identity", "$.identity.nodes") ||
-        !need(st, fu(st, limits, "message_bytes") <= 1024U,
-              "geometry", "$.limits.message_bytes")) {
-        return;
+    {
+        const char *mode = fs(st, fo(st, m, "security"), "mode");
+        int none = !st->failed && strcmp(mode, "NONE") == 0;
+        if (!need(st, nodes->count >= 2U && (none || nodes->count == 2U),
+                  "identity", "$.identity.nodes") ||
+            !need(st, fu(st, limits, "message_bytes") <= 1024U,
+                  "geometry", "$.limits.message_bytes")) return;
+        if (none && !need(st, fu(st, limits, "peers") == nodes->count - 1U,
+                          "resources", "$.limits.peers")) return;
     }
     {
-        uint64_t ids[6];
-        size_t nids = 0;
         size_t j;
         int producer_ok = 0;
-        for (i = 0; i < nodes->count && i < 2U; i++) {
+        for (i = 0; i < nodes->count; i++) {
             uint64_t id = 0;
             if (!mu(st, nodes->items[i], &id)) {
                 return;
             }
-            ids[nids++] = id;
             if (id == producer) {
                 producer_ok = 1;
             }
-        }
-        for (i = 0; i < relays->count && nids < 6U; i++) {
-            uint64_t id = fu(st, relays->items[i], "node");
-            if (st->failed) {
-                return;
+            for (j = i + 1U; j < nodes->count; j++) {
+                uint64_t other = 0;
+                if (!mu(st, nodes->items[j], &other)) return;
+                if (id == other) {
+                    fail(st, "identity", "$.identity.nodes");
+                    return;
+                }
             }
-            ids[nids++] = id;
+            for (j = 0; j < relays->count; j++) {
+                if (id == fu(st, relays->items[j], "node")) {
+                    fail(st, "identity", "$.identity.nodes");
+                    return;
+                }
+            }
         }
-        for (i = 0; i < nids; i++) {
-            for (j = i + 1U; j < nids; j++) {
-                if (ids[i] == ids[j]) {
+        for (i = 0; i < relays->count; i++) {
+            uint64_t id = fu(st, relays->items[i], "node");
+            for (j = i + 1U; j < relays->count; j++) {
+                if (id == fu(st, relays->items[j], "node")) {
                     fail(st, "identity", "$.identity.nodes");
                     return;
                 }
@@ -569,7 +615,7 @@ static void check_identity(vstate *st, const json_value *m, int *direct_out, int
                 return;
             }
         }
-        if (!need(st, strcmp(schema, sid == 1U ? "DMP-reference/SAMPLE-1/2" : "DMP-test/OPAQUE-1/1") == 0,
+        if (!need(st, strcmp(schema, sid == 1U ? "DMP-reference/SAMPLE-1/3" : "DMP-test/OPAQUE-1/1") == 0,
                   "service", path)) {
             return;
         }
@@ -579,28 +625,21 @@ static void check_identity(vstate *st, const json_value *m, int *direct_out, int
         }
         {
             char acl_path[80];
-            uint64_t node_ids[2];
             size_t a;
             snprintf(acl_path, sizeof acl_path, "%s.acl", path);
             if (acl->count != nodes->count) {
                 fail(st, "service", acl_path);
                 return;
             }
-            for (a = 0; a < acl->count && a < 2U; a++) {
-                node_ids[a] = fu(st, acl->items[a], "node");
-            }
-            if (st->failed) {
-                return;
-            }
-            for (a = 0; a < nodes->count && a < 2U; a++) {
+            for (a = 0; a < nodes->count; a++) {
                 uint64_t id = 0;
                 size_t b;
                 int found = 0;
                 if (!mu(st, nodes->items[a], &id)) {
                     return;
                 }
-                for (b = 0; b < acl->count && b < 2U; b++) {
-                    if (node_ids[b] == id) {
+                for (b = 0; b < acl->count; b++) {
+                    if (fu(st, acl->items[b], "node") == id) {
                         found++;
                     }
                 }
@@ -657,7 +696,8 @@ static void check_identity(vstate *st, const json_value *m, int *direct_out, int
             return;
         }
         if (sid == 1U &&
-            !need(st, request == 1U && result == 17U && !fb(st, service, "freshness"),
+            !need(st, request == 1U && result == 17U && !fb(st, service, "freshness") &&
+                     strcmp(fs(st, service, "security"), fs(st, fo(st, m, "security"), "mode")) == 0,
                   "service", path)) {
             return;
         }
@@ -697,6 +737,19 @@ static void check_security(vstate *st, const json_value *m)
         return;
     }
     mode = fs(st, s, "mode");
+    if (strcmp(mode, "NONE") == 0) {
+        const json_value *services = fo(st, m, "services");
+        size_t i;
+        for (i = 0U; services != NULL && i < services->count; i++) {
+            if (fb(st, services->items[i], "freshness") ||
+                strcmp(fs(st, services->items[i], "security"), "NONE") != 0) {
+                fail(st, "security", "$.services");
+                return;
+            }
+        }
+        return;
+    }
+    mode = fs(st, s, "noise_mode");
     credential = fs(st, s, "credential");
     crypto = fu(st, s, "crypto_slots");
     pending = fu(st, s, "pending_per_pair");
@@ -787,6 +840,7 @@ static void check_frames(vstate *st, const json_value *m, int direct, derived *o
     const json_value *binding = fo(st, m, "binding");
     const json_value *ident = fo(st, m, "identity");
     const json_value *services = fo(st, m, "services");
+    const json_value *security = fo(st, m, "security");
     const json_value *nodes;
     uint64_t size;
     uint64_t chunk;
@@ -806,6 +860,7 @@ static void check_frames(vstate *st, const json_value *m, int direct, derived *o
     uint64_t back;
     uint64_t core;
     uint64_t encoded;
+    int none;
     size_t i;
     if (st->failed) {
         return;
@@ -813,8 +868,9 @@ static void check_frames(vstate *st, const json_value *m, int direct, derived *o
     size = fu(st, limits, "message_bytes");
     chunk = fu(st, limits, "chunk_bytes");
     fragments = fu(st, limits, "fragments");
-    boot_chunk = fu(st, limits, "bootstrap_chunk_bytes");
-    boot_fragments = fu(st, limits, "bootstrap_fragments");
+    none = strcmp(fs(st, security, "mode"), "NONE") == 0;
+    boot_chunk = none ? 0U : fu(st, limits, "bootstrap_chunk_bytes");
+    boot_fragments = none ? 0U : fu(st, limits, "bootstrap_fragments");
     if (st->failed) {
         return;
     }
@@ -822,12 +878,12 @@ static void check_frames(vstate *st, const json_value *m, int direct, derived *o
         return;
     }
     count = (size + chunk - 1U) / chunk;
-    boot_count = (120U + boot_chunk - 1U) / boot_chunk;
+    boot_count = none ? 0U : (120U + boot_chunk - 1U) / boot_chunk;
     if (!need(st, count <= fragments && fragments <= (direct ? 16U : 32U), "geometry",
               "$.limits.fragments")) {
         return;
     }
-    if (!need(st, boot_count <= boot_fragments, "geometry", "$.limits.bootstrap_fragments")) {
+    if (!none && !need(st, boot_count <= boot_fragments, "geometry", "$.limits.bootstrap_fragments")) {
         return;
     }
     nodes = fo(st, ident, "nodes");
@@ -844,10 +900,13 @@ static void check_frames(vstate *st, const json_value *m, int direct, derived *o
         if (width > node_width) {
             node_width = width;
         }
-        route = route + width;
     }
+    /* ROUTE is control + source + destination.  Configured peers outside
+     * that pair affect the maximum width, not the encoded frame length. */
+    route = 1U + 2U * node_width;
     context = 2U + uleb_width(fu(st, ident, "namespace")) + 8U;
-    base = 18U + (direct ? 0U : route + context);
+    base = none ? 9U + (direct ? 0U : route) :
+           18U + (direct ? 0U : route + context);
     for (i = 0; i < services->count; i++) {
         const json_value *service = services->items[i];
         uint64_t sid = fu(st, service, "id");
@@ -855,9 +914,17 @@ static void check_frames(vstate *st, const json_value *m, int direct, derived *o
         int fresh = fb(st, service, "freshness");
         uint64_t service_ext = sid == def ? 0U : 2U + uleb_width(sid);
         uint64_t frag = uleb_width(count - 1U) + uleb_width(chunk) + uleb_width(size);
-        num header = nadd(nu(base + 7U + 7U + service_ext + frag), nu(fresh ? 18U : 0U));
-        num app = nadd(header, nu(chunk + 16U));
-        num status = nu(base + 7U + service_ext + 4U + 16U);
+        uint64_t none_identity = context + (direct ? 2U + node_width : 0U);
+        uint64_t none_reply_to = 2U + uleb_width(fu(st, ident, "namespace")) +
+                                 node_width + 8U + 5U;
+        num header = none ?
+            nu(base + none_identity + none_reply_to + service_ext + frag) :
+            nadd(nu(base + 7U + 7U + service_ext + frag),
+                 nu(fresh ? 18U : 0U));
+        num app = nadd(header, nu(chunk + (none ? 4U : 16U)));
+        num status = nu(base + (none ? context + (direct ? 2U + node_width : 0U) : 7U) +
+                        7U + service_ext + 4U +
+                        (none ? 4U : 16U));
         if (st->failed) {
             return;
         }
@@ -877,11 +944,15 @@ static void check_frames(vstate *st, const json_value *m, int direct, derived *o
         return;
     }
     {
-        num control = nu(base + 7U + 3U + 21U + 16U);
-        num sample = nu(base + 7U + 7U + 17U + 16U);
-        num boot = nadd(nu(5U + context + (direct ? 2U + node_width : route)),
-                        nu(uleb_width(boot_count - 1U) + uleb_width(boot_chunk) + uleb_width(120U)));
-        num boot_frame = nadd(boot, nu(boot_chunk + 4U));
+        uint64_t none_identity = context + (direct ? 2U + node_width : 0U);
+        num control = nu(base + (none ? none_identity : 0U) + (none ? 0U : 7U) + 3U + 21U +
+                         (none ? 4U : 16U));
+        num sample = nu(base + (none ? none_identity : 0U) + (none ? 0U : 7U) + 7U + 17U +
+                        (none ? 4U : 16U));
+        num boot = none ? nu(0U) :
+            nadd(nu(5U + context + (direct ? 2U + node_width : route)),
+                 nu(uleb_width(boot_count - 1U) + uleb_width(boot_chunk) + uleb_width(120U)));
+        num boot_frame = none ? nu(0U) : nadd(boot, nu(boot_chunk + 4U));
         uint64_t header_bound = app_header_max.big ? UINT64_MAX : app_header_max.v;
         int header_big = app_header_max.big;
         uint64_t frame_bound = app_frame_max.big ? UINT64_MAX : app_frame_max.v;
@@ -1219,6 +1290,12 @@ static void check_establishment(vstate *st, const json_value *m, derived *d)
     if (st->failed) {
         return;
     }
+    if (strcmp(fs(st, s, "mode"), "NONE") == 0) {
+        d->establishment_frame_reserve = 0U;
+        d->establishment_ms = 0U;
+        d->bootstrap_flight_span_ms = 0U;
+        return;
+    }
     period = fu(st, b, "return_slot_period_ms");
     delay = fu(st, t, "forward_delay_ms");
     if (fu(st, t, "return_delay_ms") > delay) {
@@ -1236,7 +1313,7 @@ static void check_establishment(vstate *st, const json_value *m, derived *d)
               "security", "$.security.flight_retry_ms")) {
         return;
     }
-    mode_xx = strcmp(fs(st, s, "mode"), "XX") == 0;
+    mode_xx = strcmp(fs(st, s, "noise_mode"), "XX") == 0;
     xx = mode_xx ? fu(st, s, "confirmation_attempts") : 0U;
     confirmation_floor = nadd(nmul(nu(2), nadd(nu(period), nu(delay))), nu(fu(st, t, "receipt_delay_ms")));
     if (xx != 0U) {
@@ -1312,12 +1389,14 @@ static void check_relays(vstate *st, const json_value *m, derived *d)
     const json_value *starts;
     const json_value *security;
     uint64_t span;
+    int none;
     size_t direction;
     if (st->failed) {
         return;
     }
     starts = fo(st, t, "burst_starts_ms");
     security = fo(st, m, "security");
+    none = strcmp(fs(st, security, "mode"), "NONE") == 0;
     span = fu(st, t, "burst_span_ms");
     if (st->failed || starts == NULL || relays == NULL) {
         return;
@@ -1371,7 +1450,7 @@ static void check_relays(vstate *st, const json_value *m, derived *d)
                 }
                 return;
             }
-            {
+            if (!none) {
                 uint64_t boot = fu(st, security, "flight_attempts") +
                                 fu(st, security, "duplicate_responses_per_attempt");
                 uint64_t confirmation_span = fu(st, fo(st, m, "binding"), "return_slot_period_ms");
@@ -1429,11 +1508,18 @@ static void check_relays(vstate *st, const json_value *m, derived *d)
     }
 }
 
-static uint64_t count_for(const char *key, int endpoint, uint64_t associations, uint64_t crypto,
+static uint64_t count_for(const char *key, int endpoint, int none, uint64_t associations, uint64_t crypto,
                           uint64_t operations, uint64_t assemblies,
                           uint64_t assembly_tombstones, uint64_t grants, uint64_t control,
                           uint64_t adapter, uint64_t tokens)
 {
+    if (none && (strcmp(key, "provider_retained") == 0 ||
+                 strcmp(key, "provider_scratch") == 0 ||
+                 strcmp(key, "association") == 0 ||
+                 strcmp(key, "bootstrap") == 0 ||
+                 strcmp(key, "freshness_tokens") == 0)) {
+        return 0U;
+    }
     if (!endpoint && strcmp(key, "relay_cache") != 0) {
         return 1U;
     }
@@ -1447,7 +1533,7 @@ static uint64_t count_for(const char *key, int endpoint, uint64_t associations, 
         return crypto;
     }
     if (strcmp(key, "bootstrap") == 0) {
-        return endpoint ? 0U : 1U;
+        return endpoint || none ? 0U : 1U;
     }
     if (strcmp(key, "sender") == 0) {
         return operations;
@@ -1507,6 +1593,7 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
         return;
     }
     want_relay = relays->count != 0U;
+    int none = strcmp(fs(st, security, "mode"), "NONE") == 0;
     if (resources->count != (want_relay ? 2U : 1U)) {
         fail(st, "resources", "$.resources");
         return;
@@ -1526,15 +1613,16 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
             return;
         }
     }
-    associations = (fu(st, security, "pending_per_pair") + fu(st, security, "active_per_pair") +
-                    fu(st, security, "draining_per_pair")) * fu(st, limits, "peers");
+    associations = none ? 0U :
+        (fu(st, security, "pending_per_pair") + fu(st, security, "active_per_pair") +
+         fu(st, security, "draining_per_pair")) * fu(st, limits, "peers");
     operations = fu(st, limits, "peers") * fu(st, limits, "operations_per_service") * 2U;
     if (operations < fu(st, limits, "sender_slots")) {
         operations = fu(st, limits, "sender_slots");
     }
-    grants = fu(st, fresh, "grant_requests_per_pair") * fu(st, limits, "peers");
-    tokens = fu(st, fresh, "tokens_per_principal") * fu(st, limits, "peers");
-    if (tokens == 0U) {
+    grants = none ? 0U : fu(st, fresh, "grant_requests_per_pair") * fu(st, limits, "peers");
+    tokens = none ? 0U : fu(st, fresh, "tokens_per_principal") * fu(st, limits, "peers");
+    if (tokens == 0U && !none) {
         tokens = 1U;
     }
     message = fu(st, limits, "message_bytes");
@@ -1620,7 +1708,8 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
                 return;
             }
             seen[component_index] = 1;
-            need_count = count_for(key, endpoint, associations, fu(st, security, "crypto_slots"),
+            need_count = count_for(key, endpoint, none, associations,
+                                   none ? 0U : fu(st, security, "crypto_slots"),
                                    operations,
                                    fu(st, limits, "peers") * fu(st, limits, "assemblies_per_peer"),
                                    fu(st, limits, "peers") *
@@ -1632,9 +1721,11 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
                 need_count = fu(st, limits, "application_queue_slots");
             }
             if (!endpoint && strcmp(key, "relay_cache") == 0) {
-                need_count = operations * (d->fragment_count + d->bootstrap_fragment_count) +
+                need_count = operations * (d->fragment_count + (none ? 0U : d->bootstrap_fragment_count)) +
                              fu(st, timing, "max_status") + fu(st, timing, "receipt_limit");
-                need_count += d->establishment_frame_reserve * fu(st, security, "episode_attempts");
+                if (!none) {
+                    need_count += d->establishment_frame_reserve * fu(st, security, "episode_attempts");
+                }
             }
             if (strcmp(key, "sender") == 0 || strcmp(key, "assembly") == 0 ||
                 strcmp(key, "application_queue") == 0) {
@@ -1658,6 +1749,9 @@ static void check_resources(vstate *st, const json_value *m, const derived *d)
             }
             if (strcmp(key, "control") == 0 || strcmp(key, "adapter") == 0) {
                 need_bytes = endpoint && strcmp(key, "control") == 0 ? 0U : encoded;
+            }
+            if (need_count == 0U) {
+                need_bytes = 0U;
             }
             snprintf(cpath, sizeof cpath, "%s.%s", path, key);
             if (!need(st, have_count >= need_count && have_bytes >= need_bytes, "resources", cpath)) {

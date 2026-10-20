@@ -99,6 +99,15 @@ class P21DSelectiveEdgeTests(unittest.TestCase):
             if charge["component"] in charge_counts:
                 charge["count"] = charge_counts[charge["component"]]
 
+        # The test deliberately expands the temporary freshness quota. Keep
+        # its endpoint RAM region budgeted for those additional fixed records.
+        ram_region = next(region for region in endpoint_resources["regions"]
+                          if region["id"] == "RAM")
+        required_ram = sum(charge["count"] * charge["bytes_each"]
+                           for charge in endpoint_resources["charges"]
+                           if charge["region"] == "RAM")
+        ram_region["limit_bytes"] = max(ram_region["limit_bytes"], required_ram)
+
         manifest_bytes = json.dumps(
             manifest, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")

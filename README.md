@@ -2,7 +2,7 @@
 
 DMP is a compact, transport-independent device messaging protocol under development. It carries opaque payloads over explicitly specified bindings, with optional routing, reliability, fragmentation and pairwise end-to-end encryption.
 
-**Current contract:** manifest format 1.0, document revision 10, SEC-1 profile revision 5, BOOT_VERSION 2, SELECTIVE-32 recovery revision 1. Wire major version remains 2; peers must agree on the exact profile and manifest bytes. The portable C11 `libdmp` now includes bounded endpoint, peer-owned SEC-1 association lifecycle, reliability, reassembly, Stream L/R framing, transparent relay, profile admission, and an application-side SAMPLE-1 epoch owner. The latest local host gate passed 144/144 native CTests, excluding the owner-deferred ARM ABI probe and seven dependent `memory.*.layout` checks. ESP-IDF 6.1 compile/link checks passed for the DMP probes and the separate ESP-NOW smoke images on ESP32-S3 and ESP32-C3. Target runtime and physical qualification remain open. This is host/simulation and compile/link evidence, not a product release claim. DIRECT-1 uses a 256-byte decoded Core frame ceiling and a 263-byte encoded Stream R ceiling.
+**Current contract:** manifest format 1.1, document revision 11, SEC-1 profile revision 5, BOOT_VERSION 2, SELECTIVE-32 recovery revision 2, and SAMPLE-1 revision 3. Wire major version remains 2; peers must agree on the exact profile and manifest bytes. Endpoint instances explicitly select NONE or unchanged SEC-1. NONE Core frames require CRC32C and configured identity contexts; this is corruption detection, not authentication. The portable C11 `libdmp` includes bounded endpoint, peer-owned SEC-1 association lifecycle, reliability, reassembly, Stream L/R framing, transparent relay, profile admission, and an application-side SAMPLE-1 epoch owner. This implementation is in progress; historical host/compile results below cover earlier revisions and do not validate optional-security behavior. DIRECT-1 retains a 256-byte decoded Core frame ceiling and Stream R its independent envelope CRC.
 
 The public API is under [include/dmp/](include/dmp/); implementation layers live in `src/`, including the payload-agnostic endpoint/security core and the separate [SAMPLE-1 application component](src/application/). Tests link the same C sources. Host CTest and the independent Python peer cover scoped protocol, security lifecycle, profile, and interop behavior. See the [multi-peer continuation contract](dev/DMP_Multi_Peer_Contract_2026-10-13.md) and the [P25 host/simulation report](dev/DMP_P25_Host_Simulation_Report.md) for current acceptance boundaries.
 
@@ -30,7 +30,7 @@ The current design brings together:
 - **Transport and payload independence.** Stream and packet bindings define boundaries, MTU and buffer ownership; applications define their own services and payload schemas. The core requires neither IP nor a central broker.
 - **Different delivery needs.** Live telemetry can discard obsolete samples, while requests and results use bounded reliable exchange. Message receipt and application completion have distinct meanings.
 - **Recovery matched to transmission cost.** Simple links can retry a whole fragmented message. The optional SELECTIVE-32 mode requests missing fragments on expensive links, within fixed memory, timing and feedback limits. Recovery policy is agreed in the profile, not guessed or switched after a timeout.
-- **Security across relays.** Optional SEC-1 defines pairwise end-to-end protection with pre-shared keys or authenticated pairing. A transparent relay forwards the protected payload without receiving endpoint traffic keys. The DIRECT-1 and RADIO-1 reference families require SEC-1.
+- **Security across relays.** Optional SEC-1 defines pairwise end-to-end protection with pre-shared keys or authenticated pairing. A transparent relay forwards the protected payload without receiving endpoint traffic keys. DIRECT-1 and RADIO-1 instances explicitly select either NONE or SEC-1; NONE has no cryptographic identity guarantee.
 - **Explicit resource limits.** Profiles declare memory, frame sizes, queues, retries and lifetimes, so constrained implementations can provision bounded state and preserve capacity for protocol control.
 
 Existing protocols cover many of these needs. [MQTT 5.0](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html) defines client/server publish-subscribe messaging over an ordered, lossless connection. [CoAP](https://www.rfc-editor.org/rfc/rfc7252.html) provides a resource-oriented request/response model for constrained systems, and [OSCORE](https://www.rfc-editor.org/rfc/rfc8613.html) adds end-to-end protection through proxies. Their capabilities overlap with DMP; encryption, compact messages and reliability are not unique DMP features. DMP explores a particular combination for direct device messaging across stream and raw-packet links, without requiring a broker, a resource/URI model or a particular payload codec. The [design tradeoffs](docs/DMP_v2_Design_Tradeoffs.md) document the approaches borrowed from existing work.
@@ -46,7 +46,7 @@ Compactness, low memory use and reduced airtime are design goals. Whether this c
 | [SELECTIVE-32](docs/DMP_v2_Selective_Recovery.md) | Authenticated missing-fragment feedback and bounded recovery on expensive links |
 | [Deployment profiles](docs/DMP_v2_Deployment_Profiles.md) | DIRECT-1 and RADIO-1 choices, ceilings and mandatory site-specific parameters |
 | [Reference application](docs/DMP_v2_Reference_Application.md) | Exact small SAMPLE-1 telemetry/read/status schema |
-| [Test manifest format](docs/DMP_Test_Manifest_Contract.md) | Single format 1.0 configuration bytes, schema, offline constraints and independent-peer input boundary |
+| [Test manifest format](docs/DMP_Test_Manifest_Contract.md) | Single format 1.1 configuration bytes, optional NONE/SEC-1 mode, schema, offline constraints and independent-peer input boundary |
 | [Design tradeoffs](docs/DMP_v2_Design_Tradeoffs.md) | Rationale, prior art and measurement boundaries |
 | [Implementation and tooling plan](dev/DMP_Implementation_Plan.md) | Portable core, profile validator, simulator, decoder, benchmarks and release gates |
 | [Agent workflow](AGENTS.md) | Coordinator, bounded worker assignments, ownership and review rules |
@@ -88,7 +88,7 @@ The CLI returns the SHA256 of the exact original manifest bytes and conservative
 derived bounds. `--expect-sha256 HEX` additionally checks provisioning agreement.
 The [schema](profiles/schema/manifest-v1.schema.json) and
 [written contract](docs/DMP_Test_Manifest_Contract.md) define the selected
-format 1.0. Corpus files are not physical/product profiles.
+format 1.1. Corpus files are not physical/product profiles.
 [P03 deployment instances](profiles/deployments/README.md) are frozen, including a
 separately identified radio retry-all comparison. P09 implements startup
 enforcement in libdmp. The [137-case ledger](dev/DMP_Normative_Cases.md) now

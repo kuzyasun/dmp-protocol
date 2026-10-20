@@ -121,6 +121,45 @@ add_custom_command(OUTPUT "${_fixture_header}"
     DEPENDS "${PROJECT_SOURCE_DIR}/tests/provider/generate_noise_fixture_header.py"
         "${PROJECT_SOURCE_DIR}/docs/DMP_v2_Security_Test_Vectors.json"
     VERBATIM)
+
+# P23's protected endpoint runner selects the exact profile by its frozen
+# manifest digest. Generate these expected hashes from the same manifest
+# sources used by the independent peer and CMake's fixture definitions.
+set(_p23_profile_rows
+    "radio_selective|radio-nnpsk0.json"
+    "radio_retry_all|test-radio-retry-all-nnpsk0.json"
+    "stream_r|test-peer-tcp-stream-r-nnpsk0.json"
+    "mixed|test-mixed-tcp-stream-r-sim-packet-nnpsk0.json"
+    "stream_r_sample20|test-peer-tcp-stream-r-sample20-nnpsk0.json"
+    "direct_nnpsk0|direct-nnpsk0.json"
+    "direct_xx|direct-xx.json"
+    "radio_xx|radio-xx.json"
+    "retry_all_xx|test-radio-retry-all-xx.json")
+set(_p23_hash_header "${CMAKE_CURRENT_BINARY_DIR}/p23_profile_hashes.h")
+set(_p23_hash_content "/* Generated from profiles/deployments at configure time. */\n")
+foreach(_row IN LISTS _p23_profile_rows)
+    string(REPLACE "|" ";" _parts "${_row}")
+    list(GET _parts 0 _symbol)
+    list(GET _parts 1 _manifest_name)
+    set(_manifest "${PROJECT_SOURCE_DIR}/profiles/deployments/${_manifest_name}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_manifest}")
+    file(SHA256 "${_manifest}" _digest)
+    string(APPEND _p23_hash_content "static const uint8_t p23_hash_${_symbol}[32] = {\n    ")
+    foreach(_offset RANGE 0 62 2)
+        string(SUBSTRING "${_digest}" ${_offset} 2 _byte)
+        string(APPEND _p23_hash_content "0x${_byte}")
+        if(NOT _offset EQUAL 62)
+            string(APPEND _p23_hash_content ", ")
+        endif()
+        math(EXPR _column "(${_offset} / 2) % 8")
+        if(_column EQUAL 7 AND NOT _offset EQUAL 62)
+            string(APPEND _p23_hash_content "\n    ")
+        endif()
+    endforeach()
+    string(APPEND _p23_hash_content "\n};\n")
+endforeach()
+file(WRITE "${_p23_hash_header}" "${_p23_hash_content}")
+
 set(_recovery_header "${CMAKE_CURRENT_BINARY_DIR}/frag_status_aead_vectors.h")
 add_custom_command(OUTPUT "${_recovery_header}"
     COMMAND "${Python3_EXECUTABLE}"

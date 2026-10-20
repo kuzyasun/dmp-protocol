@@ -8,6 +8,7 @@ import re
 import sys
 import unittest
 from pathlib import Path
+import subprocess
 
 EMBEDDED_DIR = Path(__file__).resolve().parents[2] / "embedded" / "espnow_dmp"
 PROFILES_DIR = Path(__file__).resolve().parents[3] / "profiles" / "deployments"
@@ -23,6 +24,14 @@ from serial_dmp_common import (
 
 
 class TestProfileGeometry(unittest.TestCase):
+    def test_generated_embedded_profile_hashes_are_current(self):
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parents[3] /
+                                 "tools" / "generate_embedded_profile_hashes.py"), "--check"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_manifest_digests_match_constants(self):
         retry2_path = PROFILES_DIR / "test-direct-sample-retry-2-nnpsk0.json"
         multipeer_path = PROFILES_DIR / "test-direct-multi-peer-nnpsk0.json"
@@ -42,6 +51,17 @@ class TestProfileGeometry(unittest.TestCase):
         digests_data = json.loads(digests_path.read_text(encoding="utf-8"))
         self.assertEqual(digests_data["manifests"]["test-direct-sample-retry-2-nnpsk0.json"], RETRY_2_PROFILE_HASH)
         self.assertEqual(digests_data["manifests"]["test-direct-multi-peer-nnpsk0.json"], MULTI_PEER_PROFILE_HASH)
+
+    def test_embedded_composition_selects_the_installed_sec1_context(self):
+        source = FIRMWARE_MAIN.read_text(encoding="utf-8")
+        self.assertIn("g_profile_config.security_mode = DMP_PROFILE_SECURITY_SEC1;", source)
+        self.assertIn("context.security = 1U;", source)
+        self.assertIn("dmp_endpoint_init(&g_endpoint, &storage, now)", source)
+        repository_root = Path(__file__).resolve().parents[3]
+        endpoint_tests = (repository_root / "tests" / "endpoint" / "test_endpoint_sec.c").read_text(
+            encoding="utf-8")
+        self.assertIn("config->security_mode = DMP_PROFILE_SECURITY_SEC1;", endpoint_tests)
+        self.assertIn("identity.security = 1U;", endpoint_tests)
 
     def test_retry_2_manifest_geometry(self):
         retry2_path = PROFILES_DIR / "test-direct-sample-retry-2-nnpsk0.json"

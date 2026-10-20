@@ -222,7 +222,7 @@ class ManifestContractTests(unittest.TestCase):
     def test_xx_confirmation_reserves_cached_flight_three_and_its_budget(self):
         direct = json.loads(_read_fixture("direct.json"))
         xx = _mutate(direct, [
-            {"op": "set", "path": "/security/mode", "value": "XX"},
+            {"op": "set", "path": "/security/noise_mode", "value": "XX"},
             {"op": "set", "path": "/security/credential", "value": "authenticated-oob-xx"},
             {"op": "set", "path": "/security/confirmation_timeout_ms", "value": 448},
         ])

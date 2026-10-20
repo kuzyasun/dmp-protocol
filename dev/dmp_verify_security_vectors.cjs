@@ -9,7 +9,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const data = JSON.parse(fs.readFileSync(path.join(__dirname, '../docs/DMP_v2_Security_Test_Vectors.json')));
-assert.equal(data.specification, 'DMP v2 revision 10 / SEC-1 revision 5 / BOOT_VERSION 2');
+assert.equal(data.specification, 'DMP v2 revision 11 / SEC-1 revision 5 / BOOT_VERSION 2');
 const b = h => Buffer.from(h, 'hex');
 const sha = x => crypto.createHash('sha256').update(x).digest();
 

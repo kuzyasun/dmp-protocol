@@ -78,6 +78,46 @@ def raw_case(case):
 
 
 class HarnessSubprocessTests(unittest.TestCase):
+    def test_radio_none_pairwise_route_exact_fit_and_underflow(self):
+        profile = json.loads((DEPLOYMENTS / "radio-none.json").read_text(encoding="utf-8"))
+        nodes = [10, 20, 50, 60, 70, 80]
+        profile["identity"]["nodes"] = nodes
+        profile["limits"]["peers"] = len(nodes) - 1
+        for service in profile["services"]:
+            service["acl"] = [
+                {"node": node, "actions":
+                 ((["produce", "result"] if node == 10 else ["read", "status"])
+                  if service["id"] == 1 else ["data", "result"])}
+                for node in nodes
+            ]
+        for resource in profile["resources"]:
+            for region in resource["regions"]:
+                region["limit_bytes"] = 16 * 1024 * 1024
+            for charge in resource["charges"]:
+                if resource["role"] == "relay" and charge["component"] == "relay_cache":
+                    charge["count"] = 1000
+                elif resource["role"] == "endpoint":
+                    if charge["component"] in {"sender", "result", "correlation"}:
+                        charge["count"] = 20
+                    elif charge["component"] == "history":
+                        charge["count"] = 40
+                    elif charge["component"] == "assembly":
+                        charge["count"] = 5
+                    elif charge["component"] == "assembly_tombstone":
+                        charge["count"] = 80
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "radio-five-peer.json"
+            for mtu, expected in ((83, 0), (82, 2)):
+                profile["binding"].update(
+                    forward_mtu=mtu, return_mtu=mtu, encoded_mtu=mtu)
+                raw = json.dumps(profile, separators=(",", ":")).encode()
+                manifest.write_bytes(raw)
+                result = run([], scenario(hashlib.sha256(raw).hexdigest()), manifest)
+                self.assertEqual(expected, result.returncode, result.stderr.decode())
+                if expected:
+                    self.assertIn(b"code=mtu", result.stderr)
+
     def test_interface_version_and_cli_rejection(self):
         version = run(["--interface-version"])
         self.assertEqual(version.returncode, 0)
@@ -185,6 +225,19 @@ class HarnessSubprocessTests(unittest.TestCase):
                 code, path = self.offline_failure(raw)
                 self.assert_manifest_code(raw, code, path)
 
+    def test_c_harness_accepts_quota_bounded_five_peer_none_manifest(self):
+        manifest = DEPLOYMENTS / "test-direct-none-five-peers.json"
+        raw = manifest.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        result = run([], scenario(digest), manifest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(raw)
+        value["limits"]["peers"] = 4
+        mutated = json.dumps(value, separators=(",", ":")).encode()
+        code, path = self.offline_failure(mutated)
+        self.assertEqual(("resources", "$.limits.peers"), (code, path))
+        self.assert_manifest_code(mutated, code, path)
+
     def assert_manifest_code(self, raw, code, path):
         digest = hashlib.sha256(raw).hexdigest()
         with tempfile.TemporaryDirectory() as directory:
@@ -198,7 +251,8 @@ class HarnessSubprocessTests(unittest.TestCase):
         self.assertEqual(end["outcome"], "invalid_input")
 
     def test_digest_mismatch_and_valid_deployments(self):
-        for name in ("direct-nnpsk0.json", "direct-xx.json", "radio-nnpsk0.json",
+        for name in ("direct-nnpsk0.json", "direct-xx.json", "direct-none.json",
+                     "radio-nnpsk0.json", "radio-none.json",
                      "radio-xx.json", "test-radio-retry-all-nnpsk0.json",
                      "test-radio-retry-all-xx.json",
                      "test-direct-sample-retry-2-nnpsk0.json"):

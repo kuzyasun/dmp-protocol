@@ -13,7 +13,7 @@ const suite = security.vectors.find(item => item.protocol_name === 'Noise_NNpsk0
 const label = Buffer.from('DMP2-SEC1-DATA');
 const illustrative = '480ac109010107050105';
 
-assert.equal(recovery.specification, 'DMP v2 revision 10 / SEC-1 revision 5 / SELECTIVE-32 revision 1');
+assert.equal(recovery.specification, 'DMP v2 revision 11 / SEC-1 revision 5 / SELECTIVE-32 revision 2');
 assert.equal(recovery.supported_suite.cipher, 1);
 assert.equal(recovery.supported_suite.protocol_name, suite.protocol_name);
 assert.match(recovery.supported_suite.excluded, /Cipher 2/);

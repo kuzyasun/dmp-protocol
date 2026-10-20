@@ -1,5 +1,5 @@
 {
-  "specification": "DMP v2 revision 10 / SEC-1 revision 5 / SELECTIVE-32 revision 1",
+  "specification": "DMP v2 revision 11 / SEC-1 revision 5 / SELECTIVE-32 revision 2",
   "warning": "PUBLIC TEST KEYS ONLY. These fixtures are not a live association, an endpoint, or physical transport.",
   "provenance": {
     "generator": "dev/dmp_generate_recovery_vectors.py",

@@ -1,13 +1,14 @@
 #include "dmp/endpoint.h"
 
 #include "sample1.h"
+#include "dmp/integrity.h"
 
 #include <stdio.h>
 #include <string.h>
 
-/* Two libdmp endpoints on a host loopback. This is not physical-transport
- * evidence and not a SEC-1 run. SAMPLE-1 requires SEC-1; these plaintext
- * exchanges are provisional and must be repeated at P15. The test does not
+/* Two libdmp endpoints on a host loopback. These scenarios exercise the
+ * generic endpoint and a SAMPLE-1-shaped application state machine under
+ * NONE; they are not physical-transport or SEC-1 evidence. The test does not
  * reimplement retry, duplicate suppression, reassembly, or admission. */
 
 #define CHECK(condition)                                                     \
@@ -211,6 +212,7 @@ static void fill_direct(dmp_config *config)
 {
     memset(config, 0, sizeof *config);
     memcpy(config->sha256, DIRECT_SHA, sizeof DIRECT_SHA);
+    config->security_mode = DMP_PROFILE_SECURITY_NONE;
     config->namespace_id = 1U;
     config->node_id[0] = 10U;
     config->node_id[1] = 20U;
@@ -1754,12 +1756,14 @@ static int core_of(const held *in, uint8_t *core, size_t cap, size_t *n, dmp_tim
     return 0;
 }
 
-static int with_unknown(const held *in, held *out, dmp_time_ms now)
+static int with_unknown(const held *in, held *out, dmp_time_ms now, int corrupt_core_crc)
 {
     uint8_t core[MTU];
     uint8_t ext[128];
     uint8_t encoded[MTU];
     uint8_t stream[FRAME_CAP];
+    uint8_t core_crc[4] = {0U, 0U, 0U, 0U};
+    uint32_t crc = 0U;
     size_t core_n = 0U;
     size_t written = 0U;
     size_t framed = 0U;
@@ -1784,9 +1788,20 @@ static int with_unknown(const held *in, held *out, dmp_time_ms now)
     spec.fields.options = (uint8_t)(spec.fields.options | DMP_OPT_EXT);
     spec.extensions = span(ext, view.extensions.size + sizeof UNKNOWN_SAFE);
     spec.payload = view.payload;
+    spec.trailer = span(core_crc, sizeof core_crc);
     buf.data = encoded;
     buf.capacity = sizeof encoded;
     CHECK(dmp_core_encode(&spec, &limits, buf, &written) == DMP_OK);
+    CHECK(written >= sizeof core_crc);
+    CHECK(dmp_crc32c(span(encoded, written - sizeof core_crc), &crc) == DMP_OK);
+    core_crc[0] = (uint8_t)crc;
+    core_crc[1] = (uint8_t)(crc >> 8U);
+    core_crc[2] = (uint8_t)(crc >> 16U);
+    core_crc[3] = (uint8_t)(crc >> 24U);
+    CHECK(dmp_core_encode(&spec, &limits, buf, &written) == DMP_OK);
+    if (corrupt_core_crc) {
+        encoded[written - 1U] ^= 0x80U;
+    }
     buf.data = stream + 1;
     buf.capacity = sizeof stream - 1U;
     CHECK(dmp_stream_encode(DMP_STREAM_R, span(encoded, written), buf, &framed) == DMP_OK);
@@ -1825,7 +1840,14 @@ static int test_fragment_tlv(void)
     left.wire.n = 0;
     status = dmp_endpoint_rx(&right.endpoint, span(saved[0].frame, saved[0].len), now);
     CHECK(status == DMP_INCOMPLETE);
-    CHECK(with_unknown(&saved[1], &mutated, now) == 0);
+    CHECK(with_unknown(&saved[1], &mutated, now, 1) == 0);
+    status = dmp_endpoint_rx(&right.endpoint, span(mutated.frame, mutated.len), now);
+    if (status != DMP_AUTHENTICATION_FAILURE && status != DMP_MALFORMED) {
+        (void)fprintf(stderr, "corrupt inner Core CRC returned %d\n", (int)status);
+    }
+    CHECK(status == DMP_INTEGRITY_FAILURE);
+    CHECK(right.app.assembled == 0);
+    CHECK(with_unknown(&saved[1], &mutated, now, 0) == 0);
     status = dmp_endpoint_rx(&right.endpoint, span(mutated.frame, mutated.len), now);
     CHECK(status == DMP_MALFORMED);
     for (i = 2; i < n; i++) {

@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from profile_hashes import MULTI_PEER_PROFILE_HASH, RETRY_2_PROFILE_HASH
+
 
 MAC_PATTERN = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}\Z", re.IGNORECASE)
 SESSION_PATTERN = re.compile(r"^[0-9a-f]{16}\Z")
@@ -29,8 +31,6 @@ RESET_REASONS = {
 }
 
 
-RETRY_2_PROFILE_HASH = "478af0bc4912d0fc46ed76c249ec5f30f8f64bc89ed7411e9b9231bbf487db5c"
-MULTI_PEER_PROFILE_HASH = "001eb42d8f440e0ceaf1711e764ceacfc3c1dd034cfb2d7f320be7d877f7454f"
 RETRY_2_EPOCH_NVS_KEY = "s1_epoch_test"
 MULTI_PEER_EPOCH_NVS_KEY = "s1_epoch_mp"
 

@@ -52,12 +52,27 @@ class ManifestTests(unittest.TestCase):
         path = (Path(__file__).parents[3] / "profiles" / "deployments"
                 / "test-direct-multi-peer-nnpsk0.json")
         manifest = load_manifest("test-direct-multi-peer-nnpsk0.json")
-        self.assertEqual(manifest.values["contract"], "DMP-test-manifest/1.0")
+        self.assertEqual(manifest.values["contract"], "DMP-test-manifest/1.1")
         multi = manifest.values["multi_peer"]
         self.assertEqual(multi["endpoint_node"], 20)
         self.assertEqual(multi["peer_nodes"], [10, 35, 34, 36])
         self.assertEqual([row["name"] for row in multi["sensitivity_rows"]],
                          ["four_serial", "four_parallel"])
+        too_many = json.loads(path.read_bytes())
+        too_many["multi_peer"]["peer_nodes"].append(37)
+        with self.assertRaises(ManifestError):
+            parse_manifest(json.dumps(too_many).encode())
+
+    def test_none_manifest_admits_five_peers_with_explicit_ram_quota(self):
+        path = (Path(__file__).parents[3] / "profiles" / "deployments"
+                / "test-direct-none-five-peers.json")
+        manifest = parse_manifest(path.read_bytes())
+        self.assertEqual(5, manifest.values["limits"]["peers"])
+        self.assertEqual(6, len(manifest.values["identity"]["nodes"]))
+        value = json.loads(path.read_bytes())
+        value["limits"]["peers"] = 4
+        with self.assertRaisesRegex(ManifestError, "peer quota must match"):
+            parse_manifest(json.dumps(value).encode())
 
     def test_normative_excluded_manifest_features_are_rejected(self):
         path = (Path(__file__).parents[3] / "profiles" / "deployments"
@@ -249,6 +264,18 @@ class ManifestTests(unittest.TestCase):
         radio["relays"][0]["max_forwards_per_key"] = 1
         with self.assertRaisesRegex(ManifestError, "relay"):
             parse_manifest(json.dumps(radio).encode())
+
+    def test_none_full_reply_mtu_exact_fit_and_one_byte_short(self):
+        deployments = Path(__file__).parents[3] / "profiles" / "deployments"
+        direct = json.loads((deployments / "direct-none.json").read_bytes())
+        direct["binding"].update(forward_mtu=115, return_mtu=115, encoded_mtu=121)
+        self.assertEqual("NONE", parse_manifest(json.dumps(direct).encode()).values["security"]["mode"])
+        direct["binding"].update(forward_mtu=114, return_mtu=114, encoded_mtu=120)
+        with self.assertRaisesRegex(ManifestError, "mtu"):
+            parse_manifest(json.dumps(direct).encode())
+        direct["binding"].update(forward_mtu=107, return_mtu=107, encoded_mtu=113)
+        with self.assertRaisesRegex(ManifestError, "mtu"):
+            parse_manifest(json.dumps(direct).encode())
 
         direct = json.loads((deployments / "direct-nnpsk0.json").read_bytes())
         endpoint = next(resource for resource in direct["resources"]

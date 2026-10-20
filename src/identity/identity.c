@@ -2,6 +2,46 @@
 
 #include <string.h>
 
+dmp_status dmp_none_boot_epoch_generate_checked(
+    dmp_random_bytes_fn random_bytes, void *user,
+    const uint64_t *retained_local_epochs, size_t retained_count,
+    uint64_t *out_epoch)
+{
+    uint8_t bytes[sizeof(uint64_t)];
+    uint64_t epoch = 0U;
+    size_t i;
+    dmp_status status;
+
+    if (random_bytes == NULL || out_epoch == NULL ||
+        (retained_count != 0U && retained_local_epochs == NULL) ||
+        retained_count > SIZE_MAX / sizeof(*retained_local_epochs)) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    status = random_bytes(user, bytes, sizeof bytes);
+    if (status != DMP_OK) {
+        return status;
+    }
+    for (i = 0U; i < sizeof bytes; i++) {
+        epoch |= (uint64_t)bytes[i] << (i * 8U);
+    }
+    if (epoch == 0U) {
+        return DMP_INVALID_ARGUMENT;
+    }
+    for (i = 0U; i < retained_count; i++) {
+        if (retained_local_epochs[i] == epoch) {
+            return DMP_DUPLICATE;
+        }
+    }
+    *out_epoch = epoch;
+    return DMP_OK;
+}
+
+dmp_status dmp_none_boot_epoch_generate(dmp_random_bytes_fn random_bytes,
+                                        void *user, uint64_t *out_epoch)
+{
+    return dmp_none_boot_epoch_generate_checked(random_bytes, user, NULL, 0U, out_epoch);
+}
+
 /* Caller-owned association slots.
  * Generation 0 is never a live handle. Init stores 0; the first open uses
  * dmp_generation_next, so the first live generation is 1. Retirement keeps the
@@ -56,6 +96,10 @@ dmp_status dmp_identity_table_init(dmp_identity_table *table,
     }
     table->slots = slots;
     table->capacity = capacity;
+    memset(&table->none_local, 0, sizeof table->none_local);
+    table->none_next_seq = 0U;
+    table->none_seq_live = 0U;
+    table->none_seq_exhausted = false;
     return DMP_OK;
 }
 
@@ -66,11 +110,36 @@ dmp_status dmp_identity_context_open(dmp_identity_table *table,
     size_t i;
     uint64_t generation = 0U;
     int generation_exhausted = 0;
+    uint32_t shared_next = 0U;
+    bool shared_exhausted = false;
+    bool replace_none_allocator = false;
 
     if (table == NULL || config == NULL || out == NULL ||
         (config->security != 0U && config->security != 1U) ||
         (table->capacity != 0U && table->slots == NULL)) {
         return DMP_INVALID_ARGUMENT;
+    }
+    if (config->security == 0U && table->none_seq_live != 0U) {
+        if (table->none_local.namespace_id == config->local.namespace_id &&
+            table->none_local.origin_id == config->local.origin_id &&
+            table->none_local.epoch == config->local.epoch) {
+            shared_next = table->none_next_seq;
+            shared_exhausted = table->none_seq_exhausted;
+        } else {
+            for (i = 0U; i < table->capacity; i++) {
+                const dmp_identity_slot *existing = &table->slots[i];
+                if (existing->state != DMP_IDENTITY_SLOT_UNUSED &&
+                    existing->security == 0U &&
+                    existing->local.namespace_id == table->none_local.namespace_id &&
+                    existing->local.origin_id == table->none_local.origin_id &&
+                    existing->local.epoch == table->none_local.epoch) {
+                    return DMP_CONTEXT_REQUIRED;
+                }
+            }
+            replace_none_allocator = true;
+        }
+    } else if (config->security == 0U) {
+        replace_none_allocator = true;
     }
     for (i = 0U; i < table->capacity; i++) {
         dmp_identity_slot *slot = &table->slots[i];
@@ -81,15 +150,23 @@ dmp_status dmp_identity_context_open(dmp_identity_table *table,
             generation_exhausted = 1;
             continue;
         }
+        if (config->security == 0U && replace_none_allocator) {
+            table->none_local = config->local;
+            table->none_next_seq = 0U;
+            table->none_seq_live = 1U;
+            table->none_seq_exhausted = false;
+            shared_next = 0U;
+            shared_exhausted = false;
+        }
         slot->local = config->local;
         slot->peer = config->peer;
         slot->not_after = UINT64_MAX;
         slot->generation = generation;
-        slot->next_seq = 0U;
+        slot->next_seq = shared_next;
         slot->retained = 0U;
         slot->security = config->security;
         slot->state = DMP_IDENTITY_SLOT_ACTIVE;
-        slot->seq_exhausted = false;
+        slot->seq_exhausted = shared_exhausted;
         out->slot = (uint32_t)i;
         out->generation = generation;
         return DMP_OK;
@@ -183,6 +260,7 @@ dmp_status dmp_identity_next_seq(dmp_identity_table *table,
 {
     dmp_identity_slot *slot = live_slot(table, handle);
     uint32_t seq;
+    size_t i;
 
     if (table == NULL || out == NULL) {
         return DMP_INVALID_ARGUMENT;
@@ -190,11 +268,44 @@ dmp_status dmp_identity_next_seq(dmp_identity_table *table,
     if (slot == NULL) {
         return DMP_STALE_HANDLE;
     }
-    if (slot->seq_exhausted) {
-        return DMP_LIMIT_EXHAUSTED;
+    if (slot->security == 0U) {
+        if (table->none_seq_live == 0U ||
+            table->none_local.namespace_id != slot->local.namespace_id ||
+            table->none_local.origin_id != slot->local.origin_id ||
+            table->none_local.epoch != slot->local.epoch) {
+            return DMP_CONTEXT_REQUIRED;
+        }
+        if (table->none_seq_exhausted) {
+            return DMP_LIMIT_EXHAUSTED;
+        }
+        seq = table->none_next_seq;
+    } else {
+        if (slot->seq_exhausted) {
+            return DMP_LIMIT_EXHAUSTED;
+        }
+        seq = slot->next_seq;
     }
-    seq = slot->next_seq;
-    if (seq == UINT32_MAX) {
+    for (i = 0U; i < table->capacity; i++) {
+        dmp_identity_slot *shared = &table->slots[i];
+        if (shared->state != DMP_IDENTITY_SLOT_UNUSED && slot->security == 0U &&
+            shared->security == 0U &&
+            shared->local.namespace_id == slot->local.namespace_id &&
+            shared->local.origin_id == slot->local.origin_id &&
+            shared->local.epoch == slot->local.epoch) {
+            if (seq == UINT32_MAX) {
+                shared->seq_exhausted = true;
+            } else {
+                shared->next_seq = seq + 1U;
+            }
+        }
+    }
+    if (slot->security == 0U) {
+        if (seq == UINT32_MAX) {
+            table->none_seq_exhausted = true;
+        } else {
+            table->none_next_seq = seq + 1U;
+        }
+    } else if (seq == UINT32_MAX) {
         slot->seq_exhausted = true;
     } else {
         slot->next_seq = seq + 1U;
@@ -388,6 +499,10 @@ static dmp_status source_identity(const dmp_frame_view *frame, const dmp_identit
          ext->context_epoch != slot->peer.epoch)) {
         return DMP_MALFORMED;
     }
+    if (!secured && !routed &&
+        (!ext->have_context || !ext->have_origin)) {
+        return DMP_CONTEXT_REQUIRED;
+    }
     if (routed) {
         if (secured) {
             /* SEC-1 and RADIO-1 require explicit CONTEXT and TO_NODE. A missing
@@ -400,19 +515,13 @@ static dmp_status source_identity(const dmp_frame_view *frame, const dmp_identit
                 return DMP_CONTEXT_REQUIRED;
             }
         } else {
-            /* Main §22.3 permits unprotected TO_ROOT (mode 0) and TO_NODE (mode 1).
-             * TO_NODE requires explicit destination matching local origin and explicit CONTEXT.
-             * TO_ROOT (mode 0) permits CONTEXT to be omitted when the peer binding context
-             * is preconfigured and unambiguous. */
-            if (frame->fields.route.mode == 1U) {
-                if (frame->fields.route.destination != slot->local.origin_id) {
-                    return DMP_MALFORMED;
-                }
-                if (!ext->have_context) {
-                    return DMP_CONTEXT_REQUIRED;
-                }
-            } else if (frame->fields.route.mode != 0U) {
+            /* NONE routed identity is explicit and destination-bound. */
+            if (frame->fields.route.mode != 1U ||
+                frame->fields.route.destination != slot->local.origin_id) {
                 return DMP_MALFORMED;
+            }
+            if (!ext->have_context) {
+                return DMP_CONTEXT_REQUIRED;
             }
         }
         origin = frame->fields.route.source;

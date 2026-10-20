@@ -1,7 +1,7 @@
 {
   "fixtures": {
     "direct.json": {
-      "sha256": "ac54b0db65342236bfc36221f1c09985bcabdb64b7ca6989876a3c1b4e36b384",
+      "sha256": "0a40c0e1cb1d532f073dc261438fb06249bd7de93d5234c93f37a1de4f1eadf0",
       "derived": {
         "fragment_count": 4,
         "bootstrap_fragment_count": 2,
@@ -24,7 +24,7 @@
       }
     },
     "radio.json": {
-      "sha256": "aa1d68ea8199777c979b143a7ccbf3d790f25e209fe0be316d95a21ab56d7318",
+      "sha256": "89836b95c87bd30e0835ea57de9731bd46099261e536d15648ec16ac69a93312",
       "derived": {
         "fragment_count": 4,
         "bootstrap_fragment_count": 2,
@@ -50,7 +50,7 @@
       }
     },
     "test-radio-retry-all.json": {
-      "sha256": "670f096d6a7c5cf27bc1fa1e9895fe55351f63690cc467a77affde7403fd9834",
+      "sha256": "9b899a9ecf4f915c99c9562c5cf7bc395b6eec9b0c255f529941c17223229c0f",
       "derived": {
         "fragment_count": 4,
         "bootstrap_fragment_count": 2,

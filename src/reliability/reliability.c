@@ -2946,7 +2946,8 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
             for (i = 0U; i < engine->storage.sender_capacity; i++) {
                 dmp_reliability_sender_slot *candidate = &engine->storage.senders[i];
                 if (candidate->live != 0U &&
-                    (candidate->kind == KIND_REQ || candidate->kind == KIND_RESULT) &&
+                    (candidate->kind == KIND_REQ || candidate->kind == KIND_RESULT ||
+                     candidate->kind == KIND_DATA) &&
                     candidate->service_id == service_id && key_eq(candidate->own, reply)) {
                     sender = candidate;
                     break;

@@ -42,7 +42,7 @@ class HostBindingManifestTests(unittest.TestCase):
             with self.subTest(name=name):
                 manifest = load_manifest(name)
                 raw = (DEPLOYMENTS / name).read_bytes()
-                self.assertEqual(manifest.values["contract"], "DMP-test-manifest/1.0")
+                self.assertEqual(manifest.values["contract"], "DMP-test-manifest/1.1")
                 self.assertEqual(manifest.values["profile"]["id"], profile_id)
                 identified = identify_frozen_manifest(raw)
                 self.assertEqual(identified, manifest)
@@ -119,7 +119,7 @@ class HostBindingManifestTests(unittest.TestCase):
     def test_all_profiles_use_the_single_manifest_format(self):
         current = load_manifest("direct-nnpsk0.json")
         raw = (DEPLOYMENTS / "direct-nnpsk0.json").read_bytes()
-        self.assertEqual(current.values["contract"], "DMP-test-manifest/1.0")
+        self.assertEqual(current.values["contract"], "DMP-test-manifest/1.1")
         self.assertEqual(identify_frozen_manifest(raw), current)
 
         direct_tcp = self.read("test-peer-tcp-stream-r-nnpsk0.json")

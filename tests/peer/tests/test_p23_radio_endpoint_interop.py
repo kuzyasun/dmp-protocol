@@ -115,7 +115,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         digest = hashlib.sha256(manifest_bytes).digest()
         self.assertEqual(digest.hex(), self.digest_index[manifest_name])
         manifest = json.loads(manifest_bytes)
-        if manifest["security"]["mode"] == "XX":
+        if manifest["security"]["noise_mode"] == "XX":
             from cryptography.hazmat.primitives.asymmetric import x25519
 
             peer_static = b"\x20" * 32

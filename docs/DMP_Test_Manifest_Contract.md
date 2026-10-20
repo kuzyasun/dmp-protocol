@@ -1,11 +1,11 @@
-# DMP test manifest format 1.0
+# DMP test manifest format 1.1
 
 **Scope:** every current deployment profile uses this single manifest format.
 The format supports direct, routed, host-bound, mixed-binding and shared-endpoint
 multi-peer test profiles. There is no older format to migrate or preserve.
-This selects a bounded subset of main document 10, SEC-1 revision 5,
-SELECTIVE-32 revision 1 and SAMPLE-1 revision 2. It changes no DMP wire rule.
-The marker is exactly `DMP-test-manifest/1.0`. The single [JSON Schema](../profiles/schema/manifest-v1.schema.json) supplies exact
+This selects a bounded subset of main document 11, optional SEC-1 revision 5,
+SELECTIVE-32 revision 2 and SAMPLE-1 revision 3. The marker is exactly
+`DMP-test-manifest/1.1`. The single [JSON Schema](../profiles/schema/manifest-v1.schema.json) supplies exact
 field names, types, required fields, enums and numerical bounds. This document
 supplies semantics and cross-field constraints. Neither part alone is sufficient.
 P03 separately freezes complete deployment instances and their evidence mapping.
@@ -37,14 +37,18 @@ memory charges are **bytes**; counts are integral finite admission caps. Zero is
 allowed only where the schema says so. Arithmetic in this contract is exact,
 without machine-integer wrap. A runtime must reject unrepresentable values.
 
-The contract admits two application services, 1 and 2. All profiles except the
-dedicated shared-endpoint fixture admit exactly one peer pair. That fixture
-admits one endpoint and four distinct authenticated peers on a shared endpoint.
-Node IDs are distinct ULEB32 values; the namespace is ULEB32. Node order determines
+The contract admits two application services, 1 and 2. Each endpoint instance
+selects exactly one explicit security mode: NONE or SEC-1. All profiles except
+the shared-endpoint fixture admit exactly one peer pair. That fixture admits
+one endpoint with caller-provisioned peer capacity; SEC-1 remains capped at four
+authenticated peers, while NONE is bounded by its finite supplied storage and
+explicit resource quotas. Node IDs are distinct ULEB32 values; the namespace is ULEB32. Node order determines
 only stable configuration order. Exactly one node is the SAMPLE-1 producer.
 SEC-1 supplies association epochs; restart discards volatile traffic state and
-requires a fresh handshake. SAMPLE-1 separately persists its never-reused u64
-sample epoch. No state is restored from old traffic counters.
+requires a fresh handshake. NONE supplies one random u64 boot epoch per endpoint
+instance, uses a shared origin SEQ space across its peers, and installs remote
+epochs only from explicit application contexts. SAMPLE-1 separately persists
+its never-reused u64 sample epoch. No state is restored from old traffic counters.
 
 The format supports the direct, radio, retry, asynchronous, minimal-resource,
 two-attempt SAMPLE-1, TCP Stream R, mixed TCP/packet, and shared-endpoint
@@ -111,19 +115,25 @@ before returning. Synchronous completion is explicitly configured.
 
 ## Services and security
 
-Both services require SEC-1 cipher 1. Recovery is fixed in both directions:
+The endpoint-level security mode is explicit and required. Every service repeats
+the same mode; the validator rejects any disagreement. NONE requires no Noise
+mode, credentials, handshake fields, CID, PN, replay/rotation policy or security
+reservations. SEC-1 retains the current pairwise mode 1/2, cipher, association,
+handshake and replay limits unchanged. Recovery is fixed in both directions:
 DIRECT and the separately identified test retry-all family use `retry-all`;
 RADIO-1 uses `selective-32`. All reliable results/feedback use the request's
 service. Default service 1 is omitted, service 2 explicit. PAYLOAD_DESC is omitted
 because the schema is fixed by the manifest. Security service 0 remains explicit
 and independent, and is not an application service entry.
 
-Service 1 is unchanged SAMPLE-1/2: producer ACL `[produce,result]`, consumer
+Service 1 is SAMPLE-1/3: producer ACL `[produce,result]`, consumer
 `[read,status]`; READ/STATUS requests at most 1 byte, results at most 17 bytes,
 TELEM 16 bytes. Fixed lengths/status in `sample` are assertions, not overrides.
 The consumer starts unsynchronized and uses only a correlated current-generation
-READ result; telemetry cannot establish an epoch. Initialization attempts, retry
-interval and absolute deadline are finite. Service 1 does not require freshness.
+READ result; telemetry cannot establish an application sample epoch. In NONE,
+the source is the explicitly installed context and has no cryptographic source
+guarantee. Initialization attempts, retry interval and absolute deadline are
+finite. Service 1 does not require freshness.
 
 Service 2 is test-only `DMP-test/OPAQUE-1/1`: both nodes have `[data,result]` ACL;
 reliable DATA/REQ carry arbitrary opaque fixture bytes, RSP returns opaque fixture
@@ -132,7 +142,7 @@ test acceptance/result, has no external side effect and is idempotent. It adds n
 production opcode. Best-effort fragmentation is not enabled. Durable operations,
 alternative codecs/schemas/ACL forms require a separately specified contract.
 
-NNpsk0 selects individually provisioned pairwise PSK; XX selects authenticated
+When SEC-1 is selected, NNpsk0 selects individually provisioned pairwise PSK; XX selects authenticated
 OOB verification. No secrets or unauthenticated trust fallback are represented.
 Pin/ACL changes require owner authority and atomic commit. Pending, active and
 draining limits are **per pair**, not a combined ambiguous total. Crypto slots
@@ -384,7 +394,7 @@ physical/product manifests. Runtime/startup parity remains P09's obligation.
 
 ## TCP Stream R and mixed host simulation
 
-These binding fields are part of manifest format 1.0. The selected profile
+These binding fields are part of manifest format 1.1. The selected profile
 determines which fields are required; every profile is validated directly
 against the same closed schema.
 
@@ -444,7 +454,7 @@ The direct TCP profile keeps the reference direct workload bounds: 1024-byte
 maximum message, 64-byte chunks, 16 application fragments, 2 bootstrap
 fragments, 256-byte core capacity, 263-byte Stream R capacity, and a 26 ms
 partial-candidate timeout (`1+20+5`). Its no-relay `retry-all` policy is a
-separately identified test profile; it does not relabel `DIRECT-1/4` or
+separately identified test profile; it does not relabel `DIRECT-1/5` or
 `SIM-STREAM-R/1`.
 
 ### Mixed profile topology and protected forwarding

@@ -1,6 +1,7 @@
 #include "sample1_endpoint.h"
 
 #include <string.h>
+#include <stdint.h>
 
 static dmp_sample1_port_result from_endpoint(dmp_status status)
 {
@@ -33,8 +34,9 @@ static dmp_sample1_peer_epoch *peer_record(dmp_sample1_endpoint *sample,
                                            dmp_peer_handle peer)
 {
     dmp_sample1_peer_epoch *record;
-    if (sample == NULL || peer.generation == 0U || peer.slot >= sample->endpoint->profile.peers ||
-        peer.slot >= DMP_PROFILE_MAX_PEERS) {
+    if (sample == NULL || sample->endpoint == NULL || sample->peers == NULL ||
+        peer.generation == 0U || peer.slot >= sample->endpoint->profile.peers ||
+        peer.slot >= sample->peer_capacity) {
         return NULL;
     }
     record = &sample->peers[peer.slot];
@@ -93,7 +95,7 @@ static dmp_sample1_port_result fence_epoch(void *user,
         principal.origin_id != sample->endpoint->mem.context.local.origin_id || old_epoch == 0U) {
         return DMP_SAMPLE1_PORT_FAILED;
     }
-    for (i = 0U; i < DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS; i++) {
+    for (i = 0U; i < sample->result_capacity; i++) {
         if (sample->results[i].live != 0U && sample->results[i].sample_epoch == old_epoch) {
             (void)memset(&sample->results[i], 0, sizeof(sample->results[i]));
         }
@@ -146,7 +148,7 @@ static dmp_sample1_port_result activate_epoch(void *user,
             return DMP_SAMPLE1_PORT_UNKNOWN;
         }
     }
-    for (i = 0U; i < DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS; i++) {
+    for (i = 0U; i < sample->result_capacity; i++) {
         if (sample->results[i].live != 0U) {
             return DMP_SAMPLE1_PORT_UNKNOWN;
         }
@@ -181,6 +183,7 @@ static dmp_sample1_port_result queue_read_result(void *user,
 {
     dmp_sample1_endpoint *sample = user;
     dmp_sample1_peer_epoch *record;
+    bool status_without_epoch;
     uint32_t i;
 
     if (principal.namespace_id != sample->endpoint->profile.namespace_id ||
@@ -188,20 +191,25 @@ static dmp_sample1_port_result queue_read_result(void *user,
         association.generation == 0U || payload_len > DMP_SAMPLE1_READ_BYTES ||
         (payload_len != 0U && payload == NULL) ||
         request_handle.peer.slot >= sample->endpoint->profile.peers ||
-        request_handle.peer.slot >= DMP_PROFILE_MAX_PEERS ||
+        request_handle.peer.slot >= sample->peer_capacity ||
         request_handle.peer.generation == 0U) {
         return DMP_SAMPLE1_PORT_FAILED;
     }
+    status_without_epoch = sample->owner.epoch == 0U && !sample->owner.active &&
+                          !sample->owner.stopped && wire_status == 0U &&
+                          payload_len == DMP_SAMPLE1_STATUS_BYTES && payload != NULL &&
+                          payload[0] == DMP_SAMPLE1_STATUS_OPCODE && payload[1] == 0U;
     record = peer_record(sample, request_handle.peer);
-    if (record == NULL || record->live == 0U ||
-        !handle_equal(record->peer, request_handle.peer) ||
-        association_record(sample, association, sample->owner.epoch) != record ||
+    if ((!status_without_epoch &&
+         (record == NULL || record->live == 0U ||
+          !handle_equal(record->peer, request_handle.peer) ||
+          association_record(sample, association, sample->owner.epoch) != record)) ||
         dmp_endpoint_validate_association(sample->endpoint, association,
                                            sample->owner.principal.namespace_id,
                                            sample->owner.principal.origin_id) != DMP_OK) {
         return DMP_SAMPLE1_PORT_REJECTED;
     }
-    for (i = 0U; i < DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS; i++) {
+    for (i = 0U; i < sample->result_capacity; i++) {
         dmp_sample1_queued_result *queued = &sample->results[i];
         if (queued->live != 0U) {
             continue;
@@ -260,18 +268,60 @@ dmp_sample1_owner_result dmp_sample1_endpoint_init(
     dmp_sample1_endpoint *sample, dmp_endpoint *endpoint,
     dmp_sample1_principal principal, const dmp_sample1_endpoint_hooks *hooks)
 {
+    return dmp_sample1_endpoint_init_with_peer_storage(
+        sample, endpoint, principal, hooks,
+        sample != NULL ? sample->default_peers : NULL, DMP_PROFILE_MAX_PEERS);
+}
+
+dmp_sample1_owner_result dmp_sample1_endpoint_init_with_peer_storage(
+    dmp_sample1_endpoint *sample, dmp_endpoint *endpoint,
+    dmp_sample1_principal principal, const dmp_sample1_endpoint_hooks *hooks,
+    dmp_sample1_peer_epoch *peer_storage, size_t peer_capacity)
+{
+    return dmp_sample1_endpoint_init_with_storage(
+        sample, endpoint, principal, hooks, peer_storage, peer_capacity,
+        sample != NULL ? sample->default_results : NULL,
+        DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS);
+}
+
+dmp_sample1_owner_result dmp_sample1_endpoint_init_with_storage(
+    dmp_sample1_endpoint *sample, dmp_endpoint *endpoint,
+    dmp_sample1_principal principal, const dmp_sample1_endpoint_hooks *hooks,
+    dmp_sample1_peer_epoch *peer_storage, size_t peer_capacity,
+    dmp_sample1_queued_result *result_storage, size_t result_capacity)
+{
     dmp_sample1_epoch_owner_ports ports;
+    uint64_t required_results;
 
     if (sample == NULL || endpoint == NULL || endpoint->initialized == 0U || hooks == NULL ||
+        endpoint->profile.operations_per_service == 0U ||
+        (uint64_t)endpoint->profile.peers * endpoint->profile.operations_per_service >
+            SIZE_MAX ||
         hooks->try_enter == NULL || hooks->leave == NULL || hooks->reserve_next == NULL ||
-        hooks->publish_telem == NULL || principal.namespace_id != endpoint->profile.namespace_id ||
+        hooks->publish_telem == NULL || peer_storage == NULL ||
+        peer_capacity < endpoint->profile.peers ||
+        peer_capacity > SIZE_MAX / sizeof(*peer_storage) ||
+        result_storage == NULL || result_capacity == 0U ||
+        result_capacity > SIZE_MAX / sizeof(*result_storage) ||
+        principal.namespace_id != endpoint->profile.namespace_id ||
         principal.origin_id != endpoint->mem.context.local.origin_id) {
+        return DMP_SAMPLE1_OWNER_INVALID;
+    }
+    required_results = (uint64_t)endpoint->profile.peers *
+                       endpoint->profile.operations_per_service;
+    if (result_capacity < required_results) {
         return DMP_SAMPLE1_OWNER_INVALID;
     }
 
     (void)memset(sample, 0, sizeof(*sample));
     sample->endpoint = endpoint;
     sample->hooks = *hooks;
+    sample->peers = peer_storage;
+    sample->peer_capacity = peer_capacity;
+    sample->results = result_storage;
+    sample->result_capacity = result_capacity;
+    (void)memset(peer_storage, 0, peer_capacity * sizeof(*peer_storage));
+    (void)memset(result_storage, 0, result_capacity * sizeof(*result_storage));
     (void)memset(&ports, 0, sizeof ports);
     ports.user = sample;
     ports.try_enter = try_enter;
@@ -357,15 +407,37 @@ dmp_sample1_owner_result dmp_sample1_endpoint_activate_peer(
 dmp_sample1_owner_result dmp_sample1_endpoint_handle_notice(
     dmp_sample1_endpoint *sample, const dmp_endpoint_notice *notice, dmp_time_ms now)
 {
+    dmp_sample1_port_result queued;
     if (sample == NULL || sample->initialized == 0U || notice == NULL) {
         return DMP_SAMPLE1_OWNER_INVALID;
     }
     if (notice->event != DMP_ENDPOINT_REQUEST || notice->service_id != 1U ||
         notice->payload.data == NULL || notice->payload.size != 1U ||
-        notice->payload.data[0] != DMP_SAMPLE1_READ_OPCODE ||
         notice->association.generation == 0U ||
         notice->request.peer.slot != notice->peer.slot ||
         notice->request.peer.generation != notice->peer.generation) {
+        return DMP_SAMPLE1_OWNER_NOT_READY;
+    }
+    if (notice->payload.data[0] == DMP_SAMPLE1_STATUS_OPCODE) {
+        uint8_t payload[DMP_SAMPLE1_STATUS_BYTES];
+        bool ready;
+        if (!sample->hooks.try_enter(sample->hooks.user)) {
+            return DMP_SAMPLE1_OWNER_BUSY;
+        }
+        ready = sample->owner.active && !sample->owner.stopped;
+        payload[0] = DMP_SAMPLE1_STATUS_OPCODE;
+        payload[1] = ready ? 1U : 0U;
+        queued = queue_read_result(sample, sample->owner.principal,
+                                   notice->association, notice->request,
+                                   notice->source, 0U, payload, sizeof payload);
+        sample->hooks.leave(sample->hooks.user);
+        if (queued == DMP_SAMPLE1_PORT_ACCEPTED) {
+            return DMP_SAMPLE1_OWNER_OK;
+        }
+        return queued == DMP_SAMPLE1_PORT_FAILED ? DMP_SAMPLE1_OWNER_BUSY
+                                                   : DMP_SAMPLE1_OWNER_NOT_READY;
+    }
+    if (notice->payload.data[0] != DMP_SAMPLE1_READ_OPCODE) {
         return DMP_SAMPLE1_OWNER_NOT_READY;
     }
     return dmp_sample1_epoch_owner_accept_read(&sample->owner, notice->association,
@@ -383,7 +455,7 @@ dmp_sample1_owner_result dmp_sample1_endpoint_flush(dmp_sample1_endpoint *sample
     if (!sample->hooks.try_enter(sample->hooks.user)) {
         return DMP_SAMPLE1_OWNER_BUSY;
     }
-    for (i = 0U; i < DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS; i++) {
+    for (i = 0U; i < sample->result_capacity; i++) {
         dmp_sample1_queued_result *queued = &sample->results[i];
         dmp_sample1_peer_epoch *record;
         dmp_bytes payload;
@@ -392,13 +464,21 @@ dmp_sample1_owner_result dmp_sample1_endpoint_flush(dmp_sample1_endpoint *sample
             continue;
         }
         record = peer_record(sample, queued->request_handle.peer);
-        if (queued->sample_epoch != sample->owner.epoch || record == NULL ||
-            record->live == 0U ||
-            (!identity_equal(record->active_association, queued->association) &&
-             !identity_equal(record->draining_association, queued->association))) {
-            (void)memset(queued, 0, sizeof(*queued));
-            result = DMP_SAMPLE1_OWNER_NOT_READY;
-            continue;
+        {
+            bool status_without_epoch = queued->sample_epoch == 0U &&
+                                        queued->wire_status == 0U &&
+                                        queued->payload_len == DMP_SAMPLE1_STATUS_BYTES &&
+                                        queued->payload[0] == DMP_SAMPLE1_STATUS_OPCODE &&
+                                        queued->payload[1] == 0U;
+            if (!status_without_epoch &&
+                (queued->sample_epoch != sample->owner.epoch || record == NULL ||
+                 record->live == 0U ||
+                 (!identity_equal(record->active_association, queued->association) &&
+                  !identity_equal(record->draining_association, queued->association)))) {
+                (void)memset(queued, 0, sizeof(*queued));
+                result = DMP_SAMPLE1_OWNER_NOT_READY;
+                continue;
+            }
         }
         status = dmp_endpoint_validate_association(sample->endpoint, queued->association,
                                                    sample->owner.principal.namespace_id,

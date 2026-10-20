@@ -377,6 +377,7 @@ static dmp_status wire_cancel(void *context, dmp_tx_token token)
 static void fill_common(dmp_config *config)
 {
     memset(config, 0, sizeof *config);
+    config->security_mode = DMP_PROFILE_SECURITY_SEC1;
     config->namespace_id = LOCAL_NS;
     config->node_id[0] = ID_INIT;
     config->node_id[1] = ID_RESP;

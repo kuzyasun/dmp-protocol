@@ -14,6 +14,7 @@
 #include "dmp/integrity.h"
 #include "dmp/stream.h"
 #include "dmp/transport.h"
+#include "../profile_hashes.h"
 
 #include "handshake.h"
 #include "handshake_transport.h"
@@ -91,19 +92,6 @@ static const uint8_t TEST_ONLY_PSK[32] = {
     0xc2, 0xd3, 0xe4, 0xf5, 0x06, 0x17, 0x28, 0x39
 };
 
-static const uint8_t RETRY_2_PROFILE_HASH[32] = {
-    0x47, 0x8a, 0xf0, 0xbc, 0x49, 0x12, 0xd0, 0xfc,
-    0x46, 0xed, 0x76, 0xc2, 0x49, 0xec, 0x5f, 0x30,
-    0xf8, 0xf6, 0x4b, 0xc8, 0x9e, 0xd7, 0x41, 0x1e,
-    0x9b, 0x92, 0x31, 0xbb, 0xf4, 0x87, 0xdb, 0x5c
-};
-
-static const uint8_t MULTI_PEER_PROFILE_HASH[32] = {
-    0x00, 0x1e, 0xb4, 0x2d, 0x8f, 0x44, 0x0e, 0x0c,
-    0xea, 0xf1, 0x71, 0x1e, 0x76, 0x4c, 0xea, 0xcf,
-    0xc3, 0xc1, 0xdd, 0x03, 0x4c, 0xfb, 0x2d, 0x7f,
-    0x32, 0x0b, 0xe7, 0xd8, 0x77, 0xf7, 0x45, 0x4f
-};
 
 #define TEST_ONLY_NAMESPACE_ID 1U
 #define RETRY_2_CONTROLLER_NODE_ID 10U
@@ -1031,13 +1019,15 @@ static bool init_dmp_stack(const char *profile_name)
     (void)snprintf(g_state.profile_name, sizeof(g_state.profile_name), "%s", profile_name);
 
     memset(&g_profile_config, 0, sizeof g_profile_config);
+    g_profile_config.security_mode = DMP_PROFILE_SECURITY_SEC1;
     g_profile_config.namespace_id = TEST_ONLY_NAMESPACE_ID;
     g_profile_config.node_id[0] = g_state.local_node_id;
     g_profile_config.node_id[1] = g_state.role == ROLE_CONTROLLER
                                       ? profile_peer_node_id(profile_name, 0U)
                                       : profile_controller_node_id(profile_name);
     if (strcmp(profile_name, "retry-2") == 0) {
-        memcpy(g_state.active_profile_hash, RETRY_2_PROFILE_HASH, 32U);
+        memcpy(g_state.active_profile_hash, DMP_RETRY_2_PROFILE_HASH_BYTES,
+               sizeof(DMP_RETRY_2_PROFILE_HASH_BYTES));
         g_profile_config.peers = 1U;
         g_profile_config.message_bytes = 1024U;
         g_profile_config.chunk_bytes = 64U;
@@ -1049,7 +1039,8 @@ static bool init_dmp_stack(const char *profile_name)
         g_profile_config.service_id[0] = QUAL_SERVICE_SAMPLE1;
         g_profile_config.service_id[1] = QUAL_SERVICE_DATA;
     } else if (strcmp(profile_name, "multi-peer") == 0) {
-        memcpy(g_state.active_profile_hash, MULTI_PEER_PROFILE_HASH, 32U);
+        memcpy(g_state.active_profile_hash, DMP_MULTI_PEER_PROFILE_HASH_BYTES,
+               sizeof(DMP_MULTI_PEER_PROFILE_HASH_BYTES));
         g_profile_config.peers = QUAL_MAX_PEERS;
         g_profile_config.message_bytes = QUAL_MAX_PAYLOAD_BYTES;
         g_profile_config.chunk_bytes = QUAL_CHUNK_BYTES;

@@ -1,5 +1,5 @@
 {
-  "specification": "DMP v2 revision 10 / SEC-1 revision 5 / BOOT_VERSION 2",
+  "specification": "DMP v2 revision 11 / SEC-1 revision 5 / BOOT_VERSION 2",
   "warning": "PUBLIC TEST KEYS ONLY. Encoding fixtures do not establish live trust, ACLs or token grants.",
   "upstream_validation": {
     "source": "https://raw.githubusercontent.com/haskell-cryptography/cacophony/master/vectors/cacophony.txt",

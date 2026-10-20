@@ -134,7 +134,10 @@ dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
     }
     if (in->default_service == 0U || !service_selected(in) ||
         in->service_id[0] == in->service_id[1] || in->chunk_bytes >= in->message_bytes ||
-        in->peers == 0U || in->peers > DMP_PROFILE_MAX_PEERS ||
+        (in->security_mode != DMP_PROFILE_SECURITY_NONE &&
+         in->security_mode != DMP_PROFILE_SECURITY_SEC1) || in->peers == 0U ||
+        (in->security_mode == DMP_PROFILE_SECURITY_SEC1 &&
+         in->peers > DMP_PROFILE_SECURE_MAX_PEERS) ||
         in->operations_per_service == 0U ||
         in->operations_per_service > DMP_PROFILE_MAX_OPERATIONS_PER_SERVICE ||
         in->assemblies_per_peer == 0U ||

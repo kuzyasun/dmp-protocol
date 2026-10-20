@@ -11,6 +11,9 @@ recovery horizons, expiry/tombstone behavior, relay bounds, and freshness.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 import unittest
 
 import test_p23_radio_endpoint_interop as radio
@@ -29,6 +32,50 @@ class TestP23R7CrossEndpointInterop(unittest.TestCase):
         self.harness = radio.TestP23RadioEndpointInterop("runTest")
         self.harness.setUp()
         self.addCleanup(self.harness.doCleanups)
+
+    def _open_tombstone_pressure_pair(self):
+        manifest_bytes = (
+            radio._ROOT / "tests" / "peer" / "fixtures" /
+            "r7-tombstone-pressure.json"
+        ).read_bytes()
+        digest = hashlib.sha256(manifest_bytes).digest()
+        self.assertEqual(
+            digest.hex(),
+            "0ab102c8b13b99b506539a78a87bf5f0c4f54d9c3e7c04dfd59235a177957ae3",
+        )
+        manifest = json.loads(manifest_bytes)
+        self.assertEqual(manifest["limits"]["assemblies_per_peer"], 2)
+        self.assertEqual(manifest["limits"]["assembly_tombstones_per_peer"], 2)
+        c_endpoint = radio._CProcess(self.harness.executable, digest, radio._PSK)
+        self.addCleanup(c_endpoint.close)
+        radio._assert_effective_profile(self, c_endpoint.initial, manifest_bytes)
+        peer = radio.PeerEndpoint(
+            manifest_bytes=manifest_bytes,
+            test_credentials={"node_id": 10, "psk": radio._PSK, "key_hint": 5},
+            entropy_source=lambda size: bytes((0xD3 + i) & 0xFF for i in range(size)),
+            test_services={},
+        )
+        relays = {node: radio.TransparentRelay(manifest_bytes, node) for node in (30, 40)}
+        return c_endpoint, peer, relays, radio._Clock()
+
+    def _peer_data_frames(self, peer, payload: bytes, clock):
+        outgoing = []
+        sequence = peer._queue_data_transfer(2, payload, ack_req=True, out=outgoing)
+        frames = self.harness._peer_send(peer, outgoing, clock)
+        parsed = [radio.parse_frame(frame, max_frame=radio._MAX_CORE) for frame in frames]
+        self.assertEqual(len(parsed), 8)
+        self.assertTrue(all(frame.sequence == sequence for frame in parsed))
+        self.assertTrue(all(frame.security is not None and frame.route is not None for frame in parsed))
+        return sequence, frames
+
+    def _deliver_peer_fragment(self, c_endpoint, relays, frame: bytes, clock):
+        routed = self.harness._route(relays, frame, source=10, clock=clock)
+        return c_endpoint.receive(
+            radio.encode_stream_r(
+                routed, max_core=radio._MAX_CORE, max_encoded=radio._MAX_ENCODED
+            ),
+            clock.next(),
+        )
 
     def _start_c_request(self, seed: int, payload: bytes):
         c_endpoint, peer, relays, clock = self.harness._open_pair(radio._RADIO, seed)
@@ -481,14 +528,46 @@ class TestP23R7CrossEndpointInterop(unittest.TestCase):
         self.assertEqual(rejected.body, b"")
 
     def test_c_tombstone_reservation_pressure_rejects_new_assembly(self) -> None:
-        self.skipTest(
-            "the exact RADIO-1 manifest admits one active assembly per peer "
-            "(assembly_ms=10777) and retains tombstones for 23040 ms; sequential "
-            "expiry can create at most ceil(23040/10777)=3 tombstones, below the "
-            "limit of 16. Python has no authorized service-1 DATA path to create "
-            "overlapping C assemblies. C and Python local quota cases cover the "
-            "16/17 boundary; a faithful cross-endpoint pressure state is unreachable."
-        )
+        c_endpoint, peer, relays, clock = self._open_tombstone_pressure_pair()
+        self.harness._activate(c_endpoint, peer, relays, clock)
+        self.harness._grant_freshness(c_endpoint, peer, relays, clock)
+
+        # Admit A, then admit B while A is still live. The test fixture budgets
+        # two active assemblies and two tombstone records; A's expiry occupies
+        # one tombstone while B's live assembly reserves the final record.
+        _, assembly_a = self._peer_data_frames(peer, bytes([0xA1]) * 256, clock)
+        first_a = self._deliver_peer_fragment(c_endpoint, relays, assembly_a[0], clock)
+        self.assertEqual(first_a.accepts, 0)
+        assembly_ms = int(peer.manifest.values["timing"]["assembly_ms"])
+        # Open B just before A's absolute assembly deadline so B remains live
+        # after A expires. Renew S7 immediately before B to keep DATA authorized.
+        clock.advance(assembly_ms - 200)
+        self.harness._grant_freshness(c_endpoint, peer, relays, clock)
+        _, assembly_b = self._peer_data_frames(peer, bytes([0xB2]) * 256, clock)
+        first_b = self._deliver_peer_fragment(c_endpoint, relays, assembly_b[0], clock)
+        self.assertEqual(first_b.accepts, 0)
+
+        # Expire A while B remains live. Its late slice must be fenced by the
+        # retained tombstone, and the accepted B state must remain intact.
+        clock.advance(300)
+        polled = c_endpoint.poll(clock.next())
+        self.assertEqual(polled.status, 0)
+        late_a = self._deliver_peer_fragment(c_endpoint, relays, assembly_a[1], clock)
+        self.assertNotEqual(late_a.status, 0)
+        self.assertEqual(late_a.assembled, 0)
+
+        # C would need a third tombstone reservation. Reject it without
+        # evicting B; completing B afterwards proves the accepted work survived.
+        self.harness._grant_freshness(c_endpoint, peer, relays, clock)
+        _, assembly_c = self._peer_data_frames(peer, bytes([0xC3]) * 256, clock)
+        before = c_endpoint.last_state
+        rejected_c = self._deliver_peer_fragment(c_endpoint, relays, assembly_c[0], clock)
+        self.assertNotEqual(rejected_c.status, 0)
+        self.assertEqual(rejected_c.assembled, before.assembled)
+        for fragment in assembly_b[1:]:
+            state = self._deliver_peer_fragment(c_endpoint, relays, fragment, clock)
+        self.assertEqual(state.assembled, 1)
+        self.assertEqual(state.body, bytes([0xB2]) * 256)
 
     def test_relay_cooldown_and_forward_limit_use_real_endpoint_frame(self) -> None:
         payload = bytes((index * 3 + 11) & 0xFF for index in range(256))

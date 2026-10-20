@@ -1,16 +1,16 @@
 # DMP v2 — SELECTIVE-32 recovery
 
-**Status:** normative implementation draft, recovery revision 1\
+**Status:** normative implementation draft, recovery revision 2\
 **Date:** 2026-09-26\
-**Requires:** DMP document revision 10 and SEC-1 profile revision 5
+**Requires:** DMP document revision 11; optional SEC-1 profile revision 5
 
 This annex defines optional selective recovery for the [main specification](DMP_v2_Device_Messaging_Protocol_Specification.md). MUST/MUST NOT/SHOULD/MAY have their main-spec meanings. It specifies behavior, not a claim of implemented or measured interoperability. No cryptographic primitive or bootstrap encoding is changed.
 
 ## R1. Selection and scope
 
-The authenticated deployment manifest selects exactly `retry-all` or `selective-32` for each peer/application service, including both its requests and reliable results. The choice is fixed before traffic and unchanged during an association. There is no negotiation, automatic fallback or per-fragment mode flag. An unsupported configured mode fails setup locally; timeout does not authorize downgrade. Unfragmented traffic uses ordinary main §8 behavior in either mode.
+The deployment manifest selects exactly `retry-all` or `selective-32` per endpoint instance/application service, including both its requests and reliable results. Security is independently and explicitly selected once per endpoint instance as NONE or SEC-1. Both selections are fixed before traffic and unchanged for the instance. There is no negotiation, automatic fallback or per-fragment mode flag. An unsupported or mismatched configured mode fails setup locally; timeout does not authorize downgrade. Unfragmented traffic uses ordinary main §8 behavior in either recovery mode.
 
-SELECTIVE-32 applies only to SEC-1-protected, unicast, ACK_REQ logical messages of TYPE REQ, RSP, EVENT, DATA, or terminal application-result ERR (STATUS >=64 with the service-defined terminal meaning). It requires 2–32 fragments and the profile's byte/resource limits. Protocol-rejection ERR, HELLO/bootstrap, ACK, TELEM and best-effort traffic never use this recovery. All original FRAG fields, immutable metadata, authorization/freshness rules and final acceptance semantics remain unchanged. Bootstrap still retries its complete flight.
+SELECTIVE-32 applies to NONE or SEC-1 unicast, ACK_REQ logical messages of TYPE REQ, RSP, EVENT, DATA, or terminal application-result ERR (STATUS >=64 with the service-defined terminal meaning). It requires 2–32 fragments and the profile's byte/resource limits. Protocol-rejection ERR, HELLO/bootstrap, ACK, TELEM and best-effort traffic never use this recovery. All original FRAG fields, immutable metadata, authorization/freshness rules and final acceptance semantics remain unchanged. Bootstrap still retries its complete flight.
 
 The same service ID is used in both directions of a selective service, including feedback and results. The main canonical rule applies: omit the common application default and explicitly encode a nondefault service, including on feedback. Service 0 is excluded. Asymmetric reply-service translation is not supported by the main protocol. End-to-end paths through transparent relays are permitted; sources supply all routing metadata before encryption and relays do not terminate recovery.
 
@@ -20,26 +20,27 @@ Allocate main TYPE **8**, named **FRAG_STATUS**, VT byte **0x48**. It is a recov
 
 | Component | Requirement |
 |---|---|
-| OPTIONS | SEQ, SECURITY and EXT required; ACK_REQ, FRAG and PAYLOAD_DESC forbidden |
+| OPTIONS | SEQ and EXT required; ACK_REQ, FRAG and PAYLOAD_DESC forbidden. SECURITY is present only in SEC-1 mode; INTEGRITY is present only in NONE mode |
 | Own SEQ | New logical control identity allocated by the feedback sender; never the referenced message's SEQ |
-| SECURITY | Existing SEC-1 descriptor and full 16-byte tag; same association as the referenced transfer |
-| ROUTE / CONTEXT / ORIGIN_ID | Existing rules; routed feedback uses TO_NODE back to the source and its own origin's context |
-| REPLY_TO | Required; canonical compact ULEB32 reference to the original message SEQ, resolved by the recipient through its own sending direction on this association |
+| SECURITY | SEC-1 mode: existing descriptor and full 16-byte tag; same association as the referenced transfer. NONE mode: absent |
+| INTEGRITY | NONE mode: required CRC32C descriptor and four-byte trailer. SEC-1 mode: forbidden |
+| ROUTE / CONTEXT / ORIGIN_ID | Existing rules; NONE feedback carries explicit CONTEXT and direct ORIGIN_ID when un-routed; routed feedback uses TO_NODE back to the source and its own origin's context |
+| REPLY_TO | Required; SEC-1 mode: canonical compact ULEB32 reference resolved through the authenticated association. NONE mode: full namespace/origin/epoch/SEQ tuple |
 | SERVICE_ID | Explicit original application service, or omitted only when it equals the configured default |
 | STATUS / FRESHNESS | Forbidden; feedback does not request command execution or carry a freshness lease |
-| INTEGRITY | Forbidden together with SECURITY under SEC-1; any Stream R or native outer integrity remains outside the protected core |
+| Outer integrity | Stream R retains its mandatory envelope CRC in either mode; native binding integrity remains independently scoped |
 | Other extensions | Existing unknown-extension/registry rules apply; no additional known extension is allocated here |
 | Plaintext payload | Exactly four bytes, unsigned 32-bit **little-endian** missing mask |
 
 Let `N` be the referenced transfer's fragment count derived from its retained geometry. Bit `i=1` requests fragment `i`; zero means that slice was present at snapshot time, not that application acceptance occurred. Require `2 <= N <= 32`, a nonzero mask, and all bits `i >= N` zero. For `N=32`, all 32 positions are available; implementations must avoid undefined shifts by 32. Feedback is generated only from an authenticated admitted incomplete assembly and therefore cannot request all N slices at once. The sender MUST reject an all-N-bits mask as well as a zero/out-of-range mask. Missing every initial fragment is recovered by the probe mechanism, not an unauthenticated synthetic status.
 
-Authenticate before resolving the compact reference or modifying recovery state. Check exact peer, association/epoch, service, active referenced message, eligibility and N. Unmatched, malformed, unauthorized or stale feedback is dropped without a response. FRAG_STATUS is never ACKed, never causes an automatic ERR, never reaches an application message handler and never changes application receipt/result state. Endpoints that do not implement SELECTIVE-32 reject local TYPE 8 delivery; structurally capable relays may forward it under the usual rules.
+In SEC-1 mode, authenticate before resolving the compact reference or modifying recovery state. In NONE mode, validate CRC32C before checking the explicitly configured source/destination/context/service mapping. Then check the active referenced message, eligibility and N before state mutation. NONE validation establishes only syntactic/configuration consistency and does not authenticate the sender. Unmatched, malformed, unauthorized or stale feedback is dropped without a response. FRAG_STATUS is never ACKed, never causes an automatic ERR, never reaches an application message handler and never changes application receipt/result state. Endpoints that do not implement SELECTIVE-32 reject local TYPE 8 delivery; structurally capable relays may forward it under the usual rules.
 
 ### R2.1 Identity and ordering
 
-On an association using SELECTIVE-32, each origin allocates SEQ in strictly increasing numeric order across all services/types in its epoch; retire the epoch before wrap. Gaps are permitted. Every emitted status snapshot, including a response to a later probe with an unchanged mask, gets a new SEQ and fresh PN. Do not retry feedback through the reliable-message engine. Lower-binding duplicate delivery is governed by SEC-1 replay rules.
+For an origin using SELECTIVE-32, allocate SEQ in strictly increasing numeric order across all peers, services and message types in that origin epoch; retire the epoch before wrap. Gaps are permitted. Every emitted status snapshot, including a response to a later probe with an unchanged mask, gets a new SEQ. SEC-1 mode also uses a fresh PN; NONE mode uses the full plaintext message key and CRC32C, without cryptographic replay protection. Do not retry feedback through the reliable-message engine. Lower-binding duplicates are handled by the selected mode's replay/deduplication rules.
 
-The original sender retains the greatest accepted feedback SEQ per active transfer. Accept only a strictly greater one after all R2 validation; invalid feedback cannot advance that value. PN replay checks are separate: an old distinct snapshot can have a valid PN. Newer feedback may cause redundant repairs after network reordering, but cannot reopen a terminal transfer, extend deadlines, or trigger simultaneous repair bursts. It replaces the single pending mask; it is not added as another queued burst. Slices remain immutable even when a peer requests them again.
+The original sender retains the greatest accepted feedback SEQ per active transfer. Accept only a strictly greater one after all R2 validation; invalid feedback cannot advance that value. SEC-1 PN replay checks are separate: an old distinct snapshot can have a valid PN. NONE has no packet-PN replay protection and remains vulnerable to spoofed or replayed feedback within its configured context/lifetime. Newer feedback may cause redundant repairs after network reordering, but cannot reopen a terminal transfer, extend deadlines, or trigger simultaneous repair bursts. It replaces the single pending mask; it is not added as another queued burst. Slices remain immutable even when a peer requests them again.
 
 ## R3. Timing and resource contract
 

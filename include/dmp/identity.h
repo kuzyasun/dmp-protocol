@@ -49,6 +49,12 @@ typedef struct {
 typedef struct {
     dmp_identity_slot *slots;
     size_t capacity;
+    /* One endpoint-local NONE SEQ allocator. It survives peer-slot retirement
+     * so opening another peer context cannot reuse an identity in this epoch. */
+    dmp_message_origin none_local;
+    uint32_t none_next_seq;
+    uint8_t none_seq_live;
+    bool none_seq_exhausted;
 } dmp_identity_table;
 
 typedef struct {
@@ -56,6 +62,19 @@ typedef struct {
     dmp_message_origin peer;
     uint8_t security; /* 0 for unprotected; 1 for an authenticated SEC-1 context. */
 } dmp_identity_context_config;
+
+/* Platform randomness is an explicit dependency for NONE boot epochs. The
+ * callback fills all requested bytes or returns an error; the library does not
+ * persist the value or substitute a weaker source. */
+typedef dmp_status (*dmp_random_bytes_fn)(void *user, uint8_t *out, size_t len);
+dmp_status dmp_none_boot_epoch_generate(dmp_random_bytes_fn random_bytes,
+                                        void *user, uint64_t *out_epoch);
+/* Rejects a generated epoch present in caller-owned retained local state and
+ * leaves out_epoch unchanged on failure. */
+dmp_status dmp_none_boot_epoch_generate_checked(
+    dmp_random_bytes_fn random_bytes, void *user,
+    const uint64_t *retained_local_epochs, size_t retained_count,
+    uint64_t *out_epoch);
 
 dmp_status dmp_identity_table_init(dmp_identity_table *table,
                                    dmp_identity_slot *slots, size_t capacity);
@@ -99,7 +118,9 @@ enum {
     DMP_PROFILE_SHA256_BYTES = 32,
     DMP_PROFILE_NODE_COUNT = 2,
     DMP_PROFILE_SERVICE_COUNT = 2,
-    DMP_PROFILE_MAX_PEERS = 4,
+    DMP_PROFILE_SECURE_MAX_PEERS = 4,
+    /* Legacy sizing constant for SEC-1 fixtures and handshake owners. */
+    DMP_PROFILE_MAX_PEERS = DMP_PROFILE_SECURE_MAX_PEERS,
     DMP_PROFILE_MAX_OPERATIONS_PER_SERVICE = 64,
     DMP_PROFILE_MAX_ASSEMBLIES_PER_PEER = 64,
     DMP_PROFILE_MAX_TOMBSTONES_PER_PEER = 64
@@ -110,6 +131,11 @@ typedef enum {
     DMP_PROFILE_RECOVERY_SELECTIVE32 = 1
 } dmp_profile_recovery;
 
+typedef enum {
+    DMP_PROFILE_SECURITY_NONE = 0,
+    DMP_PROFILE_SECURITY_SEC1 = 1
+} dmp_profile_security;
+
 /* One layout. dmp_config is borrowed for the call. dmp_admitted_profile is the
  * caller-owned admitted copy. sha256 is opaque and is never hashed here.
  * Slot counts and message_bytes are inputs. Admission does not own TX buffers;
@@ -119,6 +145,7 @@ typedef struct dmp_config {
     uint32_t namespace_id;
     uint32_t node_id[DMP_PROFILE_NODE_COUNT];
     uint32_t default_service;
+    dmp_profile_security security_mode;
     uint32_t service_id[DMP_PROFILE_SERVICE_COUNT];
     dmp_profile_recovery recovery[DMP_PROFILE_SERVICE_COUNT];
     /* Bit i requires the SEC-1 S7 freshness extension on application service
@@ -201,7 +228,7 @@ typedef dmp_config dmp_admitted_profile;
  * fragments, fragments > 32, or overflow of a derived product.
  * DMP_UNSUPPORTED: default_service is 0 or outside service_id[], the two
  * service ids are equal, chunk_bytes >= message_bytes, peers == 0 or peers
- * exceeds DMP_PROFILE_MAX_PEERS, operations_per_service or assemblies_per_peer
+ * exceeds four peers in SEC-1 mode, operations_per_service or assemblies_per_peer
  * exceed their profile bounds, or aggregate assembly/tombstone backing is
  * smaller than the configured per-peer limits,
  * assembly_tombstones_per_peer < assemblies_per_peer,

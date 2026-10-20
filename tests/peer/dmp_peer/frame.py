@@ -256,7 +256,8 @@ def parse_frame(data: bytes, *, max_frame: int = 1_048_576) -> CoreFrame:
         raise FrameError("ERR requires STATUS")
     if kind == 6 and (payload or options & (2 | 8 | 0x20) or 5 in ext_ids):
         raise FrameError("invalid ACK structure")
-    if kind == 8 and (not security or len(payload) != 4 or options & (2 | 8 | 0x20) or 5 in ext_ids or 6 in ext_ids):
+    if kind == 8 and ((security is None and integrity is None) or len(payload) != 4
+                      or options & (2 | 8 | 0x20) or 5 in ext_ids or 6 in ext_ids):
         raise FrameError("invalid FRAG_STATUS structure")
     return CoreFrame(kind, options, sequence, route, fragment, descriptor, integrity,
                      security, extensions, bytes(payload), bytes(trailer))

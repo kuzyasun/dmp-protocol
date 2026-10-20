@@ -1,10 +1,10 @@
 # DMP v2 — Design Trade-offs and Prior Art
 
-**Status:** informative companion to DMP v2 document revision 10\
+**Status:** informative companion to DMP v2 document revision 11\
 **Date:** 2026-09-26\
 **Normative status:** explanatory only; the specification and SEC-1 annex define conformance
 
-This guide records prior art and the simplifications adopted in revision 7. It explains the reasoning behind the current design; it does not define a wire format or amend the [DMP specification](DMP_v2_Device_Messaging_Protocol_Specification.md) or [SEC-1 security annex](DMP_v2_Security_Profile.md). The current baseline is document revision 10 with SEC-1 profile revision 5. Revision 9 added best-effort protocol rejection, canonical same-service replies, concrete SAMPLE-1 initialization and resource acceptance bounds. Revision 10 adopts abort-first and permits a reviewed controlled Noise core; earlier rationale below describes its dated source revision. Earlier draft policies are unsupported; no automatic compatibility mode is defined.
+This guide records prior art and the simplifications adopted in earlier revisions. It explains the reasoning behind the current design; it does not define a wire format or amend the [DMP specification](DMP_v2_Device_Messaging_Protocol_Specification.md) or [SEC-1 security annex](DMP_v2_Security_Profile.md). The current baseline is document revision 11, SEC-1 profile revision 5, SELECTIVE-32 revision 2 and SAMPLE-1 revision 3. Revision 11 makes protection optional per endpoint instance, requires Core CRC32C for NONE and retains the existing SEC-1 contract unchanged. Earlier rationale below describes dated source revisions. Earlier draft policies are unsupported; no automatic compatibility mode is defined.
 
 ## Abort-first and provider choice in revision 10
 

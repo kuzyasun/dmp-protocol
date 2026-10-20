@@ -116,6 +116,7 @@ static int test_slots(void)
     CHECK(seq == 1U);
 
     slots[0].next_seq = UINT32_MAX;
+    table.none_next_seq = UINT32_MAX;
     sentinel = 0xabcdefU;
     CHECK(dmp_identity_next_seq(&table, handle, &sentinel) == DMP_OK);
     CHECK(sentinel == UINT32_MAX);
@@ -188,12 +189,36 @@ static int test_resolution(void)
     CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_CONTEXT_REQUIRED);
 
     frame = frame_with(DMP_OPT_SEQ, 4U, 0U, &ext);
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_CONTEXT_REQUIRED);
+
+    memset(&value, 0, sizeof value);
+    add_uleb(&value, 1U);
+    add_u64le(&value, 9U);
+    add_tlv(&ext, 11U, &value);
+    frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT), 4U, 0U, &ext);
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_CONTEXT_REQUIRED);
+
+    memset(&ext, 0, sizeof ext);
+    memset(&value, 0, sizeof value);
+    add_uleb(&value, 1U);
+    add_u64le(&value, 9U);
+    add_tlv(&ext, 11U, &value);
+    memset(&value, 0, sizeof value);
+    add_uleb(&value, 20U);
+    add_tlv(&ext, 15U, &value);
+    frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT), 4U, 0U, &ext);
     CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
     CHECK(key.origin.namespace_id == 1U);
     CHECK(key.origin.origin_id == 20U);
     CHECK(key.origin.epoch == 9U);
     CHECK(key.seq == 4U);
 
+    memset(&ext, 0, sizeof ext);
+    memset(&value, 0, sizeof value);
+    add_uleb(&value, 1U);
+    add_u64le(&value, 9U);
+    add_tlv(&ext, 11U, &value);
+    memset(&ext, 0, sizeof ext);
     frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE), 4U, 20U, &ext);
     frame.fields.route.mode = 1U;
     frame.fields.route.destination = 10U;
@@ -234,6 +259,10 @@ static int test_resolution(void)
 
     memset(&ext, 0, sizeof ext);
     memset(&value, 0, sizeof value);
+    add_uleb(&value, 1U);
+    add_u64le(&value, 9U);
+    add_tlv(&ext, 11U, &value);
+    memset(&value, 0, sizeof value);
     add_uleb(&value, 99U);
     add_tlv(&ext, 15U, &value);
     frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT), 4U, 0U, &ext);
@@ -259,8 +288,7 @@ static int test_resolution(void)
     add_uleb(&value, 2U);
     add_tlv(&ext, 17U, &value);
     frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT), 8U, 0U, &ext);
-    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
-    CHECK(key.seq == 8U);
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_CONTEXT_REQUIRED);
 
     CHECK(dmp_identity_reply_to(&frame, &table, handle, 0U, &key) == DMP_CONTEXT_REQUIRED);
     memset(&ext, 0, sizeof ext);
@@ -421,7 +449,6 @@ static int test_normative_reply_to_wire_forms(void)
 
 static int test_normative_v2_2_vectors(void)
 {
-    static const uint8_t request[] = {0x40U, 0x04U, 0x03U, 0x2aU, 0xaaU};
     static const uint8_t ack[] = {0x46U, 0x11U, 0x81U, 0x08U, 0x05U, 0x0bU,
                                   0x01U, 0x0aU, 0x07U, 0x00U, 0x00U, 0x00U,
                                   0x00U, 0x00U, 0x00U, 0x00U, 0x2aU};
@@ -433,6 +460,8 @@ static int test_normative_v2_2_vectors(void)
     dmp_message_key key;
     dmp_frame_view frame;
     dmp_parse_result parsed;
+    bytes request_ext;
+    bytes value;
 
     /* The responder resolves the incoming REQ from its configured peer. */
     config.local.origin_id = 20U;
@@ -441,8 +470,16 @@ static int test_normative_v2_2_vectors(void)
     config.peer.epoch = 7U;
     CHECK(dmp_identity_table_init(&table, slots, 1U) == DMP_OK);
     CHECK(dmp_identity_context_open(&table, &config, &handle) == DMP_OK);
-    parsed = dmp_core_parse((dmp_bytes){request, sizeof request}, &limits, &frame);
-    CHECK(parsed.status == DMP_OK && parsed.offset == sizeof request);
+    memset(&request_ext, 0, sizeof request_ext);
+    memset(&value, 0, sizeof value);
+    add_uleb(&value, 1U);
+    add_u64le(&value, 7U);
+    add_tlv(&request_ext, 11U, &value);
+    memset(&value, 0, sizeof value);
+    add_uleb(&value, 10U);
+    add_tlv(&request_ext, 15U, &value);
+    frame = frame_with((uint8_t)(DMP_OPT_SEQ | DMP_OPT_EXT), 42U, 0U,
+                       &request_ext);
     CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
     CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 10U &&
           key.origin.epoch == 7U && key.seq == 42U);
@@ -453,9 +490,8 @@ static int test_normative_v2_2_vectors(void)
     CHECK(dmp_identity_context_open(&table, &config, &handle) == DMP_OK);
     parsed = dmp_core_parse((dmp_bytes){ack, sizeof ack}, &limits, &frame);
     CHECK(parsed.status == DMP_OK && parsed.offset == sizeof ack);
-    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
-    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 20U &&
-          key.origin.epoch == 9U && key.seq == 8U);
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) ==
+          DMP_CONTEXT_REQUIRED);
     CHECK(dmp_identity_reply_to(&frame, &table, handle, 0U, &key) == DMP_OK);
     CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 10U &&
           key.origin.epoch == 7U && key.seq == 42U);
@@ -488,7 +524,7 @@ static int test_normative_v2_3_vectors(void)
 
     memset(&sentinel, 0x5a, sizeof sentinel);
 
-    /* 1. Unprotected §22.3 TO_ROOT frame with explicit CONTEXT resolves (1,27,7,81). */
+    /* 1. Routed NONE uses TO_NODE plus explicit CONTEXT and resolves (1,27,7,81). */
     config.peer.namespace_id = 1U;
     config.peer.origin_id = 27U;
     config.peer.epoch = 7U;
@@ -496,18 +532,22 @@ static int test_normative_v2_3_vectors(void)
     CHECK(dmp_identity_context_open(&table, &config, &handle) == DMP_OK);
     parsed = dmp_core_parse((dmp_bytes){explicit_vector, sizeof explicit_vector}, &limits, &frame);
     CHECK(parsed.status == DMP_OK && parsed.offset == sizeof explicit_vector);
+    frame.fields.route.mode = 1U;
+    frame.fields.route.destination = config.local.origin_id;
     key = sentinel;
     CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
     CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 27U &&
           key.origin.epoch == 7U && key.seq == 81U);
 
-    /* 2. Equivalent unprotected TO_ROOT frame with CONTEXT omitted resolves the same key. */
+    /* 2. The equivalent routed NONE frame without CONTEXT is rejected. */
     parsed = dmp_core_parse((dmp_bytes){implicit_vector, sizeof implicit_vector}, &limits, &frame);
     CHECK(parsed.status == DMP_OK && parsed.offset == sizeof implicit_vector);
+    frame.fields.route.mode = 1U;
+    frame.fields.route.destination = config.local.origin_id;
     key = sentinel;
-    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) == DMP_OK);
-    CHECK(key.origin.namespace_id == 1U && key.origin.origin_id == 27U &&
-          key.origin.epoch == 7U && key.seq == 81U);
+    CHECK(dmp_identity_source_key(&frame, &table, handle, 0U, &key) ==
+          DMP_CONTEXT_REQUIRED);
+    CHECK(memcmp(&key, &sentinel, sizeof key) == 0);
 
     /* 3. Rejection leaves output key unchanged. */
     frame.fields.route.mode = 2U;
@@ -589,9 +629,104 @@ static int test_generation_scan(void)
     return 0;
 }
 
+static int test_none_shared_origin_sequence(void)
+{
+    dmp_identity_slot slots[3];
+    dmp_identity_table table;
+    dmp_identity_context_config first = sample_config(0U);
+    dmp_identity_context_config second = first;
+    dmp_identity_handle a, b;
+    uint32_t seq;
+    CHECK(dmp_identity_table_init(&table, slots, 3U) == DMP_OK);
+    CHECK(dmp_identity_context_open(&table, &first, &a) == DMP_OK);
+    CHECK(dmp_identity_next_seq(&table, a, &seq) == DMP_OK && seq == 0U);
+    second.peer.origin_id = 30U;
+    CHECK(dmp_identity_context_open(&table, &second, &b) == DMP_OK);
+    CHECK(slots[b.slot].next_seq == 1U);
+    CHECK(dmp_identity_next_seq(&table, b, &seq) == DMP_OK && seq == 1U);
+    CHECK(dmp_identity_next_seq(&table, a, &seq) == DMP_OK && seq == 2U);
+    CHECK(slots[a.slot].next_seq == 3U && slots[b.slot].next_seq == 3U);
+    CHECK(dmp_identity_context_begin_drain(&table, a, 0U) == DMP_OK);
+    CHECK(dmp_identity_context_retire(&table, a, 0U) == DMP_OK);
+    CHECK(dmp_identity_context_begin_drain(&table, b, 0U) == DMP_OK);
+    CHECK(dmp_identity_context_retire(&table, b, 0U) == DMP_OK);
+    second.peer.origin_id = 40U;
+    CHECK(dmp_identity_context_open(&table, &second, &a) == DMP_OK);
+    CHECK(slots[a.slot].next_seq == 3U);
+    CHECK(dmp_identity_next_seq(&table, a, &seq) == DMP_OK && seq == 3U);
+    return 0;
+}
+
+static int test_sec1_sequence_allocator(void)
+{
+    dmp_identity_slot slots[1];
+    dmp_identity_table table;
+    dmp_identity_context_config config = sample_config(1U);
+    dmp_identity_handle handle;
+    uint32_t seq = 0xabcdefU;
+    CHECK(dmp_identity_table_init(&table, slots, 1U) == DMP_OK);
+    CHECK(dmp_test_open_authenticated_context(&table, &config, &handle) == DMP_OK);
+    CHECK(dmp_identity_next_seq(&table, handle, &seq) == DMP_OK && seq == 0U);
+    CHECK(dmp_identity_next_seq(&table, handle, &seq) == DMP_OK && seq == 1U);
+    CHECK(dmp_identity_next_seq(&table, handle, &seq) == DMP_OK && seq == 2U);
+    slots[handle.slot].next_seq = UINT32_MAX;
+    CHECK(dmp_identity_next_seq(&table, handle, &seq) == DMP_OK && seq == UINT32_MAX);
+    seq = 0xabcdefU;
+    CHECK(dmp_identity_next_seq(&table, handle, &seq) == DMP_LIMIT_EXHAUSTED);
+    CHECK(seq == 0xabcdefU);
+    return 0;
+}
+
+static dmp_status fixed_random(void *user, uint8_t *out, size_t len)
+{
+    const uint8_t *bytes = user;
+    if (bytes == NULL || len != 8U) return DMP_INVALID_ARGUMENT;
+    memcpy(out, bytes, len);
+    return DMP_OK;
+}
+
+static dmp_status failed_random(void *user, uint8_t *out, size_t len)
+{
+    (void)user;
+    (void)out;
+    (void)len;
+    return DMP_BUSY;
+}
+
+static int test_none_boot_epoch_randomness(void)
+{
+    const uint8_t bytes[8] = { 0x08U, 0x07U, 0x06U, 0x05U,
+                               0x04U, 0x03U, 0x02U, 0x01U };
+    const uint8_t zeros[8] = { 0U };
+    const uint64_t retained[] = {UINT64_C(0x0102030405060708), UINT64_C(0x11)};
+    const size_t retained_count = sizeof retained / sizeof retained[0];
+    uint64_t epoch = 99U;
+    CHECK(dmp_none_boot_epoch_generate(fixed_random, (void *)bytes, &epoch) == DMP_OK);
+    CHECK(epoch == UINT64_C(0x0102030405060708));
+    epoch = 99U;
+    CHECK(dmp_none_boot_epoch_generate(failed_random, NULL, &epoch) == DMP_BUSY);
+    CHECK(epoch == 99U);
+    CHECK(dmp_none_boot_epoch_generate(fixed_random, (void *)zeros, &epoch) ==
+          DMP_INVALID_ARGUMENT);
+    CHECK(epoch == 99U);
+    CHECK(dmp_none_boot_epoch_generate_checked(fixed_random, (void *)bytes, retained,
+                                                retained_count, &epoch) == DMP_DUPLICATE);
+    CHECK(epoch == 99U);
+    CHECK(dmp_none_boot_epoch_generate_checked(fixed_random, (void *)bytes, NULL, 1U,
+                                                &epoch) == DMP_INVALID_ARGUMENT);
+    CHECK(epoch == 99U);
+    CHECK(dmp_none_boot_epoch_generate_checked(fixed_random, (void *)bytes, retained + 1,
+                                                1U, &epoch) == DMP_OK);
+    CHECK(epoch == UINT64_C(0x0102030405060708));
+    return 0;
+}
+
 int main(void)
 {
-    if (test_slots() != 0 || test_quota() != 0 || test_generation_scan() != 0 || test_resolution() != 0 ||
+    if (test_slots() != 0 || test_quota() != 0 || test_generation_scan() != 0 ||
+        test_none_shared_origin_sequence() != 0 ||
+        test_sec1_sequence_allocator() != 0 ||
+        test_none_boot_epoch_randomness() != 0 || test_resolution() != 0 ||
         test_authenticated_compact() != 0 || test_normative_reply_to_wire_forms() != 0 ||
         test_normative_v2_2_vectors() != 0 ||
         test_normative_v2_3_vectors() != 0) {

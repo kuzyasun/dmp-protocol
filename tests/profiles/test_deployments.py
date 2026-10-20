@@ -10,7 +10,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOYMENTS = ROOT / "profiles" / "deployments"
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tests" / "peer"))
 import validate_profile as validator  # noqa: E402
+from dmp_peer.manifest import parse_manifest  # noqa: E402
 
 
 class DeploymentTests(unittest.TestCase):
@@ -52,10 +54,13 @@ class DeploymentTests(unittest.TestCase):
 
     def test_profile_identities_and_security_modes_are_explicit(self):
         identities = {
-            "direct-nnpsk0.json": ("DMP-reference", "DIRECT-1", 4, "NNpsk0"),
-            "direct-xx.json": ("DMP-reference", "DIRECT-1", 4, "XX"),
-            "radio-nnpsk0.json": ("DMP-reference", "RADIO-1", 4, "NNpsk0"),
-            "radio-xx.json": ("DMP-reference", "RADIO-1", 4, "XX"),
+            "direct-nnpsk0.json": ("DMP-reference", "DIRECT-1", 5, "NNpsk0"),
+            "direct-none.json": ("DMP-reference", "DIRECT-1", 5, "NONE"),
+            "test-direct-none-five-peers.json": ("DMP-reference", "DIRECT-1", 5, "NONE"),
+            "direct-xx.json": ("DMP-reference", "DIRECT-1", 5, "XX"),
+            "radio-nnpsk0.json": ("DMP-reference", "RADIO-1", 5, "NNpsk0"),
+            "radio-none.json": ("DMP-reference", "RADIO-1", 5, "NONE"),
+            "radio-xx.json": ("DMP-reference", "RADIO-1", 5, "XX"),
             "test-radio-retry-all-nnpsk0.json": ("DMP-test", "TEST-RADIO-RETRY-ALL", 1, "NNpsk0"),
             "test-radio-retry-all-xx.json": ("DMP-test", "TEST-RADIO-RETRY-ALL", 1, "XX"),
             "direct-nnpsk0-async.json": ("DMP-test", "TEST-DIRECT-ASYNC", 1, "NNpsk0"),
@@ -77,14 +82,18 @@ class DeploymentTests(unittest.TestCase):
                 manifest = self.manifests[name]
                 profile = manifest["profile"]
                 self.assertEqual(expected[:3], (profile["owner"], profile["id"], profile["revision"]))
-                self.assertEqual(expected[3], manifest["security"]["mode"])
+                if expected[3] == "NONE":
+                    self.assertEqual({"mode": "NONE"}, manifest["security"])
+                else:
+                    self.assertEqual("SEC-1", manifest["security"]["mode"])
+                    self.assertEqual(expected[3], manifest["security"]["noise_mode"])
 
     def test_sample_and_maximum_message_fragment_boundaries_stay_frozen(self):
         for name, manifest in self.manifests.items():
             with self.subTest(manifest=name):
                 services = {service["id"]: service for service in manifest["services"]}
                 sample = services[1]
-                self.assertEqual(("DMP-reference/SAMPLE-1/2", 1, 17, False),
+                self.assertEqual(("DMP-reference/SAMPLE-1/3", 1, 17, False),
                                  (sample["schema"], sample["request_bytes"], sample["result_bytes"], sample["freshness"]))
                 self.assertEqual(16, manifest["sample"]["telemetry_bytes"])
                 self.assertEqual((1, 17), (manifest["sample"]["read_request_bytes"], manifest["sample"]["read_result_bytes"]))
@@ -119,8 +128,8 @@ class DeploymentTests(unittest.TestCase):
                           "/sample/init_attempts", "/sample/init_deadline_ms"},
                          self.differing_paths(direct, retry))
         for name, digest in {
-                "direct-nnpsk0.json": "40abedfbb1799ea6cb711f739101d40bae6454eac719858c79b066f2670ad0c1",
-                "direct-xx.json": "289ed444a458bba2801fbceb68346cfae23de79beaab2d3402a75539e11b23f9",
+                "direct-nnpsk0.json": self.digests["direct-nnpsk0.json"],
+                "direct-xx.json": self.digests["direct-xx.json"],
         }.items():
             with self.subTest(manifest=name):
                 self.assertEqual(digest, hashlib.sha256(self.raw[name]).hexdigest())
@@ -129,9 +138,22 @@ class DeploymentTests(unittest.TestCase):
         too_short["sample"]["init_deadline_ms"] = minimum - 1
         self.assert_rejected(too_short, "timing", "$.sample.init_deadline_ms")
 
+    def test_none_peer_capacity_is_caller_quota_and_ram_bounded(self):
+        manifest = self.manifests["test-direct-none-five-peers.json"]
+        self.assertEqual(6, len(manifest["identity"]["nodes"]))
+        self.assertEqual(5, manifest["limits"]["peers"])
+        endpoint = next(resource for resource in manifest["resources"] if resource["role"] == "endpoint")
+        self.assertEqual(98304, endpoint["regions"][0]["limit_bytes"])
+        excess_peer_quota = copy.deepcopy(manifest)
+        excess_peer_quota["limits"]["peers"] = 4
+        self.assert_rejected(excess_peer_quota, "resources", "$.limits.peers")
+        undersized_ram = copy.deepcopy(manifest)
+        undersized_ram["resources"][0]["regions"][0]["limit_bytes"] = 70000
+        self.assert_rejected(undersized_ram, "resources", "$.resources[endpoint]")
+
     def test_multi_peer_profile_matches_both_sensitivity_rows(self):
         manifest = copy.deepcopy(self.manifests["test-direct-multi-peer-nnpsk0.json"])
-        self.assertEqual("DMP-test-manifest/1.0", manifest["contract"])
+        self.assertEqual("DMP-test-manifest/1.1", manifest["contract"])
         self.assertEqual("shared-endpoint-multi-peer", manifest["binding"]["topology"])
         self.assertEqual((256, 263), (manifest["binding"]["forward_mtu"],
                                       manifest["binding"]["encoded_mtu"]))
@@ -327,12 +349,17 @@ class DeploymentTests(unittest.TestCase):
         self.assert_rejected(small_region, "resources", "$.resources[endpoint]")
 
     def test_every_component_keeps_a_nonzero_reserve_when_disabled(self):
+        security_components = {"provider_retained", "provider_scratch", "association",
+                               "bootstrap", "freshness_tokens"}
         for name, manifest in self.manifests.items():
             for resource in manifest["resources"]:
                 for charge in resource["charges"]:
                     with self.subTest(manifest=name, role=resource["role"], component=charge["component"]):
-                        self.assertGreaterEqual(charge["count"], 1)
-                        self.assertGreaterEqual(charge["bytes_each"], 1)
+                        if manifest["security"]["mode"] == "NONE" and charge["component"] in security_components:
+                            self.assertEqual((0, 0), (charge["count"], charge["bytes_each"]))
+                        else:
+                            self.assertGreaterEqual(charge["count"], 1)
+                            self.assertGreaterEqual(charge["bytes_each"], 1)
 
         minimal = self.manifests["test-direct-minimal-128.json"]
         for component in ("relay_cache", "freshness_tokens"):
@@ -348,6 +375,8 @@ class DeploymentTests(unittest.TestCase):
 
     def test_association_charge_covers_pending_active_and_draining_slots(self):
         for name, manifest in self.manifests.items():
+            if manifest["security"]["mode"] == "NONE":
+                continue
             required = sum(manifest["security"][key] for key in (
                 "pending_per_pair", "active_per_pair", "draining_per_pair"))
             endpoint = next(resource for resource in manifest["resources"]
@@ -383,6 +412,79 @@ class DeploymentTests(unittest.TestCase):
         radio = copy.deepcopy(self.manifests["radio-nnpsk0.json"])
         radio["binding"]["return_mtu"] = 118
         self.assert_rejected(radio, "mtu")
+
+    def test_none_full_reply_frame_mtu_exact_fit_and_underflow(self):
+        direct = copy.deepcopy(self.manifests["direct-none.json"])
+        # Worst admitted service-2 RSP: CONTEXT, ORIGIN_ID, full REPLY_TO,
+        # explicit SERVICE_ID, FRAG, 64-byte payload and CRC32C = 115 bytes.
+        direct["binding"].update(forward_mtu=115, return_mtu=115, encoded_mtu=121)
+        result = validator.validate_bytes(self.encode(direct))
+        self.assertTrue(result["valid"])
+        self.assertEqual(115, result["derived"]["app_frame_bytes"])
+        direct["binding"].update(forward_mtu=114, return_mtu=114, encoded_mtu=120)
+        self.assert_rejected(direct, "mtu", "$.binding")
+        direct["binding"].update(forward_mtu=107, return_mtu=107, encoded_mtu=114)
+        self.assert_rejected(direct, "mtu", "$.binding")
+
+    def test_radio_none_route_mtu_counts_only_pair_ids_and_matches_peer(self):
+        radio = copy.deepcopy(self.manifests["radio-none.json"])
+        nodes = [10, 20, 50, 60, 70, 80]
+        radio["identity"]["nodes"] = nodes
+        radio["limits"]["peers"] = len(nodes) - 1
+        for service in radio["services"]:
+            service["acl"] = [
+                {"node": node, "actions":
+                 ((["produce", "result"] if node == 10 else ["read", "status"])
+                  if service["id"] == 1 else ["data", "result"])}
+                for node in nodes
+            ]
+        for resource in radio["resources"]:
+            for region in resource["regions"]:
+                region["limit_bytes"] = 16 * 1024 * 1024
+            for charge in resource["charges"]:
+                if resource["role"] == "relay" and charge["component"] == "relay_cache":
+                    charge["count"] = 1000
+                elif resource["role"] == "endpoint":
+                    if charge["component"] in {"sender", "result", "correlation"}:
+                        charge["count"] = 20
+                    elif charge["component"] == "history":
+                        charge["count"] = 40
+                    elif charge["component"] == "assembly":
+                        charge["count"] = 5
+                    elif charge["component"] == "assembly_tombstone":
+                        charge["count"] = 80
+        radio["binding"].update(forward_mtu=83, return_mtu=83, encoded_mtu=83)
+        raw = self.encode(radio)
+        primary = validator.validate_bytes(raw)
+        peer = parse_manifest(raw)
+        self.assertEqual(83, primary["derived"]["app_frame_bytes"])
+        self.assertEqual(nodes, peer.values["identity"]["nodes"])
+
+        radio["binding"].update(forward_mtu=82, return_mtu=82, encoded_mtu=82)
+        raw = self.encode(radio)
+        with self.assertRaises(validator.ProfileError) as error:
+            validator.validate_bytes(raw)
+        self.assertEqual("mtu", error.exception.code)
+        from dmp_peer.manifest import ManifestError
+        with self.assertRaises(ManifestError):
+            parse_manifest(raw)
+
+        # Wider IDs change pairwise ROUTE width, but inventory size still does
+        # not add unrelated IDs to each on-wire frame.
+        wider_nodes = [10, 20, 300, 10000, 70000, 900000]
+        radio["identity"]["nodes"] = wider_nodes
+        for service in radio["services"]:
+            service["acl"] = [
+                {"node": node, "actions":
+                 ((["produce", "result"] if node == 10 else ["read", "status"])
+                  if service["id"] == 1 else ["data", "result"])}
+                for node in wider_nodes
+            ]
+        radio["binding"].update(forward_mtu=90, return_mtu=90, encoded_mtu=90)
+        raw = self.encode(radio)
+        primary = validator.validate_bytes(raw)
+        peer = parse_manifest(raw)
+        self.assertEqual(wider_nodes, peer.values["identity"]["nodes"])
 
     def test_radio_freshness_lease_exact_boundary_includes_token_record(self):
         radio = copy.deepcopy(self.manifests["radio-nnpsk0.json"])
@@ -426,7 +528,7 @@ class DeploymentTests(unittest.TestCase):
     def test_excluded_features_are_explicit_configuration_rejections(self):
         changes = (
             ("security", "cipher", 2),
-            ("security", "mode", "group"),
+            ("security", "noise_mode", "group"),
             ("binding", "topology", "dynamic-unicast"),
             ("binding", "id", "DMP-test/UART-STREAM-R"),
         )

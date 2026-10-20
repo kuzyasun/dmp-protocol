@@ -1,12 +1,12 @@
 # DMP v2 security profile SEC-1
 
-**Status:** normative implementation draft accompanying DMP document revision 10\
+**Status:** normative implementation draft accompanying DMP document revision 11\
 **Profile revision:** 5\
 **Date:** 2026-09-26
 
 This annex is part of the [DMP specification](DMP_v2_Device_Messaging_Protocol_Specification.md). MUST, MUST NOT, SHOULD and MAY have the same meanings. SEC-1 specifies pairwise, end-to-end authenticated encryption, including bootstrap and lifecycle. It is optional to implement; once a service requires SEC-1, plaintext fallback is forbidden. This is a complete draft contract for the stated scope, not a claim of independent cryptographic audit or production implementation interoperability.
 
-Profile revision 5 uses main document revision 10 and BOOT_VERSION=2. It replaces mandatory preserve-state receive with the abort-first rules in S3.1 and permits a reviewed controlled Noise core. Bootstrap layouts, standard Noise algorithms, protected framing, credentials and the hard failed-AEAD ceiling are unchanged. Failure semantics are not compatible merely because byte layouts match: exact agreed manifests MUST identify this revision; an old digest MUST NOT be reinterpreted under the new policy. No automatic policy fallback exists. SELECTIVE-32 remains optional. The informative [design tradeoffs guide](DMP_v2_Design_Tradeoffs.md) explains the design choices.
+Profile revision 5 uses main document revision 11 and BOOT_VERSION=2. It replaces mandatory preserve-state receive with the abort-first rules in S3.1 and permits a reviewed controlled Noise core. Bootstrap layouts, standard Noise algorithms, protected framing, credentials and the hard failed-AEAD ceiling are unchanged. Failure semantics are not compatible merely because byte layouts match: exact agreed manifests MUST identify this revision; an old digest MUST NOT be reinterpreted under the new policy. No automatic policy fallback exists. SELECTIVE-32 remains optional. The informative [design tradeoffs guide](DMP_v2_Design_Tradeoffs.md) explains the design choices.
 
 ## S1. Scope, threat model and alternatives
 
@@ -301,7 +301,7 @@ A transparent gateway preserves protected payload/tag, association selectors and
 
 A gateway that decrypts, translates a schema, changes endpoint identity or re-fragments the logical message is a terminating application endpoint. Such a deployment has two separately secured associations and cannot claim endpoint-to-endpoint secrecy from that gateway. SEC-1 does not require such termination to cross transports.
 
-For each enabled service, configure plaintext/external-binding/SEC-1 requirements explicitly. A peer timeout, handshake failure, unsupported cipher, lost CID or revoked credential MUST NOT relax that policy. Bootstrap HELLO is the narrow plaintext exception for establishing SEC-1, not a channel for executing application commands or changing security policy. DMP SECURITY=0 carried over an authenticated external binding is still distinguishable from SEC-1 in the local API and conformance claim.
+The endpoint manifest explicitly selects NONE or SEC-1 once per endpoint instance; all peers and services of that instance use the selection. This selection does not replace per-service authorization/freshness policy. A peer timeout, handshake failure, unsupported cipher, lost CID or revoked credential MUST NOT relax SEC-1 to NONE. Bootstrap HELLO is the narrow plaintext exception for establishing SEC-1, not a channel for executing application commands or changing security policy. DMP SECURITY=0 carried over an authenticated external binding is still distinguishable from SEC-1 in the local API and conformance claim. NONE Core frames use the main §13 CRC32C and explicit context rules but do not provide cryptographic identity, freshness or authorization proof.
 
 Required deployment data: manifest bytes/digest; allowed modes/ciphers and trust records; explicit control/application service map; bootstrap path/MTU/fragment and pending quotas; pairing/handshake/confirmation deadlines and retries; association limits/replay window; ACLs/freshness policies/token quotas; restart/sleep entropy and volatile-state guarantees; rotation/drain behavior; ingress verification limits; and any required authenticated hop binding. Unsupported group delivery and offline association restoration must be reported as unsupported, never emulated silently.
 

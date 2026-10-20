@@ -1,11 +1,11 @@
 {
-  "contract": "DMP-test-manifest/1.0",
+  "contract": "DMP-test-manifest/1.1",
   "revisions": {
-    "core": 10,
+    "core": 11,
     "security": 5,
     "bootstrap": 2,
-    "recovery": 1,
-    "application": 2
+    "recovery": 2,
+    "application": 3
   },
   "profile": {
     "owner": "DMP-test",
@@ -54,7 +54,7 @@
       "id": 1,
       "reply_service": 1,
       "service_encoding": "omitted",
-      "schema": "DMP-reference/SAMPLE-1/2",
+      "schema": "DMP-reference/SAMPLE-1/3",
       "payload_desc": "omitted",
       "recovery": "retry-all",
       "security": "SEC-1",
@@ -127,7 +127,6 @@
     "assembly_tombstones_per_peer": 16
   },
   "security": {
-    "mode": "NNpsk0",
     "cipher": 1,
     "credential": "provisioned-pairwise-psk",
     "trust_change": "owner-authorized-atomic-pin-and-acl",
@@ -166,7 +165,9 @@
     "later_window_ms": 10000000,
     "ingress_packets_per_window": 100,
     "ingress_window_ms": 1000,
-    "global_crypto_ms_per_window": 100000
+    "global_crypto_ms_per_window": 100000,
+    "noise_mode": "NNpsk0",
+    "mode": "SEC-1"
   },
   "timing": {
     "queue_ms": 64,
@@ -294,7 +295,7 @@
           "component": "association",
           "region": "RAM",
           "count": 3,
-          "bytes_each": 3971
+          "bytes_each": 5171
         },
         {
           "component": "bootstrap",
@@ -306,7 +307,7 @@
           "component": "sender",
           "region": "RAM",
           "count": 4,
-          "bytes_each": 1240
+          "bytes_each": 1272
         },
         {
           "component": "assembly",
@@ -324,19 +325,19 @@
           "component": "result",
           "region": "RAM",
           "count": 6,
-          "bytes_each": 1160
+          "bytes_each": 1192
         },
         {
           "component": "history",
           "region": "RAM",
           "count": 12,
-          "bytes_each": 375
+          "bytes_each": 415
         },
         {
           "component": "correlation",
           "region": "RAM",
           "count": 6,
-          "bytes_each": 359
+          "bytes_each": 407
         },
         {
           "component": "control",
@@ -354,7 +355,7 @@
           "component": "adapter",
           "region": "RAM",
           "count": 5,
-          "bytes_each": 344
+          "bytes_each": 383
         },
         {
           "component": "stacks",
@@ -372,7 +373,7 @@
           "component": "freshness_tokens",
           "region": "RAM",
           "count": 8,
-          "bytes_each": 88
+          "bytes_each": 104
         }
       ]
     },
