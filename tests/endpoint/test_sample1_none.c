@@ -94,6 +94,7 @@ struct node {
     uint8_t telemetry_frame[CORE_MTU];
     uint8_t stream_tx[CORE_MTU];
     uint8_t stream_rx[CORE_MTU * SAMPLE_PEERS];
+    uint8_t parsed_view_storage[CORE_MTU];
     dmp_sample1_endpoint sample_endpoint;
     dmp_sample1_peer_epoch sample_peers[SAMPLE_PEERS];
     dmp_sample1_queued_result sample_results[SAMPLE_PEERS];
@@ -132,7 +133,8 @@ static dmp_bytes span(const void *data, size_t size)
 
 static dmp_parse_result parse_outbound_core(const uint8_t *data, size_t size,
                                             dmp_time_ms now,
-                                            dmp_frame_view *view)
+                                            dmp_frame_view *view,
+                                            uint8_t view_storage[CORE_MTU])
 {
     dmp_core_limits limits = {CORE_MTU, MESSAGE_BYTES, 16U};
     if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_PACKET) {
@@ -163,12 +165,31 @@ static dmp_parse_result parse_outbound_core(const uint8_t *data, size_t size,
             }
             consumed += fed.consumed;
             if (fed.event == DMP_STREAM_FRAME) {
-                return dmp_core_parse(fed.frame, &limits, view);
+                if (fed.frame.size > CORE_MTU) {
+                    invalid.status = DMP_MALFORMED;
+                    return invalid;
+                }
+                (void)memcpy(view_storage, fed.frame.data, fed.frame.size);
+                return dmp_core_parse(span(view_storage, fed.frame.size),
+                                      &limits, view);
             }
         }
         invalid.status = DMP_MALFORMED;
         return invalid;
     }
+}
+
+#if defined(__GNUC__)
+__attribute__((noinline))
+#endif
+static uint8_t churn_stack(void)
+{
+    volatile uint8_t bytes[CORE_MTU * 2U];
+    size_t i;
+    for (i = 0U; i < sizeof(bytes); i++) {
+        bytes[i] = (uint8_t)(i ^ 0x5aU);
+    }
+    return bytes[sizeof(bytes) - 1U];
 }
 
 static void store_u32_le(uint8_t *out, uint32_t value)
@@ -655,7 +676,8 @@ static int deliver(node *from, node *to, dmp_time_ms now)
         if (from == &producer) {
             dmp_frame_view view;
             dmp_parse_result parsed = parse_outbound_core(
-                from->tx.frame[i], from->tx.length[i], now, &view);
+                from->tx.frame[i], from->tx.length[i], now, &view,
+                from->parsed_view_storage);
             if (parsed.status == DMP_OK && view.fields.type == DMP_TYPE_RSP) {
                 (void)memcpy(g_last_response_frame, from->tx.frame[i],
                              from->tx.length[i]);
@@ -713,6 +735,7 @@ static int deliver(node *from, node *to, dmp_time_ms now)
     return sample_work;
 }
 
+#if SAMPLE_PEERS > 1U
 static int collect_sample_responses(dmp_time_ms now, uint32_t expected_responses,
                                     uint8_t response_frames[MAX_SAMPLE_PEERS][CORE_MTU],
                                     size_t response_lengths[MAX_SAMPLE_PEERS])
@@ -732,7 +755,8 @@ static int collect_sample_responses(dmp_time_ms now, uint32_t expected_responses
             dmp_frame_view view;
             if (peer >= SAMPLE_PEERS ||
                 parse_outbound_core(producer.tx.frame[i], producer.tx.length[i],
-                                    now, &view).status != DMP_OK) {
+                                    now, &view,
+                                    producer.parsed_view_storage).status != DMP_OK) {
                 return -1;
             }
             if (view.fields.type == DMP_TYPE_ACK) {
@@ -771,6 +795,7 @@ static int collect_sample_responses(dmp_time_ms now, uint32_t expected_responses
     }
     return 0;
 }
+#endif
 
 static int pump(dmp_time_ms now)
 {
@@ -900,9 +925,17 @@ static int run_multi_peer_round_trips(void)
     }
     CHECK(producer.tx.count == SAMPLE_PEERS);
     for (i = 0U; i < SAMPLE_PEERS; i++) {
+        if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+            /* Each independent peer must establish its own stream decoder
+             * before any Core frame is encoded for that route. */
+            CHECK(producer.tx.length[i] == 1U);
+            CHECK(producer.tx.frame[i][0] == 0U);
+            continue;
+        }
         dmp_frame_view telem_view;
         dmp_parse_result parsed = parse_outbound_core(
-            producer.tx.frame[i], producer.tx.length[i], now, &telem_view);
+            producer.tx.frame[i], producer.tx.length[i], now, &telem_view,
+            producer.parsed_view_storage);
         CHECK(parsed.status == DMP_OK);
         CHECK(telem_view.fields.type == DMP_TYPE_TELEM);
         CHECK((telem_view.fields.options & DMP_OPT_INTEGRITY) != 0U);
@@ -947,7 +980,8 @@ static int run_multi_peer_round_trips(void)
         CHECK(consumer.tx.count == 1U);
         parsed = parse_outbound_core(consumer.tx.frame[0],
                                      consumer.tx.length[0], now + 1U,
-                                     &request_view);
+                                     &request_view,
+                                     consumer.parsed_view_storage);
         CHECK(parsed.status == DMP_OK);
         CHECK(request_view.fields.type == DMP_TYPE_REQ);
 #if SAMPLE_RADIO
@@ -1037,7 +1071,8 @@ static int run_multi_peer_round_trips(void)
         CHECK(consumer.tx.count == 1U);
         parsed = parse_outbound_core(consumer.tx.frame[0],
                                      consumer.tx.length[0], now + 2U,
-                                     &request_view);
+                                     &request_view,
+                                     consumer.parsed_view_storage);
         CHECK(parsed.status == DMP_OK);
         CHECK(request_view.fields.type == DMP_TYPE_REQ);
         if (i == 0U) {
@@ -1060,7 +1095,8 @@ static int run_multi_peer_round_trips(void)
                 }
                 parsed = parse_outbound_core(producer.tx.frame[j],
                                              producer.tx.length[j], now + 2U,
-                                             &view);
+                                             &view,
+                                             producer.parsed_view_storage);
                 if (parsed.status == DMP_OK && view.fields.type == DMP_TYPE_RSP) {
                     has_read_response = true;
                     break;
@@ -1085,7 +1121,9 @@ static int run_multi_peer_round_trips(void)
                 now + 2U);
             parsed = parse_outbound_core(completed_status_response,
                                          completed_status_response_len,
-                                         now + 2U, &old_response_view);
+                                         now + 2U, &old_response_view,
+                                         consumer.parsed_view_storage);
+            (void)churn_stack();
             CHECK(parsed.status == DMP_OK);
             CHECK(dmp_identity_reply_to(
                       &old_response_view, &consumer.endpoint.identity,
@@ -1256,7 +1294,7 @@ static int run_persistent_consumer_history(void)
         CHECK(dmp_endpoint_poll(&c->endpoint, now + 1U) == DMP_OK);
         CHECK(c->tx.count == 1U);
         CHECK(parse_outbound_core(c->tx.frame[0], c->tx.length[0], now + 1U,
-                                  &view).status == DMP_OK);
+                                  &view, c->parsed_view_storage).status == DMP_OK);
         CHECK(view.fields.type == DMP_TYPE_REQ);
         request_keys[i].origin.namespace_id = 1U;
         request_keys[i].origin.origin_id = 20U + i;
@@ -1320,7 +1358,8 @@ static int run_persistent_consumer_history(void)
             dmp_message_key reply_key;
             CHECK(parse_outbound_core(response_frames[peer],
                                       response_lengths[peer], now + 2U,
-                                      &response_view).status == DMP_OK);
+                                      &response_view,
+                                      c->parsed_view_storage).status == DMP_OK);
             CHECK(dmp_identity_reply_to(
                       &response_view, &c->endpoint.identity,
                       c->endpoint.peers[0].context, now + 2U,
@@ -1339,7 +1378,8 @@ static int run_persistent_consumer_history(void)
         {
             dmp_frame_view result_ack;
             CHECK(parse_outbound_core(c->tx.frame[0], c->tx.length[0],
-                                      now + 2U, &result_ack).status == DMP_OK);
+                                      now + 2U, &result_ack,
+                                      c->parsed_view_storage).status == DMP_OK);
             CHECK(result_ack.fields.type == DMP_TYPE_ACK);
         }
         g_route_peer_slot = peer;
@@ -1364,7 +1404,8 @@ static int run_persistent_consumer_history(void)
         dmp_frame_view result_ack;
         CHECK(parse_outbound_core(persistent_consumers[0].tx.frame[0],
                                   persistent_consumers[0].tx.length[0],
-                                  now + 2U, &result_ack).status == DMP_OK);
+                                  now + 2U, &result_ack,
+                                  persistent_consumers[0].parsed_view_storage).status == DMP_OK);
         CHECK(result_ack.fields.type == DMP_TYPE_ACK);
     }
     CHECK(deliver(&persistent_consumers[0], &producer, now + 2U) >= 0);
@@ -1481,7 +1522,8 @@ static int run_persistent_consumer_history(void)
             dmp_frame_view duplicate_ack;
             CHECK(parse_outbound_core(producer.tx.frame[0],
                                       producer.tx.length[0], now + 4U,
-                                      &duplicate_ack).status == DMP_OK);
+                                      &duplicate_ack,
+                                      producer.parsed_view_storage).status == DMP_OK);
             CHECK(duplicate_ack.fields.type == DMP_TYPE_ACK);
             CHECK(producer.tx.peer_slot[0] == 0U);
         }
