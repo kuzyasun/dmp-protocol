@@ -1,0 +1,179 @@
+R03 qualification evidence extracted from the terminal RBO attempts.
+Job and snapshot IDs are in README.md. Lines below retain the measured values
+and artifact paths. Full artifacts are identified by their SHA-256 digests.
+
+[Padded binary bytes and terminal RBO artifact IDs]
+891520  build/r03-baseline-esp32s3/dmp_espnow_dmp.bin  art_01M7QN1S9FT2C4S54KF3F003XA
+890352  build/r03-record-esp32s3/dmp_espnow_dmp.bin  art_01M7QN8EEQW2YP24BSJEH0RF77
+890208  build/r03-teardown-esp32s3/dmp_espnow_dmp.bin  art_01M7QNAG23VKH68AQ4TFR6X821
+890128  build/r03-final-esp32s3/dmp_espnow_dmp.bin  art_01M7QNF22D2MPX41W1AA7S35C1
+930992  build/r03-baseline-esp32c3/dmp_espnow_dmp.bin  art_01M7QN1HYMB70CHF2BDGTRD6TA
+930288  build/r03-final-esp32c3/dmp_espnow_dmp.bin  art_01M7QNEHDSHHQHAS1CKNK9Q9YM
+
+[r03baselineesp32s3 effective inputs and artifacts]
+f9428ef9c3c72ea136cea929bbd29db206953813fae07438e0b62bc597e3baa4  build/r03-baseline-esp32s3/sdkconfig
+9edbc49d3ac73305afe30b7c2a1e5acf7e53de38c505fb3c938c540e24eb0f47  build/r03-baseline-esp32s3/dmp_espnow_dmp.elf
+e20eb20b193cd8c1ec285b30dcea9b702d5b328f58624023c022f7efff07b26a  build/r03-baseline-esp32s3/dmp_espnow_dmp.map
+c801b79285660c281372138d5db236de01c3947c3a6acf53b5edc012565e6231  build/r03-baseline-esp32s3/dmp_espnow_dmp.bin
+8bdfe6beb77c529c01e427f3177a06c726a785ff1a1afed7e2819ee8515a7300  build/r03-baseline-esp32s3/esp-idf/esp_system/ld/memory.ld
+56976f3a38ff3e92872f5f3358ebc912e04614528940a85223a92eba27672fa9  build/r03-baseline-esp32s3/esp-idf/esp_system/ld/sections.ld
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  tests/embedded/espnow_dmp/dependencies.lock
+
+[r03baselineesp32s3 toolchain]
+Added environment variable IDF_VERSION = 6.1.0
+xtensa-esp-elf-gcc (crosstool-NG esp-15.2.0_20251204) 15.2.0
+
+[r03baselineesp32s3 linked sizes]
+┃ Archive File                    ┃ Total Size ┃ IRAM ┃ .text ┃ .vectors ┃  DIRAM ┃   .bss ┃ .data ┃ .text ┃ Flash Code ┃  .text ┃ Flash Data ┃ .tdata ┃ .rodata ┃ .appdesc ┃ RTC FAST ┃ .rtc_reserved ┃ RTC SLOW ┃ .force_slow ┃
+│ libdmp.a                        │      89286 │    0 │     0 │        0 │      4 │      4 │     0 │     0 │      89239 │  89239 │         43 │      0 │      43 │        0 │        0 │             0 │        0 │           0 │
+│ libesphome__libsodium.a         │      29313 │    0 │     0 │        0 │    143 │     75 │    68 │     0 │      16370 │  16370 │      12800 │      0 │   12800 │        0 │        0 │             0 │        0 │           0 │
+│ libnoise-c.a                    │       9608 │    0 │     0 │        0 │      0 │      0 │     0 │     0 │       9162 │   9162 │        446 │      0 │     446 │        0 │        0 │             0 │        0 │           0 │
+│ DIRAM               │       237459 │    69.48 │         104301 │        341760 │
+│ IRAM                │        16384 │    100.0 │              0 │         16384 │
+Total image size: 891407 bytes (.bin may be padded larger)
+
+[r03recordq effective inputs and artifacts]
+f9428ef9c3c72ea136cea929bbd29db206953813fae07438e0b62bc597e3baa4  build/r03-record-esp32s3/sdkconfig
+ba47568e6d159b47f7fdd816c344452d102f90c9e291c1b337970b2f40eb50af  build/r03-record-esp32s3/dmp_espnow_dmp.elf
+3ff9bdd2592de1255726775c2af9c1b2da3a3a45a8634b0c5915e9ca29d35ef4  build/r03-record-esp32s3/dmp_espnow_dmp.map
+7084c08dbb78a57d9df1c5a3276e41dcb6a6beb9a561d6eff6d5bbba2d4b3e6e  build/r03-record-esp32s3/dmp_espnow_dmp.bin
+8bdfe6beb77c529c01e427f3177a06c726a785ff1a1afed7e2819ee8515a7300  build/r03-record-esp32s3/esp-idf/esp_system/ld/memory.ld
+1850d542d1f42652033c2035db15cd368c4482f7f1e4fcb1ff1b1ff35d006f0e  build/r03-record-esp32s3/esp-idf/esp_system/ld/sections.ld
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  tests/embedded/espnow_dmp/dependencies.lock
+
+[r03recordq changed source inputs]
+a2a19c21e86c6c2ec1aeb4b6b7987d82fec96cff43d6901f047602ab808b154d  src/security/handshake.c
+
+[r03recordq toolchain]
+Added environment variable IDF_VERSION = 6.1.0
+xtensa-esp-elf-gcc (crosstool-NG esp-15.2.0_20251204) 15.2.0
+
+[r03recordq linked sizes]
+┃ Archive File                    ┃ Total Size ┃ IRAM ┃ .text ┃ .vectors ┃  DIRAM ┃   .bss ┃ .data ┃ .text ┃ Flash Code ┃  .text ┃ Flash Data ┃ .tdata ┃ .rodata ┃ .appdesc ┃ RTC FAST ┃ .rtc_reserved ┃ RTC SLOW ┃ .force_slow ┃
+│ libdmp.a                        │      88134 │    0 │     0 │        0 │      4 │      4 │     0 │     0 │      88087 │  88087 │         43 │      0 │      43 │        0 │        0 │             0 │        0 │           0 │
+│ libesphome__libsodium.a         │      29313 │    0 │     0 │        0 │    143 │     75 │    68 │     0 │      16370 │  16370 │      12800 │      0 │   12800 │        0 │        0 │             0 │        0 │           0 │
+│ libnoise-c.a                    │       9608 │    0 │     0 │        0 │      0 │      0 │     0 │     0 │       9162 │   9162 │        446 │      0 │     446 │        0 │        0 │             0 │        0 │           0 │
+│ DIRAM               │       237459 │    69.48 │         104301 │        341760 │
+│ IRAM                │        16384 │    100.0 │              0 │         16384 │
+Total image size: 890243 bytes (.bin may be padded larger)
+
+[r03teardown effective inputs and artifacts]
+f9428ef9c3c72ea136cea929bbd29db206953813fae07438e0b62bc597e3baa4  build/r03-teardown-esp32s3/sdkconfig
+e08d0ae11b8ea3eb3bccc1505ca24f725d0843bb05f6a5f4253e078a8c0fcbae  build/r03-teardown-esp32s3/dmp_espnow_dmp.elf
+69e158fec82eee69d300e023069f81e5534315b65697ea532072cd5f6aa19831  build/r03-teardown-esp32s3/dmp_espnow_dmp.map
+e3e4119c076ab2277604803af9b10ddbcace7e4118328c3398a729cb6885938b  build/r03-teardown-esp32s3/dmp_espnow_dmp.bin
+8bdfe6beb77c529c01e427f3177a06c726a785ff1a1afed7e2819ee8515a7300  build/r03-teardown-esp32s3/esp-idf/esp_system/ld/memory.ld
+3e1f811c580b351df6e7bfb415d10e290ccfea56fa47249f3b93e3ef94ca7945  build/r03-teardown-esp32s3/esp-idf/esp_system/ld/sections.ld
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  tests/embedded/espnow_dmp/dependencies.lock
+
+[r03teardown changed source inputs]
+ee3e5a44be5e66525b0df61a3b1131774aecae8a6abe62fa6dfb94e85a8f13f8  src/security/handshake.c
+
+[r03teardown toolchain]
+Added environment variable IDF_VERSION = 6.1.0
+xtensa-esp-elf-gcc (crosstool-NG esp-15.2.0_20251204) 15.2.0
+
+[r03teardown linked sizes]
+┃ Archive File                    ┃ Total Size ┃ IRAM ┃ .text ┃ .vectors ┃  DIRAM ┃   .bss ┃ .data ┃ .text ┃ Flash Code ┃  .text ┃ Flash Data ┃ .tdata ┃ .rodata ┃ .appdesc ┃ RTC FAST ┃ .rtc_reserved ┃ RTC SLOW ┃ .force_slow ┃
+│ libdmp.a                        │      87979 │    0 │     0 │        0 │      4 │      4 │     0 │     0 │      87932 │  87932 │         43 │      0 │      43 │        0 │        0 │             0 │        0 │           0 │
+│ libesphome__libsodium.a         │      29313 │    0 │     0 │        0 │    143 │     75 │    68 │     0 │      16370 │  16370 │      12800 │      0 │   12800 │        0 │        0 │             0 │        0 │           0 │
+│ libnoise-c.a                    │       9608 │    0 │     0 │        0 │      0 │      0 │     0 │     0 │       9162 │   9162 │        446 │      0 │     446 │        0 │        0 │             0 │        0 │           0 │
+│ DIRAM               │       237459 │    69.48 │         104301 │        341760 │
+│ IRAM                │        16384 │    100.0 │              0 │         16384 │
+Total image size: 890091 bytes (.bin may be padded larger)
+
+[r03finals3 effective inputs and artifacts]
+f9428ef9c3c72ea136cea929bbd29db206953813fae07438e0b62bc597e3baa4  build/r03-final-esp32s3/sdkconfig
+997ba2aea94aa9e2ea553dc5b6970508dc151e618ffd9d48e2fe8897e7867c7a  build/r03-final-esp32s3/dmp_espnow_dmp.elf
+5e7841e0c19b65222a1fc81b823dde5d61c9f59061aed0138a5a0fa10c10beb9  build/r03-final-esp32s3/dmp_espnow_dmp.map
+4fc808d6d364e6720e41c7f0101bd69ad3b3f4895a073f9f38e790c02efcd905  build/r03-final-esp32s3/dmp_espnow_dmp.bin
+8bdfe6beb77c529c01e427f3177a06c726a785ff1a1afed7e2819ee8515a7300  build/r03-final-esp32s3/esp-idf/esp_system/ld/memory.ld
+b5e8a499e7199706b545d48510d3a1e51f2eac0aac3f73cb11459ec9d7c21bb4  build/r03-final-esp32s3/esp-idf/esp_system/ld/sections.ld
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  tests/embedded/espnow_dmp/dependencies.lock
+
+[r03finals3 changed source inputs]
+ee3e5a44be5e66525b0df61a3b1131774aecae8a6abe62fa6dfb94e85a8f13f8  src/security/handshake.c
+07d39404d4bc2f3d87a2069bc9bfc33297054e162a26b3e1719e17b26adc29f2  src/security/handshake_transport.c
+
+[r03finals3 toolchain]
+Added environment variable IDF_VERSION = 6.1.0
+xtensa-esp-elf-gcc (crosstool-NG esp-15.2.0_20251204) 15.2.0
+
+[r03finals3 linked sizes]
+┃ Archive File                    ┃ Total Size ┃ IRAM ┃ .text ┃ .vectors ┃  DIRAM ┃   .bss ┃ .data ┃ .text ┃ Flash Code ┃  .text ┃ Flash Data ┃ .tdata ┃ .rodata ┃ .appdesc ┃ RTC FAST ┃ .rtc_reserved ┃ RTC SLOW ┃ .force_slow ┃
+│ libdmp.a                        │      87899 │    0 │     0 │        0 │      4 │      4 │     0 │     0 │      87852 │  87852 │         43 │      0 │      43 │        0 │        0 │             0 │        0 │           0 │
+│ libesphome__libsodium.a         │      29313 │    0 │     0 │        0 │    143 │     75 │    68 │     0 │      16370 │  16370 │      12800 │      0 │   12800 │        0 │        0 │             0 │        0 │           0 │
+│ libnoise-c.a                    │       9608 │    0 │     0 │        0 │      0 │      0 │     0 │     0 │       9162 │   9162 │        446 │      0 │     446 │        0 │        0 │             0 │        0 │           0 │
+│ DIRAM               │       237459 │    69.48 │         104301 │        341760 │
+│ IRAM                │        16384 │    100.0 │              0 │         16384 │
+Total image size: 890011 bytes (.bin may be padded larger)
+
+[r03baselineesp32c3 effective inputs and artifacts]
+11f9c16c7d2c015508692032b693fe1e3efd10796eaa2a3d0bb0b7aacfa943c7  build/r03-baseline-esp32c3/sdkconfig
+5acdeb64cc0ff71090b41056f813a99b6cc71601a555c66862fc81ce378cf477  build/r03-baseline-esp32c3/dmp_espnow_dmp.elf
+c07a6c3f333f23e0154087742cbc9d190d350ade0085e4432f4ed088f468d3bf  build/r03-baseline-esp32c3/dmp_espnow_dmp.map
+d602547559eae2ecd2d4046f1cb0174409fe8e526f741953b1b73fe52adb5373  build/r03-baseline-esp32c3/dmp_espnow_dmp.bin
+7bd7f1a027a377c7f885125831055d6d9c50cea1ad28441c164d6bf86c7ebd02  build/r03-baseline-esp32c3/esp-idf/esp_system/ld/memory.ld
+1c36f2771f5857c63de0a95ca8cc389e58690e4b8911b8eed00225e1f2074016  build/r03-baseline-esp32c3/esp-idf/esp_system/ld/sections.ld
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  tests/embedded/espnow_dmp/dependencies.lock
+
+[r03baselineesp32c3 toolchain]
+Added environment variable IDF_VERSION = 6.1.0
+riscv32-esp-elf-gcc (crosstool-NG esp-15.2.0_20251204) 15.2.0
+
+[r03baselineesp32c3 linked sizes]
+┃ Archive File                    ┃ Total Size ┃   DRAM ┃   .bss ┃ .data ┃ .text ┃ Flash Code ┃  .text ┃ Flash Data ┃ .tdata ┃ .init_array ┃ .rodata ┃ .appdesc ┃ RTC SLOW ┃ .rtc_reserved ┃ .force_slow ┃
+│ libdmp.a                        │      92809 │      4 │      4 │     0 │     0 │      92774 │  92774 │         31 │      0 │           0 │      31 │        0 │        0 │             0 │           0 │
+│ libesphome__libsodium.a         │      30649 │    143 │     75 │    68 │     0 │      17706 │  17706 │      12800 │      0 │           0 │   12800 │        0 │        0 │             0 │           0 │
+│ libnoise-c.a                    │      11194 │      0 │      0 │     0 │     0 │      10748 │  10748 │        446 │      0 │           0 │     446 │        0 │        0 │             0 │           0 │
+│ DRAM                │       237420 │    73.89 │          83876 │        321296 │
+Total image size: 930620 bytes (.bin may be padded larger)
+
+[r03finalc3 effective inputs and artifacts]
+11f9c16c7d2c015508692032b693fe1e3efd10796eaa2a3d0bb0b7aacfa943c7  build/r03-final-esp32c3/sdkconfig
+455bdfdd3de4bf478f461aa8cdd251c5b44c247c0044f585c2554b6a0b5b27a9  build/r03-final-esp32c3/dmp_espnow_dmp.elf
+55880aed0034527da2014014bf7a70d38fb5b6801df1414611dc80cac4259cd5  build/r03-final-esp32c3/dmp_espnow_dmp.map
+fc7286d9844d961056e0d41e738e6c38fd82b6ef78c5140698c9004f8d2fb264  build/r03-final-esp32c3/dmp_espnow_dmp.bin
+7bd7f1a027a377c7f885125831055d6d9c50cea1ad28441c164d6bf86c7ebd02  build/r03-final-esp32c3/esp-idf/esp_system/ld/memory.ld
+389be6b9ee0fe8098743d1a0458d5994faf7ee24510d062efac91074af1ab253  build/r03-final-esp32c3/esp-idf/esp_system/ld/sections.ld
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  tests/embedded/espnow_dmp/dependencies.lock
+
+[r03finalc3 changed source inputs]
+ee3e5a44be5e66525b0df61a3b1131774aecae8a6abe62fa6dfb94e85a8f13f8  src/security/handshake.c
+07d39404d4bc2f3d87a2069bc9bfc33297054e162a26b3e1719e17b26adc29f2  src/security/handshake_transport.c
+
+[r03finalc3 toolchain]
+Added environment variable IDF_VERSION = 6.1.0
+riscv32-esp-elf-gcc (crosstool-NG esp-15.2.0_20251204) 15.2.0
+
+[r03finalc3 linked sizes]
+┃ Archive File                    ┃ Total Size ┃   DRAM ┃   .bss ┃ .data ┃ .text ┃ Flash Code ┃  .text ┃ Flash Data ┃ .tdata ┃ .init_array ┃ .rodata ┃ .appdesc ┃ RTC SLOW ┃ .rtc_reserved ┃ .force_slow ┃
+│ libdmp.a                        │      92103 │      4 │      4 │     0 │     0 │      92068 │  92068 │         31 │      0 │           0 │      31 │        0 │        0 │             0 │           0 │
+│ libesphome__libsodium.a         │      30649 │    143 │     75 │    68 │     0 │      17706 │  17706 │      12800 │      0 │           0 │   12800 │        0 │        0 │             0 │           0 │
+│ libnoise-c.a                    │      11194 │      0 │      0 │     0 │     0 │      10748 │  10748 │        446 │      0 │           0 │     446 │        0 │        0 │             0 │           0 │
+│ DRAM                │       237420 │    73.89 │          83876 │        321296 │
+Total image size: 929914 bytes (.bin may be padded larger)
+
+[ESP32-S3 R02 stack prologues]
+seal_record 1504 B
+dmp_hs_seal_logical 1408 B
+dmp_hs_offer_protected 1024 B
+dmp_hs_open_logical 1056 B
+abort_attempt 32 B
+end_traffic 32 B
+dmp_hs_tx_submit 336 B
+
+[ESP32-S3 R03 stack prologues]
+ELF SHA-256 997ba2aea94aa9e2ea553dc5b6970508dc151e618ffd9d48e2fe8897e7867c7a
+Xtensa ENTRY instructions decoded from executable ELF sections.
+
+4201a5d8 <seal_record>: 01a136 entry a1, 208 B
+4201cc98 <dmp_hs_seal_logical>: 018136 entry a1, 192 B
+4201c930 <dmp_hs_offer_protected>: 038136 entry a1, 448 B
+4201ce90 <dmp_hs_open_logical>: 03c136 entry a1, 480 B
+4201a97c <abort_attempt>: 004136 entry a1, 32 B
+4201aa80 <end_traffic>: 004136 entry a1, 32 B
+4201df40 <dmp_hs_tx_submit>: 02a136 entry a1, 336 B
+4201a488 <seal_prepared_record$constprop$0>: 070136 entry a1, 896 B
+4201abac <open_record_body$constprop$0>: 032136 entry a1, 400 B
+4201a3dc <build_record_aad$constprop$0>: 006136 entry a1, 48 B

@@ -618,10 +618,9 @@ dmp_hs_tx_status dmp_hs_tx_submit(dmp_hs_tx *state, uint32_t attempt_index,
     uint32_t index;
     struct hs_tx_slot *slot;
     dmp_hs_tx_status planned;
-    size_t fragment_count, chunk_size, core_size = 0U, encoded_size = 0U;
+    size_t fragment_count, chunk_size, encoded_size = 0U;
     bootstrap_geometry geometry;
-    const uint8_t *source;
-    size_t source_len = 0U;
+    dmp_bytes core = {0};
     dmp_status status;
     dmp_hs_status hs_status;
     dmp_tx_submission submission;
@@ -690,56 +689,37 @@ dmp_hs_tx_status dmp_hs_tx_submit(dmp_hs_tx *state, uint32_t attempt_index,
             return planned == DMP_HS_TX_ACCEPTED ? DMP_HS_TX_INVALID : planned;
         }
         planned = encode_bootstrap_core(state, attempt_index, fragment_index,
-                                        &geometry, &core_size);
+                                        &geometry, &core.size);
         if (planned != DMP_HS_TX_ACCEPTED) {
             (void)dmp_hs_release_tx_reservation(state->handshake, &slot->reservation);
             memset(slot, 0, sizeof(*slot));
             return planned;
         }
+        core.data = state->core_scratch;
     } else {
-        source = dmp_hs_protected_frame(state->handshake, attempt_index, &source_len);
-        if (fragment_index != 0U || source == NULL || source_len == 0U ||
-            source_len > state->config.max_core_frame_bytes) {
+        core.data = dmp_hs_protected_frame(state->handshake, attempt_index, &core.size);
+        if (fragment_index != 0U || core.data == NULL || core.size == 0U ||
+            core.size > state->config.max_core_frame_bytes) {
             (void)dmp_hs_release_tx_reservation(state->handshake, &slot->reservation);
-            memset(slot, 0, sizeof(*slot));
-            return DMP_HS_TX_INVALID;
-        }
-        if (state->config.framing == DMP_HS_TX_STREAM_R) {
-            status = dmp_stream_encode(DMP_STREAM_R,
-                                       (dmp_bytes){ source, source_len },
-                                       (dmp_buffer){ state->buffers[index].data,
-                                                     state->buffers[index].capacity },
-                                       &encoded_size);
-        } else {
-            memcpy(state->buffers[index].data, source, source_len);
-            encoded_size = source_len;
-            status = DMP_OK;
-        }
-        if (status != DMP_OK) {
-            (void)dmp_hs_release_tx_reservation(state->handshake, &slot->reservation);
-            memset(state->buffers[index].data, 0, state->buffers[index].capacity);
             memset(slot, 0, sizeof(*slot));
             return DMP_HS_TX_INVALID;
         }
     }
-    if (output == DMP_HS_TX_CACHED_FLIGHT) {
-        if (state->config.framing == DMP_HS_TX_STREAM_R) {
-            status = dmp_stream_encode(DMP_STREAM_R,
-                                       (dmp_bytes){ state->core_scratch, core_size },
-                                       (dmp_buffer){ state->buffers[index].data,
-                                                     state->buffers[index].capacity },
-                                       &encoded_size);
-        } else {
-            memcpy(state->buffers[index].data, state->core_scratch, core_size);
-            encoded_size = core_size;
-            status = DMP_OK;
-        }
-        if (status != DMP_OK) {
-            (void)dmp_hs_release_tx_reservation(state->handshake, &slot->reservation);
-            memset(state->buffers[index].data, 0, state->buffers[index].capacity);
-            memset(slot, 0, sizeof(*slot));
-            return DMP_HS_TX_INVALID;
-        }
+    if (state->config.framing == DMP_HS_TX_STREAM_R) {
+        status = dmp_stream_encode(DMP_STREAM_R, core,
+                                   (dmp_buffer){ state->buffers[index].data,
+                                                 state->buffers[index].capacity },
+                                   &encoded_size);
+    } else {
+        memcpy(state->buffers[index].data, core.data, core.size);
+        encoded_size = core.size;
+        status = DMP_OK;
+    }
+    if (status != DMP_OK) {
+        (void)dmp_hs_release_tx_reservation(state->handshake, &slot->reservation);
+        memset(state->buffers[index].data, 0, state->buffers[index].capacity);
+        memset(slot, 0, sizeof(*slot));
+        return DMP_HS_TX_INVALID;
     }
     (void)chunk_size;
     if (state->transport->caps.max_frame_bytes != 0U &&

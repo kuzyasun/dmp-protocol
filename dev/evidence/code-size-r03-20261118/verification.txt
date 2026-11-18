@@ -1,0 +1,138 @@
+R03 host gate evidence extracted from the terminal RBO attempts.
+Job and snapshot IDs are in README.md.
+
+[Final host changed source inputs]
+ee3e5a44be5e66525b0df61a3b1131774aecae8a6abe62fa6dfb94e85a8f13f8  src/security/handshake.c
+07d39404d4bc2f3d87a2069bc9bfc33297054e162a26b3e1719e17b26adc29f2  src/security/handshake_transport.c
+87414ed35887b914414c0fe4bbbadb4a3144b113208a3fae3ed8ef18dcc22769  tests/endpoint/test_endpoint_sec.c
+
+[Noise / wrapper sodium / nested sodium revisions and applied patch status]
+c40f2dca78eee064e521233a5d884853d471028a
+40c22448d6e8f42be56c45f739b52a5c8d21c8ca
+ m libsodium
+d24faf56214469b354b01c8ba36257e04737101e
+ M src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c
+ M src/libsodium/crypto_hash/sha256/cp/hash_sha256_cp.c
+ M src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
+ M src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna32.h
+ M src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c
+ M src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
+ M src/libsodium/include/sodium/private/ed25519_ref10_fe_25_5.h
+ M src/libsodium/sodium/core.c
+?? src/libsodium/crypto_core/ed25519/ref10/base_packed.h
+?? src/libsodium/include/sodium/sodium_esphome_patched.h
+
+[Allocator symbol checks]
+no allocator references in build/r03-real-provider/libdmp.a
+no allocator references in build/r03-real-provider/libdmp_none.a
+
+[AppleClang ASan and UBSan]
+Test project /Users/smartyniuk/.rbo/agent/workspaces/att_01M7QNCBH4Q6YYTYJHTPXWQJGQ/project/build/r03-sanitize-real-provider
+    Start  83: security.handshake
+1/5 Test  #83: security.handshake ......................   Passed    0.36 sec
+    Start  84: security.handshake_transport
+2/5 Test  #84: security.handshake_transport ............   Passed    0.08 sec
+    Start  95: endpoint.protected_single_peer_bounds
+3/5 Test  #95: endpoint.protected_single_peer_bounds ...   Passed    0.33 sec
+    Start 121: endpoint.security.ttl
+4/5 Test #121: endpoint.security.ttl ...................   Passed    0.08 sec
+    Start 122: endpoint.security.aad_mutations
+5/5 Test #122: endpoint.security.aad_mutations .........   Passed    0.08 sec
+
+100% tests passed, 0 tests failed out of 5
+
+Label Time Summary:
+endpoint     =   0.49 sec*proc (3 tests)
+handshake    =   0.44 sec*proc (2 tests)
+security     =   0.16 sec*proc (2 tests)
+transport    =   0.08 sec*proc (1 test)
+
+Total Test time (real) =   0.95 sec
+
+[Final real-provider CTest selected lines and result]
+36/187 Test  #36: fixtures.sec1 .........................................   Passed    0.08 sec
+37/187 Test  #37: fixtures.recovery .....................................   Passed    0.09 sec
+83/187 Test  #83: security.handshake ....................................   Passed    0.26 sec
+84/187 Test  #84: security.handshake_transport ..........................   Passed    0.01 sec
+95/187 Test  #95: endpoint.protected_single_peer_bounds .................   Passed    0.02 sec
+121/187 Test #121: endpoint.security.ttl .................................   Passed    0.01 sec
+122/187 Test #122: endpoint.security.aad_mutations .......................   Passed    0.01 sec
+126/187 Test #126: peer.p23_c_endpoint_interop ...........................   Passed    0.63 sec
+127/187 Test #127: peer.p23_radio_endpoint_interop .......................   Passed    0.87 sec
+128/187 Test #128: peer.p23_mixed_endpoint_path ..........................   Passed    0.28 sec
+129/187 Test #129: peer.p23_r7_interop ...................................   Passed    0.51 sec
+130/187 Test #130: peer.p23_security_negative_interop ....................   Passed    0.28 sec
+131/187 Test #131: peer.p23_s10_bootstrap_budget_interop .................   Passed    0.22 sec
+132/187 Test #132: peer.p23_s10_buffer_interop ...........................   Passed    0.22 sec
+133/187 Test #133: peer.p23_s10_confirmation_interop .....................   Passed    0.20 sec
+134/187 Test #134: peer.p23_s10_mutation_interop .........................   Passed    0.22 sec
+135/187 Test #135: peer.p23_s10_packet_number_interop ....................   Passed    0.24 sec
+136/187 Test #136: peer.p23_s10_rotation_interop .........................   Passed    0.22 sec
+137/187 Test #137: peer.p23_fresh_data ...................................   Passed    0.24 sec
+138/187 Test #138: peer.p23_freshness_lifecycle ..........................   Passed    0.22 sec
+100% tests passed, 0 tests failed out of 187
+
+[Independent peer interop and suite result]
+test_c_endpoint_produces_sample1_accepted_by_python_peer (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_c_endpoint_produces_sample1_accepted_by_python_peer) ... ok
+test_fragmented_data_in_both_directions (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_fragmented_data_in_both_directions) ... ok
+test_large_request_result_from_peer_to_c (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_large_request_result_from_peer_to_c) ... ok
+test_manifest_failed_aead_limit_and_monotonic_association_expiry (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_manifest_failed_aead_limit_and_monotonic_association_expiry) ... ok
+test_p03_direct_nnpsk0_and_xx_large_request_result (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_p03_direct_nnpsk0_and_xx_large_request_result) ... ok
+test_sample_and_large_request_result_from_c_to_peer (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_sample_and_large_request_result_from_c_to_peer) ... ok
+test_xx_blocks_application_request_before_protected_confirmation (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_xx_blocks_application_request_before_protected_confirmation) ... ok
+test_xx_rejects_wrong_remote_pin_without_activation_or_application_traffic (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_xx_rejects_wrong_remote_pin_without_activation_or_application_traffic) ... ok
+test_data_without_manifest_freshness_keeps_tokenless_behavior (test_p23_fresh_data.TestP23FreshData.test_data_without_manifest_freshness_keeps_tokenless_behavior) ... ok
+test_freshness_token_is_bound_to_one_fragmented_data_message (test_p23_fresh_data.TestP23FreshData.test_freshness_token_is_bound_to_one_fragmented_data_message) ... ok
+test_missing_wrong_and_expired_data_tokens_are_rejected (test_p23_fresh_data.TestP23FreshData.test_missing_wrong_and_expired_data_tokens_are_rejected) ... ok
+test_sender_requires_a_well_formed_grant_for_fresh_data (test_p23_fresh_data.TestP23FreshData.test_sender_requires_a_well_formed_grant_for_fresh_data) ... ok
+test_expired_grant_result_replay_keeps_original_token_and_budget (test_p23_freshness_lifecycle.TestP23FreshnessLifecycle.test_expired_grant_result_replay_keeps_original_token_and_budget) ... ok
+test_final_fragment_expiry_rejects_without_partial_dispatch (test_p23_freshness_lifecycle.TestP23FreshnessLifecycle.test_final_fragment_expiry_rejects_without_partial_dispatch) ... ok
+test_grant_duplicate_after_result_release_returns_only_receipt_ack (test_p23_freshness_lifecycle.TestP23FreshnessLifecycle.test_grant_duplicate_after_result_release_returns_only_receipt_ack) ... ok
+test_grant_from_another_association_is_not_accepted (test_p23_freshness_lifecycle.TestP23FreshnessLifecycle.test_grant_from_another_association_is_not_accepted) ... ok
+test_token_binding_rejects_other_principal_identity_and_service (test_p23_freshness_lifecycle.TestP23FreshnessLifecycle.test_token_binding_rejects_other_principal_identity_and_service) ... ok
+test_sec1_sample_exchange_crosses_mixed_path_in_both_directions (test_p23_mixed_endpoint_path.TestP23MixedEndpointPath.test_sec1_sample_exchange_crosses_mixed_path_in_both_directions) ... ok
+test_all_loss_feedback_cannot_extend_the_absolute_send_horizon (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_all_loss_feedback_cannot_extend_the_absolute_send_horizon) ... ok
+test_authenticated_invalid_feedback_values_do_not_repair_or_dispatch (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_authenticated_invalid_feedback_values_do_not_repair_or_dispatch) ... ok
+test_c_assembly_expiry_tombstones_late_slice_over_relays (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_c_assembly_expiry_tombstones_late_slice_over_relays) ... ok
+test_c_protected_status_has_exact_missing_mask_and_replay_is_idempotent (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_c_protected_status_has_exact_missing_mask_and_replay_is_idempotent) ... ok
+test_c_status_retries_after_transport_reports_no_adapter_slot (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_c_status_retries_after_transport_reports_no_adapter_slot) ... ok
+test_c_tombstone_reservation_pressure_rejects_new_assembly (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_c_tombstone_reservation_pressure_rejects_new_assembly) ... ok
+test_delayed_status_during_live_burst_is_coalesced_without_feedback_storm (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_delayed_status_during_live_burst_is_coalesced_without_feedback_storm) ... ok
+test_final_slice_and_total_initial_loss_recover_over_relays (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_final_slice_and_total_initial_loss_recover_over_relays) ... ok
+test_fresh_packet_number_with_older_max_boundary_status_seq_keeps_newer_mask (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_fresh_packet_number_with_older_max_boundary_status_seq_keeps_newer_mask) ... ok
+test_freshness_failures_do_not_enter_c_reassembly_over_radio_relays (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_freshness_failures_do_not_enter_c_reassembly_over_radio_relays) ... ok
+test_python_protected_status_repairs_c_originated_request_over_relays (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_python_protected_status_repairs_c_originated_request_over_relays)
+test_relay_cooldown_and_forward_limit_use_real_endpoint_frame (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_relay_cooldown_and_forward_limit_use_real_endpoint_frame) ... ok
+test_result_status_repair_and_terminal_ack_are_idempotent (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_result_status_repair_and_terminal_ack_are_idempotent) ... ok
+test_seeded_radio_endpoint_pair_repeats_protected_wire_bytes (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_seeded_radio_endpoint_pair_repeats_protected_wire_bytes) ... ok
+test_status_from_another_association_cannot_repair_c_transfer (test_p23_r7_interop.TestP23R7CrossEndpointInterop.test_status_from_another_association_cannot_repair_c_transfer) ... ok
+test_r6_all_initial_fragments_lost_probes_then_repairs_rest (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_all_initial_fragments_lost_probes_then_repairs_rest) ... ok
+test_r6_final_fragment_loss_probes_and_repairs_final_index (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_final_fragment_loss_probes_and_repairs_final_index) ... ok
+test_r6_incomplete_assembly_tombstone_rejects_late_protected_slice (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_incomplete_assembly_tombstone_rejects_late_protected_slice) ... ok
+test_r6_lost_final_ack_is_repeated_without_second_acceptance (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_lost_final_ack_is_repeated_without_second_acceptance) ... ok
+test_r6_receiver_restart_does_not_resume_old_association (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_receiver_restart_does_not_resume_old_association) ... ok
+test_r6_repair_slice_loss_is_requested_again (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_repair_slice_loss_is_requested_again) ... ok
+test_r6_stale_status_with_fresh_pn_does_not_replace_newer_mask (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_stale_status_with_fresh_pn_does_not_replace_newer_mask) ... ok
+test_r6_status_after_acceptance_cannot_reopen_c_sender (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_status_after_acceptance_cannot_reopen_c_sender) ... ok
+test_r6_status_loss_probes_then_emits_new_protected_status (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_status_loss_probes_then_emits_new_protected_status) ... ok
+test_r6_two_of_eight_mask_repairs_only_missing_indices_c_to_python (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_r6_two_of_eight_mask_repairs_only_missing_indices_c_to_python) ... ok
+test_radio_freshness_rejections_do_not_dispatch_data (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_radio_freshness_rejections_do_not_dispatch_data) ... ok
+test_retry_all_retries_the_full_set_over_radio_relays (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_retry_all_retries_the_full_set_over_radio_relays) ... ok
+test_retry_all_xx_uses_distinct_manifest_and_fresh_associations (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_retry_all_xx_uses_distinct_manifest_and_fresh_associations) ... ok
+test_selective_32_repairs_one_lost_fragment_over_radio_relays (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_selective_32_repairs_one_lost_fragment_over_radio_relays) ... ok
+test_selective_32_repairs_over_radio_xx (test_p23_radio_endpoint_interop.TestP23RadioEndpointInterop.test_selective_32_repairs_over_radio_xx) ... ok
+test_bounded_hostile_flight1_does_not_block_real_association_progress (test_p23_s10_bootstrap_budget_interop.TestP23S10BootstrapBudgetInterop.test_bounded_hostile_flight1_does_not_block_real_association_progress) ... ok
+test_delayed_peer_adapter_completion_preserves_c_request_result_frame (test_p23_s10_buffer_interop.TestP23S1015BufferInterop.test_delayed_peer_adapter_completion_preserves_c_request_result_frame) ... ok
+test_xx_finish_and_ready_loss_recover_with_bounded_fresh_pn_retries (test_p23_s10_confirmation_interop.TestP23S10ConfirmationInterop.test_xx_finish_and_ready_loss_recover_with_bounded_fresh_pn_retries) ... ok
+test_fresh_pn_changed_payload_duplicate_cannot_replace_data_slice (test_p23_s10_mutation_interop.TestP23S10MutationInterop.test_fresh_pn_changed_payload_duplicate_cannot_replace_data_slice) ... ok
+test_widest_packet_number_is_decoded_and_accepted_by_c_endpoint (test_p23_s10_packet_number_interop.TestP23S10PacketNumberInterop.test_widest_packet_number_is_decoded_and_accepted_by_c_endpoint) ... ok
+test_old_authenticated_application_frame_does_not_activate_rotation (test_p23_s10_rotation_interop.TestP23S1009RotationInterop.test_old_authenticated_application_frame_does_not_activate_rotation) ... ok
+test_active_nnpsk0_and_xx_reject_plaintext_application_frames_both_ways (test_p23_security_negative_interop.TestP23SecurityNegativeInterop.test_active_nnpsk0_and_xx_reject_plaintext_application_frames_both_ways) ... ok
+test_invalid_tag_high_pn_does_not_block_genuine_lower_pn_telemetry (test_p23_security_negative_interop.TestP23SecurityNegativeInterop.test_invalid_tag_high_pn_does_not_block_genuine_lower_pn_telemetry) ... ok
+test_lost_result_retry_uses_fresh_pn_and_replays_without_second_dispatch (test_p23_security_negative_interop.TestP23SecurityNegativeInterop.test_lost_result_retry_uses_fresh_pn_and_replays_without_second_dispatch) ... ok
+test_restart_rejects_old_frame_when_cid_is_reused (test_p23_security_negative_interop.TestP23SecurityNegativeInterop.test_restart_rejects_old_frame_when_cid_is_reused) ... ok
+test_wrong_service_protected_rsp_does_not_complete_live_request (test_p23_security_negative_interop.TestP23SecurityNegativeInterop.test_wrong_service_protected_rsp_does_not_complete_live_request) ... ok
+----------------------------------------------------------------------
+Ran 454 tests in 1.715s
+
+OK

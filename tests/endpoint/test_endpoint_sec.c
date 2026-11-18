@@ -3924,9 +3924,36 @@ static int test_protected_single_peer_service_and_bounds(void)
     CHECK(sealed_n < right.endpoint.profile.forward_mtu);
     exact_frame_payload = right.endpoint.profile.forward_mtu - sealed_n;
     spec.payload = span(payload, exact_frame_payload);
-    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, sizeof(sealed),
+    {
+        const uint64_t next_pn = dmp_hs_next_pn(env.initiator, index);
+
+        memset(sealed, 0xa5, sizeof sealed);
+        CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed,
+                                  right.endpoint.profile.forward_mtu - 1U, &sealed_n) == DMP_HS_REFUSED);
+        CHECK(sealed_n == 0U && dmp_hs_next_pn(env.initiator, index) == next_pn);
+        for (i = 0U; i < sizeof sealed; ++i) CHECK(sealed[i] == 0xa5U);
+    }
+    CHECK(dmp_hs_seal_logical(env.initiator, index, &spec, sealed, right.endpoint.profile.forward_mtu,
                               &sealed_n) == DMP_HS_OK);
     CHECK(sealed_n == right.endpoint.profile.forward_mtu);
+    {
+        dmp_hs_protected incoming = {.frame = sealed, .frame_len = sealed_n};
+        dmp_frame_view opened_view = {.frame = {payload, 1U}};
+        const uint32_t failed_aead = dmp_hs_failed_aead(env.responder, 0U);
+        uint64_t remote_epoch;
+        size_t opened = 99U;
+
+        CHECK(dmp_hs_traffic_identity(env.initiator, index, &incoming.namespace_id,
+                                      &incoming.origin_id, &incoming.destination_id,
+                                      &incoming.context_epoch, &remote_epoch));
+        memset(wrapped, 0xa5, sizeof wrapped);
+        CHECK(dmp_hs_open_logical(env.responder, 0U, &incoming, wrapped, exact_frame_payload - 1U,
+                                  &opened, &opened_view) == DMP_HS_DROPPED);
+        CHECK(opened == 0U && opened_view.frame.data == payload && opened_view.frame.size == 1U);
+        CHECK(dmp_hs_failed_aead(env.responder, 0U) == failed_aead);
+        for (i = 0U; i < sizeof wrapped; ++i) CHECK(wrapped[i] == 0xa5U);
+    }
+    /* The exact record is still eligible because the short output did not commit PN. */
     CHECK(wrap_core(sealed, sealed_n, wrapped, sizeof(wrapped), &wrapped_n));
     CHECK(dmp_endpoint_rx(&right.endpoint, span(wrapped, wrapped_n), now) == DMP_OK);
     CHECK(right.app.telems == 1);
