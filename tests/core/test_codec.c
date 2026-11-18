@@ -167,11 +167,44 @@ static int test_encoder_preflight_and_header_placeholders(void)
 static int test_extension_iterator(void)
 {
     static const uint8_t ext[] = {0x80,0x02,0x00}; /* Raw tag 256, unknown safe ID 64. */
+    static const uint8_t bad_values[] = {0x1c,0x00,0x20,0xff,0xff,0xff,0xff,0x0f};
+    static const uint8_t bad_length[] = {0x1c,0x00,0x20,0x80};
+    static const uint8_t bad_tag[] = {0x1c,0x00,0xa0,0x00,0x00};
+    const dmp_bytes malformed[] = {
+        {bad_values,sizeof bad_values}, {bad_length,sizeof bad_length}, {bad_tag,sizeof bad_tag},
+    };
     dmp_extension_view v = {77U,{(const uint8_t *)"x",1U}}; size_t cursor = 0U;
+    size_t i;
     CHECK(dmp_extension_next((dmp_bytes){ext,sizeof ext}, &cursor, &v) == DMP_OK);
     CHECK(v.tag == 256U && v.value.size == 0U && cursor == sizeof ext);
     CHECK(dmp_extension_next((dmp_bytes){ext,sizeof ext}, &cursor, &v) == DMP_INCOMPLETE);
     CHECK(cursor == sizeof ext && v.tag == 256U);
+    for (i = 0U; i < sizeof malformed / sizeof malformed[0]; ++i) {
+        cursor = 2U;
+        CHECK(dmp_extension_next(malformed[i], &cursor, &v) == DMP_MALFORMED);
+        CHECK(cursor == 2U && v.tag == 256U && v.value.data == ext + sizeof ext && v.value.size == 0U);
+    }
+    return 0;
+}
+
+static int test_role_extension_precedence(void)
+{
+    static const uint8_t reserved_status_then_truncated[] = {0x15,1U,8U,0x20,1U};
+    static const uint8_t unknown_forwarder_then_truncated[] = {0x1e,0U,0x20,1U};
+    static const uint8_t unknown_endpoint_before_default[] = {0x01,0U,0x11,1U,1U};
+    dmp_frame_view view = {.fields = {.type = DMP_TYPE_DATA}};
+    dmp_role_policy endpoint = {DMP_ROLE_ENDPOINT,1U,false};
+    dmp_role_policy forwarder = {DMP_ROLE_FORWARDER,1U,false};
+
+    view.extensions = (dmp_bytes){reserved_status_then_truncated, sizeof reserved_status_then_truncated};
+    CHECK(dmp_core_check_role(&view, &endpoint) == DMP_UNSUPPORTED);
+    CHECK(dmp_core_check_role(&view, &forwarder) == DMP_MALFORMED);
+    view.extensions = (dmp_bytes){unknown_forwarder_then_truncated, sizeof unknown_forwarder_then_truncated};
+    CHECK(dmp_core_check_role(&view, &endpoint) == DMP_MALFORMED);
+    CHECK(dmp_core_check_role(&view, &forwarder) == DMP_UNSUPPORTED);
+    view.extensions = (dmp_bytes){unknown_endpoint_before_default, sizeof unknown_endpoint_before_default};
+    CHECK(dmp_core_check_role(&view, &endpoint) == DMP_MALFORMED);
+    CHECK(dmp_core_check_role(&view, &forwarder) == DMP_OK);
     return 0;
 }
 static int test_extension_structure_and_roles(void)
@@ -392,14 +425,23 @@ static int test_nested_error_offsets_and_zero_default(void)
     static const uint8_t value_truncated[] = {0x47,6,0x80,0x11,1,0x80,0xaa};
     static const uint8_t value_trailing[] = {0x47,7,0x80,0x11,2,1,0,0xaa};
     static const uint8_t context_short[] = {0x47,7,0x80,0x0b,2,1,0,0xaa};
+    static const uint8_t context_trailing[] = {0x47,15,0x80,0x0b,10,1,0,0,0,0,0,0,0,0,0x55};
+    static const uint8_t full_reply_missing_seq[] = {0x45,15,0x80,5,10,1,2,0,0,0,0,0,0,0,0};
+    static const uint8_t duplicate_truncated_value[] = {0x47,7,0x80,0x1c,0,0x1c,1,0xaa};
+    static const uint8_t duplicate_truncated_length[] = {0x47,7,0x80,0x1c,0,0x1c,0x80,0xaa};
+    static const uint8_t next_truncated_value[] = {0x47,7,0x80,0x1c,0,0x20,1,0xaa};
     static const uint8_t default_zero[] = {0x47,6,0x80,0x11,1,0};
     static const uint8_t reserved_status[] = {0x47,6,0x80,0x15,1,8};
     const dmp_bytes bad[] = {
         {nonminimal,sizeof nonminimal}, {overflow,sizeof overflow},
         {header_truncated,sizeof header_truncated}, {value_truncated,sizeof value_truncated},
-        {value_trailing,sizeof value_trailing}, {context_short,sizeof context_short}
+        {value_trailing,sizeof value_trailing}, {context_short,sizeof context_short},
+        {context_trailing,sizeof context_trailing}, {full_reply_missing_seq,sizeof full_reply_missing_seq},
+        {duplicate_truncated_value,sizeof duplicate_truncated_value},
+        {duplicate_truncated_length,sizeof duplicate_truncated_length},
+        {next_truncated_value,sizeof next_truncated_value},
     };
-    const size_t offsets[] = {5U,13U,4U,6U,6U,7U};
+    const size_t offsets[] = {5U,13U,4U,6U,6U,7U,14U,15U,5U,7U,7U};
     dmp_frame_view v, zero;
     dmp_role_policy role = {DMP_ROLE_ENDPOINT,0U,false};
     size_t i;
@@ -456,6 +498,7 @@ int main(void)
     CHECK(test_roles_and_safe_unknown() == 0);
     CHECK(test_encoder_preflight_and_header_placeholders() == 0);
     CHECK(test_extension_iterator() == 0);
+    CHECK(test_role_extension_precedence() == 0);
     CHECK(test_extension_structure_and_roles() == 0);
     CHECK(test_descriptors_security_and_fragment_geometry() == 0);
     CHECK(test_fragmentation_disabled_limits() == 0);

@@ -1,4 +1,6 @@
 #include "dmp/identity.h"
+#include "../core/extension_values.h"
+#include "../core/little_endian.h"
 
 #include <string.h>
 
@@ -8,7 +10,7 @@ dmp_status dmp_none_boot_epoch_generate_checked(
     uint64_t *out_epoch)
 {
     uint8_t bytes[sizeof(uint64_t)];
-    uint64_t epoch = 0U;
+    uint64_t epoch;
     size_t i;
     dmp_status status;
 
@@ -21,9 +23,7 @@ dmp_status dmp_none_boot_epoch_generate_checked(
     if (status != DMP_OK) {
         return status;
     }
-    for (i = 0U; i < sizeof bytes; i++) {
-        epoch |= (uint64_t)bytes[i] << (i * 8U);
-    }
+    epoch = dmp_load_le64(bytes);
     if (epoch == 0U) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -314,93 +314,18 @@ dmp_status dmp_identity_next_seq(dmp_identity_table *table,
     return DMP_OK;
 }
 
-static int read_uleb32(dmp_bytes in, size_t *at, uint32_t *value)
-{
-    uint64_t acc = 0U;
-    size_t start = *at;
-    unsigned i;
-
-    for (i = 0U; i < 5U; i++) {
-        uint8_t byte;
-        uint32_t chunk;
-        if (*at >= in.size || in.data == NULL) {
-            return 0;
-        }
-        byte = in.data[(*at)++];
-        chunk = (uint32_t)(byte & 0x7fU);
-        if (i == 4U && chunk > 0x0fU) {
-            return 0;
-        }
-        acc |= (uint64_t)chunk << (7U * i);
-        if ((byte & 0x80U) == 0U) {
-            size_t used = *at - start;
-            uint64_t check = acc;
-            size_t need = 1U;
-            while (check >= 0x80U) {
-                check >>= 7U;
-                need++;
-            }
-            if (used != need) {
-                return 0;
-            }
-            *value = (uint32_t)acc;
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static uint64_t read_u64le(const uint8_t *p)
-{
-    uint64_t value = 0U;
-    unsigned i;
-    for (i = 0U; i < 8U; i++) {
-        value |= (uint64_t)p[i] << (8U * i);
-    }
-    return value;
-}
-
 typedef struct {
+    dmp_reply_to_value reply;
+    uint64_t context_epoch;
     int have_reply;
     int have_context;
     int have_origin;
     int have_service;
     int reply_full;
-    uint32_t reply_ns;
-    uint32_t reply_origin;
-    uint64_t reply_epoch;
-    uint32_t reply_seq;
     uint32_t context_ns;
-    uint64_t context_epoch;
     uint32_t origin;
     uint32_t service;
 } id_ext;
-
-static dmp_status decode_reply(dmp_bytes value, int secured, id_ext *ext)
-{
-    size_t at = 0U;
-    if (secured) {
-        if (value.size < 1U || value.size > 5U ||
-            !read_uleb32(value, &at, &ext->reply_seq) || at != value.size) {
-            return DMP_MALFORMED;
-        }
-        ext->reply_full = 0;
-    } else {
-        if (!read_uleb32(value, &at, &ext->reply_ns) ||
-            !read_uleb32(value, &at, &ext->reply_origin) ||
-            value.size - at < 8U) {
-            return DMP_MALFORMED;
-        }
-        ext->reply_epoch = read_u64le(value.data + at);
-        at += 8U;
-        if (!read_uleb32(value, &at, &ext->reply_seq) || at != value.size) {
-            return DMP_MALFORMED;
-        }
-        ext->reply_full = 1;
-    }
-    ext->have_reply = 1;
-    return DMP_OK;
-}
 
 static dmp_status read_extensions(const dmp_frame_view *frame, int secured, id_ext *ext)
 {
@@ -414,7 +339,6 @@ static dmp_status read_extensions(const dmp_frame_view *frame, int secured, id_e
         dmp_status status = dmp_extension_next(frame->extensions, &cursor, &view);
         uint32_t id;
         uint8_t flags;
-        size_t at = 0U;
         if (status == DMP_INCOMPLETE) {
             break;
         }
@@ -424,30 +348,28 @@ static dmp_status read_extensions(const dmp_frame_view *frame, int secured, id_e
         id = view.tag >> 2;
         flags = (uint8_t)(view.tag & 3U);
         if (id == 1U) {
-            if (flags != 1U || ext->have_reply) {
+            if (flags != 1U || ext->have_reply ||
+                !dmp_decode_extension_reply_to(view.value, secured != 0, &ext->reply, NULL)) {
                 return DMP_MALFORMED;
             }
-            status = decode_reply(view.value, secured, ext);
-            if (status != DMP_OK) {
-                return status;
-            }
+            ext->reply_full = !secured;
+            ext->have_reply = 1;
         } else if (id == 2U) {
             if (flags != 3U || ext->have_context ||
-                !read_uleb32(view.value, &at, &ext->context_ns) ||
-                view.value.size - at != 8U) {
+                !dmp_decode_extension_context(view.value, &ext->context_ns,
+                                              &ext->context_epoch, NULL)) {
                 return DMP_MALFORMED;
             }
-            ext->context_epoch = read_u64le(view.value.data + at);
             ext->have_context = 1;
         } else if (id == 3U) {
             if (flags != 3U || ext->have_origin ||
-                !read_uleb32(view.value, &at, &ext->origin) || at != view.value.size) {
+                !dmp_decode_extension_u32(view.value, &ext->origin, NULL)) {
                 return DMP_MALFORMED;
             }
             ext->have_origin = 1;
         } else if (id == 4U) {
             if (flags != 1U || ext->have_service ||
-                !read_uleb32(view.value, &at, &ext->service) || at != view.value.size) {
+                !dmp_decode_extension_u32(view.value, &ext->service, NULL)) {
                 return DMP_MALFORMED;
             }
             /* The manifest contract fixes the omitted default at service 1. */
@@ -606,17 +528,17 @@ dmp_status dmp_identity_reply_to(const dmp_frame_view *frame,
     }
     if (slot->security == 1U) {
         key.origin = slot->local;
-        key.seq = ext.reply_seq;
+        key.seq = ext.reply.seq;
     } else {
-        if (ext.reply_ns != slot->local.namespace_id ||
-            ext.reply_origin != slot->local.origin_id ||
-            ext.reply_epoch != slot->local.epoch) {
+        if (ext.reply.namespace_id != slot->local.namespace_id ||
+            ext.reply.origin_id != slot->local.origin_id ||
+            ext.reply.epoch != slot->local.epoch) {
             return DMP_MALFORMED;
         }
-        key.origin.namespace_id = ext.reply_ns;
-        key.origin.origin_id = ext.reply_origin;
-        key.origin.epoch = ext.reply_epoch;
-        key.seq = ext.reply_seq;
+        key.origin.namespace_id = ext.reply.namespace_id;
+        key.origin.origin_id = ext.reply.origin_id;
+        key.origin.epoch = ext.reply.epoch;
+        key.seq = ext.reply.seq;
     }
     *out = key;
     return DMP_OK;

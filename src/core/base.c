@@ -1,5 +1,7 @@
 #include "dmp/base.h"
 
+#include "byte_span.h"
+
 static const char *const STATUS_NAMES[] = {
     "ok",
     "invalid_argument",
@@ -23,7 +25,7 @@ dmp_status dmp_bytes_slice(dmp_bytes input, size_t offset, size_t size,
 {
     dmp_bytes slice;
 
-    if (out == NULL || (input.data == NULL && input.size != 0U)) {
+    if (out == NULL || !dmp_bytes_valid(input)) {
         return DMP_INVALID_ARGUMENT;
     }
     if (offset > input.size || size > input.size - offset) {

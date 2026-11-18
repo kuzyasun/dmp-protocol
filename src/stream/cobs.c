@@ -1,22 +1,8 @@
 #include "cobs.h"
 
+#include "../core/byte_span.h"
+
 #include <stdint.h>
-
-static bool ranges_overlap(const void *left, size_t left_size,
-                           const void *right, size_t right_size)
-{
-    uintptr_t a, b;
-
-    if (left_size == 0U || right_size == 0U || left == NULL || right == NULL) {
-        return false;
-    }
-    a = (uintptr_t)left;
-    b = (uintptr_t)right;
-    if (left_size > UINTPTR_MAX - a || right_size > UINTPTR_MAX - b) {
-        return true;
-    }
-    return a < b + right_size && b < a + left_size;
-}
 
 dmp_status dmp_cobs_encoded_bound(size_t input_size, size_t *out)
 {
@@ -41,22 +27,21 @@ dmp_status dmp_cobs_encode_parts(dmp_bytes first, dmp_bytes second,
     dmp_status status;
 
     if (written != NULL &&
-        !ranges_overlap(written, sizeof *written, first.data, first.size) &&
-        !ranges_overlap(written, sizeof *written, second.data, second.size) &&
-        !ranges_overlap(written, sizeof *written, output.data, output.capacity)) {
+        !dmp_ranges_overlap(written, sizeof *written, first.data, first.size) &&
+        !dmp_ranges_overlap(written, sizeof *written, second.data, second.size) &&
+        !dmp_ranges_overlap(written, sizeof *written, output.data, output.capacity)) {
         *written = 0U;
     }
     if (written == NULL ||
-        (output.data == NULL && output.capacity != 0U) ||
-        (first.data == NULL && first.size != 0U) ||
-        (second.data == NULL && second.size != 0U)) {
+        !dmp_buffer_valid(output) ||
+        !dmp_bytes_valid(first) || !dmp_bytes_valid(second)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (ranges_overlap(first.data, first.size, output.data, output.capacity) ||
-        ranges_overlap(second.data, second.size, output.data, output.capacity) ||
-        ranges_overlap(written, sizeof *written, first.data, first.size) ||
-        ranges_overlap(written, sizeof *written, second.data, second.size) ||
-        ranges_overlap(written, sizeof *written, output.data, output.capacity)) {
+    if (dmp_ranges_overlap(first.data, first.size, output.data, output.capacity) ||
+        dmp_ranges_overlap(second.data, second.size, output.data, output.capacity) ||
+        dmp_ranges_overlap(written, sizeof *written, first.data, first.size) ||
+        dmp_ranges_overlap(written, sizeof *written, second.data, second.size) ||
+        dmp_ranges_overlap(written, sizeof *written, output.data, output.capacity)) {
         return DMP_INVALID_ARGUMENT;
     }
     if (first.size > SIZE_MAX - second.size) {
@@ -99,8 +84,8 @@ dmp_status dmp_cobs_encode_parts(dmp_bytes first, dmp_bytes second,
 dmp_status dmp_cobs_encode(dmp_bytes input, dmp_buffer output, size_t *written)
 {
     if (written != NULL &&
-        !ranges_overlap(written, sizeof *written, input.data, input.size) &&
-        !ranges_overlap(written, sizeof *written, output.data, output.capacity)) {
+        !dmp_ranges_overlap(written, sizeof *written, input.data, input.size) &&
+        !dmp_ranges_overlap(written, sizeof *written, output.data, output.capacity)) {
         *written = 0U;
     }
     return dmp_cobs_encode_parts(input, (dmp_bytes){ NULL, 0U }, output, written);

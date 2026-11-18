@@ -1,5 +1,10 @@
 #include "dmp/reliability.h"
 
+#include "../core/byte_span.h"
+#include "../core/extension_values.h"
+#include "../core/little_endian.h"
+#include "../identity/compare.h"
+
 #include <stdint.h>
 #include <string.h>
 
@@ -22,32 +27,6 @@ enum {
 static int ready(const dmp_reliability *engine)
 {
     return engine != NULL && engine->initialized;
-}
-
-static int bytes_ok(dmp_bytes bytes)
-{
-    return bytes.size == 0U || bytes.data != NULL;
-}
-
-static int key_eq(dmp_message_key a, dmp_message_key b)
-{
-    return a.seq == b.seq && a.origin.namespace_id == b.origin.namespace_id &&
-           a.origin.origin_id == b.origin.origin_id && a.origin.epoch == b.origin.epoch;
-}
-
-static int origin_eq(dmp_message_origin a, dmp_message_origin b)
-{
-    return a.namespace_id == b.namespace_id && a.origin_id == b.origin_id && a.epoch == b.epoch;
-}
-
-static int peer_eq(dmp_peer_handle a, dmp_peer_handle b)
-{
-    return a.slot == b.slot && a.generation == b.generation;
-}
-
-static int context_eq(dmp_identity_handle a, dmp_identity_handle b)
-{
-    return a.slot == b.slot && a.generation == b.generation;
 }
 
 static int service_allowed(const dmp_admitted_profile *profile, uint32_t service)
@@ -388,7 +367,7 @@ static int gate_held(const dmp_reliability *engine, dmp_peer_handle peer,
     for (i = 0U; i < engine->storage.sender_capacity; i++) {
         const dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
         if (i == self || sender->live == 0U || sender->service_id != service ||
-            !peer_eq(sender->peer, peer)) {
+            !dmp_peer_handle_equal(sender->peer, peer)) {
             continue;
         }
         if (sender->kind != KIND_REQ && sender->kind != KIND_RESULT && sender->kind != KIND_DATA) {
@@ -411,7 +390,7 @@ static size_t operations_used(const dmp_reliability *engine, dmp_peer_handle pee
         const dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
         if (sender->live != 0U &&
             (sender->kind == KIND_REQ || sender->kind == KIND_DATA) &&
-            sender->service_id == service && peer_eq(sender->peer, peer)) {
+            sender->service_id == service && dmp_peer_handle_equal(sender->peer, peer)) {
             count++;
         }
     }
@@ -419,7 +398,7 @@ static size_t operations_used(const dmp_reliability *engine, dmp_peer_handle pee
         const dmp_reliability_history_slot *history = &engine->storage.history[i];
         const dmp_reliability_result_slot *result;
         if (history->live == 0U || history->decision != 0U || history->service_id != service ||
-            !peer_eq(history->peer, peer)) {
+            !dmp_peer_handle_equal(history->peer, peer)) {
             continue;
         }
         if (history->result_slot >= engine->storage.result_capacity) {
@@ -484,8 +463,8 @@ static dmp_reliability_correlation_slot *correlation_of(dmp_reliability *engine,
     }
     correlation = &engine->storage.correlations[sender->related_slot];
     if (correlation->live == 0U || correlation->generation != sender->related_generation ||
-        !peer_eq(correlation->peer, sender->peer) ||
-        !context_eq(correlation->context, sender->context)) {
+        !dmp_peer_handle_equal(correlation->peer, sender->peer) ||
+        !dmp_identity_handle_equal(correlation->context, sender->context)) {
         return NULL;
     }
     return correlation;
@@ -500,7 +479,7 @@ static dmp_reliability_result_slot *result_of_sender(dmp_reliability *engine,
     }
     result = &engine->storage.results[sender->related_slot];
     if (result->live == 0U || result->generation != sender->related_generation ||
-        !peer_eq(result->peer, sender->peer) || !context_eq(result->context, sender->context)) {
+        !dmp_peer_handle_equal(result->peer, sender->peer) || !dmp_identity_handle_equal(result->context, sender->context)) {
         return NULL;
     }
     return result;
@@ -613,7 +592,7 @@ static dmp_reliability_history_slot *history_of_sender(dmp_reliability *engine,
     }
     history = &engine->storage.history[sender->related_slot];
     if (history->live == 0U || history->generation != sender->related_generation ||
-        !peer_eq(history->peer, sender->peer) || !context_eq(history->context, sender->context)) {
+        !dmp_peer_handle_equal(history->peer, sender->peer) || !dmp_identity_handle_equal(history->context, sender->context)) {
         return NULL;
     }
     return history;
@@ -628,7 +607,7 @@ static dmp_reliability_sender_slot *sender_of_result(dmp_reliability *engine,
     }
     sender = &engine->storage.senders[result->sender_slot];
     if (sender->live == 0U || sender->generation != result->sender_generation ||
-        !peer_eq(sender->peer, result->peer) || !context_eq(sender->context, result->context)) {
+        !dmp_peer_handle_equal(sender->peer, result->peer) || !dmp_identity_handle_equal(sender->context, result->context)) {
         return NULL;
     }
     return sender;
@@ -643,7 +622,7 @@ static dmp_reliability_history_slot *history_of_result(
     }
     history = &engine->storage.history[result->history_slot];
     if (history->live == 0U || history->generation != result->history_generation ||
-        !peer_eq(history->peer, result->peer) || !context_eq(history->context, result->context)) {
+        !dmp_peer_handle_equal(history->peer, result->peer) || !dmp_identity_handle_equal(history->context, result->context)) {
         return NULL;
     }
     return history;
@@ -857,8 +836,8 @@ static void consume(dmp_reliability *engine)
         }
         sender = &engine->storage.senders[adapter->sender_slot];
         if (sender->live == 0U || sender->generation != adapter->sender_generation ||
-            !peer_eq(sender->peer, adapter->peer) ||
-            !context_eq(sender->context, adapter->context) || !sender->tx_live) {
+            !dmp_peer_handle_equal(sender->peer, adapter->peer) ||
+            !dmp_identity_handle_equal(sender->context, adapter->context) || !sender->tx_live) {
             release_adapter(engine, adapter);
             continue;
         }
@@ -876,41 +855,6 @@ static void cancel_tx(dmp_reliability *engine, dmp_reliability_sender_slot *send
     token.slot = sender->tx_slot;
     token.generation = sender->tx_generation;
     (void)engine->transport.cancel(engine->transport.context, token);
-}
-
-static int read_uleb32(dmp_bytes in, size_t *at, uint32_t *value)
-{
-    uint64_t acc = 0U;
-    size_t start = *at;
-    unsigned i;
-    for (i = 0U; i < 5U; i++) {
-        uint8_t byte;
-        uint32_t chunk;
-        if (*at >= in.size || in.data == NULL) {
-            return 0;
-        }
-        byte = in.data[(*at)++];
-        chunk = (uint32_t)(byte & 0x7fU);
-        if (i == 4U && chunk > 0x0fU) {
-            return 0;
-        }
-        acc |= (uint64_t)chunk << (7U * i);
-        if ((byte & 0x80U) == 0U) {
-            size_t used = *at - start;
-            uint64_t check = acc;
-            size_t need = 1U;
-            while (check >= 0x80U) {
-                check >>= 7U;
-                need++;
-            }
-            if (used != need) {
-                return 0;
-            }
-            *value = (uint32_t)acc;
-            return 1;
-        }
-    }
-    return 0;
 }
 
 static dmp_status find_extension(const dmp_frame_view *frame, uint32_t id, dmp_bytes *value,
@@ -948,12 +892,11 @@ static dmp_status resolve_service(const dmp_reliability *engine, const dmp_frame
     int found = 0;
     uint32_t wire = 0U;
     dmp_status status = find_extension(frame, 4U, &value, &found);
-    size_t at = 0U;
     if (status != DMP_OK) {
         return status;
     }
     if (found) {
-        if (!read_uleb32(value, &at, &wire) || at != value.size || wire != claimed) {
+        if (!dmp_decode_extension_u32(value, &wire, NULL) || wire != claimed) {
             return DMP_MALFORMED;
         }
     } else if (claimed != engine->profile.default_service || claimed == 0U) {
@@ -970,7 +913,6 @@ static dmp_status read_wire_status(const dmp_frame_view *frame, int *present, ui
 {
     dmp_bytes value;
     int found = 0;
-    size_t at = 0U;
     dmp_status status = find_extension(frame, 5U, &value, &found);
     *present = 0;
     *status_out = 0U;
@@ -980,7 +922,7 @@ static dmp_status read_wire_status(const dmp_frame_view *frame, int *present, ui
     if (!found) {
         return DMP_OK;
     }
-    if (!read_uleb32(value, &at, status_out) || at != value.size) {
+    if (!dmp_decode_extension_u32(value, status_out, NULL)) {
         return DMP_MALFORMED;
     }
     *present = 1;
@@ -1010,7 +952,7 @@ static int metadata_match(const dmp_reliability *engine, const dmp_reliability_h
     const uint8_t *stored;
     uint8_t ack = (frame->fields.options & DMP_OPT_ACK_REQ) != 0U ? 1U : 0U;
     if (history->type != frame->fields.type || history->ack_req != ack ||
-        history->service_id != service || !origin_eq(history->destination, destination)) {
+        history->service_id != service || !dmp_message_origin_equal(history->destination, destination)) {
         return 0;
     }
     if ((frame->fields.options & DMP_OPT_PAYLOAD_DESC) != 0U) {
@@ -1050,9 +992,9 @@ static int find_history_key(const dmp_reliability *engine, dmp_message_key key)
     size_t i;
     for (i = 0U; i < engine->storage.history_capacity; i++) {
         const dmp_reliability_history_slot *history = &engine->storage.history[i];
-        if (history->live != 0U && peer_eq(history->peer, engine->selected_peer) &&
-            context_eq(history->context, engine->selected_context) &&
-            key_eq(history->source, key)) {
+        if (history->live != 0U && dmp_peer_handle_equal(history->peer, engine->selected_peer) &&
+            dmp_identity_handle_equal(history->context, engine->selected_context) &&
+            dmp_message_key_equal(history->source, key)) {
             return (int)i;
         }
     }
@@ -1064,9 +1006,9 @@ static int find_result_key(const dmp_reliability *engine, dmp_message_key key)
     size_t i;
     for (i = 0U; i < engine->storage.result_capacity; i++) {
         const dmp_reliability_result_slot *result = &engine->storage.results[i];
-        if (result->live != 0U && peer_eq(result->peer, engine->selected_peer) &&
-            context_eq(result->context, engine->selected_context) &&
-            key_eq(result->request, key)) {
+        if (result->live != 0U && dmp_peer_handle_equal(result->peer, engine->selected_peer) &&
+            dmp_identity_handle_equal(result->context, engine->selected_context) &&
+            dmp_message_key_equal(result->request, key)) {
             return (int)i;
         }
     }
@@ -1410,9 +1352,9 @@ static int sender_waiting(const dmp_reliability *engine,
     }
     sender = &engine->storage.senders[correlation->request.slot];
     return sender->live != 0U && sender->generation == correlation->request.generation &&
-           peer_eq(sender->peer, correlation->peer) &&
-           context_eq(sender->context, correlation->context) &&
-           peer_eq(correlation->request.peer, correlation->peer) &&
+           dmp_peer_handle_equal(sender->peer, correlation->peer) &&
+           dmp_identity_handle_equal(sender->context, correlation->context) &&
+           dmp_peer_handle_equal(correlation->request.peer, correlation->peer) &&
            sender->kind == KIND_REQ && !sender->result_seen;
 }
 
@@ -1916,10 +1858,10 @@ static dmp_status handle_ack(dmp_reliability *engine, dmp_message_key reply, uin
         dmp_reliability_sender_slot *sender = &engine->storage.senders[i];
         if (sender->live == 0U ||
             (sender->kind != KIND_REQ && sender->kind != KIND_DATA) ||
-            !peer_eq(sender->peer, engine->selected_peer) ||
-            !context_eq(sender->context, engine->selected_context) ||
+            !dmp_peer_handle_equal(sender->peer, engine->selected_peer) ||
+            !dmp_identity_handle_equal(sender->context, engine->selected_context) ||
             sender->service_id != service ||
-            !key_eq(sender->own, reply)) {
+            !dmp_message_key_equal(sender->own, reply)) {
             continue;
         }
         if (sender->kind == KIND_DATA) {
@@ -1952,7 +1894,7 @@ static dmp_status handle_ack(dmp_reliability *engine, dmp_message_key reply, uin
     for (i = 0U; i < engine->storage.result_capacity; i++) {
         dmp_reliability_result_slot *result = &engine->storage.results[i];
         dmp_reliability_sender_slot *sender;
-        if (result->live == 0U || result->service_id != service || !key_eq(result->result, reply)) {
+        if (result->live == 0U || result->service_id != service || !dmp_message_key_equal(result->result, reply)) {
             continue;
         }
         result->acknowledged = 1U;
@@ -2000,10 +1942,10 @@ static dmp_status handle_reply(dmp_reliability *engine, const dmp_frame_view *fr
     }
     for (i = 0U; i < engine->storage.correlation_capacity; i++) {
         dmp_reliability_correlation_slot *candidate = &engine->storage.correlations[i];
-        if (candidate->live != 0U && peer_eq(candidate->peer, engine->selected_peer) &&
-            context_eq(candidate->context, engine->selected_context) &&
+        if (candidate->live != 0U && dmp_peer_handle_equal(candidate->peer, engine->selected_peer) &&
+            dmp_identity_handle_equal(candidate->context, engine->selected_context) &&
             candidate->service_id == service &&
-            key_eq(candidate->request_key, reply) &&
+            dmp_message_key_equal(candidate->request_key, reply) &&
             !dmp_deadline_reached(now, candidate->tombstone_deadline)) {
             correlation = candidate;
             break;
@@ -2029,7 +1971,7 @@ static dmp_status handle_reply(dmp_reliability *engine, const dmp_frame_view *fr
         return DMP_OK;
     }
     if (correlation->result_delivered != 0U) {
-        if (!key_eq(correlation->result_key, source) ||
+        if (!dmp_message_key_equal(correlation->result_key, source) ||
             !correlation_meta_same(engine, correlation, metadata)) {
             return DMP_MALFORMED;
         }
@@ -2562,7 +2504,7 @@ static dmp_status submit_outbound(dmp_reliability *engine, uint32_t service_id,
     int sender_index;
     int correlation_index = -1;
     dmp_status status;
-    if (!ready(engine) || engine->route_selected == 0U || out == NULL || !bytes_ok(payload) || !bytes_ok(token) ||
+    if (!ready(engine) || engine->route_selected == 0U || out == NULL || !dmp_bytes_valid(payload) || !dmp_bytes_valid(token) ||
         (kind != KIND_REQ && kind != KIND_DATA) ||
         (message_type != DMP_TYPE_REQ && message_type != DMP_TYPE_DATA &&
          message_type != DMP_TYPE_EVENT) ||
@@ -2772,7 +2714,7 @@ dmp_status dmp_reliability_cancel(dmp_reliability *engine, dmp_reliability_handl
     }
     sender = &engine->storage.senders[handle.slot];
     if (sender->live == 0U || sender->generation != handle.generation ||
-        !peer_eq(sender->peer, handle.peer) ||
+        !dmp_peer_handle_equal(sender->peer, handle.peer) ||
         (sender->kind != KIND_REQ && sender->kind != KIND_DATA)) {
         return DMP_STALE_HANDLE;
     }
@@ -2863,7 +2805,7 @@ dmp_status dmp_reliability_req_is_retained(dmp_reliability *engine,
     dmp_status status;
 
     if (!ready(engine) || engine->route_selected == 0U || input == NULL || input->frame == NULL || retained_rejection == NULL ||
-        !bytes_ok(input->plaintext) || !bytes_ok(input->immutable_metadata)) {
+        !dmp_bytes_valid(input->plaintext) || !dmp_bytes_valid(input->immutable_metadata)) {
         return DMP_INVALID_ARGUMENT;
     }
     *retained_rejection = false;
@@ -2913,8 +2855,8 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
     uint32_t service = 0U;
     int ack_req;
     dmp_status status;
-    if (!ready(engine) || engine->route_selected == 0U || input == NULL || input->frame == NULL || !bytes_ok(input->plaintext) ||
-        !bytes_ok(input->immutable_metadata)) {
+    if (!ready(engine) || engine->route_selected == 0U || input == NULL || input->frame == NULL || !dmp_bytes_valid(input->plaintext) ||
+        !dmp_bytes_valid(input->immutable_metadata)) {
         return DMP_INVALID_ARGUMENT;
     }
     if (input->immutable_metadata.size > DMP_RELIABILITY_METADATA_BYTES) {
@@ -2948,7 +2890,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
                 if (candidate->live != 0U &&
                     (candidate->kind == KIND_REQ || candidate->kind == KIND_RESULT ||
                      candidate->kind == KIND_DATA) &&
-                    candidate->service_id == service_id && key_eq(candidate->own, reply)) {
+                    candidate->service_id == service_id && dmp_message_key_equal(candidate->own, reply)) {
                     sender = candidate;
                     break;
                 }
@@ -2958,10 +2900,7 @@ dmp_status dmp_reliability_on_rx(dmp_reliability *engine, const dmp_reliability_
             sender->result_seen || (sender->kind == KIND_REQ && sender->receipt_seen)) {
             return DMP_OK;
         }
-        mask = (uint32_t)input->plaintext.data[0] |
-               ((uint32_t)input->plaintext.data[1] << 8) |
-               ((uint32_t)input->plaintext.data[2] << 16) |
-               ((uint32_t)input->plaintext.data[3] << 24);
+        mask = dmp_load_le32(input->plaintext.data);
         all = fragment_mask(sender->frag_count);
         if (mask == 0U || mask == all || (mask & ~all) != 0U) {
             return DMP_OK;
@@ -3090,7 +3029,7 @@ dmp_status dmp_reliability_reject_req(dmp_reliability *engine, const dmp_reliabi
     int ack_req;
     dmp_status status;
     if (!ready(engine) || engine->route_selected == 0U || input == NULL || input->frame == NULL ||
-        !bytes_ok(input->immutable_metadata)) {
+        !dmp_bytes_valid(input->immutable_metadata)) {
         return DMP_INVALID_ARGUMENT;
     }
     if (protocol_status < 1U || protocol_status > 7U) {
@@ -3186,7 +3125,7 @@ dmp_status dmp_reliability_complete_for_lifetime(
     int suppress;
     int defer_sequence;
     dmp_status status;
-    if (!ready(engine) || !bytes_ok(payload) || result_lifetime_ms == 0U ||
+    if (!ready(engine) || !dmp_bytes_valid(payload) || result_lifetime_ms == 0U ||
         result_lifetime_ms > engine->profile.result_cache_ms) {
         return DMP_INVALID_ARGUMENT;
     }
@@ -3195,7 +3134,7 @@ dmp_status dmp_reliability_complete_for_lifetime(
     }
     history = &engine->storage.history[request.slot];
     if (history->live == 0U || history->generation != request.generation ||
-        !peer_eq(history->peer, request.peer) || history->decision != 0U) {
+        !dmp_peer_handle_equal(history->peer, request.peer) || history->decision != 0U) {
         return DMP_STALE_HANDLE;
     }
     engine->selected_peer = history->peer;
@@ -3319,7 +3258,7 @@ dmp_status dmp_reliability_abandon_request(dmp_reliability *engine,
     }
     history = &engine->storage.history[request.slot];
     if (history->live == 0U || history->generation != request.generation ||
-        !peer_eq(history->peer, request.peer) ||
+        !dmp_peer_handle_equal(history->peer, request.peer) ||
         history->decision != 0U || history->type != DMP_TYPE_REQ ||
         history->result_slot >= engine->storage.result_capacity) {
         return DMP_STALE_HANDLE;

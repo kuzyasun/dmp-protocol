@@ -1,11 +1,13 @@
 #include "dmp/integrity.h"
 
+#include "../core/byte_span.h"
+
 dmp_status dmp_crc32c(dmp_bytes input, uint32_t *out)
 {
     uint32_t crc = UINT32_C(0xFFFFFFFF);
     size_t index;
 
-    if (out == NULL || (input.data == NULL && input.size != 0U)) {
+    if (out == NULL || !dmp_bytes_valid(input)) {
         return DMP_INVALID_ARGUMENT;
     }
 

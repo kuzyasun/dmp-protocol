@@ -1320,6 +1320,22 @@ static int test_rejection_and_status(void)
     }
     CHECK(side_a.senders[req.slot].live == 1U);
     CHECK(side_a.senders[req.slot].phase == DMP_REL_PHASE_AWAIT_RECEIPT);
+    {
+        static const uint8_t ignored_status[] = {0x80U, 0U};
+        dmp_reliability_input input;
+
+        /* Direct RX uses the first STATUS. Identity does not inspect its values. */
+        add_tlv(ext, &ext_n, sizeof ext, 21U, ignored_status, sizeof ignored_status);
+        view.fields.options &= (uint8_t)~DMP_OPT_ACK_REQ;
+        view.extensions = span(ext, ext_n);
+        input.frame = &view;
+        input.service_id = 1U;
+        input.plaintext = span(NULL, 0U);
+        input.immutable_metadata = span(META1, sizeof META1);
+        CHECK(dmp_reliability_on_rx(&side_a.engine, &input, 12U) == DMP_OK);
+        CHECK(event_count(&side_a.notes, DMP_REL_EVENT_REJECTED) == 1);
+        CHECK(side_a.notes.items[0].wire_status == 7U);
+    }
     return 0;
 }
 

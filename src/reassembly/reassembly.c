@@ -1,5 +1,9 @@
 #include "dmp/reassembly.h"
 
+#include "../core/byte_span.h"
+#include "../core/extension_values.h"
+#include "../identity/compare.h"
+
 #include <stdint.h>
 #include <string.h>
 
@@ -26,33 +30,17 @@ static int ready(const dmp_reassembly *engine)
     return engine != NULL && engine->initialized != 0U;
 }
 
-static int bytes_ok(dmp_bytes bytes)
-{
-    return bytes.size == 0U || bytes.data != NULL;
-}
-
 static uint32_t max_core_mtu(const dmp_admitted_profile *profile)
 {
     return profile->forward_mtu > profile->return_mtu ? profile->forward_mtu
                                                        : profile->return_mtu;
 }
 
-static int key_eq(dmp_message_key a, dmp_message_key b)
-{
-    return a.seq == b.seq && a.origin.namespace_id == b.origin.namespace_id &&
-           a.origin.origin_id == b.origin.origin_id && a.origin.epoch == b.origin.epoch;
-}
-
 /* Per-peer resource budgets span active and draining epochs. Message identity
- * still includes the epoch in key_eq(). */
+ * still includes the epoch. */
 static int stable_peer_eq(dmp_message_origin a, dmp_message_origin b)
 {
     return a.namespace_id == b.namespace_id && a.origin_id == b.origin_id;
-}
-
-static int context_eq(dmp_identity_handle a, dmp_identity_handle b)
-{
-    return a.slot == b.slot && a.generation == b.generation;
 }
 
 static int service_allowed(const dmp_admitted_profile *profile, uint32_t service)
@@ -228,47 +216,6 @@ static int fields_match(const dmp_header_fields *stored, const dmp_header_fields
            stored->fragment.total_size == norm.fragment.total_size;
 }
 
-static int read_uleb32(dmp_bytes in, size_t *at, uint32_t *value)
-{
-    uint64_t acc = 0U;
-    size_t start = *at;
-    unsigned i;
-
-    for (i = 0U; i < 5U; i++) {
-        uint8_t byte;
-        uint32_t chunk;
-        size_t used;
-        size_t need;
-        uint64_t check;
-
-        if (*at >= in.size || in.data == NULL) {
-            return 0;
-        }
-        byte = in.data[(*at)++];
-        chunk = (uint32_t)(byte & 0x7fU);
-        if (i == 4U && chunk > 0x0fU) {
-            return 0;
-        }
-        acc |= (uint64_t)chunk << (7U * i);
-        if ((byte & 0x80U) != 0U) {
-            continue;
-        }
-        used = *at - start;
-        check = acc;
-        need = 1U;
-        while (check >= 0x80U) {
-            check >>= 7U;
-            need++;
-        }
-        if (used != need) {
-            return 0;
-        }
-        *value = (uint32_t)acc;
-        return 1;
-    }
-    return 0;
-}
-
 static dmp_status check_service(const dmp_reassembly *engine, const dmp_reassembly_input *input)
 {
     size_t cursor = 0U;
@@ -283,7 +230,6 @@ static dmp_status check_service(const dmp_reassembly *engine, const dmp_reassemb
         dmp_extension_view view;
         dmp_status status = dmp_extension_next(extensions, &cursor, &view);
         uint32_t id;
-        size_t at = 0U;
 
         if (status == DMP_INCOMPLETE) {
             break;
@@ -296,7 +242,7 @@ static dmp_status check_service(const dmp_reassembly *engine, const dmp_reassemb
             continue;
         }
         if (seen != 0 || (view.tag & 3U) != 1U ||
-            !read_uleb32(view.value, &at, &wire) || at != view.value.size) {
+            !dmp_decode_extension_u32(view.value, &wire, NULL)) {
             return DMP_MALFORMED;
         }
         seen = 1;
@@ -364,7 +310,7 @@ static int find_assembly(const dmp_reassembly *engine, dmp_message_key key,
 
     for (i = 0U; i < engine->storage.assembly_capacity; i++) {
         const dmp_reassembly_slot *slot = &engine->storage.assemblies[i];
-        if (slot->live != 0U && key_eq(slot->source, key) && context_eq(slot->context, context)) {
+        if (slot->live != 0U && dmp_message_key_equal(slot->source, key) && dmp_identity_handle_equal(slot->context, context)) {
             *out = i;
             return 1;
         }
@@ -379,8 +325,8 @@ static int find_expired(const dmp_reassembly *engine, dmp_message_key key,
 
     for (i = 0U; i < engine->storage.tombstone_capacity; i++) {
         const dmp_reassembly_tombstone *tomb = &engine->storage.tombstones[i];
-        if (tomb->state == DMP_REASSEMBLY_TOMBSTONE_EXPIRED && key_eq(tomb->source, key) &&
-            context_eq(tomb->context, context)) {
+        if (tomb->state == DMP_REASSEMBLY_TOMBSTONE_EXPIRED && dmp_message_key_equal(tomb->source, key) &&
+            dmp_identity_handle_equal(tomb->context, context)) {
             return 1;
         }
     }
@@ -394,8 +340,8 @@ static int find_rejected(const dmp_reassembly *engine, dmp_message_key key,
 
     for (i = 0U; i < engine->storage.tombstone_capacity; i++) {
         const dmp_reassembly_tombstone *tomb = &engine->storage.tombstones[i];
-        if (tomb->state == DMP_REASSEMBLY_TOMBSTONE_REJECTED && key_eq(tomb->source, key) &&
-            context_eq(tomb->context, context)) {
+        if (tomb->state == DMP_REASSEMBLY_TOMBSTONE_REJECTED && dmp_message_key_equal(tomb->source, key) &&
+            dmp_identity_handle_equal(tomb->context, context)) {
             return 1;
         }
     }
@@ -710,7 +656,7 @@ dmp_status dmp_reassembly_on_fragment(dmp_reassembly *engine, const dmp_reassemb
     dmp_status status;
 
     if (!ready(engine) || input == NULL || input->frame == NULL || completed == NULL ||
-        !bytes_ok(input->plaintext) || !bytes_ok(input->immutable_metadata)) {
+        !dmp_bytes_valid(input->plaintext) || !dmp_bytes_valid(input->immutable_metadata)) {
         return DMP_INVALID_ARGUMENT;
     }
     if ((input->frame->fields.options & DMP_OPT_FRAG) == 0U) {
@@ -892,7 +838,7 @@ dmp_status dmp_reassembly_reject(dmp_reassembly *engine, dmp_reassembly_handle h
     }
     tomb = &engine->storage.tombstones[tomb_index];
     if (tomb->state != DMP_REASSEMBLY_TOMBSTONE_RESERVED ||
-        !key_eq(tomb->source, slot->source) || !context_eq(tomb->context, slot->context)) {
+        !dmp_message_key_equal(tomb->source, slot->source) || !dmp_identity_handle_equal(tomb->context, slot->context)) {
         return DMP_INVALID_ARGUMENT;
     }
     status = dmp_identity_context_release(engine->storage.identity, slot->context);
@@ -933,7 +879,7 @@ dmp_status dmp_reassembly_context_retired(dmp_reassembly *engine, dmp_identity_h
         dmp_reassembly_tombstone *tomb = &engine->storage.tombstones[i];
         if ((tomb->state == DMP_REASSEMBLY_TOMBSTONE_EXPIRED ||
              tomb->state == DMP_REASSEMBLY_TOMBSTONE_REJECTED) &&
-            context_eq(tomb->context, context)) {
+            dmp_identity_handle_equal(tomb->context, context)) {
             memset(tomb, 0, sizeof *tomb);
         }
     }

@@ -111,6 +111,35 @@ static int test_encoding(void)
     return 0;
 }
 
+static int test_encode_span_boundaries(void)
+{
+    uint8_t storage[32];
+    size_t written = 77U;
+
+    memcpy(storage, CORE, sizeof CORE);
+    CHECK(dmp_stream_encode(DMP_STREAM_R, (dmp_bytes){ storage, sizeof CORE },
+                            (dmp_buffer){ storage + 1U, sizeof storage - 1U },
+                            &written) == DMP_INVALID_ARGUMENT);
+    CHECK(written == 0U && memcmp(storage, CORE, sizeof CORE) == 0);
+    CHECK(dmp_stream_encode(DMP_STREAM_R, (dmp_bytes){ storage, sizeof CORE },
+                            (dmp_buffer){ storage + sizeof CORE, sizeof storage - sizeof CORE },
+                            &written) == DMP_OK);
+    CHECK(written == sizeof R_GOLDEN &&
+          memcmp(storage + sizeof CORE, R_GOLDEN, sizeof R_GOLDEN) == 0);
+
+#if SIZE_MAX >= UINTPTR_MAX
+    /* Reject the overflowing range before reading input or clearing written. */
+    written = 77U;
+    CHECK(dmp_stream_encode(DMP_STREAM_R, (dmp_bytes){ storage, SIZE_MAX },
+                            (dmp_buffer){ NULL, 0U }, &written) == DMP_INVALID_ARGUMENT);
+    CHECK(written == 77U);
+    CHECK(dmp_cobs_encode((dmp_bytes){ storage, SIZE_MAX },
+                          (dmp_buffer){ NULL, 0U }, &written) == DMP_INVALID_ARGUMENT);
+    CHECK(written == 77U);
+#endif
+    return 0;
+}
+
 static int test_zero_adjacent_full_block(void)
 {
     uint8_t input[256], encoded[260], decoded[260];
@@ -481,6 +510,7 @@ int main(void)
     CHECK(test_crc() == 0);
     CHECK(test_raw_cobs() == 0);
     CHECK(test_encoding() == 0);
+    CHECK(test_encode_span_boundaries() == 0);
     CHECK(test_zero_adjacent_full_block() == 0);
     CHECK(test_l_splits_and_concat() == 0);
     CHECK(test_r_splits_and_resync() == 0);

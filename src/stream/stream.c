@@ -3,6 +3,9 @@
 #include "cobs.h"
 #include "dmp/integrity.h"
 
+#include "../core/byte_span.h"
+#include "../core/little_endian.h"
+
 #include <stdint.h>
 #include <string.h>
 
@@ -15,35 +18,9 @@ enum {
     PHASE_R_DISCARD = 6
 };
 
-static bool ranges_overlap(const void *left, size_t left_size,
-                           const void *right, size_t right_size)
-{
-    uintptr_t a, b;
-
-    if (left_size == 0U || right_size == 0U || left == NULL || right == NULL) {
-        return false;
-    }
-    a = (uintptr_t)left;
-    b = (uintptr_t)right;
-    if (left_size > UINTPTR_MAX - a || right_size > UINTPTR_MAX - b) {
-        return true;
-    }
-    return a < b + right_size && b < a + left_size;
-}
-
-static bool valid_bytes(dmp_bytes bytes)
-{
-    return bytes.data != NULL || bytes.size == 0U;
-}
-
-static bool valid_buffer(dmp_buffer buffer)
-{
-    return buffer.data != NULL || buffer.capacity == 0U;
-}
-
 static bool decoder_initialized(const dmp_stream_decoder *decoder)
 {
-    if (decoder == NULL || !valid_buffer(decoder->storage) ||
+    if (decoder == NULL || !dmp_buffer_valid(decoder->storage) ||
         decoder->config.partial_timeout_ms == 0U ||
         decoder->config.max_core_bytes < 2U) {
         return false;
@@ -115,16 +92,16 @@ dmp_status dmp_stream_encode(dmp_stream_mode mode, dmp_bytes core,
     dmp_status status;
 
     if (written != NULL &&
-        !ranges_overlap(written, sizeof *written, core.data, core.size) &&
-        !ranges_overlap(written, sizeof *written, output.data, output.capacity)) {
+        !dmp_ranges_overlap(written, sizeof *written, core.data, core.size) &&
+        !dmp_ranges_overlap(written, sizeof *written, output.data, output.capacity)) {
         *written = 0U;
     }
-    if (written == NULL || !valid_bytes(core) || !valid_buffer(output)) {
+    if (written == NULL || !dmp_bytes_valid(core) || !dmp_buffer_valid(output)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (ranges_overlap(written, sizeof *written, core.data, core.size) ||
-        ranges_overlap(written, sizeof *written, output.data, output.capacity) ||
-        ranges_overlap(core.data, core.size, output.data, output.capacity)) {
+    if (dmp_ranges_overlap(written, sizeof *written, core.data, core.size) ||
+        dmp_ranges_overlap(written, sizeof *written, output.data, output.capacity) ||
+        dmp_ranges_overlap(core.data, core.size, output.data, output.capacity)) {
         return DMP_INVALID_ARGUMENT;
     }
     *written = 0U;
@@ -177,10 +154,7 @@ dmp_status dmp_stream_encode(dmp_stream_mode mode, dmp_bytes core,
     if (status != DMP_OK) {
         return status;
     }
-    trailer[0] = (uint8_t)crc;
-    trailer[1] = (uint8_t)(crc >> 8U);
-    trailer[2] = (uint8_t)(crc >> 16U);
-    trailer[3] = (uint8_t)(crc >> 24U);
+    dmp_store_le32(trailer, crc);
     status = dmp_cobs_encode_parts(core, (dmp_bytes){ trailer, sizeof trailer },
                                    (dmp_buffer){ output.data, required - 1U },
                                    &cobs_size);
@@ -200,12 +174,12 @@ dmp_status dmp_stream_init(dmp_stream_decoder *decoder,
     size_t needed;
     dmp_status status;
 
-    if (decoder == NULL || !valid_buffer(storage) ||
+    if (decoder == NULL || !dmp_buffer_valid(storage) ||
         config.partial_timeout_ms == 0U || config.max_core_bytes < 2U ||
         (config.mode != DMP_STREAM_L && config.mode != DMP_STREAM_R)) {
         return DMP_INVALID_ARGUMENT;
     }
-    if (ranges_overlap(decoder, sizeof *decoder, storage.data, storage.capacity)) {
+    if (dmp_ranges_overlap(decoder, sizeof *decoder, storage.data, storage.capacity)) {
         return DMP_INVALID_ARGUMENT;
     }
     if (config.mode == DMP_STREAM_L) {
@@ -414,10 +388,7 @@ static dmp_stream_result feed_r(dmp_stream_decoder *decoder, dmp_bytes input,
                     return result(DMP_MALFORMED,
                                   DMP_STREAM_DISCARDED, index + 1U, NULL, 0U);
                 }
-                expected_crc = (uint32_t)decoder->storage.data[decoded_size - 4U] |
-                               ((uint32_t)decoder->storage.data[decoded_size - 3U] << 8U) |
-                               ((uint32_t)decoder->storage.data[decoded_size - 2U] << 16U) |
-                               ((uint32_t)decoder->storage.data[decoded_size - 1U] << 24U);
+                expected_crc = dmp_load_le32(decoder->storage.data + (decoded_size - 4U));
                 {
                     dmp_bytes bytes = { decoder->storage.data, decoded_size - 4U };
                     status = dmp_crc32c(bytes, &actual_crc);
@@ -460,10 +431,10 @@ static dmp_stream_result feed_r(dmp_stream_decoder *decoder, dmp_bytes input,
 dmp_stream_result dmp_stream_feed(dmp_stream_decoder *decoder,
                                   dmp_bytes input, dmp_time_ms now)
 {
-    if (!decoder_initialized(decoder) || !valid_bytes(input) ||
-        ranges_overlap(decoder, sizeof *decoder, input.data, input.size) ||
-        ranges_overlap(decoder->storage.data, decoder->storage.capacity,
-                       input.data, input.size) || now < decoder->last_now) {
+    if (!decoder_initialized(decoder) || !dmp_bytes_valid(input) ||
+        dmp_ranges_overlap(decoder, sizeof *decoder, input.data, input.size) ||
+        dmp_ranges_overlap(decoder->storage.data, decoder->storage.capacity,
+                           input.data, input.size) || now < decoder->last_now) {
         return result(DMP_INVALID_ARGUMENT, DMP_STREAM_NONE, 0U, NULL, 0U);
     }
     decoder->last_now = now;

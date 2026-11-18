@@ -2,6 +2,8 @@
 #include "replay_window.h"
 
 #include "dmp/core.h"
+#include "../core/extension_values.h"
+#include "../core/little_endian.h"
 
 #include <noise/protocol.h>
 
@@ -439,39 +441,6 @@ dmp_hs_status dmp_hs_admission_release(dmp_hs_admission *admission,
     return DMP_HS_OK;
 }
 
-static uint32_t load_le32(const uint8_t *bytes)
-{
-    return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
-           ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
-}
-
-static void store_le32(uint8_t *bytes, uint32_t value)
-{
-    bytes[0] = (uint8_t)value;
-    bytes[1] = (uint8_t)(value >> 8);
-    bytes[2] = (uint8_t)(value >> 16);
-    bytes[3] = (uint8_t)(value >> 24);
-}
-
-static uint64_t load_le64(const uint8_t *bytes)
-{
-    uint64_t value = 0U;
-    size_t index;
-
-    for (index = 0U; index < 8U; ++index) {
-        value |= (uint64_t)bytes[index] << (index * 8U);
-    }
-    return value;
-}
-
-static void store_le64(uint8_t *bytes, uint64_t value)
-{
-    size_t index;
-    for (index = 0U; index < 8U; ++index) {
-        bytes[index] = (uint8_t)(value >> (index * 8U));
-    }
-}
-
 static int store_uleb32(uint8_t *out, size_t cap, size_t *written, uint32_t value)
 {
     size_t used = 0U;
@@ -492,32 +461,6 @@ static int store_uleb32(uint8_t *out, size_t cap, size_t *written, uint32_t valu
     } while (value != 0U);
     *written = used;
     return 1;
-}
-
-static int load_uleb32(dmp_bytes input, uint32_t *value, size_t *used)
-{
-    uint32_t result = 0U;
-    size_t index;
-    if (input.data == NULL || input.size == 0U || value == NULL || used == NULL) {
-        return 0;
-    }
-    for (index = 0U; index < input.size && index < 5U; ++index) {
-        uint8_t byte = input.data[index];
-        uint32_t part = (uint32_t)(byte & 0x7FU);
-        if (index == 4U && part > 0x0FU) {
-            return 0;
-        }
-        result |= part << (7U * (uint32_t)index);
-        if ((byte & 0x80U) == 0U) {
-            if (index != 0U && part == 0U) {
-                return 0;
-            }
-            *value = result;
-            *used = index + 1U;
-            return 1;
-        }
-    }
-    return 0;
 }
 
 static uint64_t now_ms(const dmp_hs *hs)
@@ -550,7 +493,7 @@ static int boot_epoch_of(NoiseHashState *state, const uint8_t attempt_id[16], ui
     memcpy(input + 20U, attempt_id, 16U);
     ok = sha256(state, input, sizeof(input), hash);
     if (ok) {
-        *epoch = load_le64(hash);
+        *epoch = dmp_load_le64(hash);
     }
     wipe(input, sizeof(input));
     wipe(hash, sizeof(hash));
@@ -569,7 +512,7 @@ static int traffic_epoch_of(NoiseHashState *state, const uint8_t handshake_hash[
     input[47] = direction;
     ok = sha256(state, input, sizeof(input), hash);
     if (ok) {
-        *epoch = load_le64(hash);
+        *epoch = dmp_load_le64(hash);
     }
     wipe(input, sizeof(input));
     wipe(hash, sizeof(hash));
@@ -907,12 +850,12 @@ static void build_prefix(struct hs_attempt *attempt)
     attempt->prefix[2] = attempt->cipher;
     attempt->prefix[3] = 1U;
     memcpy(attempt->prefix + 4U, attempt->attempt_id, 16U);
-    store_le32(attempt->prefix + 20U, attempt->namespace_id);
-    store_le32(attempt->prefix + 24U, attempt->initiator_id);
-    store_le32(attempt->prefix + 28U, attempt->responder_id);
+    dmp_store_le32(attempt->prefix + 20U, attempt->namespace_id);
+    dmp_store_le32(attempt->prefix + 24U, attempt->initiator_id);
+    dmp_store_le32(attempt->prefix + 28U, attempt->responder_id);
     memcpy(attempt->prefix + 32U, attempt->profile_hash, 32U);
-    store_le32(attempt->prefix + 64U, attempt->key_hint);
-    store_le32(attempt->prefix + 68U, attempt->local_rx_cid);
+    dmp_store_le32(attempt->prefix + 64U, attempt->key_hint);
+    dmp_store_le32(attempt->prefix + 68U, attempt->local_rx_cid);
     build_prologue(attempt->prologue, attempt->prefix);
 }
 
@@ -1025,7 +968,7 @@ static int write_flight(dmp_hs *hs, struct hs_attempt *attempt, uint8_t flight)
         return 0;
     }
     if (flight == 2U) {
-        store_le32(body, attempt->local_rx_cid);
+        dmp_store_le32(body, attempt->local_rx_cid);
         plain = body;
         plain_len = 4U;
     }
@@ -1139,7 +1082,7 @@ static int decrypted_payload_ok(struct hs_attempt *attempt, uint8_t flight, cons
         if (payload_len != 4U) {
             return 0;
         }
-        cid = load_le32(payload);
+        cid = dmp_load_le32(payload);
         if (cid == 0U) {
             return 0;
         }
@@ -1363,11 +1306,11 @@ static dmp_hs_status admit_flight1(dmp_hs *hs, const dmp_hs_ingress *ingress, dm
     }
     mode = ingress->payload[1];
     cipher = ingress->payload[2];
-    initiator_id = load_le32(ingress->payload + 24U);
-    responder_id = load_le32(ingress->payload + 28U);
-    namespace_id = load_le32(ingress->payload + 20U);
-    key_hint = load_le32(ingress->payload + 64U);
-    remote_cid = load_le32(ingress->payload + 68U);
+    initiator_id = dmp_load_le32(ingress->payload + 24U);
+    responder_id = dmp_load_le32(ingress->payload + 28U);
+    namespace_id = dmp_load_le32(ingress->payload + 20U);
+    key_hint = dmp_load_le32(ingress->payload + 64U);
+    remote_cid = dmp_load_le32(ingress->payload + 68U);
     if (mode != hs->config.mode || cipher != 1U || cipher != hs->config.cipher ||
         initiator_id == responder_id || responder_id != hs->config.local_id ||
         initiator_id != hs->config.peer_id || namespace_id != hs->config.namespace_id ||
@@ -2129,7 +2072,7 @@ static int seal_record(dmp_hs *hs, struct hs_attempt *attempt, uint8_t type, uin
                           attempt->namespace_id)) {
             return 0;
         }
-        store_le64(context + namespace_len, local_epoch);
+        dmp_store_le64(context + namespace_len, local_epoch);
         extensions[0] = DMP_HS_CONTEXT_TAG;
         extensions[1] = (uint8_t)(namespace_len + 8U);
         extension_len = namespace_len + 10U;
@@ -2242,8 +2185,7 @@ static int confirmation_route_matches(const dmp_frame_view *view,
 {
     dmp_extension_view extension;
     size_t cursor = 0U;
-    size_t namespace_len = 0U;
-    uint32_t namespace_id = 0U;
+    uint32_t namespace_id;
     uint64_t epoch;
     if (view->fields.options != (uint8_t)(DMP_OPT_SEQ | DMP_OPT_ROUTE | DMP_OPT_SECURITY |
                                           DMP_OPT_EXT) ||
@@ -2251,12 +2193,10 @@ static int confirmation_route_matches(const dmp_frame_view *view,
         view->fields.route.destination != incoming->destination_id ||
         dmp_extension_next(view->extensions, &cursor, &extension) != DMP_OK ||
         extension.tag != DMP_HS_CONTEXT_TAG ||
-        dmp_extension_next(view->extensions, &cursor, &(dmp_extension_view){0}) != DMP_INCOMPLETE ||
-        !load_uleb32(extension.value, &namespace_id, &namespace_len) ||
-        extension.value.size != namespace_len + 8U) {
+        cursor != view->extensions.size ||
+        !dmp_decode_extension_context(extension.value, &namespace_id, &epoch, NULL)) {
         return 0;
     }
-    epoch = load_le64(extension.value.data + namespace_len);
     return namespace_id == incoming->namespace_id && epoch == incoming->context_epoch;
 }
 

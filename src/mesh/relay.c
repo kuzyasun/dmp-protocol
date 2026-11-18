@@ -1,6 +1,8 @@
 #include "dmp/mesh.h"
 
 #include "dmp/integrity.h"
+#include "../core/extension_values.h"
+#include "../core/little_endian.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -25,45 +27,6 @@ static int add_u32(uint32_t left, uint32_t right, uint32_t *out)
     return 1;
 }
 
-static int read_uleb32(dmp_bytes in, size_t *at, uint32_t *value)
-{
-    uint32_t acc = 0U;
-    unsigned i;
-    size_t start;
-
-    if (at == NULL || *at > in.size) {
-        return 0;
-    }
-    start = *at;
-    for (i = 0U; i < 5U; i++) {
-        uint8_t byte;
-        uint8_t chunk;
-        if (*at >= in.size) {
-            return 0;
-        }
-        byte = in.data[(*at)++];
-        chunk = (uint8_t)(byte & 0x7fU);
-        if (i == 4U && chunk > 0x0fU) {
-            return 0;
-        }
-        acc |= (uint32_t)chunk << (7U * i);
-        if ((byte & 0x80U) == 0U) {
-            size_t n = 1U;
-            uint32_t probe = acc;
-            while (probe >= 128U) {
-                probe >>= 7;
-                n++;
-            }
-            if (*at - start != n) {
-                return 0;
-            }
-            *value = acc;
-            return 1;
-        }
-    }
-    return 0;
-}
-
 static int read_context(dmp_bytes extensions, uint32_t *namespace_id, uint64_t *epoch)
 {
     size_t cursor = 0U;
@@ -72,24 +35,15 @@ static int read_context(dmp_bytes extensions, uint32_t *namespace_id, uint64_t *
     while (cursor < extensions.size) {
         dmp_extension_view ext;
         dmp_status status = dmp_extension_next(extensions, &cursor, &ext);
-        uint32_t ns = 0U;
-        uint64_t ep = 0U;
-        size_t at = 0U;
-        unsigned b;
         if (status != DMP_OK) {
             return 0;
         }
         if ((ext.tag >> 2) != 2U) {
             continue;
         }
-        if (found || !read_uleb32(ext.value, &at, &ns) || ext.value.size - at != 8U) {
+        if (found || !dmp_decode_extension_context(ext.value, namespace_id, epoch, NULL)) {
             return 0;
         }
-        for (b = 0U; b < 8U; b++) {
-            ep |= (uint64_t)ext.value.data[at + b] << (8U * b);
-        }
-        *namespace_id = ns;
-        *epoch = ep;
         found = 1;
     }
     return found;
@@ -184,8 +138,7 @@ static int crc_matches(dmp_bytes frame)
         return 0;
     }
     tail = frame.data + frame.size - 4U;
-    expect = (uint32_t)tail[0] | ((uint32_t)tail[1] << 8) | ((uint32_t)tail[2] << 16) |
-             ((uint32_t)tail[3] << 24);
+    expect = dmp_load_le32(tail);
     return actual == expect;
 }
 
@@ -198,10 +151,7 @@ static void write_crc(uint8_t *frame, size_t size)
     if (dmp_crc32c(covered, &crc) != DMP_OK) {
         return;
     }
-    frame[size - 4U] = (uint8_t)crc;
-    frame[size - 3U] = (uint8_t)(crc >> 8);
-    frame[size - 2U] = (uint8_t)(crc >> 16);
-    frame[size - 1U] = (uint8_t)(crc >> 24);
+    dmp_store_le32(frame + (size - 4U), crc);
 }
 
 dmp_status dmp_mesh_relay_init(dmp_mesh_relay *relay)

@@ -4,6 +4,10 @@
 #include "dmp/identity.h"
 #include "dmp/stream.h"
 
+#include "../core/byte_span.h"
+#include "../core/little_endian.h"
+#include "../identity/compare.h"
+
 #include <string.h>
 
 #define DMP_HS_TX_MAGIC UINT32_C(0xD3137A01)
@@ -63,16 +67,11 @@ static int state_live(const dmp_hs_tx *state)
            state->transport->submit != NULL && state->transport->cancel != NULL;
 }
 
-static int same_peer(dmp_peer_handle left, dmp_peer_handle right)
-{
-    return left.slot == right.slot && left.generation == right.generation;
-}
-
 static int peer_has_live_tx(const dmp_hs_tx *state, dmp_peer_handle peer)
 {
     uint32_t index;
     for (index = 0U; index < DMP_HS_TX_SLOT_MAX; ++index) {
-        if (state->slots[index].live && same_peer(state->slots[index].peer, peer)) {
+        if (state->slots[index].live && dmp_peer_handle_equal(state->slots[index].peer, peer)) {
             return 1;
         }
     }
@@ -90,7 +89,7 @@ static int peer_sync_index(dmp_hs_tx *state, dmp_peer_handle peer, int create)
         struct hs_tx_peer_sync *entry = &state->peer_sync[index];
         if (!entry->live) {
             if (empty < 0) empty = (int)index;
-        } else if (same_peer(entry->peer, peer)) {
+        } else if (dmp_peer_handle_equal(entry->peer, peer)) {
             return (int)index;
         } else if (entry->peer.slot == peer.slot) {
             stale = (int)index;
@@ -114,18 +113,6 @@ static int peer_sync_index(dmp_hs_tx *state, dmp_peer_handle peer, int create)
         return empty;
     }
     return -1;
-}
-
-static int ranges_overlap(const void *left, size_t left_size,
-                          const void *right, size_t right_size)
-{
-    uintptr_t a, b;
-
-    if (left_size == 0U || right_size == 0U || left == NULL || right == NULL) return 0;
-    a = (uintptr_t)left;
-    b = (uintptr_t)right;
-    if (left_size > UINTPTR_MAX - a || right_size > UINTPTR_MAX - b) return 1;
-    return a < b + right_size && b < a + left_size;
 }
 
 /* The binding's max_frame_bytes applies to one complete Stream R wire frame,
@@ -237,12 +224,6 @@ static size_t uleb32(uint8_t *out, uint32_t value)
     return count;
 }
 
-static void store_le64(uint8_t *out, uint64_t value)
-{
-    size_t i;
-    for (i = 0U; i < 8U; ++i) out[i] = (uint8_t)(value >> (8U * i));
-}
-
 static int bootstrap_flight(const uint8_t *payload, size_t length, uint32_t *sequence)
 {
     if (payload == NULL || sequence == NULL || length < 2U || length > DMP_HS_PAYLOAD_MAX ||
@@ -269,7 +250,7 @@ static int bootstrap_extensions(const dmp_hs_bootstrap_context *context,
     size_t used = 0U;
 
     namespace_len = uleb32(value, context->namespace_id);
-    store_le64(value + namespace_len, context->provisional_epoch);
+    dmp_store_le64(value + namespace_len, context->provisional_epoch);
     if (used + 2U + namespace_len + 8U > capacity) return 0;
     extensions[used++] = DMP_HS_CONTEXT_TAG;
     extensions[used++] = (uint8_t)(namespace_len + 8U);
@@ -436,10 +417,7 @@ static dmp_hs_tx_status encode_bootstrap_core(dmp_hs_tx *state,
     memcpy(state->core_scratch + header_size, source + offset, slice_len);
     status = dmp_crc32c((dmp_bytes){ state->core_scratch, header_size + slice_len }, &crc);
     if (status != DMP_OK) return DMP_HS_TX_INVALID;
-    state->core_scratch[header_size + slice_len] = (uint8_t)crc;
-    state->core_scratch[header_size + slice_len + 1U] = (uint8_t)(crc >> 8U);
-    state->core_scratch[header_size + slice_len + 2U] = (uint8_t)(crc >> 16U);
-    state->core_scratch[header_size + slice_len + 3U] = (uint8_t)(crc >> 24U);
+    dmp_store_le32(state->core_scratch + header_size + slice_len, crc);
     *core_size = header_size + slice_len + 4U;
     (void)written;
     return DMP_HS_TX_ACCEPTED;
@@ -488,12 +466,12 @@ dmp_hs_tx_status dmp_hs_tx_init(dmp_hs_tx *state, dmp_hs *handshake,
         if (buffers[i].data == NULL || buffers[i].capacity < encoded_bound) {
             return DMP_HS_TX_INVALID;
         }
-        if (ranges_overlap(state, sizeof(*state), buffers[i].data, buffers[i].capacity)) {
+        if (dmp_ranges_overlap(state, sizeof(*state), buffers[i].data, buffers[i].capacity)) {
             return DMP_HS_TX_INVALID;
         }
         for (j = 0U; j < i; ++j) {
-            if (ranges_overlap(buffers[i].data, buffers[i].capacity,
-                              buffers[j].data, buffers[j].capacity)) return DMP_HS_TX_INVALID;
+            if (dmp_ranges_overlap(buffers[i].data, buffers[i].capacity,
+                                   buffers[j].data, buffers[j].capacity)) return DMP_HS_TX_INVALID;
         }
     }
     memset(state, 0, sizeof(*state));
@@ -527,7 +505,7 @@ dmp_hs_tx_status dmp_hs_tx_sync(dmp_hs_tx *state, dmp_peer_handle peer,
     if (!state->peer_sync[sync_index].sync_pending) return DMP_HS_TX_NO_OUTPUT;
     for (index = 0U; index < DMP_HS_TX_SLOT_MAX; ++index) {
         if (state->slots[index].live && state->slots[index].sync_action &&
-            same_peer(state->slots[index].peer, peer)) {
+            dmp_peer_handle_equal(state->slots[index].peer, peer)) {
             return DMP_HS_TX_BUSY;
         }
     }
@@ -589,7 +567,7 @@ dmp_hs_tx_status dmp_hs_tx_binding_reset(dmp_hs_tx *state,
     sync_index = peer_sync_index(state, peer, 1);
     if (sync_index < 0) return DMP_HS_TX_NO_SLOT;
     for (index = 0U; index < DMP_HS_TX_SLOT_MAX; ++index) {
-        if (state->slots[index].live && same_peer(state->slots[index].peer, peer)) {
+        if (state->slots[index].live && dmp_peer_handle_equal(state->slots[index].peer, peer)) {
             return DMP_HS_TX_BUSY;
         }
     }

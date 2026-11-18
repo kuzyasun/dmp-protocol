@@ -1,5 +1,7 @@
 #include "sample1_endpoint.h"
 
+#include "../identity/compare.h"
+
 #include <string.h>
 #include <stdint.h>
 
@@ -20,16 +22,6 @@ static bool try_enter(void *user)
     return sample->hooks.try_enter(sample->hooks.user);
 }
 
-static int handle_equal(dmp_peer_handle a, dmp_peer_handle b)
-{
-    return a.slot == b.slot && a.generation == b.generation;
-}
-
-static int identity_equal(dmp_identity_handle a, dmp_identity_handle b)
-{
-    return a.slot == b.slot && a.generation == b.generation;
-}
-
 static dmp_sample1_peer_epoch *peer_record(dmp_sample1_endpoint *sample,
                                            dmp_peer_handle peer)
 {
@@ -40,7 +32,7 @@ static dmp_sample1_peer_epoch *peer_record(dmp_sample1_endpoint *sample,
         return NULL;
     }
     record = &sample->peers[peer.slot];
-    if (record->live != 0U && !handle_equal(record->peer, peer)) {
+    if (record->live != 0U && !dmp_peer_handle_equal(record->peer, peer)) {
         const dmp_endpoint_peer_state *current =
             &sample->endpoint->peers[peer.slot];
         uint32_t i;
@@ -49,12 +41,12 @@ static dmp_sample1_peer_epoch *peer_record(dmp_sample1_endpoint *sample,
          * slot only after the endpoint has installed that generation and no
          * accepted application result still refers to the retired handle. */
         if (current->live == 0U || current->revoked != 0U ||
-            !handle_equal(current->handle, peer)) {
+            !dmp_peer_handle_equal(current->handle, peer)) {
             return NULL;
         }
         for (i = 0U; i < sample->result_capacity; i++) {
             if (sample->results[i].live != 0U &&
-                handle_equal(sample->results[i].request_handle.peer,
+                dmp_peer_handle_equal(sample->results[i].request_handle.peer,
                              record->peer)) {
                 return NULL;
             }
@@ -74,11 +66,11 @@ static dmp_sample1_peer_epoch *association_record(dmp_sample1_endpoint *sample,
         if (record->live == 0U) {
             continue;
         }
-        if (identity_equal(record->active_association, association) &&
+        if (dmp_identity_handle_equal(record->active_association, association) &&
             record->active_epoch == sample_epoch) {
             return record;
         }
-        if (identity_equal(record->draining_association, association) &&
+        if (dmp_identity_handle_equal(record->draining_association, association) &&
             record->draining_epoch == sample_epoch) {
             return record;
         }
@@ -220,7 +212,7 @@ static dmp_sample1_port_result queue_read_result(void *user,
     record = peer_record(sample, request_handle.peer);
     if ((!status_without_epoch &&
          (record == NULL || record->live == 0U ||
-          !handle_equal(record->peer, request_handle.peer) ||
+          !dmp_peer_handle_equal(record->peer, request_handle.peer) ||
           association_record(sample, association, sample->owner.epoch) != record)) ||
         dmp_endpoint_validate_association(sample->endpoint, association,
                                            sample->owner.principal.namespace_id,
@@ -394,8 +386,8 @@ dmp_sample1_owner_result dmp_sample1_endpoint_activate_peer(
         return DMP_SAMPLE1_OWNER_NOT_READY;
     }
     previous = *record;
-    if (record->live != 0U && handle_equal(record->peer, peer) &&
-        !identity_equal(record->active_association, association)) {
+    if (record->live != 0U && dmp_peer_handle_equal(record->peer, peer) &&
+        !dmp_identity_handle_equal(record->active_association, association)) {
         if (record->draining_epoch != 0U) {
             status = dmp_endpoint_validate_association(sample->endpoint,
                                                        record->draining_association,
@@ -491,8 +483,8 @@ dmp_sample1_owner_result dmp_sample1_endpoint_flush(dmp_sample1_endpoint *sample
             if (!status_without_epoch &&
                 (queued->sample_epoch != sample->owner.epoch || record == NULL ||
                  record->live == 0U ||
-                 (!identity_equal(record->active_association, queued->association) &&
-                  !identity_equal(record->draining_association, queued->association)))) {
+                 (!dmp_identity_handle_equal(record->active_association, queued->association) &&
+                  !dmp_identity_handle_equal(record->draining_association, queued->association)))) {
                 (void)memset(queued, 0, sizeof(*queued));
                 result = DMP_SAMPLE1_OWNER_NOT_READY;
                 continue;
