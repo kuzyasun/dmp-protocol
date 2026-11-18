@@ -154,6 +154,7 @@ add_test(NAME memory.mcu_abi
         --layout "${CMAKE_CURRENT_SOURCE_DIR}/mcu_layout.c"
         --output "${CMAKE_CURRENT_BINARY_DIR}/mcu-abi.json"
         --work "${CMAKE_CURRENT_BINARY_DIR}/mcu"
+        --test-apis "$<BOOL:${DMP_ENABLE_TEST_APIS}>"
         --cc "${_mcu_cc}")
 set_tests_properties(memory.mcu_abi PROPERTIES TIMEOUT 180 LABELS memory)
 foreach(_profile IN LISTS _profiles)

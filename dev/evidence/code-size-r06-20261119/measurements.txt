@@ -1,0 +1,134 @@
+R06 default, capture-off, and capture/diagnostics-off links
+
+96372213aab302a0a43c7715bb9ceb32900601c5ecd074a01140dc5632c20f81  CMakeLists.txt (raw working source)
+988d88af6e0c7cd92767234ef2c9acd8ac5507b9098a4bf30447fbffaa45eb17  src/security/handshake.c (raw working source)
+40eebeab2cdef260ac4ac02150575f8d34ee0df822e64d3fae64e71717585aa1  src/security/handshake.h (raw working source)
+d1107370d96a46a398cfaab03b8cdfa5f2d927f2576ac8719d0a9d607f9bc28e  tests/embedded/components/dmp/CMakeLists.txt (raw working source)
+174e7d84b8586442cad2d3115720efc8718454c17aee93195aed4e89318b4780  tests/embedded/espnow_dmp/CMakeLists.txt (raw working source)
+8f6bd25bb541a8132aad11f3d1777d76ea9776205fe118806378f79bd19ff46e  tests/memory/CMakeLists.txt (raw working source)
+ad23ffa024c34f52961e81350c3b3c22cb158b7c129516a0cf1a64ce95daa0b6  tests/security/test_handshake.c (raw working source)
+cc2c895ca5b89913ca5cf4530b38ffd0e84bf77006574a8e04322d5e224d9fb2  tools/ram_mcu_abi.py (raw working source)
+
+[esp32s3 default]
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+95d55baaf935091973b8d2ed0e45e7539e35e931f924b3de91e99c732a0d612c  dmp_espnow_dmp.elf
+7b1b78653fb09585b18d8ea2dde14adb4dc89d49a68c0b925d7010a43d3e064a  dmp_espnow_dmp.map
+cef10550fc4f5e02bb17cef3fef0e483f5fa1299420365998c3ffee58684b776  dmp_espnow_dmp.bin
+DMP Flash 87417 B; image estimate 889519 B; padded binary 889632 B; DIRAM 237459 B.
+DWARF sizes {'dmp_hs': 11128, 'hs_attempt': 1904}
+/src/security/handshake.c: DMP_ENABLE_TEST_APIS=1
+/espnow_dmp/main/main.c: DMP_ENABLE_TEST_APIS=1
+Protected receive linked; inspection getter eliminated by link; stage diagnostics present=True.
+Build warning headers: 5.
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+
+[esp32s3 trimmed]
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+60fcd933b827a03a5bd0cca26c1f27bedd3f1988caeb2521974baef718fff88b  dmp_espnow_dmp.elf
+4ae9d7d713986a2aced9fe843402755be2278626c971daa23dd91dcdec6dfba5  dmp_espnow_dmp.map
+6d4ca6857d8f4c572426d8498ebf57de6865fe32765ca0cb210ec06ec01344c2  dmp_espnow_dmp.bin
+DMP Flash 87214 B; image estimate 889287 B; padded binary 889408 B; DIRAM 237459 B.
+DWARF sizes {'dmp_hs': 10168, 'hs_attempt': 1664}
+/src/security/handshake.c: DMP_ENABLE_TEST_APIS=0
+/espnow_dmp/main/main.c: DMP_ENABLE_TEST_APIS=0
+Protected receive linked; inspection getter eliminated by link; stage diagnostics present=True.
+Build warning headers: 5.
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+
+[esp32s3 quiet]
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+3f4f35ce1c8a8a71345e519688dd0b4ff72ff2a0de3113e4c21cfadddca3c724  dmp_espnow_dmp.elf
+44addd7da90fa1ec22fb000a0acdbb98eb7ed75207d1ba5964d427e6558a612c  dmp_espnow_dmp.map
+43b09a157e6ebb21ce1fd0ddbe4b36a4364afc1d0c9a09508a0233cc37eff180  dmp_espnow_dmp.bin
+DMP Flash 87021 B; image estimate 888687 B; padded binary 888800 B; DIRAM 237459 B.
+DWARF sizes {'dmp_hs': 10168, 'hs_attempt': 1664}
+/src/security/handshake.c: DMP_ENABLE_TEST_APIS=0
+/espnow_dmp/main/main.c: DMP_ENABLE_TEST_APIS=0
+Protected receive linked; inspection getter eliminated by link; stage diagnostics present=False.
+Build warning headers: 5.
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+esp32s3 capture-off: linked DMP Flash -203 B, image estimate -232 B, binary -224 B.
+esp32s3 plus diagnostics-off: linked DMP Flash -193 B, image estimate -600 B, binary -608 B.
+
+[esp32c3 default]
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+77f87d7da71a9da42d17d76d95bbdf4a805086a6b05f6e002a808a66cd02e248  dmp_espnow_dmp.elf
+1c83e0444cb973591a41aa1f5f5f86769b43a2aea9f32dcb2684fafeb7c22195  dmp_espnow_dmp.map
+c1503d297555da35c3c2b145156cb3406388b34fcaafce9164e4be6e435f8ce1  dmp_espnow_dmp.bin
+DMP Flash 91933 B; image estimate 929748 B; padded binary 930112 B; DRAM 237420 B.
+DWARF sizes {'dmp_hs': 11136, 'hs_attempt': 1904}
+/src/security/handshake.c: DMP_ENABLE_TEST_APIS=1
+/espnow_dmp/main/main.c: DMP_ENABLE_TEST_APIS=1
+Protected receive linked; inspection getter eliminated by link; stage diagnostics present=True.
+Build warning headers: 5.
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+
+[esp32c3 trimmed]
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+40943c2d6076d16753b46f15ea5573338d7af02d3260604d3e98203e6d053d05  dmp_espnow_dmp.elf
+5614044fa4e87cabc5b2b804c2512b8e259a4c8b399cafa986ae0f0a3c7ada29  dmp_espnow_dmp.map
+de5532de2e12ec6fdd9d54065f69cad4c3bc5aba618aaf13843992c2c7089139  dmp_espnow_dmp.bin
+DMP Flash 91821 B; image estimate 929636 B; padded binary 930000 B; DRAM 237420 B.
+DWARF sizes {'dmp_hs': 10176, 'hs_attempt': 1664}
+/src/security/handshake.c: DMP_ENABLE_TEST_APIS=0
+/espnow_dmp/main/main.c: DMP_ENABLE_TEST_APIS=0
+Protected receive linked; inspection getter eliminated by link; stage diagnostics present=True.
+Build warning headers: 5.
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+
+[esp32c3 quiet]
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+d8b6753d3eacf3439dd56d063f9b1be3ec9fe3d0afcfd817c2c78f22966fcc2a  dmp_espnow_dmp.elf
+a79ccffefac05b24e8880d3bc9b683999b872aa3199e0477208048adfa202284  dmp_espnow_dmp.map
+f15614000a7636a43eeaf0f3a73ad50c57b4344c25aa5910df64eef1e3000f9f  dmp_espnow_dmp.bin
+DMP Flash 91613 B; image estimate 928978 B; padded binary 929344 B; DRAM 237420 B.
+DWARF sizes {'dmp_hs': 10176, 'hs_attempt': 1664}
+/src/security/handshake.c: DMP_ENABLE_TEST_APIS=0
+/espnow_dmp/main/main.c: DMP_ENABLE_TEST_APIS=0
+Protected receive linked; inspection getter eliminated by link; stage diagnostics present=False.
+Build warning headers: 5.
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+esp32c3 capture-off: linked DMP Flash -112 B, image estimate -112 B, binary -112 B.
+esp32c3 plus diagnostics-off: linked DMP Flash -208 B, image estimate -658 B, binary -656 B.

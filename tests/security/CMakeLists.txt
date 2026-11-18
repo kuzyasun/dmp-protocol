@@ -122,6 +122,26 @@ add_custom_command(OUTPUT "${_fixture_header}"
         "${PROJECT_SOURCE_DIR}/docs/DMP_v2_Security_Test_Vectors.json"
     VERBATIM)
 
+add_executable(dmp_test_handshake test_handshake.c "${_fixture_header}")
+target_include_directories(dmp_test_handshake PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/security" "${CMAKE_CURRENT_BINARY_DIR}")
+dmp_link_rescan(dmp_test_handshake libdmp dmp_p01b_noise dmp_p01b_sodium)
+set_target_properties(dmp_test_handshake PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+dmp_strict_target(dmp_test_handshake)
+add_test(NAME security.handshake_shared COMMAND dmp_test_handshake shared)
+set_tests_properties(security.handshake_shared PROPERTIES
+    TIMEOUT 60 LABELS "handshake;shared-admission")
+if(DMP_HS_SHARED_ADMISSION_ONLY)
+    return()
+endif()
+add_test(NAME security.handshake COMMAND dmp_test_handshake)
+set_tests_properties(security.handshake PROPERTIES
+    TIMEOUT 60 LABELS "handshake")
+add_test(NAME security.handshake_transport COMMAND dmp_test_handshake transport)
+set_tests_properties(security.handshake_transport PROPERTIES
+    TIMEOUT 30 LABELS "handshake;transport")
+
 # P23's protected endpoint runner selects the exact profile by its frozen
 # manifest digest. Generate these expected hashes from the same manifest
 # sources used by the independent peer and CMake's fixture definitions.
@@ -181,20 +201,6 @@ dmp_strict_target(dmp_test_provider)
 add_test(NAME security.provider_adapter COMMAND dmp_test_provider)
 set_tests_properties(security.provider_adapter PROPERTIES
     TIMEOUT 60 LABELS "provider-adapter")
-
-add_executable(dmp_test_handshake test_handshake.c "${_fixture_header}")
-target_include_directories(dmp_test_handshake PRIVATE
-    "${PROJECT_SOURCE_DIR}/src/security" "${CMAKE_CURRENT_BINARY_DIR}")
-dmp_link_rescan(dmp_test_handshake libdmp dmp_p01b_noise dmp_p01b_sodium)
-set_target_properties(dmp_test_handshake PROPERTIES
-    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
-dmp_strict_target(dmp_test_handshake)
-add_test(NAME security.handshake COMMAND dmp_test_handshake)
-set_tests_properties(security.handshake PROPERTIES
-    TIMEOUT 60 LABELS "handshake")
-add_test(NAME security.handshake_transport COMMAND dmp_test_handshake transport)
-set_tests_properties(security.handshake_transport PROPERTIES
-    TIMEOUT 30 LABELS "handshake;transport")
 
 # endpoint.o now calls the handshake record path, so the plaintext endpoint
 # binary needs the same Noise link group.

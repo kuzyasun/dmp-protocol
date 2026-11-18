@@ -46,6 +46,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Direct compiler builds use the same default as the CMake owners. */
+#ifndef DMP_ENABLE_TEST_APIS
+#define DMP_ENABLE_TEST_APIS 1
+#endif
+#ifndef DMP_HS_SHARED_ADMISSION_ONLY
+#define DMP_HS_SHARED_ADMISSION_ONLY 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -265,13 +273,17 @@ dmp_hs_status dmp_hs_retain_association_reservation(
     const dmp_hs *hs, uint32_t attempt_index,
     dmp_hs_tx_reservation *reservation);
 
+/* Allocate the size returned by the linked variant, aligned to max_align_t. */
 size_t dmp_hs_size(void);
 size_t dmp_hs_attempt_size(void);
 uint32_t dmp_hs_replay_width(const dmp_hs *hs);
 uint32_t dmp_hs_remote_rx_cid(const dmp_hs *hs, uint32_t attempt_index);
+/* Shared-admission-only builds return DMP_HS_UNSUPPORTED without mutation. */
 dmp_hs_status dmp_hs_init(dmp_hs *hs, dmp_provider *provider,
                           const dmp_hs_config *config, const dmp_hs_ports *ports);
-/* Multi-peer endpoints must pass the same initialized owner to every peer. */
+/* Multi-peer endpoints must pass the same initialized owner to every peer.
+ * The caller keeps it initialized until all peers are cleaned up and all
+ * retained reservations are released. */
 dmp_hs_status dmp_hs_init_shared(dmp_hs *hs, dmp_provider *provider,
                                  const dmp_hs_config *config, const dmp_hs_ports *ports,
                                  dmp_hs_admission *admission);
@@ -349,8 +361,10 @@ int dmp_hs_retained_alive(const dmp_hs *hs, uint32_t index);
 const uint8_t *dmp_hs_cached_flight(const dmp_hs *hs, uint32_t attempt_index,
                                     size_t *length);
 const uint8_t *dmp_hs_protected_frame(const dmp_hs *hs, uint32_t attempt_index, size_t *length);
+#if DMP_ENABLE_TEST_APIS
 int dmp_hs_copy_accepted(const dmp_hs *hs, uint32_t attempt_index, uint8_t *out, size_t cap,
                          size_t *length);
+#endif
 uint32_t dmp_hs_failed_aead(const dmp_hs *hs, uint32_t attempt_index);
 uint64_t dmp_hs_next_pn(const dmp_hs *hs, uint32_t attempt_index);
 int dmp_hs_copy_attempt_id(const dmp_hs *hs, uint32_t attempt_index, uint8_t id[16]);

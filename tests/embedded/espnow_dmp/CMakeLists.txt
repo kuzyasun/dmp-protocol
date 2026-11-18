@@ -22,7 +22,7 @@ set(SDKCONFIG_DEFAULTS
     "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults;${_dmp_target_defaults}")
 set(SDKCONFIG "${CMAKE_BINARY_DIR}/sdkconfig")
 set(DMP_ESP_NOW_QUAL_DIAGNOSTICS ON CACHE BOOL
-    "Enable handshake failure-stage diagnostics in the ESP-NOW qualification image" FORCE)
+    "Enable handshake failure-stage diagnostics in the ESP-NOW qualification image")
 get_filename_component(DMP_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/../components/dmp"

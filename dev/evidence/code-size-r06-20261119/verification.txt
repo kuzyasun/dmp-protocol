@@ -1,0 +1,142 @@
+R06 host and direct-compiler verification
+
+[Host on]
+handshake.c: DMP_ENABLE_TEST_APIS=1
+test_handshake.c: DMP_ENABLE_TEST_APIS=1
+Protected receive present; plaintext inspection getter present=True.
+100% tests passed, 0 tests failed out of 195
+454 independent peer tests passed
+ok confirmation-loss
+ok replay-window
+P19 sizeof dmp_replay_window=144 attempt=1904 dmp_hs=11168
+ok cleanup-erases-owner
+ok shared-work-limit
+Cortex-M4 GCC 13.3.1 -std=c11 -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -ffreestanding -fno-builtin -Os -Wall -Wextra -Wpedantic -DDMP_ENABLE_TEST_APIS=1
+dmp_hs_size 11096 B
+dmp_hs_attempt_size 1896 B
+dmp_provider_size 768 B
+
+no allocator references in build\r06-host-on\libdmp.a
+no allocator references in build\r06-host-on\libdmp_none.a
+
+[Host off]
+handshake.c: DMP_ENABLE_TEST_APIS=0
+test_handshake.c: DMP_ENABLE_TEST_APIS=0
+Protected receive present; plaintext inspection getter present=False.
+100% tests passed, 0 tests failed out of 195
+454 independent peer tests passed
+ok confirmation-loss
+ok replay-window
+P19 sizeof dmp_replay_window=144 attempt=1664 dmp_hs=10208
+ok cleanup-erases-owner
+ok shared-work-limit
+Cortex-M4 GCC 13.3.1 -std=c11 -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -ffreestanding -fno-builtin -Os -Wall -Wextra -Wpedantic -DDMP_ENABLE_TEST_APIS=0
+dmp_hs_size 10136 B
+dmp_hs_attempt_size 1656 B
+dmp_provider_size 768 B
+
+no allocator references in build\r06-host-off\libdmp.a
+no allocator references in build\r06-host-off\libdmp_none.a
+
+[Trimmed, explicit GNU archive RESCAN group]
+Linked with --start-group and --end-group.
+100% tests passed, 0 tests failed out of 5
+
+[Final R06 shared admission variant]
+
+[r06-host-on]
+/src/security/handshake.c compile command: DMP_HS_SHARED_ADMISSION_ONLY=0
+/tests/security/test_handshake.c compile command: DMP_HS_SHARED_ADMISSION_ONLY=0
+100% tests passed, 0 tests failed out of 196
+ok shared-owner-requirement
+ok shared-finish-implicit-ready
+ok shared-explicit-ready-after-loss
+ok shared-active-expiry
+ok shared-application-replay-window
+ok shared-pending-recovery
+ok shared-work-limit
+ok shared-scratch-recovery-cids
+ok shared-four-parallel-scratch
+ok shared-epoch-refs-cleanup
+ok shared-directional-epoch-collision
+handshake state 11168 bytes, external admission registry 14384 bytes
+
+[r06-host-off]
+/src/security/handshake.c compile command: DMP_HS_SHARED_ADMISSION_ONLY=0
+/tests/security/test_handshake.c compile command: DMP_HS_SHARED_ADMISSION_ONLY=0
+100% tests passed, 0 tests failed out of 196
+ok shared-owner-requirement
+ok shared-finish-implicit-ready
+ok shared-explicit-ready-after-loss
+ok shared-active-expiry
+ok shared-application-replay-window
+ok shared-pending-recovery
+ok shared-work-limit
+ok shared-scratch-recovery-cids
+ok shared-four-parallel-scratch
+ok shared-epoch-refs-cleanup
+ok shared-directional-epoch-collision
+handshake state 10208 bytes, external admission registry 14384 bytes
+
+[r06-host-shared-gcc]
+/src/security/handshake.c compile command: DMP_HS_SHARED_ADMISSION_ONLY=1
+/tests/security/test_handshake.c compile command: DMP_HS_SHARED_ADMISSION_ONLY=1
+100% tests passed, 0 tests failed out of 1
+ok shared-owner-requirement
+ok shared-finish-implicit-ready
+ok shared-explicit-ready-after-loss
+ok shared-active-expiry
+ok shared-application-replay-window
+ok shared-pending-recovery
+ok shared-work-limit
+ok shared-scratch-recovery-cids
+ok shared-four-parallel-scratch
+ok shared-epoch-refs-cleanup
+ok shared-directional-epoch-collision
+handshake state 7456 bytes, external admission registry 14384 bytes
+
+[Independent Python peer on the capture-off control]
+----------------------------------------------------------------------
+Ran 454 tests in 3.833s
+
+OK
+
+[Cortex-M4 compile-only GCC 13.3.1 shared=0]
+-std=c11 -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -ffreestanding -fno-builtin -Os -Wall -Wextra -Wpedantic -DDMP_ENABLE_TEST_APIS=0 -DDMP_HS_SHARED_ADMISSION_ONLY=0
+dmp_hs_size 10136 B
+dmp_hs_attempt_size 1656 B
+dmp_hs_admission_size 14384 B
+dmp_provider_size 768 B
+
+[Cortex-M4 compile-only GCC 13.3.1 shared=1]
+-std=c11 -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -ffreestanding -fno-builtin -Os -Wall -Wextra -Wpedantic -DDMP_ENABLE_TEST_APIS=0 -DDMP_HS_SHARED_ADMISSION_ONLY=1
+dmp_hs_size 7392 B
+dmp_hs_attempt_size 1656 B
+dmp_hs_admission_size 14384 B
+dmp_provider_size 768 B
+
+[Other final checks]
+Configure rejected missing provider, unsupported fuzz and Noise experiments in shared mode.
+Shared-only production archive built without CTest or provider configuration.
+Actual GNU RESCAN fixture link provided Noise/libsodium and omitted the plaintext-copy getter from libdmp.
+Allocator audits passed for libdmp and libdmp_none.
+One existing GCC 15.2 -Wstringop-overread warning in the pinned Noise patterns.c on its clean build.
+Git diff --check passed.
+
+[Final raw working-source SHA-256]
+cb4b55bcb9eebf83a81c48a2fb14bcd2eb411904b70d28f94f25cbb2aeeca8d7  CMakeLists.txt
+0664e9ece9ae34c36702373b5804f78bf2f1f33219a82e07f494731208dfaa17  src/security/handshake.c
+a6b686cf2051cca8b2e74f6eb522f8b8c17d391688031d32a3b108299b55bba9  src/security/handshake.h
+2d41f1b4a6f7b7ce72d692d92bed5f6fe530993631c1b475156f0c2fb984a07a  tests/embedded/components/dmp/CMakeLists.txt
+174e7d84b8586442cad2d3115720efc8718454c17aee93195aed4e89318b4780  tests/embedded/espnow_dmp/CMakeLists.txt
+8f6bd25bb541a8132aad11f3d1777d76ea9776205fe118806378f79bd19ff46e  tests/memory/CMakeLists.txt
+b9d31d4501eb1573e1d7f1f51826304af0b1c73b82560e2622df6ab1232364fa  tests/security/CMakeLists.txt
+beb7015b542e53275b1141a7022ab9df3dfd44c96635be01ff9f895d60e48a2e  tests/security/test_handshake.c
+0016668b38e1fe368e5b92293e84ae9ab9ab095d93d72a87d7b1ccfe86f15c6c  tools/ram_mcu_abi.py
+
+[Independent final R06 review and focused rerun]
+Review found the restart alone used a new transcript and did not check old reservation lifetimes.
+Shared active-expiry now captures both peers' CID and directional epoch tokens before expiry and expects STALE for each immediately afterward. Restart verifies attempt slot reuse separately.
+Rebuilt dmp_test_handshake with --parallel 1 and ran CTest serially.
+r06-host-on: 3/3; r06-host-off: 3/3; r06-host-shared-gcc: 1/1. Each passed all 11 shared scenarios.
+2daef511a141cd4d8c049fe74d20c03301adcd17139cc7de5120a1bea6f29f59  tests/security/test_handshake.c (after final review)

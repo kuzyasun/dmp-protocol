@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(dmp LANGUAGES C)
 
+option(DMP_ENABLE_TEST_APIS "Retain the private handshake plaintext inspection API" ON)
+option(DMP_HS_SHARED_ADMISSION_ONLY "Require an external admission registry for SEC-1 handshakes" OFF)
+
 # The reusable C archive has no SDK, Python, or Node dependency. The P01B
 # provider adapter is one archive member; tests/security link the reviewed
 # Noise engine. Other objects do not reference it.
@@ -19,6 +22,9 @@ add_library(dmp::dmp ALIAS libdmp)
 set_target_properties(libdmp PROPERTIES OUTPUT_NAME dmp
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 target_compile_features(libdmp PUBLIC c_std_11)
+target_compile_definitions(libdmp PUBLIC
+    DMP_ENABLE_TEST_APIS=$<BOOL:${DMP_ENABLE_TEST_APIS}>
+    DMP_HS_SHARED_ADMISSION_ONLY=$<BOOL:${DMP_HS_SHARED_ADMISSION_ONLY}>)
 target_include_directories(libdmp PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_include_directories(libdmp PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/noise-c/include"
@@ -103,10 +109,26 @@ option(DMP_FUZZ "Build bounded Clang libFuzzer targets with ASan/UBSan" OFF)
 if(DMP_NOISE_EXPERIMENTS AND NOT DMP_BUILD_TESTS)
     message(FATAL_ERROR "DMP_NOISE_EXPERIMENTS requires DMP_BUILD_TESTS")
 endif()
+if(DMP_HS_SHARED_ADMISSION_ONLY AND (DMP_NOISE_EXPERIMENTS OR DMP_FUZZ))
+    message(FATAL_ERROR
+        "DMP_HS_SHARED_ADMISSION_ONLY does not support the Noise experiment or fuzz suites")
+endif()
 
 if(DMP_BUILD_TESTS)
     enable_testing()
     find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+    set(DMP_SODIUM_SOURCE_DIR "" CACHE PATH
+        "Pinned prepared libsodium tree for the P01B adapter tests")
+endif()
+
+if(DMP_BUILD_TESTS AND DMP_HS_SHARED_ADMISSION_ONLY)
+    if(NOT IS_DIRECTORY "${DMP_SODIUM_SOURCE_DIR}")
+        message(FATAL_ERROR
+            "Shared-admission handshake tests require the pinned DMP_SODIUM_SOURCE_DIR")
+    endif()
+    enable_language(ASM)
+    add_subdirectory(tests/security)
+elseif(DMP_BUILD_TESTS)
     add_subdirectory(tests/core)
     add_subdirectory(tests/stream)
     add_subdirectory(tests/size)
@@ -263,8 +285,6 @@ if(DMP_BUILD_TESTS)
         TIMEOUT 30 LABELS "endpoint;none;radio;selective")
 
     add_subdirectory(tests/provider)
-    set(DMP_SODIUM_SOURCE_DIR "" CACHE PATH
-        "Pinned prepared libsodium tree for the P01B adapter tests")
     if(IS_DIRECTORY "${DMP_SODIUM_SOURCE_DIR}")
         enable_language(ASM)
         add_subdirectory(tests/security)

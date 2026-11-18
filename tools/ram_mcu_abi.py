@@ -136,7 +136,13 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--work", required=True)
     parser.add_argument("--cc", default="")
+    parser.add_argument("--test-apis", choices=("0", "1"), default="1")
+    parser.add_argument("--shared-admission-only", choices=("0", "1"), default="0")
     args = parser.parse_args()
+    flags = MCU_FLAGS + [
+        f"-DDMP_ENABLE_TEST_APIS={args.test_apis}",
+        f"-DDMP_HS_SHARED_ADMISSION_ONLY={args.shared_admission_only}",
+    ]
 
     physical_run_must_measure = [
         "provider heap current and peak on the target allocator, including per-allocation overhead",
@@ -191,7 +197,7 @@ def main():
         "-I", os.path.join(root, "tests", "provider", "backend"),
     ]
     layout_obj = os.path.join(args.work, "mcu_layout.o")
-    layout_cmd = [cc] + MCU_FLAGS + includes + ["-c", args.layout, "-o", layout_obj]
+    layout_cmd = [cc] + flags + includes + ["-c", args.layout, "-o", layout_obj]
     layout_rc, layout_out, layout_err = run(layout_cmd)
     objects = []
     nm_out = ""
@@ -215,13 +221,14 @@ def main():
     units = [
         ("dmp_hs_size", os.path.join(root, "src", "security", "handshake.c"), "hs.o"),
         ("dmp_hs_attempt_size", os.path.join(root, "src", "security", "handshake.c"), "hs.o"),
+        ("dmp_hs_admission_size", os.path.join(root, "src", "security", "handshake.c"), "hs.o"),
         ("dmp_provider_size", os.path.join(root, "src", "security", "provider_adapter.c"), "provider.o"),
     ]
     built = {}
     for symbol, source, obj_name in units:
         obj_path = os.path.join(args.work, obj_name)
         if obj_name not in built:
-            cmd = [cc] + MCU_FLAGS + includes + ["-c", source, "-o", obj_path]
+            cmd = [cc] + flags + includes + ["-c", source, "-o", obj_path]
             rc, out, err = run(cmd)
             built[obj_name] = (rc, out, err, obj_path, cmd)
         rc, out, err, obj_path, cmd = built[obj_name]
@@ -251,7 +258,7 @@ def main():
             "available": True,
             "compiler": cc,
             "compiler_id": (version_out or version_err).strip(),
-            "flags": MCU_FLAGS,
+            "flags": flags,
             "layout_command": layout_cmd,
             "layout_exit": layout_rc,
             "layout_stderr": layout_err[-4000:] if layout_rc != 0 else "",

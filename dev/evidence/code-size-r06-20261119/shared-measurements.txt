@@ -1,0 +1,68 @@
+R06 shared admission only, plaintext capture and diagnostics off
+
+0664e9ece9ae34c36702373b5804f78bf2f1f33219a82e07f494731208dfaa17  src/security/handshake.c (raw IDF snapshot source)
+0a8323a6dcc7617e413f48bfd248b24926478b93f17417c6694fb9d586a4de9f  src/security/handshake.h (raw IDF snapshot source)
+2d41f1b4a6f7b7ce72d692d92bed5f6fe530993631c1b475156f0c2fb984a07a  tests/embedded/components/dmp/CMakeLists.txt (raw IDF snapshot source)
+174e7d84b8586442cad2d3115720efc8718454c17aee93195aed4e89318b4780  tests/embedded/espnow_dmp/CMakeLists.txt (raw IDF snapshot source)
+
+[esp32s3 shared-only=0]
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+462445c6724fada938aa30128f9dae40453ed60cd25b9c0f416d8b0098272d60  dmp_espnow_dmp.elf
+371926882a64f041edc9163f158d696aaee41220cc04fe65450d1473a4c391f3  dmp_espnow_dmp.map
+0e8d6bfe064843a0c12e3af79ffe6515eefa433ff2f7356bc4c94242afcb0767  dmp_espnow_dmp.bin
+DMP Flash 87014 B; image estimate 888679 B; padded bin 888800 B; DIRAM 237459 B.
+DWARF {'dmp_hs': 10168, 'dmp_hs_admission': 48, 'admission_entry': 56, 'hs_attempt': 1664}; external registry 14384 B (256 entries).
+/src/security/handshake.c: shared-only=0; test APIs=0; diagnostics off.
+/espnow_dmp/main/main.c: shared-only=0; test APIs=0; diagnostics off.
+
+[esp32s3 shared-only=1]
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+a362e2629a324cbfbe9eb95dc368425a4332ea60d1ea89d0e4510a91106a0260  dmp_espnow_dmp.elf
+57910fa91e7173ed1f17684cd993bd7fa604fef05d0b4f0782713e14f2b28fe1  dmp_espnow_dmp.map
+e634477d7d5195c693e2033a2416b77cc294c0acfab4620feaabe5edd5ebcd32  dmp_espnow_dmp.bin
+DMP Flash 86412 B; image estimate 888051 B; padded bin 888160 B; DIRAM 237459 B.
+DWARF {'dmp_hs': 7424, 'dmp_hs_admission': 48, 'admission_entry': 56, 'hs_attempt': 1664}; external registry 14384 B (256 entries).
+/src/security/handshake.c: shared-only=1; test APIs=0; diagnostics off.
+/espnow_dmp/main/main.c: shared-only=1; test APIs=0; diagnostics off.
+libnoise-c.a linked size: 9608 -> 9604 B.
+libesphome__libsodium.a linked size: 29313 -> 29313 B.
+1 peers + one external registry: 24552 -> 21808 B (-2744 B).
+4 peers + one external registry: 55056 -> 44080 B (-10976 B).
+esp32s3 deltas: DMP Flash -602 B; bin -640 B; image estimate -628 B.
+
+[esp32c3 shared-only=0]
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+b55da112bc6974c1d9608f8f39d16588b5cd7b39aeb4a0f4dc1017ffe26975ca  dmp_espnow_dmp.elf
+47028878ef2248da24d6a2be7a939a6ae0e83d5bbbeded740eeccd30ae5f698f  dmp_espnow_dmp.map
+8459ea45bf75477386802c84c0c757aa6491b4eeda8f90215467bae31865b88a  dmp_espnow_dmp.bin
+DMP Flash 91613 B; image estimate 928978 B; padded bin 929344 B; DRAM 237420 B.
+DWARF {'dmp_hs': 10176, 'dmp_hs_admission': 48, 'admission_entry': 56, 'hs_attempt': 1664}; external registry 14384 B (256 entries).
+/src/security/handshake.c: shared-only=0; test APIs=0; diagnostics off.
+/espnow_dmp/main/main.c: shared-only=0; test APIs=0; diagnostics off.
+
+[esp32c3 shared-only=1]
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+3865dcec9fc41e7e4e3026c6a94331a9cd34911ee1ad8a6ff2e6d0e3ef300ea8  dmp_espnow_dmp.elf
+6d7565a85ebdf27b6dfbd266ce68bffcfa26647f015631cd974f5e379cf03741  dmp_espnow_dmp.map
+353f09e789a2e5221654104fc427fb91187e9b096ac5cfc80a18e3f23c777c57  dmp_espnow_dmp.bin
+DMP Flash 90973 B; image estimate 928338 B; padded bin 928704 B; DRAM 237420 B.
+DWARF {'dmp_hs': 7424, 'dmp_hs_admission': 48, 'admission_entry': 56, 'hs_attempt': 1664}; external registry 14384 B (256 entries).
+/src/security/handshake.c: shared-only=1; test APIs=0; diagnostics off.
+/espnow_dmp/main/main.c: shared-only=1; test APIs=0; diagnostics off.
+libnoise-c.a linked size: 11194 -> 11194 B.
+libesphome__libsodium.a linked size: 30649 -> 30649 B.
+1 peers + one external registry: 24560 -> 21808 B (-2752 B).
+4 peers + one external registry: 55088 -> 44080 B (-11008 B).
+esp32c3 deltas: DMP Flash -640 B; bin -640 B; image estimate -640 B.

@@ -34,7 +34,9 @@ extern void dmp_handshake_qual_diagnostic(void *context, const char *stage, int 
 #define DMP_HS_ADMISSION_CID_MAX 32U
 #define DMP_HS_ADMISSION_KEY_MAX 64U
 #define DMP_HS_ADMISSION_TOKEN_MAX 256U
+#if !DMP_HS_SHARED_ADMISSION_ONLY
 #define DMP_HS_LOCAL_ADMISSION_TOKEN_MAX 48U
+#endif
 
 typedef enum admission_kind {
     ADMISSION_PENDING = 1,
@@ -43,6 +45,7 @@ typedef enum admission_kind {
     ADMISSION_KEY = 4
 } admission_kind;
 
+#if !DMP_HS_SHARED_ADMISSION_ONLY
 /* The shared admission header contains pointers and uint64_t values. Keep the
  * private inline backing aligned on both C11 libraries with max_align_t and
  * MSVC's C11 library, which does not expose that typedef in C mode. */
@@ -51,6 +54,7 @@ typedef union dmp_hs_storage_alignment {
     uint64_t integer;
     long double extended;
 } dmp_hs_storage_alignment;
+#endif
 
 struct admission_entry {
     uint64_t generation;
@@ -168,8 +172,10 @@ struct hs_attempt {
     dmp_replay_window replay;
     uint8_t protected_frame[DMP_HS_PROTECTED_MAX];
     uint16_t protected_len;
+#if DMP_ENABLE_TEST_APIS
     uint8_t accepted[DMP_HS_APP_PLAIN_MAX];
     uint16_t accepted_len;
+#endif
     dmp_provider_handshake handshake;
     dmp_provider_cipher send_cipher;
     dmp_provider_cipher recv_cipher;
@@ -179,11 +185,13 @@ struct dmp_hs {
     uint32_t magic;
     dmp_provider *provider;
     dmp_hs_admission *admission;
+#if !DMP_HS_SHARED_ADMISSION_ONLY
     union {
         dmp_hs_storage_alignment align;
         uint8_t bytes[sizeof(dmp_hs_admission) +
                       DMP_HS_LOCAL_ADMISSION_TOKEN_MAX * sizeof(struct admission_entry)];
     } local_admission_storage;
+#endif
     NoiseHashState *epoch_hash;
     dmp_hs_config config;
     dmp_hs_ports ports;
@@ -756,9 +764,13 @@ static void abort_attempt(dmp_hs *hs, struct hs_attempt *attempt, dmp_hs_view vi
     attempt->waiting_ready = 0;
     attempt->ready_sent = 0;
     attempt->protected_len = 0U;
+#if DMP_ENABLE_TEST_APIS
     attempt->accepted_len = 0U;
+#endif
     wipe(attempt->protected_frame, sizeof(attempt->protected_frame));
+#if DMP_ENABLE_TEST_APIS
     wipe(attempt->accepted, sizeof(attempt->accepted));
+#endif
     dmp_replay_window_clear(&attempt->replay);
     attempt->view = view;
     attempt->generation = ++hs->generation_clock;
@@ -1504,6 +1516,11 @@ static dmp_hs_status hs_init_with_owner(dmp_hs *hs, dmp_provider *provider,
                                         const dmp_hs_config *config, const dmp_hs_ports *ports,
                                         dmp_hs_admission *admission, int local_owner)
 {
+#if DMP_HS_SHARED_ADMISSION_ONLY
+    if (local_owner) {
+        return DMP_HS_UNSUPPORTED;
+    }
+#endif
     if (hs == NULL || provider == NULL || config == NULL || ports == NULL || ports->now_ms == NULL ||
         ports->entropy == NULL) {
         return DMP_HS_INVALID;
@@ -1537,6 +1554,8 @@ static dmp_hs_status hs_init_with_owner(dmp_hs *hs, dmp_provider *provider,
     }
     memset(hs, 0, sizeof(*hs));
     hs->provider = provider;
+    hs->admission = admission;
+#if !DMP_HS_SHARED_ADMISSION_ONLY
     if (local_owner) {
         dmp_hs_admission_limits limits;
         limits.max_pending = config->budget.max_pending == 0U ? 1U : config->budget.max_pending;
@@ -1549,9 +1568,8 @@ static dmp_hs_status hs_init_with_owner(dmp_hs *hs, dmp_provider *provider,
             wipe(hs, sizeof(*hs));
             return DMP_HS_INVALID;
         }
-    } else {
-        hs->admission = admission;
     }
+#endif
     hs->config = *config;
     hs->ports = *ports;
     hs->later_remaining = config->budget.later_episodes;
@@ -1891,7 +1909,9 @@ static void end_traffic(dmp_hs *hs, struct hs_attempt *attempt)
     attempt->cached_len = 0U;
     attempt->cached_flight = 0U;
     attempt->protected_len = 0U;
+#if DMP_ENABLE_TEST_APIS
     attempt->accepted_len = 0U;
+#endif
     attempt->generation = ++hs->generation_clock;
     attempt->view = enrolled ? DMP_HS_VIEW_ENROLLED : DMP_HS_VIEW_EXPIRED;
     attempt->enrolled = enrolled;
@@ -1903,7 +1923,9 @@ static void end_traffic(dmp_hs *hs, struct hs_attempt *attempt)
     }
     dmp_replay_window_clear(&attempt->replay);
     wipe(attempt->protected_frame, sizeof(attempt->protected_frame));
+#if DMP_ENABLE_TEST_APIS
     wipe(attempt->accepted, sizeof(attempt->accepted));
+#endif
     wipe(attempt->handshake_hash, sizeof(attempt->handshake_hash));
     attempt->hash_valid = 0;
     if (!enrolled) {
@@ -2263,6 +2285,7 @@ static int confirmation_hello(const dmp_hs *hs, const struct hs_attempt *attempt
     return confirmation_header_matches(hs, incoming, view);
 }
 
+#if DMP_ENABLE_TEST_APIS
 static void remember_plain(struct hs_attempt *attempt, const uint8_t *plain, size_t plain_len)
 {
     if (plain_len > sizeof(attempt->accepted)) {
@@ -2276,6 +2299,7 @@ static void remember_plain(struct hs_attempt *attempt, const uint8_t *plain, siz
     }
     attempt->accepted_len = (uint16_t)plain_len;
 }
+#endif
 
 dmp_hs_status dmp_hs_poll(dmp_hs *hs, uint32_t *index_out)
 {
@@ -2612,7 +2636,9 @@ dmp_hs_status dmp_hs_offer_protected(dmp_hs *hs, const dmp_hs_protected *incomin
         wipe(body, sizeof(body));
         return DMP_HS_DROPPED;
     }
+#if DMP_ENABLE_TEST_APIS
     remember_plain(attempt, body, plain_len);
+#endif
     if (attempt->initiator && attempt->waiting_ready) {
         if (!become_active(hs, attempt)) {
             wipe(body, sizeof(body));
@@ -3091,6 +3117,7 @@ const uint8_t *dmp_hs_protected_frame(const dmp_hs *hs, uint32_t index, size_t *
     return attempt->protected_frame;
 }
 
+#if DMP_ENABLE_TEST_APIS
 int dmp_hs_copy_accepted(const dmp_hs *hs, uint32_t index, uint8_t *out, size_t cap, size_t *length)
 {
     const struct hs_attempt *attempt = attempt_at(hs, index);
@@ -3106,6 +3133,7 @@ int dmp_hs_copy_accepted(const dmp_hs *hs, uint32_t index, uint8_t *out, size_t 
     }
     return 1;
 }
+#endif
 
 uint32_t dmp_hs_failed_aead(const dmp_hs *hs, uint32_t index)
 {

@@ -1,5 +1,8 @@
 get_filename_component(DMP_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
 
+option(DMP_ENABLE_TEST_APIS "Retain the private handshake plaintext inspection API" ON)
+option(DMP_HS_SHARED_ADMISSION_ONLY "Require an external admission registry for SEC-1 handshakes" OFF)
+
 idf_component_register(
     SRCS
         "${DMP_ROOT}/src/core/base.c"
@@ -30,6 +33,9 @@ idf_component_register(
     PRIV_REQUIRES noise-c)
 
 target_compile_features(${COMPONENT_LIB} PRIVATE c_std_11)
+target_compile_definitions(${COMPONENT_LIB} PUBLIC
+    DMP_ENABLE_TEST_APIS=$<BOOL:${DMP_ENABLE_TEST_APIS}>
+    DMP_HS_SHARED_ADMISSION_ONLY=$<BOOL:${DMP_HS_SHARED_ADMISSION_ONLY}>)
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Wpedantic -Werror)
 if(DMP_ESP_NOW_QUAL_DIAGNOSTICS)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE DMP_HANDSHAKE_QUAL_DIAGNOSTICS=1)
