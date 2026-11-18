@@ -1,0 +1,34 @@
+R04 Windows host verification excerpts
+
+[Git source blob identities]
+ac18510b29df5979d020db41fa646b593b0bd40e603e13d0bf4c1e1d09b1b42a  src/reliability/reliability.c (Git LF)
+9a66a76f73e6137b63f5cdc66c12dbd1d4aa784ba12db61a5a827a9069da12ae  tests/reliability/test_reliability.c (Git LF)
+
+[Real-provider CTest]
+26/104 Test  #26: endpoint.none.multi_peer_traffic ......................   Passed    0.02 sec
+35/104 Test  #51: reliability.direct ....................................   Passed    0.01 sec
+61/104 Test  #83: security.handshake ....................................   Passed    0.03 sec
+62/104 Test  #84: security.handshake_transport ..........................   Passed    0.02 sec
+64/104 Test  #86: endpoint.protected_transport_reject_retry .............   Passed    0.02 sec
+67/104 Test  #89: endpoint.protected_result_loss ........................   Passed    0.02 sec
+96/104 Test #118: endpoint.protected_drain ..............................   Passed    0.03 sec
+98/104 Test #120: endpoint.protected_repair .............................   Passed    0.01 sec
+104/104 Test #143: recovery.frag_status ..................................   Passed    0.02 sec
+100% tests passed, 0 tests failed out of 104
+
+[Peer suite and subprocess interop]
+test_c_endpoint_produces_sample1_accepted_by_python_peer (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_c_endpoint_produces_sample1_accepted_by_python_peer) ... ok
+test_split_and_coalesced_loopback_reads (test_tcp_binding.TcpStreamBindingTests.test_split_and_coalesced_loopback_reads) ... skipped 'sandbox denies loopback TCP: [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions'
+Ran 454 tests in 4.993s
+OK (skipped=1)
+
+[Local loopback rerun]
+test_split_and_coalesced_loopback_reads (test_tcp_binding.TcpStreamBindingTests.test_split_and_coalesced_loopback_reads) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.027s
+
+OK
+[Allocator symbol checks]
+no allocator references in build/r04-local-provider/libdmp.a
+no allocator references in build/r04-local-provider/libdmp_none.a

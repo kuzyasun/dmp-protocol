@@ -1537,6 +1537,10 @@ static int test_gate_queue_and_ack_bypass(void)
     dmp_reliability_handle first;
     dmp_reliability_handle second;
     dmp_reliability_handle inbound;
+    dmp_reliability_input rejection;
+    dmp_frame_view view;
+    uint32_t next_seq;
+    uint32_t result_seq;
     int submits;
     CHECK(prepare(&side_a, 0, 0) == 0);
     side_a.profile.operations_per_service = 2U;
@@ -1571,7 +1575,7 @@ static int test_gate_queue_and_ack_bypass(void)
     bind_node(&side_b);
     CHECK(dmp_reliability_init(&side_b.engine, &side_b.storage) == DMP_OK);
     CHECK(boot(&side_a, 0, 0) == 0);
-    CHECK(dmp_reliability_submit_req(&side_b.engine, 1U, span(PING, sizeof PING), 0U, 0U, &first) ==
+    CHECK(dmp_reliability_submit_req(&side_b.engine, 2U, span(PING, sizeof PING), 0U, 0U, &first) ==
           DMP_OK);
     CHECK(dmp_reliability_poll(&side_b.engine, 0U) == DMP_OK);
     CHECK(side_b.senders[first.slot].phase == DMP_REL_PHASE_TRANSMITTING);
@@ -1583,17 +1587,52 @@ static int test_gate_queue_and_ack_bypass(void)
     CHECK(deliver_index(&side_a, 0, &side_b, 1U, span(META1, sizeof META1), span(NULL, 0), 0U,
                         DMP_OK) == 0);
     CHECK(event_count(&side_b.notes, DMP_REL_EVENT_REQUEST_ACCEPTED) == 1);
+    CHECK(dmp_reliability_complete(&side_b.engine, side_b.notes.items[0].handle, false, 0U,
+                                   span(PONG, sizeof PONG), RECEIPT_DELAY) == DMP_OK);
+    CHECK(side_b.results[0].reserved == 0U);
+    next_seq = side_b.table.none_next_seq;
     CHECK(dmp_reliability_poll(&side_b.engine, RECEIPT_DELAY) == DMP_OK);
     CHECK(count_type(&side_b, DMP_TYPE_ACK) == 1);
     CHECK(side_b.senders[first.slot].tx_live);
     CHECK(side_b.senders[second.slot].attempts == 0U);
     CHECK(side_b.senders[second.slot].phase == DMP_REL_PHASE_QUEUED);
+    /* The receipt occupies control storage. The result reserves a sequence
+     * after the receipt even while the application adapter stays busy. */
+    CHECK(side_b.results[0].reserved != 0U);
+    result_seq = side_b.results[0].result.seq;
+    CHECK(result_seq == next_seq + 1U);
+    CHECK(side_b.table.none_next_seq == result_seq + 1U);
+    CHECK(count_type(&side_b, DMP_TYPE_RSP) == 0);
+
+    CHECK(submit_and_air(&side_a, 2U, span(PING, sizeof PING), RECEIPT_DELAY, &inbound) == 0);
+    CHECK(parse_hold(&side_a, side_a.tx.n - 1, &view) == 0);
+    rejection.frame = &view;
+    rejection.service_id = 2U;
+    rejection.plaintext = span(PING, sizeof PING);
+    rejection.immutable_metadata = span(META1, sizeof META1);
+    CHECK(dmp_reliability_reject_req(&side_b.engine, &rejection, 4U, RECEIPT_DELAY) == DMP_OK);
+    CHECK(dmp_reliability_poll(&side_b.engine, RECEIPT_DELAY) == DMP_OK);
+    /* Rejection cannot reserve a sequence until either adapter is free. */
+    CHECK(side_b.table.none_next_seq == result_seq + 1U);
+    CHECK(count_type(&side_b, DMP_TYPE_ERR) == 0);
+    finish_all(&side_b, DMP_TX_TRANSMITTED, RECEIPT_DELAY);
+    submits = side_b.tx.n;
+    CHECK(dmp_reliability_poll(&side_b.engine, RECEIPT_DELAY) == DMP_OK);
+    CHECK(side_b.tx.n == submits + 2);
+    CHECK(parse_hold(&side_b, submits, &view) == 0);
+    CHECK(view.fields.type == DMP_TYPE_RSP && view.fields.seq == result_seq);
+    CHECK(parse_hold(&side_b, submits + 1, &view) == 0);
+    CHECK(view.fields.type == DMP_TYPE_ERR && view.fields.seq == result_seq + 1U);
     return 0;
 }
 
 static int test_buffer_ownership(void)
 {
     dmp_reliability_handle req;
+    uint32_t adapter_index;
+    uint32_t retained;
+    uint64_t generation;
+    size_t i;
     int calls;
     CHECK(prepare(&side_a, 0, 0) == 0);
     side_a.profile.tx_borrow = false;
@@ -1602,13 +1641,31 @@ static int test_buffer_ownership(void)
     CHECK(dmp_reliability_init(&side_a.engine, &side_a.storage) == DMP_OK);
     CHECK(dmp_reliability_submit_req(&side_a.engine, 1U, span(PING, sizeof PING), 0U, JITTER_MS,
                                      &req) == DMP_OK);
+    retained = side_a.ids[side_a.handle.slot].retained;
+    side_a.tx.fail_status = DMP_BUSY;
     CHECK(dmp_reliability_poll(&side_a.engine, 0U) == DMP_OK);
-    CHECK(side_a.enc.calls == 1);
+    CHECK(side_a.enc.calls > 0 && side_a.tx.max_depth == 1 && side_a.tx.n == 0);
+    CHECK(side_a.senders[req.slot].phase == DMP_REL_PHASE_QUEUED);
+    CHECK(side_a.senders[req.slot].attempts == 0U);
+    CHECK(!side_a.senders[req.slot].tx_live);
+    CHECK(side_a.ids[side_a.handle.slot].retained == retained);
+    for (i = 0U; i < side_a.engine.storage.adapter_capacity; ++i) {
+        CHECK(side_a.adapters[i].live == 0U);
+    }
+    adapter_index = side_a.profile.control_slots;
+    generation = side_a.adapters[adapter_index].generation;
+    CHECK(generation != 0U);
+    calls = side_a.enc.calls;
+    side_a.tx.fail_status = 0;
+    CHECK(dmp_reliability_poll(&side_a.engine, 0U) == DMP_OK);
+    CHECK(side_a.enc.calls == calls + 1);
+    CHECK(side_a.tx.hold[0].token.slot == adapter_index);
+    CHECK(side_a.tx.hold[0].token.generation == generation + 1U);
     CHECK(side_a.senders[req.slot].phase == DMP_REL_PHASE_TRANSMITTING);
     CHECK(side_a.senders[req.slot].tx_live);
     CHECK(memcmp(side_a.tx.hold[0].borrowed, side_a.tx.hold[0].frame, side_a.tx.hold[0].len) == 0);
     CHECK(dmp_reliability_poll(&side_a.engine, 0U) == DMP_OK);
-    CHECK(side_a.enc.calls == 1);
+    CHECK(side_a.enc.calls == calls + 1);
     CHECK(memcmp(side_a.tx.hold[0].borrowed, side_a.tx.hold[0].frame, side_a.tx.hold[0].len) == 0);
     finish_all(&side_a, DMP_TX_TRANSMITTED, 0U);
     CHECK(dmp_reliability_poll(&side_a.engine, 0U) == DMP_OK);

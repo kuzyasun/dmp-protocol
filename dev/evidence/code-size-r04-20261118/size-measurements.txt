@@ -1,0 +1,99 @@
+
+[esp32s3 baseline-artifacts]
+Image estimate 890011, actual binary 890128
+Archive totals (Flash, data RAM, IRAM): {'libdmp.a': (87895, 4, 0), 'libesphome__libsodium.a': (29170, 143, 0), 'libnoise-c.a': (9608, 0, 0)}
+Reliability object (Flash, data RAM, IRAM): {'reliability.c.obj': (18693, 0, 0)}
+DIRAM 237459 B
+IRAM 16384 B
+SHA-256
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+3da2dbc8d27da21d72a386adb4ab545aaef9234598b89090c07ffae5aaa28eea  dmp_espnow_dmp.elf
+db44268b078bd14aafea71e3bd4842f901d1595b356a4966ffbc93efd9ea01e9  dmp_espnow_dmp.map
+9a2aadc6798ca3e7c192484ee81d7501aba580de931ce9fa4ec79c2884ec3321  dmp_espnow_dmp.bin
+f9428ef9c3c72ea136cea929bbd29db206953813fae07438e0b62bc597e3baa4  sdkconfig (LF)
+Partition check: dmp_espnow_dmp.bin binary size 0xd9510 bytes. Smallest app partition is 0x2f0000 bytes. 0x216af0 bytes (71%) free.
+5 warning header(s)
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+dmp_reliability_req_is_retained 381 B code, initial stack adjustment (128, '42023e60:\t010136        \tentry\ta1, 128')
+dmp_reliability_reject_req 610 B code, initial stack adjustment (128, '42024ee8:\t010136        \tentry\ta1, 128')
+dmp_reliability_on_rx 3845 B code, initial stack adjustment (352, '42023fe0:\t02c136        \tentry\ta1, 0x160')
+
+[esp32s3 candidate]
+Image estimate 889683, actual binary 889792
+Archive totals (Flash, data RAM, IRAM): {'libdmp.a': (87582, 4, 0), 'libesphome__libsodium.a': (29170, 143, 0), 'libnoise-c.a': (9608, 0, 0)}
+Reliability object (Flash, data RAM, IRAM): {'reliability.c.obj': (18380, 0, 0)}
+DIRAM 237459 B
+IRAM 16384 B
+SHA-256
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+4d848f6496caf275d2faf1528bff77af838fff7f84555c682be88d69a90305b2  dmp_espnow_dmp.elf
+f79992798d3e38475e75fd0e6eda2fcdac4bd803c37d752b878cdf3cab36e759  dmp_espnow_dmp.map
+ed2afcd1f51eabc9feaef74196cd98e8931dcf917759d51f07c939f1b6382e7d  dmp_espnow_dmp.bin
+f9428ef9c3c72ea136cea929bbd29db206953813fae07438e0b62bc597e3baa4  sdkconfig (LF)
+Partition check: dmp_espnow_dmp.bin binary size 0xd93c0 bytes. Smallest app partition is 0x2f0000 bytes. 0x216c40 bytes (71%) free.
+0 warning header(s)
+release_slot 46 B code, initial stack adjustment (32, '42021268:\t004136        \tentry\ta1, 32')
+expire_and_resolve_rx$constprop$0 66 B code, initial stack adjustment (64, '420230e0:\t008136        \tentry\ta1, 64')
+sender_logical 215 B code, initial stack adjustment (32, '42021098:\t004136        \tentry\ta1, 32')
+dmp_reliability_req_is_retained 343 B code, initial stack adjustment (128, '42023dec:\t010136        \tentry\ta1, 128')
+dmp_reliability_reject_req 573 B code, initial stack adjustment (144, '42024dd0:\t012136        \tentry\ta1, 144')
+dmp_reliability_on_rx 3724 B code, initial stack adjustment (352, '42023f44:\t02c136        \tentry\ta1, 0x160')
+esp32s3: DMP Flash delta -313, image estimate delta -328, binary delta -336
+
+[esp32c3 baseline-artifacts]
+Image estimate 929914, actual binary 930288
+Archive totals (Flash, data RAM, IRAM): {'libdmp.a': (92099, 4, 0), 'libesphome__libsodium.a': (30506, 143, 0), 'libnoise-c.a': (11194, 0, 0)}
+Reliability object (Flash, data RAM, IRAM): {'reliability.c.obj': (19420, 0, 0)}
+DRAM 237420 B
+SHA-256
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+1f98c3556bebc2b389c4a7cbf619f751a24f395f007088066e4267d94a4270e6  dmp_espnow_dmp.elf
+7a743076b19ae255db688daf48c3a92c18a9a60f903301b55fcdff02e99ab527  dmp_espnow_dmp.map
+0f9a819fa0e5aa60596649216a22422cf4597e0e9d38d4d40aebb632cf5f00d4  dmp_espnow_dmp.bin
+11f9c16c7d2c015508692032b693fe1e3efd10796eaa2a3d0bb0b7aacfa943c7  sdkconfig (LF)
+Partition check: dmp_espnow_dmp.bin binary size 0xe31f0 bytes. Smallest app partition is 0x2f0000 bytes. 0x20ce10 bytes (70%) free.
+5 warning header(s)
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+  CMake Warning at C:/esp/v6.1/esp-idf/tools/cmake/component_validation.cmake:106 (message):
+dmp_reliability_req_is_retained 378 B code, initial stack adjustment (128, '42025bc8:\t7119                \taddi\tsp,sp,-128')
+dmp_reliability_reject_req 642 B code, initial stack adjustment (144, '42026ab8:\t7175                \taddi\tsp,sp,-144')
+dmp_reliability_on_rx 3446 B code, initial stack adjustment (368, '42025d42:\t7149                \taddi\tsp,sp,-368')
+
+[esp32c3 candidate]
+Image estimate 929778, actual binary 930144
+Archive totals (Flash, data RAM, IRAM): {'libdmp.a': (91963, 4, 0), 'libesphome__libsodium.a': (30506, 143, 0), 'libnoise-c.a': (11194, 0, 0)}
+Reliability object (Flash, data RAM, IRAM): {'reliability.c.obj': (19284, 0, 0)}
+DRAM 237420 B
+SHA-256
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+3c88495693ac251f85a952d5c00ba56325de0d20db46c1ed714d17aff07216d9  dmp_espnow_dmp.elf
+eebb07760594d33ae27dd35ce2dbcd363e8f3259a70d57cafb7334cd9d156ac3  dmp_espnow_dmp.map
+6a127038219cc77842f74e070edefd82656ceb9054eead018fdde96f22c62c78  dmp_espnow_dmp.bin
+11f9c16c7d2c015508692032b693fe1e3efd10796eaa2a3d0bb0b7aacfa943c7  sdkconfig (LF)
+Partition check: dmp_espnow_dmp.bin binary size 0xe3160 bytes. Smallest app partition is 0x2f0000 bytes. 0x20cea0 bytes (70%) free.
+0 warning header(s)
+release_slot 90 B code, initial stack adjustment (48, '42022982:\t7179                \taddi\tsp,sp,-48')
+expire_and_resolve_rx.constprop.0 122 B code, initial stack adjustment (64, '42024f04:\t7139                \taddi\tsp,sp,-64')
+dmp_reliability_req_is_retained 332 B code, initial stack adjustment (112, '42025c02:\t7159                \taddi\tsp,sp,-112')
+dmp_reliability_reject_req 604 B code, initial stack adjustment (160, '42026a56:\t7135                \taddi\tsp,sp,-160')
+dmp_reliability_on_rx 3336 B code, initial stack adjustment (368, '42025d4e:\t7149                \taddi\tsp,sp,-368')
+esp32c3: DMP Flash delta -136, image estimate delta -136, binary delta -144
