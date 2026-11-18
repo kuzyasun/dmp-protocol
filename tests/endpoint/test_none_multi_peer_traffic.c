@@ -105,6 +105,16 @@ static dmp_status discard_cancel(void *user, dmp_tx_token token)
     return DMP_OK;
 }
 
+static dmp_status hold_submit(void *user, const dmp_tx_submission *submission)
+{
+    dmp_tx_submission *held = user;
+    if (held->complete != NULL) {
+        return DMP_BUSY;
+    }
+    *held = *submission;
+    return DMP_OK;
+}
+
 static void discard_notice(void *user, const dmp_endpoint_notice *notice)
 {
     (void)user;
@@ -182,19 +192,21 @@ static dmp_identity_context_config context_for(uint32_t peer_origin)
     return context;
 }
 
-static int boot(fixture *f, uint32_t peers)
+static int boot_with_transport(fixture *f, uint32_t peers, dmp_tx_submission *held)
 {
     dmp_config input;
     dmp_endpoint_storage storage;
     dmp_identity_context_config initial = context_for(20U);
     (void)memset(f, 0, sizeof *f);
     make_profile(&input, peers);
+    input.synchronous_completion = held == NULL;
     CHECK(dmp_config_admit(&input, &f->profile) == DMP_OK);
-    f->transport.submit = discard_submit;
+    f->transport.submit = held == NULL ? discard_submit : hold_submit;
+    f->transport.context = held;
     f->transport.cancel = discard_cancel;
     f->transport.caps.max_frame_bytes = ENCODED_MTU;
     f->transport.caps.ownership = DMP_TX_BORROW;
-    f->transport.caps.synchronous_completion = true;
+    f->transport.caps.synchronous_completion = input.synchronous_completion;
     (void)memset(&storage, 0, sizeof storage);
     storage.profile = &f->profile;
     storage.framing_mode = DMP_ENDPOINT_FRAMING_PACKET;
@@ -247,6 +259,11 @@ static int boot(fixture *f, uint32_t peers)
     storage.telemetry_frame_capacity = sizeof f->telemetry_frame;
     CHECK(dmp_endpoint_init(&f->endpoint, &storage, 100U) == DMP_OK);
     return 0;
+}
+
+static int boot(fixture *f, uint32_t peers)
+{
+    return boot_with_transport(f, peers, NULL);
 }
 
 static int test_capacity(uint32_t peers)
@@ -495,6 +512,61 @@ static int test_multi_peer_traffic(void)
     return 0;
 }
 
+static int test_borrowed_fragment_probes(void)
+{
+    fixture f;
+    dmp_identity_context_config context = context_for(101U);
+    dmp_peer_handle first;
+    dmp_peer_handle second;
+    dmp_reliability_handle data;
+    dmp_tx_submission held = {0};
+    const dmp_bytes empty = {NULL, 0U};
+    uint8_t payload[ENCODED_MTU + 1U];
+    uint8_t saved[ENCODED_MTU];
+    uint32_t next;
+    size_t length;
+
+    CHECK(boot_with_transport(&f, 5U, &held) == 0);
+    first = f.peers[0].handle;
+    CHECK(dmp_endpoint_add_peer(&f.endpoint, &context, 101U, &second) == DMP_OK);
+    /* Keep the NONE overlap status when the frame storage is idle. */
+    next = f.endpoint.identity.none_next_seq;
+    CHECK(dmp_endpoint_submit_data_to(&f.endpoint, second, 2U,
+                                      (dmp_bytes){f.fragment_frame, 1U}, empty,
+                                      102U, &data) == DMP_INVALID_ARGUMENT);
+    CHECK(dmp_endpoint_submit_fragmented_to(&f.endpoint, second, 2U,
+                                             (dmp_bytes){f.fragment_frame, sizeof f.fragment_frame},
+                                             102U) == DMP_INVALID_ARGUMENT);
+    CHECK(f.endpoint.identity.none_next_seq == next);
+    memset(payload, 0x51, sizeof payload);
+    CHECK(dmp_endpoint_submit_fragmented_to(&f.endpoint, first, 2U,
+                                             (dmp_bytes){payload, sizeof payload}, 102U) == DMP_OK);
+    CHECK(dmp_endpoint_poll(&f.endpoint, 102U) == DMP_OK);
+    CHECK(held.complete != NULL && held.frame.data == f.fragment_frame);
+    CHECK(held.peer.slot == first.slot && held.peer.generation == first.generation);
+    length = held.frame.size;
+    CHECK(length > 0U && length <= sizeof saved);
+    memcpy(saved, held.frame.data, length);
+
+    next = f.endpoint.identity.none_next_seq;
+    CHECK(dmp_endpoint_submit_fragmented_to(&f.endpoint, second, 2U,
+                                             (dmp_bytes){payload, 1U}, 103U) == DMP_INVALID_ARGUMENT);
+    CHECK(f.endpoint.identity.none_next_seq == next);
+    CHECK(memcmp(saved, held.frame.data, length) == 0);
+    CHECK(dmp_endpoint_submit_fragmented_to(&f.endpoint, second, 2U,
+                                             (dmp_bytes){payload, sizeof payload}, 103U) == DMP_OK);
+    CHECK(f.endpoint.identity.none_next_seq == next + 1U);
+    CHECK(memcmp(saved, held.frame.data, length) == 0);
+    CHECK(dmp_endpoint_submit_data_to(&f.endpoint, second, 2U, (dmp_bytes){payload, 1U}, empty,
+                                      103U, &data) == DMP_OK);
+    CHECK(memcmp(saved, held.frame.data, length) == 0);
+
+    held.complete(held.owner, held.token, DMP_TX_TRANSMITTED, 104U);
+    CHECK(f.peers[first.slot].frag_index == 1U);
+    CHECK(f.peers[second.slot].frag_index == 0U && f.peers[second.slot].frag_live != 0U);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -520,7 +592,7 @@ int main(int argc, char **argv)
         return report_layout(MAX_PEERS);
     }
     if (strcmp(argv[1], "traffic") == 0) {
-        return test_multi_peer_traffic();
+        return test_multi_peer_traffic() || test_borrowed_fragment_probes();
     }
     return 2;
 }

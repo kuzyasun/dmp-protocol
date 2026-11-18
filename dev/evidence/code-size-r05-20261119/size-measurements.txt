@@ -1,0 +1,123 @@
+R05 ESP32 qualification paired link measurements.
+R04 artifacts are the stored per-target candidate links.
+
+c8830c5235600c9ef98dbce972a26f89054d3a431b8f8cb719fa94e6df522d7f  src/endpoint/endpoint.c (raw working source)
+59a4d00b7ca7d39898686ff4ca47a01b01ea0fb98e641119d309c2ff5885e7a7  tests/endpoint/test_none_multi_peer_traffic.c (raw working source)
+
+[esp32s3 R04]
+Image estimate 889683 B, actual binary 889792 B
+DMP Flash 87582 B
+Reliability object Flash 18380 B
+Endpoint object Flash 26372 B
+App static memory {'DIRAM': '237459', 'IRAM': '16384'}
+Build warning headers 0
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+4d848f6496caf275d2faf1528bff77af838fff7f84555c682be88d69a90305b2  dmp_espnow_dmp.elf
+f79992798d3e38475e75fd0e6eda2fcdac4bd803c37d752b878cdf3cab36e759  dmp_espnow_dmp.map
+ed2afcd1f51eabc9feaef74196cd98e8931dcf917759d51f07c939f1b6382e7d  dmp_espnow_dmp.bin
+dmp_espnow_dmp.bin binary size 0xd93c0 bytes. Smallest app partition is 0x2f0000 bytes. 0x216c40 bytes (71%) free.
+Executing "ninja -j 1 all"...
+take_frame  42014a04:	06c136        	entry	a1, 0x360
+dmp_endpoint_poll  420184b8:	028136        	entry	a1, 0x140
+dmp_endpoint_submit_fragmented_to  420181ac:	016136        	entry	a1, 176
+
+[esp32s3 R05]
+Image estimate 889519 B, actual binary 889632 B
+DMP Flash 87417 B
+Reliability object Flash 18380 B
+Endpoint object Flash 26207 B
+App static memory {'DIRAM': '237459', 'IRAM': '16384'}
+Build warning headers 0
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+edf8d6b30e7892f17a4cedc3865a5c1bad9b064d0171e16ee87d3729c901795a  dmp_espnow_dmp.elf
+7b1b78653fb09585b18d8ea2dde14adb4dc89d49a68c0b925d7010a43d3e064a  dmp_espnow_dmp.map
+eba3f997528c86fabb2daf2e1c6701a56ba7467f86f88a69287b5f1160c2d85a  dmp_espnow_dmp.bin
+[1/10] Building C object esp-idf/dmp/CMakeFiles/__idf_dmp.dir/C_/projects/gemslibe/dmp-protocol/build/r4s/src/src/reliability/reliability.c.obj
+[2/10] Building C object esp-idf/dmp/CMakeFiles/__idf_dmp.dir/C_/projects/gemslibe/dmp-protocol/build/r4s/src/src/endpoint/endpoint.c.obj
+[5/10] Linking CXX executable dmp_espnow_dmp.elf
+dmp_espnow_dmp.bin binary size 0xd9320 bytes. Smallest app partition is 0x2f0000 bytes. 0x216ce0 bytes (71%) free.
+Executing "ninja -j 1 all"...
+take_frame  42014b64:	06c136        	entry	a1, 0x360
+dmp_endpoint_poll  420184ac:	028136        	entry	a1, 0x140
+dmp_endpoint_submit_fragmented_to  420181a8:	016136        	entry	a1, 176
+check_staged_context$isra$0  42013c6c:	004136        	entry	a1, 32
+probe_reliable_payload  42016984:	012136        	entry	a1, 144
+release_staged_context  42013410:	006136        	entry	a1, 48
+select_peer_route$isra$0  420142a8:	004136        	entry	a1, 32
+esp32s3 delta: DMP Flash -165, endpoint Flash -165, image -164, .bin -160.
+
+[esp32c3 R04]
+Image estimate 929778 B, actual binary 930144 B
+DMP Flash 91963 B
+Reliability object Flash 19284 B
+Endpoint object Flash 26792 B
+App static memory {'DRAM': '237420'}
+Build warning headers 0
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+3c88495693ac251f85a952d5c00ba56325de0d20db46c1ed714d17aff07216d9  dmp_espnow_dmp.elf
+eebb07760594d33ae27dd35ce2dbcd363e8f3259a70d57cafb7334cd9d156ac3  dmp_espnow_dmp.map
+6a127038219cc77842f74e070edefd82656ceb9054eead018fdde96f22c62c78  dmp_espnow_dmp.bin
+dmp_espnow_dmp.bin binary size 0xe3160 bytes. Smallest app partition is 0x2f0000 bytes. 0x20cea0 bytes (70%) free.
+Executing "ninja -j 1 all"...
+take_frame  42014ea8:	c9010113          	addi	sp,sp,-880
+dmp_endpoint_poll  42018888:	7129                	addi	sp,sp,-320
+dmp_endpoint_submit_fragmented_to  4201859c:	7171                	addi	sp,sp,-176
+
+[esp32c3 R05]
+Image estimate 929748 B, actual binary 930112 B
+DMP Flash 91933 B
+Reliability object Flash 19284 B
+Endpoint object Flash 26762 B
+App static memory {'DRAM': '237420'}
+Build warning headers 0
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+884ce4e2967bbfae94d7c1b7747ca7b1e569091927a3f8b40d45751bb3a6ede3  dmp_espnow_dmp.elf
+77f73f8dc5b62ef63d7dd93e68dab003c032ae8ac7aa01fda3647be851430136  dmp_espnow_dmp.map
+60f35918e4ea3461e510df42ffea418e261d16e2ee1f752c1f40a1b264f81220  dmp_espnow_dmp.bin
+[1/9] Building C object esp-idf/dmp/CMakeFiles/__idf_dmp.dir/C_/projects/gemslibe/dmp-protocol/build/r4s/src/src/endpoint/endpoint.c.obj
+[4/9] Linking CXX executable dmp_espnow_dmp.elf
+dmp_espnow_dmp.bin binary size 0xe3140 bytes. Smallest app partition is 0x2f0000 bytes. 0x20cec0 bytes (70%) free.
+Executing "ninja -j 1 all"...
+take_frame  42015102:	c9010113          	addi	sp,sp,-880
+dmp_endpoint_poll  4201892a:	7129                	addi	sp,sp,-320
+dmp_endpoint_submit_fragmented_to  42018644:	7171                	addi	sp,sp,-176
+check_staged_context.isra.0  42013e82:	833e                	mv	t1,a5
+probe_reliable_payload  42016d32:	7175                	addi	sp,sp,-144
+release_staged_context  420133c0:	00064783          	lbu	a5,0(a2)
+release_staged_context retained path  420133c6:	1101  addi sp,sp,-32
+select_peer_route.isra.0  42014782:	1141                	addi	sp,sp,-16
+esp32c3 delta: DMP Flash -30, endpoint Flash -30, image -30, .bin -32.
+
+[R05 closeout static caller path prologues]
+esp32s3 candidate
+submit_req_with_token  42016a00:	014136        	entry	a1, 160
+encode_core$isra$0  42016498:	040136        	entry	a1, 0x200
+release_peer_buffer_contexts  4201339c:	004136        	entry	a1, 32
+esp32s3 r05
+submit_req_with_token  42016aac:	00a136        	entry	a1, 80
+probe_reliable_payload  42016984:	012136        	entry	a1, 144
+encode_core$isra$0  420161f4:	040136        	entry	a1, 0x200
+release_peer_buffer_contexts  42013440:	006136        	entry	a1, 48
+release_staged_context  42013410:	006136        	entry	a1, 48
+esp32c3 candidate
+submit_req_with_token  42016d54:	7175                	addi	sp,sp,-144
+encode_core.isra.0  420167f8:	de010113          	addi	sp,sp,-544
+release_peer_buffer_contexts  420132fc:	1101                	addi	sp,sp,-32
+esp32c3 r05
+submit_req_with_token  42016e64:	7139                	addi	sp,sp,-64
+probe_reliable_payload  42016d32:	7175                	addi	sp,sp,-144
+encode_core.isra.0  42016580:	de010113          	addi	sp,sp,-544
+release_peer_buffer_contexts  420133fc:	1101                	addi	sp,sp,-32
+release_staged_context  420133c0:	00064783          	lbu	a5,0(a2)

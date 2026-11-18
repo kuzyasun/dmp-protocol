@@ -1,0 +1,33 @@
+R05 verification excerpts
+
+[Reviewed Git-normalized source identities]
+c8830c5235600c9ef98dbce972a26f89054d3a431b8f8cb719fa94e6df522d7f  src/endpoint/endpoint.c (Git LF)
+59a4d00b7ca7d39898686ff4ca47a01b01ea0fb98e641119d309c2ff5885e7a7  tests/endpoint/test_none_multi_peer_traffic.c (Git LF)
+
+[Unmodified R04 library with final R05 regression]
+Process exit 1; ownership assertion reached after idle-alias checks.
+NONE production endpoint traffic: peers=5, busy peer attempts=34, accepted peer sends=2,1,1,1; sender pressure retained
+tests/endpoint/test_none_multi_peer_traffic.c:555: CHECK failed: memcmp(saved, held.frame.data, length) == 0
+
+[Real-provider CTest excerpts]
+26/104 Test  #26: endpoint.none.multi_peer_traffic ......................   Passed    0.02 sec
+35/104 Test  #51: reliability.direct ....................................   Passed    0.01 sec
+61/104 Test  #83: security.handshake ....................................   Passed    0.02 sec
+62/104 Test  #84: security.handshake_transport ..........................   Passed    0.01 sec
+64/104 Test  #86: endpoint.protected_transport_reject_retry .............   Passed    0.01 sec
+67/104 Test  #89: endpoint.protected_result_loss ........................   Passed    0.03 sec
+96/104 Test #118: endpoint.protected_drain ..............................   Passed    0.03 sec
+98/104 Test #120: endpoint.protected_repair .............................   Passed    0.01 sec
+104/104 Test #143: recovery.frag_status ..................................   Passed    0.05 sec
+100% tests passed, 0 tests failed out of 104
+
+[Independent peer suite excerpts]
+test_c_endpoint_produces_sample1_accepted_by_python_peer (test_p23_c_endpoint_interop.TestP23CPrimaryInterop.test_c_endpoint_produces_sample1_accepted_by_python_peer) ... ok
+test_sec1_sample_exchange_crosses_mixed_path_in_both_directions (test_p23_mixed_endpoint_path.TestP23MixedEndpointPath.test_sec1_sample_exchange_crosses_mixed_path_in_both_directions) ... ok
+test_split_and_coalesced_loopback_reads (test_tcp_binding.TcpStreamBindingTests.test_split_and_coalesced_loopback_reads) ... ok
+Ran 454 tests in 3.490s
+OK
+
+[Allocator symbol checks]
+no allocator references in build/r05-host/libdmp.a
+no allocator references in build/r05-host/libdmp_none.a
