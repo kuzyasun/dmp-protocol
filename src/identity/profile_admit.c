@@ -116,6 +116,11 @@ dmp_status dmp_config_admit(const dmp_config *in, dmp_admitted_profile *out)
     if (in == NULL || out == NULL || (const void *)in == (const void *)out) {
         return DMP_INVALID_ARGUMENT;
     }
+#if defined(DMP_ENDPOINT_NONE_ONLY)
+    if (in->security_mode != DMP_PROFILE_SECURITY_NONE || in->freshness_required_mask != 0U) {
+        return DMP_UNSUPPORTED;
+    }
+#endif
     if (in->message_bytes == 0U || in->chunk_bytes == 0U || in->encoded_mtu == 0U ||
         in->fragments == 0U || in->fragments > 32U) {
         return DMP_INVALID_ARGUMENT;

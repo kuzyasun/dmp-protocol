@@ -204,7 +204,9 @@ set_tests_properties(security.provider_adapter PROPERTIES
 
 # endpoint.o now calls the handshake record path, so the plaintext endpoint
 # binary needs the same Noise link group.
-dmp_link_rescan(dmp_test_endpoint libdmp dmp_p01b_noise dmp_p01b_sodium)
+if(TARGET dmp_test_endpoint)
+    dmp_link_rescan(dmp_test_endpoint libdmp dmp_p01b_noise dmp_p01b_sodium)
+endif()
 
 add_executable(dmp_test_endpoint_sec
     "${PROJECT_SOURCE_DIR}/tests/endpoint/test_endpoint_sec.c" "${_fixture_header}")
@@ -266,6 +268,21 @@ set(_multi_peer_test_definitions
     DMP_MULTI_PEER_PARALLEL_CRYPTO_SLOTS=${_multi_peer_parallel_crypto_slots})
 target_compile_definitions(dmp_test_endpoint_sec PRIVATE
     ${_multi_peer_test_definitions})
+
+function(dmp_add_p23_gate case_name)
+    add_test(NAME "peer.p23_${case_name}"
+        COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/peer/tests/test_p23_${case_name}.py")
+    set_tests_properties("peer.p23_${case_name}" PROPERTIES
+        TIMEOUT 90 LABELS "peer;interop;endpoint"
+        ENVIRONMENT
+            "DMP_P23_ENDPOINT_SEC_EXE=$<TARGET_FILE:dmp_test_endpoint_sec>;PYTHONPATH=${PROJECT_SOURCE_DIR}/tests/peer")
+endfunction()
+
+if(NOT DMP_ENABLE_ENDPOINT_STREAM_R)
+    dmp_add_p23_gate(radio_endpoint_interop)
+    return()
+endif()
 foreach(name activation transport_reject_retry alter loss result_loss receipt_loss sample_invalid_request sample_no_sample sample_initialization service2_immediate single_peer_bounds different_sender multi_peer_routing sample1_epoch_endpoint sample_late_assoc sample_superseded sample_init_timeout sample_invalid_result sample_invalid_status_result sample_invalid_telem sample_fragmented_result sample_invalid_fragmented_result err_status_contract validator_duplicate_skipped retained_rejection_reassembly freshness_terminal_rejection isolate reassembly ttl acl rotation result fragdeny drain context repair)
     add_test(NAME endpoint.protected_${name} COMMAND dmp_test_endpoint_sec ${name})
     set_tests_properties(endpoint.protected_${name} PROPERTIES TIMEOUT 60 LABELS "endpoint")
@@ -351,13 +368,7 @@ foreach(_p23_gate IN ITEMS
         s10_mutation_interop
         s10_packet_number_interop
         s10_rotation_interop)
-    add_test(NAME "peer.p23_${_p23_gate}"
-        COMMAND "${Python3_EXECUTABLE}"
-                "${PROJECT_SOURCE_DIR}/tests/peer/tests/test_p23_${_p23_gate}.py")
-    set_tests_properties("peer.p23_${_p23_gate}" PROPERTIES
-        TIMEOUT 90 LABELS "peer;interop;endpoint"
-        ENVIRONMENT
-            "DMP_P23_ENDPOINT_SEC_EXE=$<TARGET_FILE:dmp_test_endpoint_sec>;PYTHONPATH=${PROJECT_SOURCE_DIR}/tests/peer")
+    dmp_add_p23_gate("${_p23_gate}")
 endforeach()
 foreach(_p23_peer_case IN ITEMS fresh_data freshness_lifecycle)
     add_test(NAME "peer.p23_${_p23_peer_case}"

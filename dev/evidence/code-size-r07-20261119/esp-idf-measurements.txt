@@ -1,0 +1,139 @@
+R07 ESP-IDF 6.1 qualification and independent size probes
+
+Manifest raw SHA-256 values
+65bf5f49ce3ed59d8ec9eb76d8cae8626a37b8207c13c4e5cd512fc72f990b2e  test-direct-sample-retry-2-nnpsk0.json
+5aeee37b559dcc4be6659d48e538c149dc2d930442cb0646ec85300b5cbb1f05  test-direct-multi-peer-nnpsk0.json
+8fca66c37016f4c4050469748027bfeb24a7da47c5f93cae130f201dccf3e83a  direct-none.json
+e7dda5de061f91756827cab8e023f54b4339d0282ad4e1a02737bbfa0e69d97a  radio-none.json
+048e59973fda6088cb15f1bacdc8f68544ab825f1b4ffd120774f9ec8170f3df  direct-nnpsk0.json
+43358de08b8d00f0ced3a2e9a085acb17a20d3cb407107309caadb178cba2d92  radio-xx.json
+
+[esp32s3 stage0]
+{"attempt": 1904, "bin": 892992, "combined": 129511, "dmp": 90729, "estimate": 892879, "hs": 11128, "noise": 9612, "regions": {"DIRAM": 237459, "IRAM": 16384, "RTC FAST": 24, "RTC SLOW": 36}, "registry": 14384, "sodium": 29170}
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+13fc286d7e2ac2c7e815a726b25db4bd4fb42f0f0d20ef93bc974684ab8ae45d  dmp_espnow_dmp.elf
+52b078a32675f40aabc997049097f0adcdade6b73c7831865ea5066940aed39f  dmp_espnow_dmp.map
+23d976ab49890627e9902c9ef743c4cf6882f3096304d275ec2d1f581f6519c6  dmp_espnow_dmp.bin
+
+[esp32s3 final-default]
+{"attempt": 1904, "bin": 889616, "combined": 126179, "dmp": 87401, "estimate": 889503, "hs": 11128, "noise": 9608, "regions": {"DIRAM": 237459, "IRAM": 16384, "RTC FAST": 24, "RTC SLOW": 36}, "registry": 14384, "sodium": 29170}
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+798eb93abd0592bfd95a1664db28fb7b037905ac2e29f2660e330735c342dddd  dmp_espnow_dmp.elf
+2ae6f4f00dcb3e4b1524735736d9ef3fd45d81cd8e229701f696521375efc1e7  dmp_espnow_dmp.map
+0eb77e9eb966fabf658755d4c0414157cb3fb41e3f150635d8f445116621c88e  dmp_espnow_dmp.bin
+
+[esp32s3 final-trimmed]
+{"attempt": 1664, "bin": 888160, "combined": 125177, "dmp": 86403, "estimate": 888043, "hs": 7424, "noise": 9604, "regions": {"DIRAM": 237459, "IRAM": 16384, "RTC FAST": 24, "RTC SLOW": 36}, "registry": 14384, "sodium": 29170}
+cf8f8f7ea2d36ff06854c5682ea34d90c615a4d1207b264407e82ca7381fa5cc  sdkconfig
+ab3882259ac69f4ee9ee9d0cd3a45cde49d27927440bbb2c916f6dbd5ba4de64  dependencies.lock
+3786f528e94abd61a5101832c5d9d63e79f54de49830192bacb930d84919f76e  link-command.txt
+02c09139b8417ce9a1a4892b8c820aabf5567c1e95c07001a7c3ac5e4d80f809  ld-hashes.txt
+3351ad04f2864fb6024bd124514c55bb5c832ecf0adcc7020f050953f31f4835  dmp_espnow_dmp.elf
+1bf24bee1d4c90e4bf6007a97b41c56c41cc44caaf26213291b2d1ef2c74d0bb  dmp_espnow_dmp.map
+068579d8af2a790af42da6b979846e51f63303fc240f0b115d38eb8ab7159c9b  dmp_espnow_dmp.bin
+
+[esp32c3 stage0]
+{"attempt": 1904, "bin": 931904, "combined": 135421, "dmp": 93721, "estimate": 931536, "hs": 11136, "noise": 11194, "regions": {"DRAM": 237420, "RTC SLOW": 60}, "registry": 14384, "sodium": 30506}
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+6cdea0481d29264e15f5b80fa074f475ab2d752e33500eb7a17aa238e320a062  dmp_espnow_dmp.elf
+9f0c0372eb4ddb8a496f636906c54bb6317ca7551128f01fbd4a9d13684f2ae6  dmp_espnow_dmp.map
+b77bfbbfe51f615c0f93a77fee2175860466881358e4d53612ed7bada4e62172  dmp_espnow_dmp.bin
+
+[esp32c3 final-default]
+{"attempt": 1904, "bin": 930112, "combined": 133627, "dmp": 91927, "estimate": 929742, "hs": 11136, "noise": 11194, "regions": {"DRAM": 237420, "RTC SLOW": 60}, "registry": 14384, "sodium": 30506}
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+02ac6cac3abff84ffaeb3eb8cd50ac1c147e9dda961250dcb10d906993aa6f76  dmp_espnow_dmp.elf
+0536025d6211c10f4ed97ccef4d58a3da3d986cb59559d711efe9ec0bf13668a  dmp_espnow_dmp.map
+3a8f1122addc4fd8cfefd1a353c6baa5d16073d4add1aa97980c5a998e855bda  dmp_espnow_dmp.bin
+
+[esp32c3 final-trimmed]
+{"attempt": 1664, "bin": 928704, "combined": 132667, "dmp": 90967, "estimate": 928332, "hs": 7424, "noise": 11194, "regions": {"DRAM": 237420, "RTC SLOW": 60}, "registry": 14384, "sodium": 30506}
+713e7dd688fcf39183b583ef4b9edeaa5f2174bab3712c7ee02c24688f7f7500  sdkconfig
+04310d6f230530a754b7f1a45e8ef69a22df1432f914d279c520633f78bdd797  dependencies.lock
+ee97f7250d9e9b79f265c33fc22be0afcb8dae7370a90c4934bdacd4ee70b98a  link-command.txt
+786d1d40796c3b3d02dfa22feb15c1561a076109f370d9c3709062f3a1f4e872  ld-hashes.txt
+5db7f249421ff95fedf6dc1a300514c2ebca5c6368b75b1c25f1a6167a734b52  dmp_espnow_dmp.elf
+1e329222281713bc11a577b76fa9955f13327abbf8e6388b9ffcaa5eb5d21e8f  dmp_espnow_dmp.map
+8cea55a2e69ecce53ed5277668ee90d33f39ac3eef186881537a6343dd81eaa2  dmp_espnow_dmp.bin
+
+[esp32s3 core]
+{"bin": 137600, "dmp": 4472, "estimate": 137479, "harness": 303}
+1b3b594c5f7b15d5a29b99b9e6d6bc6066cf8c4e0d83285710d8e7a9d205ceeb  sdkconfig
+0eb7153aa45c8c6bfe5db83c1be28614542987952d7a9db36992c67a9661bdce  dmp_size_probe.elf
+ce51eac4775493244cbc73addf1a3e6cbb2beccc7c8d503941456db50944c1f3  dmp_size_probe.map
+1e92bdb408781a32c2722e74eafd28537eebab4ae1d1436e4082da447ecc5f71  dmp_size_probe.bin
+
+[esp32s3 stream]
+{"bin": 140096, "dmp": 6708, "estimate": 139987, "harness": 557}
+1b3b594c5f7b15d5a29b99b9e6d6bc6066cf8c4e0d83285710d8e7a9d205ceeb  sdkconfig
+f3a5a7a2e9ec9c12ce5d77dfddd4cf50017f4bde0c40ff4eb6ed123cf336ee50  dmp_size_probe.elf
+e95ad58b70b7132b73aa55e54f9dcdb3b98e8f49c3f7a3330821e6f3fb623071  dmp_size_probe.map
+c1cb263e444aacdd769a81fd43f3f80394d3b61333ecb9aa2004030d5785e71c  dmp_size_probe.bin
+
+[esp32s3 direct]
+{"bin": 196656, "dmp": 54389, "estimate": 196535, "harness": 5769}
+1b3b594c5f7b15d5a29b99b9e6d6bc6066cf8c4e0d83285710d8e7a9d205ceeb  sdkconfig
+b84d93842b3803d6b05af0f878a691293d59ba682f7d43da1474c90271eda3c4  dmp_size_probe.elf
+1a1f13d3170f0d39c2e2f0eb816401bb1024ff03c5cd3151276c1c10add0c007  dmp_size_probe.map
+2beebfbe7197b4d32642c487872c71a0b8c59a11e789515bccd004c4aafeb5f9  dmp_size_probe.bin
+
+[esp32s3 radio]
+{"bin": 184496, "dmp": 45631, "estimate": 184383, "harness": 3296}
+1b3b594c5f7b15d5a29b99b9e6d6bc6066cf8c4e0d83285710d8e7a9d205ceeb  sdkconfig
+097b5e39895dd608125d63e535e24d2ba60a7ae6884138b3f80a45f715b26244  dmp_size_probe.elf
+bebc63465d33bbe798786e6c136557e9e49438fa866aad94893707f69de66cd5  dmp_size_probe.map
+3ff5212637567665519b37b8b63af71e3d01989aea404738d7604f4d82c06b9d  dmp_size_probe.bin
+
+[esp32s3 radio-packet]
+{"bin": 182432, "dmp": 43580, "estimate": 182319, "harness": 3296}
+1b3b594c5f7b15d5a29b99b9e6d6bc6066cf8c4e0d83285710d8e7a9d205ceeb  sdkconfig
+417d41f2060f23768a90c63eea0f54915d6e7e8e7bdc8da1c3951735411bdd7f  dmp_size_probe.elf
+5aadfb7b58885f484d79af0358c6ad6ac48a98dc4344abd1e2b81a98b08bd9c3  dmp_size_probe.map
+7a964ac6c27fd99dbc6c29585fecb707c87add4426c4f14f4f2a7dfe00796455  dmp_size_probe.bin
+
+[esp32c3 core]
+{"bin": 119968, "dmp": 4886, "estimate": 114824, "harness": 322}
+e236390edf152b13d2ccba23ffc0aa55ccca1be25bc6dbc532869092fc58b419  sdkconfig
+f520a478d624e63e7e0762f223e201309fd66534543e2e3aaa2574ed3bc5e4c7  dmp_size_probe.elf
+74d1e9399540ff05f4fc941fa8091d0cde38ff7461f84fb82157a22b0fae171b  dmp_size_probe.map
+7407e2c69972be37bcb0d26833a7de4e7e800012b389289611fd2fedae211b3b  dmp_size_probe.bin
+
+[esp32c3 stream]
+{"bin": 122384, "dmp": 7163, "estimate": 117254, "harness": 468}
+e236390edf152b13d2ccba23ffc0aa55ccca1be25bc6dbc532869092fc58b419  sdkconfig
+8cd14131fafd905c7d489f4720863e66e387ae439f6971d994e4177a42e7fbe3  dmp_size_probe.elf
+136c316eb57d1a270d48eca2e70fa883f52b2015db0879f857268ce344d3e84a  dmp_size_probe.map
+2ee2a08c90fd5ac9e24f4e8e48246c7e7029e414256a28f9f55fdc5dc14b2153  dmp_size_probe.bin
+
+[esp32c3 direct]
+{"bin": 179152, "dmp": 57859, "estimate": 177492, "harness": 6268}
+e236390edf152b13d2ccba23ffc0aa55ccca1be25bc6dbc532869092fc58b419  sdkconfig
+97fd1c2fc9881428032c08aa8f3de91a7cecbee55338ed1d9122c1bcfdb10931  dmp_size_probe.elf
+c6639f00ddb664a3a3519e02c9c833aade38982b91d5ab62f8323303d3c198a0  dmp_size_probe.map
+4899cae26851f410097428138aedcaeaf49732e6e33db5697543b746ac3d0751  dmp_size_probe.bin
+
+[esp32c3 radio]
+{"bin": 166800, "dmp": 48390, "estimate": 164440, "harness": 3636}
+e236390edf152b13d2ccba23ffc0aa55ccca1be25bc6dbc532869092fc58b419  sdkconfig
+38eb93f25b0df324e024ff56e3f993367ed7059868be7cf27011f48da7dfa4cc  dmp_size_probe.elf
+b78988812bfe8d8b8fa13a3192e68158cba63dbbdb5fc50677ced05465424dc0  dmp_size_probe.map
+ad7503c89d93c4fd950fa1e5d140b468041ecfe65c0e61c6aebcec5799ea423f  dmp_size_probe.bin
+
+[esp32c3 radio-packet]
+{"bin": 164800, "dmp": 46396, "estimate": 162446, "harness": 3636}
+e236390edf152b13d2ccba23ffc0aa55ccca1be25bc6dbc532869092fc58b419  sdkconfig
+ab39051ca388f75fa66745ce120fbfa087e8d841fb4c24625af2e49b87b1b14f  dmp_size_probe.elf
+7847d684e645ac12530180201e97f154c9ae5c12688b404519cda252c7451495  dmp_size_probe.map
+d3791790c72ae72aff56d6e1c1e49cc9e46d835c9350b5ef7b6512477680c41c  dmp_size_probe.bin

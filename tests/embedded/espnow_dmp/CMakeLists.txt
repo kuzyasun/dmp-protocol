@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
 option(DMP_DMP_C3_UART0_CONSOLE "Use UART0 for the ESP32-C3 test console" OFF)
+option(DMP_ENABLE_ENDPOINT_STREAM_R "Support Stream R binding at the endpoint" ON)
+if(NOT DMP_ENABLE_ENDPOINT_STREAM_R)
+    message(FATAL_ERROR "ESP-NOW DMP qualification requires endpoint Stream R")
+endif()
 
 if(IDF_TARGET STREQUAL "esp32s3")
     set(_dmp_target_defaults "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.esp32s3.defaults")

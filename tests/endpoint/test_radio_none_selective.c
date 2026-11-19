@@ -3,7 +3,12 @@
 #include "dmp/integrity.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#if defined(DMP_NONE_MANIFEST_PROBE)
+#include "none_manifest.h"
+#endif
 
 #define CHECK(condition)                                                       \
     do {                                                                       \
@@ -15,6 +20,19 @@
     } while (0)
 
 enum {
+#if defined(DMP_NONE_MANIFEST_PROBE)
+    PEERS = DMP_NONE_PEERS,
+    MESSAGE_BYTES = DMP_NONE_MESSAGE_BYTES,
+    MTU = DMP_NONE_ENCODED_MTU,
+    SENDER_SLOTS = DMP_NONE_SENDER_SLOTS,
+    RESULT_SLOTS = DMP_NONE_RESULT_SLOTS,
+    HISTORY_SLOTS = DMP_NONE_HISTORY_SLOTS,
+    CORRELATION_SLOTS = DMP_NONE_CORRELATION_SLOTS,
+    ADAPTER_SLOTS = DMP_NONE_ADAPTER_SLOTS,
+    CHUNK_BYTES = DMP_NONE_CHUNK_BYTES,
+    TOMBSTONES = DMP_NONE_ASSEMBLY_TOMBSTONE_SLOTS,
+    FRAGMENT_COUNT = DMP_NONE_PROBE_FRAGMENTS,
+#else
     PEERS = 1,
     MESSAGE_BYTES = 512,
     MTU = 263,
@@ -23,11 +41,12 @@ enum {
     HISTORY_SLOTS = 8,
     CORRELATION_SLOTS = 4,
     ADAPTER_SLOTS = 3,
-    QUEUE_CAPACITY = 16,
-    FRAGMENT_COUNT = 8,
     CHUNK_BYTES = 32,
+    TOMBSTONES = 2,
+    FRAGMENT_COUNT = 8,
+#endif
+    QUEUE_CAPACITY = 16,
     BODY_BYTES = FRAGMENT_COUNT * CHUNK_BYTES,
-    TOMBSTONES = 2
 };
 
 typedef struct {
@@ -125,6 +144,9 @@ static void notice(void *user, const dmp_endpoint_notice *event)
 
 static void selective_profile(dmp_config *config)
 {
+#if defined(DMP_NONE_MANIFEST_PROBE)
+    *config = dmp_none_manifest;
+#else
     memset(config, 0, sizeof *config);
     config->namespace_id = 7U;
     config->node_id[0] = 10U;
@@ -182,6 +204,7 @@ static void selective_profile(dmp_config *config)
     config->assembly_ms = 5657U;
     config->tx_borrow = true;
     config->synchronous_completion = true;
+#endif
 }
 
 static int boot(endpoint_fixture *fixture, int is_sender, dmp_time_ms now)
@@ -195,10 +218,10 @@ static int boot(endpoint_fixture *fixture, int is_sender, dmp_time_ms now)
     selective_profile(&config);
     CHECK(dmp_config_admit(&config, &profile) == DMP_OK);
     memset(&context, 0, sizeof context);
-    context.local.namespace_id = 7U;
-    context.peer.namespace_id = 7U;
-    context.local.origin_id = is_sender ? 10U : 20U;
-    context.peer.origin_id = is_sender ? 20U : 10U;
+    context.local.namespace_id = profile.namespace_id;
+    context.peer.namespace_id = profile.namespace_id;
+    context.local.origin_id = profile.node_id[is_sender ? 0 : 1];
+    context.peer.origin_id = profile.node_id[is_sender ? 1 : 0];
     context.local.epoch = is_sender ? 0x1001U : 0x2002U;
     context.peer.epoch = is_sender ? 0x2002U : 0x1001U;
     context.security = 0U;
@@ -301,6 +324,8 @@ static int test_selective_repair_none(void)
     dmp_reliability_sender_slot *state;
     dmp_frame_view view;
     dmp_time_ms now = 20000U;
+    dmp_time_ms feedback_at;
+    dmp_time_ms repair_at;
     uint32_t index;
     uint32_t active_before;
     size_t i;
@@ -311,6 +336,27 @@ static int test_selective_repair_none(void)
 
     CHECK(boot(&sender, 1, now) == 0);
     CHECK(boot(&receiver, 0, now) == 0);
+#if defined(DMP_NONE_PACKET_ONLY_PROBE) && !defined(ESP_PLATFORM)
+    {
+        dmp_endpoint_storage storage = sender.endpoint.mem;
+        unsigned char before[sizeof(sender.endpoint)];
+        const uint8_t delimiter = 0U;
+        memcpy(before, &sender.endpoint, sizeof before);
+        storage.framing_mode = DMP_ENDPOINT_FRAMING_STREAM_R;
+        CHECK(dmp_endpoint_init(&sender.endpoint, &storage, now) == DMP_UNSUPPORTED);
+        CHECK(dmp_endpoint_rx_from(&sender.endpoint, sender.endpoint.peers[0].handle,
+                                   span(&delimiter, 1U), now) == DMP_UNSUPPORTED);
+        CHECK(memcmp(before, &sender.endpoint, sizeof before) == 0);
+    }
+#endif
+    feedback_at = now + receiver.endpoint.profile.burst_span_ms +
+                  receiver.endpoint.profile.forward_delay_ms +
+                  receiver.endpoint.profile.feedback_guard_ms;
+#if defined(DMP_NONE_MANIFEST_PROBE)
+    repair_at = now + DMP_NONE_SECOND_BURST_MS;
+#else
+    repair_at = feedback_at + 3U;
+#endif
     for (i = 0U; i < sizeof body; i++) {
         body[i] = (uint8_t)(0x40U + (uint8_t)i);
     }
@@ -337,7 +383,8 @@ static int test_selective_repair_none(void)
         CHECK(deliver(&sender, &receiver, i, now, DMP_INCOMPLETE) == 0);
     }
     CHECK(receiver.assembled == 0U);
-    CHECK(dmp_endpoint_poll(&receiver.endpoint, now + 3U) == DMP_OK);
+    receiver.wire.now = feedback_at;
+    CHECK(dmp_endpoint_poll(&receiver.endpoint, feedback_at) == DMP_OK);
     CHECK(receiver.wire.count == 1U);
     CHECK(parse(&receiver.wire.packets[0], &view) == DMP_OK);
     CHECK(view.fields.type == DMP_TYPE_FRAG_STATUS);
@@ -359,7 +406,7 @@ static int test_selective_repair_none(void)
     bad_crc_index = mutated.size - 1U;
     mutated.bytes[bad_crc_index] ^= 0x80U;
     CHECK(dmp_endpoint_rx_packet(&sender.endpoint, span(mutated.bytes, mutated.size),
-                                 now + 4U) == DMP_INTEGRITY_FAILURE);
+                                 feedback_at + 1U) == DMP_INTEGRITY_FAILURE);
     CHECK(state->feedback_valid == 0U);
     CHECK(state->active_mask == active_before);
     CHECK(sender.wire.count == FRAGMENT_COUNT);
@@ -378,16 +425,18 @@ static int test_selective_repair_none(void)
     mutated.bytes[mutated.size - 2U] = (uint8_t)(crc >> 16U);
     mutated.bytes[mutated.size - 1U] = (uint8_t)(crc >> 24U);
     CHECK(dmp_endpoint_rx_packet(&sender.endpoint, span(mutated.bytes, mutated.size),
-                                 now + 4U) == DMP_OK);
+                                 feedback_at + 1U) == DMP_OK);
     CHECK(state->feedback_valid == 0U);
     CHECK(state->active_mask == active_before);
     CHECK(sender.wire.count == FRAGMENT_COUNT);
 
-    CHECK(deliver(&receiver, &sender, 0U, now + 5U, DMP_OK) == 0);
+    CHECK(deliver(&receiver, &sender, 0U, feedback_at + 2U, DMP_OK) == 0);
     CHECK(state->feedback_valid != 0U);
     CHECK(state->active_mask == ((1U << dropped[0]) | (1U << dropped[1])));
+    sender.wire.now = repair_at;
+    receiver.wire.now = repair_at;
     for (i = 0U; i < 64U && sender.wire.count < FRAGMENT_COUNT + 2U; i++) {
-        CHECK(dmp_endpoint_poll(&sender.endpoint, now + 6U) == DMP_OK);
+        CHECK(dmp_endpoint_poll(&sender.endpoint, repair_at) == DMP_OK);
     }
     CHECK(sender.wire.count == FRAGMENT_COUNT + 2U);
     for (i = FRAGMENT_COUNT; i < sender.wire.count; i++) {
@@ -395,7 +444,7 @@ static int test_selective_repair_none(void)
         CHECK(view.fields.type == DMP_TYPE_DATA);
         CHECK((view.fields.options & DMP_OPT_FRAG) != 0U);
         CHECK(view.fields.fragment.index == dropped[i - FRAGMENT_COUNT]);
-        CHECK(deliver(&sender, &receiver, i, now + 6U,
+        CHECK(deliver(&sender, &receiver, i, repair_at,
                       i + 1U == sender.wire.count ? DMP_OK : DMP_INCOMPLETE) == 0);
     }
     CHECK(receiver.assembled == 1U);
@@ -406,24 +455,37 @@ static int test_selective_repair_none(void)
      * delivery reaches the sender's terminal state. */
     for (i = 0U; i < 12U && sender.data_delivered == 0U; i++) {
         size_t j;
-        sender.wire.now = now + 5U + i;
-        receiver.wire.now = now + 5U + i;
-        CHECK(dmp_endpoint_poll(&receiver.endpoint, now + 5U + i) == DMP_OK);
+        dmp_time_ms at = repair_at + i;
+        sender.wire.now = at;
+        receiver.wire.now = at;
+        CHECK(dmp_endpoint_poll(&receiver.endpoint, at) == DMP_OK);
         for (j = 0U; j < receiver.wire.count; j++) {
             CHECK(dmp_endpoint_rx_packet(&sender.endpoint,
                                          span(receiver.wire.packets[j].bytes,
                                               receiver.wire.packets[j].size),
-                                         now + 5U + i) == DMP_OK);
+                                         at) == DMP_OK);
         }
         receiver.wire.count = 0U;
-        CHECK(dmp_endpoint_poll(&sender.endpoint, now + 5U + i) == DMP_OK);
+        CHECK(dmp_endpoint_poll(&sender.endpoint, at) == DMP_OK);
     }
     CHECK(sender.data_delivered == 1U);
     CHECK(state->live == 0U || state->phase == DMP_REL_PHASE_TERMINAL);
+#if defined(DMP_NONE_MANIFEST_PROBE)
+    (void)printf("RADIO-1 NONE %s\n", DMP_NONE_MANIFEST_SHA256);
+#endif
     return 0;
 }
 
+#if defined(ESP_PLATFORM)
+void app_main(void)
+{
+    if (test_selective_repair_none() != 0) {
+        abort();
+    }
+}
+#else
 int main(void)
 {
     return test_selective_repair_none();
 }
+#endif

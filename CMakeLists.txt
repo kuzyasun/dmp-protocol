@@ -3,6 +3,7 @@ project(dmp LANGUAGES C)
 
 option(DMP_ENABLE_TEST_APIS "Retain the private handshake plaintext inspection API" ON)
 option(DMP_HS_SHARED_ADMISSION_ONLY "Require an external admission registry for SEC-1 handshakes" OFF)
+option(DMP_ENABLE_ENDPOINT_STREAM_R "Support Stream R binding at the endpoint" ON)
 
 # The reusable C archive has no SDK, Python, or Node dependency. The P01B
 # provider adapter is one archive member; tests/security link the reviewed
@@ -25,6 +26,8 @@ target_compile_features(libdmp PUBLIC c_std_11)
 target_compile_definitions(libdmp PUBLIC
     DMP_ENABLE_TEST_APIS=$<BOOL:${DMP_ENABLE_TEST_APIS}>
     DMP_HS_SHARED_ADMISSION_ONLY=$<BOOL:${DMP_HS_SHARED_ADMISSION_ONLY}>)
+target_compile_definitions(libdmp PRIVATE
+    DMP_ENABLE_ENDPOINT_STREAM_R=$<BOOL:${DMP_ENABLE_ENDPOINT_STREAM_R}>)
 target_include_directories(libdmp PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_include_directories(libdmp PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/noise-c/include"
@@ -55,9 +58,12 @@ set_target_properties(libdmp_none PROPERTIES OUTPUT_NAME dmp_none
 target_compile_features(libdmp_none PUBLIC c_std_11)
 target_include_directories(libdmp_none PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_include_directories(libdmp_none PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/security")
-target_compile_definitions(libdmp_none PRIVATE DMP_ENDPOINT_NONE_ONLY=1)
+target_compile_definitions(libdmp_none PRIVATE
+    DMP_ENDPOINT_NONE_ONLY=1
+    DMP_ENABLE_ENDPOINT_STREAM_R=$<BOOL:${DMP_ENABLE_ENDPOINT_STREAM_R}>)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(libdmp_none PRIVATE -O2 -ffunction-sections -fdata-sections)
+    target_compile_options(libdmp_none PRIVATE
+        $<$<NOT:$<CONFIG:Debug>>:-O2> -ffunction-sections -fdata-sections)
 endif()
 dmp_strict_target(libdmp_none)
 
@@ -113,6 +119,10 @@ if(DMP_HS_SHARED_ADMISSION_ONLY AND (DMP_NOISE_EXPERIMENTS OR DMP_FUZZ))
     message(FATAL_ERROR
         "DMP_HS_SHARED_ADMISSION_ONLY does not support the Noise experiment or fuzz suites")
 endif()
+if(NOT DMP_ENABLE_ENDPOINT_STREAM_R AND
+   (DMP_NOISE_EXPERIMENTS OR (DMP_BUILD_TESTS AND DMP_HS_SHARED_ADMISSION_ONLY)))
+    message(FATAL_ERROR "Packet-only endpoints require the Packet workload test set")
+endif()
 
 if(DMP_BUILD_TESTS)
     enable_testing()
@@ -121,7 +131,15 @@ if(DMP_BUILD_TESTS)
         "Pinned prepared libsodium tree for the P01B adapter tests")
 endif()
 
-if(DMP_BUILD_TESTS AND DMP_HS_SHARED_ADMISSION_ONLY)
+if(DMP_BUILD_TESTS AND NOT DMP_ENABLE_ENDPOINT_STREAM_R)
+    add_subdirectory(tests/size)
+    if(IS_DIRECTORY "${DMP_SODIUM_SOURCE_DIR}")
+        enable_language(ASM)
+        add_subdirectory(tests/security)
+    else()
+        message(STATUS "Protected Packet tests require DMP_SODIUM_SOURCE_DIR")
+    endif()
+elseif(DMP_BUILD_TESTS AND DMP_HS_SHARED_ADMISSION_ONLY)
     if(NOT IS_DIRECTORY "${DMP_SODIUM_SOURCE_DIR}")
         message(FATAL_ERROR
             "Shared-admission handshake tests require the pinned DMP_SODIUM_SOURCE_DIR")
@@ -142,16 +160,23 @@ elseif(DMP_BUILD_TESTS)
     set_target_properties(dmp_none_link_probe PROPERTIES
         C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
     dmp_strict_target(dmp_none_link_probe)
-    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        if(APPLE)
-            target_link_options(dmp_none_link_probe PRIVATE -Wl,-dead_strip)
-        else()
-            target_link_options(dmp_none_link_probe PRIVATE -Wl,--gc-sections)
-        endif()
+    if(MSVC)
+        target_link_options(dmp_none_link_probe PRIVATE /OPT:NOREF)
+    elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE)
+        target_link_options(dmp_none_link_probe PRIVATE -Wl,--no-gc-sections)
     endif()
     add_test(NAME endpoint.none_crypto_free_link COMMAND dmp_none_link_probe)
     set_tests_properties(endpoint.none_crypto_free_link PROPERTIES
         TIMEOUT 30 LABELS "endpoint;none;link")
+    if(CMAKE_NM AND NOT MSVC)
+        add_test(NAME endpoint.none_crypto_free_symbols
+            COMMAND "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/endpoint/check_none_link_symbols.py"
+                "${CMAKE_NM}" "$<TARGET_FILE:dmp_none_link_probe>"
+                "$<TARGET_FILE:libdmp_none>" "$<TARGET_FILE:libdmp_sample1_none>")
+        set_tests_properties(endpoint.none_crypto_free_symbols PROPERTIES
+            TIMEOUT 30 LABELS "endpoint;none;link")
+    endif()
 
     # Run the production endpoint loopback against the same NONE-only archive.
     # The test program supplies application callbacks and caller-owned storage;
@@ -205,6 +230,10 @@ elseif(DMP_BUILD_TESTS)
         COMMAND dmp_test_none_capacity unknown)
     set_tests_properties(endpoint.none.unknown_traffic PROPERTIES
         TIMEOUT 30 LABELS "endpoint;none;capacity")
+    add_test(NAME endpoint.none.unsupported_security
+        COMMAND dmp_test_none_capacity unsupported_security)
+    set_tests_properties(endpoint.none.unsupported_security PROPERTIES
+        TIMEOUT 30 LABELS "endpoint;none")
 
     add_executable(dmp_test_none_multi_peer_traffic
         tests/endpoint/test_none_multi_peer_traffic.c)

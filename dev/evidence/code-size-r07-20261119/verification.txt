@@ -1,0 +1,111 @@
+R07 host and configuration verification
+Source base: 11a40feba6d063b57680c79a87b9b9d6d8ff7bb6 (R06).
+RBO agents_list failed with ECONNREFUSED 127.0.0.1:7410. The operator-authorized local targets ran one build at a time.
+Host toolchain: MinGW GCC 15.2.0; CTest -j 1. ESP-IDF cross builds used GCC 15.2.0 and one Ninja build at a time.
+
+[Final working-source SHA-256]
+a7ee0fc7e07268d30fa8fdd4c0d737880cf3c2ac588f6298391657d65626e7d5  .github/workflows/ci.yml
+a36265af6c0087d5382cb4fadc3ed55e2b8e372d551b1971ab6358b434ef12d3  CMakeLists.txt
+d7a0bbc9273d9f0fedaedaf41162ce0c9f0592020acdfe3a3e55d808bc0a3a01  src/endpoint/endpoint.c
+72dac5a63d6a2df4f982354d959159336da751beeed8b5a2f9b0ceab6f277a5b  src/identity/profile_admit.c
+7e0d0cb055646cdac1e5932e5f4127d72425bc4b08099162268f8bdd57c4c590  tests/embedded/components/dmp/CMakeLists.txt
+cc03abca70987e0d950762279791e31020e59d989e251c65d24591e366281add  tests/embedded/espnow_dmp/CMakeLists.txt
+46e161de73b9c438940dc26ea83abdb5d222bfe901f2328a53c4d2e5107926f8  tests/embedded/size/CMakeLists.txt
+6a95dbf55b7eb34246d552cb27535d8016bffab4316850c0080c7f412c122274  tests/embedded/size/components/dmp_size_codec/CMakeLists.txt
+da4681295597a4d14e94975e6505cc23793ead6efa3c115e53d8c189514cd572  tests/embedded/size/main/CMakeLists.txt
+38ea5eef364d5e0ffabd874c6b1fb2b058b4f700033c4eedb0abc5bee9b5554f  tests/embedded/size/sdkconfig.defaults
+1ebabcaaab8ac63489deb4add776f9be678f15dd40402f6d0d52afaa748510f1  tests/endpoint/test_none_capacity.c
+7e3da081b4deac42fe8b430eae29de2d7c0656632053c2da730429b83d8dc0c8  tests/endpoint/test_radio_none_selective.c
+0bc6d723b78988fd30db27b3cefb2f41e69765e7c2bd83af85d97e6006d0af52  tests/endpoint/test_sample1_none.c
+38bbe0efa4aff456d3bfacb35f1ec2625ba61feb950837d9d04e30ff0310da4c  tests/security/CMakeLists.txt
+e549db6d5be3c4ac037d97f4a46af99742d8cead68ed91789fe073daaa16637d  tests/size/CMakeLists.txt
+671af7fb84091199164696762f34e985a7e6b033d334630f05e1926bda0a50e4  tests/endpoint/check_none_link_symbols.py
+838a37d2759b9fe5b888318a87acf0eea0f9ca3fff621b0c0ff4338973aba191  tests/size/generate_none_manifest.py
+1a8140770131e3ee887621a45f264ef63e33cf602f816bc0e48fd680afa0ba0c  tests/size/none_manifest.cmake
+
+[r06-host-on]
+  1/200 Test   #1: endpoint.none_crypto_free_link ........................   Passed    0.02 sec
+  2/200 Test   #2: endpoint.none_crypto_free_symbols .....................   Passed    0.10 sec
+ 27/200 Test  #27: endpoint.none.unsupported_security ....................   Passed    0.01 sec
+ 47/200 Test  #47: size.core .............................................   Passed    0.02 sec
+ 48/200 Test  #48: size.core_stream_r ....................................   Passed    0.01 sec
+ 49/200 Test  #49: size.none_direct ......................................   Passed    0.01 sec
+ 50/200 Test  #50: size.none_radio .......................................   Passed    0.01 sec
+ 86/200 Test  #86: security.handshake_shared .............................   Passed    0.02 sec
+131/200 Test #131: peer.p23_c_endpoint_interop ...........................   Passed    0.38 sec
+132/200 Test #132: peer.p23_radio_endpoint_interop .......................   Passed    1.13 sec
+171/200 Test #193: memory.mcu_abi ........................................   Passed    1.18 sec
+100% tests passed, 0 tests failed out of 200
+
+[r06-host-off]
+  1/200 Test   #1: endpoint.none_crypto_free_link ........................   Passed    0.02 sec
+  2/200 Test   #2: endpoint.none_crypto_free_symbols .....................   Passed    0.09 sec
+ 27/200 Test  #27: endpoint.none.unsupported_security ....................   Passed    0.01 sec
+ 47/200 Test  #47: size.core .............................................   Passed    0.01 sec
+ 48/200 Test  #48: size.core_stream_r ....................................   Passed    0.01 sec
+ 49/200 Test  #49: size.none_direct ......................................   Passed    0.01 sec
+ 50/200 Test  #50: size.none_radio .......................................   Passed    0.01 sec
+ 86/200 Test  #86: security.handshake_shared .............................   Passed    0.02 sec
+131/200 Test #131: peer.p23_c_endpoint_interop ...........................   Passed    0.36 sec
+132/200 Test #132: peer.p23_radio_endpoint_interop .......................   Passed    1.13 sec
+171/200 Test #193: memory.mcu_abi ........................................   Passed    1.28 sec
+100% tests passed, 0 tests failed out of 200
+
+[r07-none-debug]
+ 1/40 Test  #1: endpoint.none_crypto_free_link ................   Passed    0.01 sec
+ 2/40 Test  #2: endpoint.none_crypto_free_symbols .............   Passed    0.14 sec
+27/40 Test #27: endpoint.none.unsupported_security ............   Passed    0.01 sec
+37/40 Test #46: size.core .....................................   Passed    0.02 sec
+38/40 Test #47: size.core_stream_r ............................   Passed    0.02 sec
+39/40 Test #48: size.none_direct ..............................   Passed    0.02 sec
+40/40 Test #49: size.none_radio ...............................   Passed    0.02 sec
+100% tests passed, 0 tests failed out of 40
+
+[r07-packet]
+1/9 Test #1: size.core .........................   Passed    0.02 sec
+2/9 Test #2: size.core_stream_r ................   Passed    0.02 sec
+3/9 Test #3: size.none_packet_symbols ..........   Passed    0.11 sec
+4/9 Test #4: size.none_radio ...................   Passed    0.02 sec
+5/9 Test #5: security.handshake_shared .........   Passed    0.04 sec
+9/9 Test #9: peer.p23_radio_endpoint_interop ...   Passed    1.83 sec
+100% tests passed, 0 tests failed out of 9
+
+[r07-packet-ci]
+1/4 Test #1: size.core ........................   Passed    0.01 sec
+2/4 Test #2: size.core_stream_r ...............   Passed    0.02 sec
+3/4 Test #3: size.none_packet_symbols .........   Passed    0.08 sec
+4/4 Test #4: size.none_radio ..................   Passed    0.01 sec
+100% tests passed, 0 tests failed out of 4
+
+[Independent default Python peer suite]
+----------------------------------------------------------------------
+Ran 454 tests in 4.598s
+
+OK
+
+[Unoptimized NONE link commands]
+C:\develop\mingw\w64devkit\bin\gcc.exe -DDMP_ENABLE_ENDPOINT_STREAM_R=1 -DDMP_ENDPOINT_NONE_ONLY=1 -IC:/projects/gemslibe/dmp-protocol/include -IC:/projects/gemslibe/dmp-protocol/src/security -O0 -g -std=c11 -ffunction-sections -fdata-sections -Wall -Wextra -Wpedantic -Werror -o CMakeFiles\libdmp_none.dir\src\endpoint\endpoint.c.obj -c C:\projects\gemslibe\dmp-protocol\src\endpoint\endpoint.c
+C:\WINDOWS\system32\cmd.exe /C "cd . && C:\develop\mingw\w64devkit\bin\gcc.exe -O0 -g -Wl,--no-gc-sections CMakeFiles/dmp_none_link_probe.dir/tests/endpoint/none_link_probe.c.obj -o dmp_none_link_probe.exe -Wl,--out-implib,libdmp_none_link_probe.dll.a -Wl,--major-image-version,0,--minor-image-version,0  libdmp_sample1_none.a  libdmp_none.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 && cd ."
+
+[Allocator archive audits]
+no allocator references in build\r06-host-on\libdmp.a
+no allocator references in build\r06-host-on\libdmp_none.a
+no allocator references in build\r07-none-debug\libdmp_none.a
+no allocator references in build\r07-packet\libdmp_none.a
+
+[Configuration and manifest checks]
+The standalone Stage 0/qualification profiles and all committed manifests remain byte-identical.
+The ordinary validator admitted the reference DIRECT and RADIO NONE inputs and representative SEC-1 reference/retry-all inputs.
+The generated workloads rejected a schema-valid DIRECT producer/consumer role swap and a schema-valid RADIO request-size reduction.
+fragments=1 failed at $.limits.fragments in the schema before geometry checks.
+The IDF size project rejected DIRECT with endpoint Stream R disabled and the incompatible combination of NONE mode with Core Stream option.
+The NONE symbol checker rejected a full DMP archive in a negative control and detected the dmp_sodium_entropy_read symbol.
+
+[Independent source reviews]
+Sol 6.2 high pass 1 found mutation before NONE-only SEC-1 rotate rejection and a DIRECT producer mismatch accepted by the fixture generator. Both were fixed.
+Sol 6.2 high pass 2 confirmed those guards and found missing RADIO payload-bound validation and recurring Packet-only CI coverage. Both were fixed and verified.
+Board execution and Linux CI execution remain outside local evidence.
+
+[Independent review after the Stage 0 report]
+A third Sol 6.2 high reviewer checked raw .bin sizes, archive Flash, target regions, ELF DWARF layouts and registry/manifest provenance. All reported deltas and probe sizes matched the artifacts.
+The report now attributes the Stream R requirement to the measured DIRECT-1 configuration and SELECTIVE-32 usage to the measured RADIO-1 configuration. No material findings remain.

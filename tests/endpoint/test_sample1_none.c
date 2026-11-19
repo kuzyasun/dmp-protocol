@@ -8,6 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(DMP_NONE_MANIFEST_PROBE)
+#include "none_manifest.h"
+#endif
+
 #ifndef SAMPLE_PEERS
 #define SAMPLE_PEERS 1U
 #endif
@@ -28,6 +32,18 @@
     } while (0)
 
 enum {
+#if defined(DMP_NONE_MANIFEST_PROBE)
+    MESSAGE_BYTES = DMP_NONE_MESSAGE_BYTES,
+    CORE_MTU = DMP_NONE_ENCODED_MTU,
+    SENDERS = DMP_NONE_SENDER_SLOTS,
+    RESULTS = DMP_NONE_RESULT_SLOTS,
+    HISTORY = DMP_NONE_HISTORY_SLOTS,
+    CORRELATIONS = DMP_NONE_CORRELATION_SLOTS,
+    ADAPTERS = DMP_NONE_ADAPTER_SLOTS,
+    ASSEMBLIES = DMP_NONE_ASSEMBLY_SLOTS,
+    TOMBSTONES = DMP_NONE_ASSEMBLY_TOMBSTONE_SLOTS,
+    MAX_SAMPLE_PEERS = DMP_NONE_PEERS,
+#else
     MESSAGE_BYTES = 1024,
     CORE_MTU = 263,
     SENDERS = SAMPLE_PEERS > 4U ? SAMPLE_PEERS : 4U,
@@ -37,8 +53,9 @@ enum {
     ADAPTERS = SAMPLE_PEERS > 4U ? SAMPLE_PEERS + 2U : 6U,
     ASSEMBLIES = 1,
     TOMBSTONES = 16,
-    QUEUE_CAPACITY = 16,
-    MAX_SAMPLE_PEERS = 16
+    MAX_SAMPLE_PEERS = 16,
+#endif
+    QUEUE_CAPACITY = 16
 };
 
 typedef struct node node;
@@ -245,6 +262,11 @@ static void expected_read(uint8_t out[DMP_SAMPLE1_READ_BYTES], uint64_t epoch,
 static void fill_none_profile(dmp_config *config, uint32_t local_id,
                               uint32_t peer_id)
 {
+#if defined(DMP_NONE_MANIFEST_PROBE)
+    (void)local_id;
+    (void)peer_id;
+    *config = dmp_none_manifest;
+#else
     static const uint8_t manifest_digest[DMP_PROFILE_SHA256_BYTES] = {
         0x29U, 0xcbU, 0x7bU, 0x91U, 0xeeU, 0x0cU, 0x26U, 0x9bU,
         0xc1U, 0x4aU, 0xc4U, 0x3eU, 0x3aU, 0x7cU, 0x8fU, 0xd8U,
@@ -329,6 +351,7 @@ static void fill_none_profile(dmp_config *config, uint32_t local_id,
     config->record_margin_ms = 5U;
     config->tx_borrow = true;
     config->synchronous_completion = true;
+#endif
 }
 
 static dmp_status tx_submit(void *context, const dmp_tx_submission *submission)
@@ -2104,7 +2127,7 @@ static int run_shared_producer_peer_driver(void)
 }
 #endif
 
-int main(int argc, char **argv)
+static int run_sample_workload(int argc, char **argv)
 {
     const dmp_time_ms now = 100U;
     const uint64_t first_sample_epoch = 700U;
@@ -2153,6 +2176,9 @@ int main(int argc, char **argv)
                     consumer_boot_1, producer_boot_1,
                     now) == 0);
     CHECK(init_sample_endpoint(&producer) == 0);
+    if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        CHECK(pump(now) == 0);
+    }
     CHECK(dmp_endpoint_submit_req_to(&consumer.endpoint,
                                      consumer.endpoint.peers[0].handle, 1U,
                                      span(status_request, sizeof(status_request)), now,
@@ -2200,18 +2226,25 @@ int main(int argc, char **argv)
     CHECK(store.committed_epoch == second_sample_epoch);
     CHECK(replace_node_context(&consumer, consumer_boot_1, producer_boot_2,
                                now + 2U) == 0);
-    stale_status = dmp_endpoint_rx_packet_from(
-        &consumer.endpoint, consumer.endpoint.peers[0].handle,
-        span(stale_frame, stale_frame_len), now + 2U);
+    if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        CHECK(pump(now + 2U) == 0);
+        stale_status = dmp_endpoint_rx_from(
+            &consumer.endpoint, consumer.endpoint.peers[0].handle,
+            span(stale_frame, stale_frame_len), now + 2U);
+    } else {
+        stale_status = dmp_endpoint_rx_packet_from(
+            &consumer.endpoint, consumer.endpoint.peers[0].handle,
+            span(stale_frame, stale_frame_len), now + 2U);
+    }
     CHECK(stale_status != DMP_OK && stale_status != DMP_DUPLICATE);
     CHECK(consumer.telem_count == 0U);
 
     CHECK(publish_and_check(now + 3U, 301U, second_sample_epoch) == 0);
     {
-        dmp_core_limits limits = {CORE_MTU, MESSAGE_BYTES, 16U};
         dmp_frame_view frame;
-        dmp_parse_result parsed = dmp_core_parse(
-            span(producer.tx.frame[0], producer.tx.length[0]), &limits, &frame);
+        dmp_parse_result parsed = parse_outbound_core(
+            producer.tx.frame[0], producer.tx.length[0], now + 3U, &frame,
+            producer.parsed_view_storage);
         dmp_message_key key;
         if (parsed.status != DMP_OK ||
             dmp_identity_source_key(&frame, &consumer.endpoint.identity,
@@ -2252,5 +2285,22 @@ int main(int argc, char **argv)
     CHECK(consumer.result_request.peer.generation == request.peer.generation);
     CHECK(consumer.result_request.slot == request.slot);
     (void)printf("production SAMPLE-1 NONE endpoint integration passed\n");
+#if defined(DMP_NONE_MANIFEST_PROBE)
+    (void)printf("DIRECT-1 NONE %s\n", DMP_NONE_MANIFEST_SHA256);
+#endif
     return 0;
 }
+
+#if defined(ESP_PLATFORM)
+void app_main(void)
+{
+    if (run_sample_workload(0, NULL) != 0) {
+        abort();
+    }
+}
+#else
+int main(int argc, char **argv)
+{
+    return run_sample_workload(argc, argv);
+}
+#endif

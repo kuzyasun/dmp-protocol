@@ -318,6 +318,75 @@ static int test_unknown_traffic(void)
     return 0;
 }
 
+static int test_unsupported_security(void)
+{
+    fixture f;
+    dmp_config input;
+    dmp_admitted_profile output;
+    dmp_endpoint_storage storage;
+    dmp_peer_handle extra_peer;
+    dmp_identity_context_config extra_context = context_for(30U);
+    /* Aligned non-null backing tests that rejected handles are never used. */
+    union {
+        void *pointer;
+        uint64_t integer;
+        long double extended;
+    } opaque = {0};
+    struct dmp_hs *handshake = (struct dmp_hs *)(void *)&opaque;
+    unsigned char profile_before[sizeof(output)];
+    unsigned char fixture_before[sizeof(f)];
+
+    CHECK(boot(&f, 1U) == 0);
+    make_profile(&input, 1U);
+    memset(&output, 0xa5, sizeof output);
+    memcpy(profile_before, &output, sizeof profile_before);
+    memcpy(fixture_before, &f, sizeof fixture_before);
+    storage = f.endpoint.mem;
+    storage.profile = &input;
+
+    input.security_mode = DMP_PROFILE_SECURITY_SEC1;
+    storage.context.security = 1U;
+    CHECK(dmp_config_admit(&input, &output) == DMP_UNSUPPORTED);
+    CHECK(memcmp(profile_before, &output, sizeof profile_before) == 0);
+    CHECK(dmp_endpoint_init(&f.endpoint, &storage, 101U) == DMP_UNSUPPORTED);
+    CHECK(memcmp(fixture_before, &f, sizeof fixture_before) == 0);
+
+    input.security_mode = DMP_PROFILE_SECURITY_NONE;
+    input.freshness_required_mask = 1U;
+    input.freshness_lease_ms = 100U;
+    input.freshness_tokens_per_association = 1U;
+    input.freshness_tokens_per_principal = 1U;
+    input.freshness_grant_requests_per_pair = 1U;
+    input.freshness_token_record_ms = 100U;
+    input.freshness_grant_result_ms = 100U;
+    storage.context.security = 0U;
+    CHECK(dmp_config_admit(&input, &output) == DMP_UNSUPPORTED);
+    CHECK(memcmp(profile_before, &output, sizeof profile_before) == 0);
+    CHECK(dmp_endpoint_init(&f.endpoint, &storage, 101U) == DMP_UNSUPPORTED);
+    CHECK(memcmp(fixture_before, &f, sizeof fixture_before) == 0);
+
+    make_profile(&input, 1U);
+    storage.handshake_admission = (struct dmp_hs_admission *)(void *)&opaque;
+    CHECK(dmp_endpoint_init(&f.endpoint, &storage, 101U) == DMP_UNSUPPORTED);
+    CHECK(memcmp(fixture_before, &f, sizeof fixture_before) == 0);
+    CHECK(dmp_endpoint_bind(&f.endpoint, handshake, 0U) == DMP_UNSUPPORTED);
+    CHECK(dmp_endpoint_rotate(&f.endpoint, 0U, 102U) == DMP_UNSUPPORTED);
+    CHECK(memcmp(fixture_before, &f, sizeof fixture_before) == 0);
+
+    CHECK(boot(&f, 5U) == 0);
+    CHECK(dmp_endpoint_add_peer(&f.endpoint, &extra_context, 101U, &extra_peer) == DMP_OK);
+    /* Select the other established peer so any accidental route change is visible. */
+    if (f.endpoint.active_peer_slot == extra_peer.slot) {
+        extra_peer = f.endpoint.peers[0].handle;
+    }
+    memcpy(fixture_before, &f, sizeof fixture_before);
+    CHECK(dmp_endpoint_bind_peer(&f.endpoint, extra_peer, handshake, 0U) ==
+          DMP_UNSUPPORTED);
+    CHECK(dmp_endpoint_rotate_peer(&f.endpoint, extra_peer, 0U, 102U) == DMP_UNSUPPORTED);
+    CHECK(memcmp(fixture_before, &f, sizeof fixture_before) == 0);
+    return 0;
+}
+
 static int report_layout(uint32_t peers)
 {
     fixture f;
@@ -371,6 +440,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "unknown") == 0) {
         return test_unknown_traffic();
+    }
+    if (strcmp(argv[1], "unsupported_security") == 0) {
+        return test_unsupported_security();
     }
     if (strcmp(argv[1], "layout5") == 0) {
         return report_layout(5U);

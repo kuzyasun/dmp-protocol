@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
 
 option(DMP_SIZE_PROBE_STREAM_R "Exercise Stream R around the Core size workload" OFF)
+option(DMP_ENABLE_ENDPOINT_STREAM_R "Support Stream R binding at the endpoint" ON)
+set(DMP_SIZE_NONE_PROFILE "" CACHE STRING "NONE size workload: empty, direct, or radio")
+set_property(CACHE DMP_SIZE_NONE_PROFILE PROPERTY STRINGS "" direct radio)
+if(NOT DMP_SIZE_NONE_PROFILE MATCHES "^(|direct|radio)$")
+    message(FATAL_ERROR "DMP_SIZE_NONE_PROFILE must be empty, direct, or radio")
+endif()
+if(DMP_SIZE_NONE_PROFILE AND DMP_SIZE_PROBE_STREAM_R)
+    message(FATAL_ERROR "DMP_SIZE_PROBE_STREAM_R is only for the Core size workload")
+endif()
+if(DMP_SIZE_NONE_PROFILE STREQUAL "direct" AND NOT DMP_ENABLE_ENDPOINT_STREAM_R)
+    message(FATAL_ERROR "The DIRECT-1 size workload requires endpoint Stream R")
+endif()
 
 set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults")
 set(SDKCONFIG "${CMAKE_BINARY_DIR}/sdkconfig")

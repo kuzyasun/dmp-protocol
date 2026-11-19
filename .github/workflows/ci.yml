@@ -35,6 +35,16 @@ jobs:
         run: ctest --test-dir build/host --output-on-failure
       - name: Check core allocator symbols
         run: python tools/check_core_allocators.py build/host/libdmp.a --nm nm
+      - name: Check unoptimized NONE-only link and admission
+        run: |
+          cmake -S . -B build/none-debug -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS_DEBUG="-O0 -g"
+          cmake --build build/none-debug --parallel 1 --target dmp_none_link_probe dmp_test_none_capacity
+          ctest --test-dir build/none-debug -j 1 --output-on-failure -R '^endpoint[.]none(_crypto_free_|[.]unsupported_security$)'
+      - name: Check Packet-only endpoint and independent Stream codec
+        run: |
+          cmake -S . -B build/packet-debug -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS_DEBUG="-O0 -g" -DDMP_ENABLE_ENDPOINT_STREAM_R=OFF
+          cmake --build build/packet-debug --parallel 1 --target dmp_size_core dmp_size_core_stream_r dmp_size_none_radio
+          ctest --test-dir build/packet-debug -j 1 --output-on-failure -R '^size[.]'
 
   host-windows-msvc:
     runs-on: windows-2022
