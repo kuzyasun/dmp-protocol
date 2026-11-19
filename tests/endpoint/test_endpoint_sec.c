@@ -18,7 +18,9 @@
 
 #include "handshake.h"
 #include "noise_fixture_probe.h"
+#if !defined(DMP_P23_TARGET)
 #include "p23_profile_hashes.h"
+#endif
 #include "sample1.h"
 #include "sample1_endpoint.h"
 
@@ -77,6 +79,45 @@ enum {
   P23_PROFILE_DIRECT_NN = 9
 };
 
+#if defined(DMP_P23_TARGET)
+#include "p23_target_profile.h"
+#include "p23_uart.h"
+#endif
+
+enum {
+#if defined(DMP_P23_TARGET)
+    NODE_PEERS = P23_TARGET_PEERS,
+    NODE_PAYLOAD = P23_TARGET_MESSAGE_BYTES,
+    NODE_SENDERS = P23_TARGET_SENDER_SLOTS,
+    NODE_RESULTS = P23_TARGET_RESULT_SLOTS,
+    NODE_HISTORY = P23_TARGET_HISTORY_SLOTS,
+    NODE_CORRELATIONS = P23_TARGET_CORRELATION_SLOTS,
+    NODE_ADAPTERS = P23_TARGET_ADAPTER_SLOTS,
+    NODE_ASSEMBLIES = P23_TARGET_ASSEMBLY_SLOTS,
+    NODE_TOMBSTONES = P23_TARGET_ASSEMBLY_TOMBSTONE_SLOTS,
+    NODE_FRESHNESS = P23_TARGET_FRESHNESS_SLOTS ? P23_TARGET_FRESHNESS_SLOTS : 1U,
+    NODE_FRAME = P23_TARGET_ENCODED_MTU,
+    NODE_CORE = P23_TARGET_CORE_MTU,
+    NODE_STREAM = P23_TARGET_STREAM_BYTES,
+    NODE_IDENTITIES = 2U * P23_TARGET_PEERS,
+#else
+    NODE_PEERS = DMP_PROFILE_MAX_PEERS,
+    NODE_PAYLOAD = MAX_MESSAGE,
+    NODE_SENDERS = SENDERS,
+    NODE_RESULTS = RESULTS,
+    NODE_HISTORY = HISTORY,
+    NODE_CORRELATIONS = CORRELATIONS,
+    NODE_ADAPTERS = ADAPTERS,
+    NODE_ASSEMBLIES = ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS,
+    NODE_TOMBSTONES = TOMBSTONES * DMP_PROFILE_MAX_PEERS,
+    NODE_FRESHNESS = 8,
+    NODE_FRAME = FRAME_CAP,
+    NODE_CORE = MTU,
+    NODE_STREAM = STREAM_CAP,
+    NODE_IDENTITIES = 8,
+#endif
+};
+
 typedef struct node node;
 typedef struct sample_tracker sample_tracker;
 
@@ -115,8 +156,8 @@ typedef struct {
     int producer;
     int have_pending;
     dmp_reliability_handle pending;
-    uint8_t peer_pending_live[DMP_PROFILE_MAX_PEERS];
-    dmp_reliability_handle peer_pending[DMP_PROFILE_MAX_PEERS];
+    uint8_t peer_pending_live[NODE_PEERS];
+    dmp_reliability_handle peer_pending[NODE_PEERS];
     int accepts;
     int results;
     uint32_t last_status;
@@ -135,14 +176,14 @@ typedef struct {
     uint32_t data_unknown_service;
     dmp_peer_handle last_unknown_peer;
     dmp_peer_handle last_peer;
-    uint8_t req[MAX_MESSAGE];
+    uint8_t req[NODE_PAYLOAD];
     size_t req_n;
     size_t request_service;
-    uint8_t result[MAX_MESSAGE];
+    uint8_t result[NODE_PAYLOAD];
     size_t result_n;
-    uint8_t telem[MAX_MESSAGE];
+    uint8_t telem[NODE_PAYLOAD];
     size_t telem_n;
-    uint8_t body[MAX_MESSAGE];
+    uint8_t body[NODE_PAYLOAD];
     size_t body_n;
     dmp_message_key sample1_expected_request;
     uint8_t sample1_expected_request_opcode;
@@ -161,37 +202,37 @@ struct sample_tracker {
 
 struct node {
     dmp_endpoint endpoint;
-    dmp_endpoint_peer_state peer_states[DMP_PROFILE_MAX_PEERS];
+    dmp_endpoint_peer_state peer_states[NODE_PEERS];
     dmp_transport transport;
     wire wire;
     app app;
     sample_tracker *sample_state;
     dmp_sample1_endpoint *sample_endpoint;
     dmp_reliability_handle sample_designated;
-    dmp_identity_slot ids[8];
-    dmp_reliability_sender_slot senders[SENDERS];
-    uint8_t sender_payload[SENDERS * MAX_MESSAGE];
-    dmp_reliability_result_slot results[RESULTS];
-    uint8_t result_payload[RESULTS * MAX_MESSAGE];
-    dmp_reliability_history_slot history[HISTORY];
-    dmp_reliability_correlation_slot correlations[CORRELATIONS];
-    uint8_t history_metadata[HISTORY * DMP_RELIABILITY_METADATA_BYTES];
-    uint8_t correlation_metadata[CORRELATIONS * DMP_RELIABILITY_METADATA_BYTES];
-    dmp_reliability_adapter_slot adapters[ADAPTERS];
-    uint8_t frames[ADAPTERS * FRAME_CAP];
-    uint8_t receive_payload[MAX_MESSAGE];
-    dmp_reassembly_slot assemblies[ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS];
-    dmp_reassembly_tombstone tombstones[TOMBSTONES * DMP_PROFILE_MAX_PEERS];
-    dmp_endpoint_freshness_slot freshness[8];
-    uint8_t assembly_payload[ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS * MAX_MESSAGE];
-    uint8_t assembly_metadata[ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS * DMP_REASSEMBLY_METADATA_BYTES];
-    uint8_t fragment_message[MAX_MESSAGE * DMP_PROFILE_MAX_PEERS];
-    uint8_t fragment_frame[MTU];
-    uint8_t telemetry_payload[MAX_MESSAGE * DMP_PROFILE_MAX_PEERS];
-    uint8_t telemetry_next[MAX_MESSAGE * DMP_PROFILE_MAX_PEERS];
-    uint8_t telemetry_frame[MTU];
-    uint8_t stream_tx[STREAM_CAP];
-    uint8_t stream_rx[STREAM_CAP * DMP_PROFILE_MAX_PEERS];
+    dmp_identity_slot ids[NODE_IDENTITIES];
+    dmp_reliability_sender_slot senders[NODE_SENDERS];
+    uint8_t sender_payload[NODE_SENDERS * NODE_PAYLOAD];
+    dmp_reliability_result_slot results[NODE_RESULTS];
+    uint8_t result_payload[NODE_RESULTS * NODE_PAYLOAD];
+    dmp_reliability_history_slot history[NODE_HISTORY];
+    dmp_reliability_correlation_slot correlations[NODE_CORRELATIONS];
+    uint8_t history_metadata[NODE_HISTORY * DMP_RELIABILITY_METADATA_BYTES];
+    uint8_t correlation_metadata[NODE_CORRELATIONS * DMP_RELIABILITY_METADATA_BYTES];
+    dmp_reliability_adapter_slot adapters[NODE_ADAPTERS];
+    uint8_t frames[NODE_ADAPTERS * NODE_FRAME];
+    uint8_t receive_payload[NODE_PAYLOAD];
+    dmp_reassembly_slot assemblies[NODE_ASSEMBLIES];
+    dmp_reassembly_tombstone tombstones[NODE_TOMBSTONES];
+    dmp_endpoint_freshness_slot freshness[NODE_FRESHNESS];
+    uint8_t assembly_payload[NODE_ASSEMBLIES * NODE_PAYLOAD];
+    uint8_t assembly_metadata[NODE_ASSEMBLIES * DMP_REASSEMBLY_METADATA_BYTES];
+    uint8_t fragment_message[NODE_PAYLOAD * NODE_PEERS];
+    uint8_t fragment_frame[NODE_CORE];
+    uint8_t telemetry_payload[NODE_PAYLOAD * NODE_PEERS];
+    uint8_t telemetry_next[NODE_PAYLOAD * NODE_PEERS];
+    uint8_t telemetry_frame[NODE_CORE];
+    uint8_t stream_tx[NODE_STREAM];
+    uint8_t stream_rx[NODE_STREAM * NODE_PEERS];
 };
 
 static int sample_accept_read_result(sample_tracker *state, const app *result,
@@ -253,13 +294,21 @@ typedef struct {
 
 typedef void (*tune_fn)(dmp_hs_config *initiator, dmp_hs_config *responder);
 
+#if !defined(DMP_P23_TARGET)
 static node left;
+#endif
 static node right;
 static const uint8_t *g_profile_hash_override;
 static const uint8_t *g_psk_override;
 static int g_p23_copy_async_binding;
 static int g_endpoint_test_async_borrow;
+#if defined(DMP_P23_TARGET)
+#define g_p23_profile_id P23_TARGET_PROFILE
+#define g_p23_security_mode P23_TARGET_NOISE_MODE
+#else
 static uint8_t g_p23_profile_id;
+static uint8_t g_p23_security_mode;
+#endif
 static int g_p23_tombstone_pressure_profile;
 static int p23_uses_packet_endpoint(void)
 {
@@ -274,14 +323,15 @@ static int p23_defer_tx_completions;
 static uint8_t g_p23_confirmation_route_ttl;
 static uint8_t p23_profile_hash[32];
 static uint8_t p23_expected_remote_pin[32];
-static uint8_t g_p23_security_mode;
 static const uint8_t *p23_static_override;
 static uint32_t p23_pin_commits;
 static dmp_config p23_effective_config;
 static dmp_hs_budget p23_effective_budget;
 static int g_validate_sample1_requests;
 static int g_validate_sample1_results;
+#if !defined(DMP_P23_TARGET)
 static uint32_t g_endpoint_test_assembly_quota_override;
+#endif
 static uint32_t g_sample1_validator_calls;
 static uint32_t g_sample1_forced_status;
 static uint32_t g_endpoint_test_message_bytes;
@@ -296,20 +346,24 @@ static uint32_t g_endpoint_test_handshake_pending;
 static uint32_t g_endpoint_test_next_rx_cid;
 static struct dmp_hs_admission *g_endpoint_test_admission;
 static void *g_endpoint_test_admission_storage;
+#if !defined(DMP_P23_TARGET)
 static int g_endpoint_test_responder_admission_only;
 static int g_endpoint_test_initiator_admission_only;
 static int g_endpoint_test_unique_entropy;
 static uint8_t g_endpoint_test_alt_attempt[16];
 static uint8_t g_endpoint_test_alt_init_ephemeral[32];
 static uint8_t g_endpoint_test_alt_resp_ephemeral[32];
+#endif
 
 static const uint8_t DIRECT_SHA[DMP_PROFILE_SHA256_BYTES] = {
     0x29, 0xcb, 0x7b, 0x91, 0xee, 0x0c, 0x26, 0x9b, 0xc1, 0x4a, 0xc4, 0x3e, 0x3a, 0x7c, 0x8f, 0xd8,
     0xbd, 0xcf, 0xe1, 0x1e, 0x9e, 0x05, 0x2e, 0x8b, 0xd9, 0xe6, 0xaf, 0x00, 0xfb, 0x89, 0xc3, 0xbf};
 
+#if !defined(DMP_P23_TARGET)
 static const uint8_t READ_RSP[SAMPLE1_READ_BYTES] = {
     0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x2c, 0x01, 0x00,
     0x00};
+#endif
 
 static uint32_t validate_sample1_request(void *user, const dmp_frame_view *frame,
                                          uint32_t service_id, dmp_bytes payload)
@@ -459,7 +513,7 @@ static void on_notice(void *user, const dmp_endpoint_notice *notice) {
   if (notice->event == DMP_ENDPOINT_REQUEST) {
     self->app.accepts++;
     self->app.last_peer = notice->peer;
-    if (notice->peer.slot < DMP_PROFILE_MAX_PEERS) {
+    if (notice->peer.slot < NODE_PEERS) {
       self->app.peer_pending_live[notice->peer.slot] = 1U;
       self->app.peer_pending[notice->peer.slot] = notice->request;
     }
@@ -948,6 +1002,10 @@ static void fill_direct(dmp_config *config, uint32_t chunk,
 }
 
 static int install_manifest_grants(node *self) {
+#if defined(DMP_P23_TARGET)
+  return dmp_endpoint_set_grants(&self->endpoint, p23_target_grants,
+      sizeof p23_target_grants / sizeof p23_target_grants[0]) == DMP_OK ? 0 : 1;
+#else
   dmp_endpoint_grant grants[6];
   size_t count = 4U;
 
@@ -978,6 +1036,7 @@ static int install_manifest_grants(node *self) {
     count = 6U;
   }
   return dmp_endpoint_set_grants(&self->endpoint, grants, count) == DMP_OK ? 0 : 1;
+#endif
 }
 
 static int boot_node_slots(node *self, int producer, uint32_t chunk,
@@ -987,6 +1046,11 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   dmp_endpoint_storage storage;
   dmp_identity_context_config identity;
   memset(self, 0, sizeof *self);
+#if defined(DMP_P23_TARGET)
+  (void)chunk;
+  (void)fragments;
+  input = p23_target_config;
+#else
   fill_direct(&input, chunk, fragments);
   p23_apply_profile_config(&input);
   p23_apply_direct_profile_config(&input);
@@ -994,6 +1058,7 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
     input.assemblies_per_peer = g_endpoint_test_assembly_quota_override;
     input.assembly_slots = g_endpoint_test_assembly_quota_override * input.peers;
   }
+#endif
   CHECK(dmp_config_admit(&input, &admitted) == DMP_OK);
   if (g_p23_profile_id != P23_PROFILE_NONE) {
     p23_effective_config = admitted;
@@ -1015,7 +1080,7 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   self->transport.context = &self->wire;
   self->transport.submit = wire_submit;
   self->transport.cancel = wire_cancel;
-  self->transport.caps.max_frame_bytes = FRAME_CAP;
+  self->transport.caps.max_frame_bytes = NODE_FRAME;
   self->wire.synchronous_completion = admitted.synchronous_completion;
   self->transport.caps.ownership =
       admitted.tx_borrow ? DMP_TX_BORROW : DMP_TX_COPY;
@@ -1041,33 +1106,38 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
     storage.validate_result = validate_sample1_result;
   }
   storage.senders = self->senders;
-  storage.sender_capacity = SENDERS;
+  storage.sender_capacity = NODE_SENDERS;
   storage.sender_payload = self->sender_payload;
   storage.sender_payload_capacity = sizeof self->sender_payload;
   storage.results = self->results;
-  storage.result_capacity = RESULTS;
+  storage.result_capacity = NODE_RESULTS;
   storage.result_payload = self->result_payload;
   storage.result_payload_capacity = sizeof self->result_payload;
   storage.history = self->history;
-  storage.history_capacity = HISTORY;
+  storage.history_capacity = NODE_HISTORY;
   storage.correlations = self->correlations;
-  storage.correlation_capacity = CORRELATIONS;
+  storage.correlation_capacity = NODE_CORRELATIONS;
   storage.history_metadata = self->history_metadata;
   storage.history_metadata_capacity = sizeof self->history_metadata;
   storage.correlation_metadata = self->correlation_metadata;
   storage.correlation_metadata_capacity = sizeof self->correlation_metadata;
   storage.adapters = self->adapters;
-  storage.adapter_capacity = ADAPTERS;
+  storage.adapter_capacity = NODE_ADAPTERS;
   storage.frames = self->frames;
   storage.frame_capacity = sizeof self->frames;
   storage.receive_payload = self->receive_payload;
   storage.receive_payload_capacity = sizeof self->receive_payload;
   storage.assemblies = self->assemblies;
-  storage.assembly_capacity = ASSEMBLY_STORAGE_SLOTS * DMP_PROFILE_MAX_PEERS;
+  storage.assembly_capacity = NODE_ASSEMBLIES;
   storage.tombstones = self->tombstones;
-  storage.tombstone_capacity = TOMBSTONES * DMP_PROFILE_MAX_PEERS;
+  storage.tombstone_capacity = NODE_TOMBSTONES;
+#if defined(DMP_P23_TARGET)
+  storage.freshness_slots = P23_TARGET_FRESHNESS_SLOTS ? self->freshness : NULL;
+  storage.freshness_capacity = P23_TARGET_FRESHNESS_SLOTS;
+#else
   storage.freshness_slots = self->freshness;
   storage.freshness_capacity = sizeof self->freshness / sizeof self->freshness[0];
+#endif
   storage.assembly_payload = self->assembly_payload;
   storage.assembly_payload_capacity = sizeof self->assembly_payload;
   storage.assembly_metadata = self->assembly_metadata;
@@ -1122,6 +1192,7 @@ static int boot_node_slots(node *self, int producer, uint32_t chunk,
   return admitted.peers > 1U ? 0 : install_manifest_grants(self);
 }
 
+#if !defined(DMP_P23_TARGET)
 static int boot_node(node *self, int producer, uint32_t chunk, uint32_t fragments, dmp_time_ms now)
 {
     return boot_node_slots(self, producer, chunk, fragments, now, 2U);
@@ -1280,6 +1351,8 @@ static int pump(dmp_time_ms now, int rounds)
     CHECK(service(&right, now) == 0);
     return 0;
 }
+
+#endif
 
 static const noise_fixture_probe_fixture_t *find_fixture(const char *name)
 {
@@ -1492,6 +1565,10 @@ static void p23_apply_hs_profile(dmp_hs_config *config)
     config->budget.association_lifetime_ms = 100000000U;
     config->budget.confirmation_timeout_ms = 512U;
     config->budget.confirmation_attempts = 2U;
+#if defined(DMP_P23_TARGET)
+    config->budget = p23_target_budget;
+    config->cipher = P23_TARGET_CIPHER;
+#endif
     config->mode = g_p23_security_mode;
     if (g_p23_security_mode == 2U) {
         static const uint8_t local_static[32] = {0U};
@@ -1562,9 +1639,11 @@ static void close_session(session *env)
 static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fixture_t *fixture,
                      tune_fn tune, dmp_provider *existing, int alt_entropy)
 {
+#if !defined(DMP_P23_TARGET)
     dmp_hs_config init_config;
-    dmp_hs_config resp_config;
     dmp_hs_ports init_ports;
+#endif
+    dmp_hs_config resp_config;
     dmp_hs_ports resp_ports;
     dmp_provider_ports ports;
     dmp_provider *provider;
@@ -1592,16 +1671,23 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
         }
         provider = env->provider;
     }
+#if !defined(DMP_P23_TARGET)
     env->initiator = (dmp_hs *)calloc(1, dmp_hs_size());
+#endif
     env->responder = (dmp_hs *)calloc(1, dmp_hs_size());
-    if (env->initiator == NULL || env->responder == NULL) {
+    if (env->responder == NULL
+#if !defined(DMP_P23_TARGET)
+        || env->initiator == NULL
+#endif
+    ) {
         close_session(env);
         return 0;
     }
-    fill_hs(&init_config, fixture, 1);
     fill_hs(&resp_config, fixture, 0);
-    p23_apply_hs_profile(&init_config);
     p23_apply_hs_profile(&resp_config);
+#if !defined(DMP_P23_TARGET)
+    fill_hs(&init_config, fixture, 1);
+    p23_apply_hs_profile(&init_config);
     if (tune != NULL) {
         tune(&init_config, &resp_config);
     }
@@ -1627,19 +1713,27 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
     env->init_box.now = &env->now;
     env->init_box.entropy_script = &env->init_script;
     env->init_box.pin_store = &env->init_store;
-    env->resp_box.now = &env->now;
-    env->resp_box.entropy_script = &env->resp_script;
-    env->resp_box.pin_store = &env->resp_store;
     memset(&init_ports, 0, sizeof init_ports);
-    memset(&resp_ports, 0, sizeof resp_ports);
     init_ports.now_ms = now_of;
     init_ports.entropy = entropy_of;
     init_ports.commit_pin = commit_of;
     init_ports.ctx = &env->init_box;
+#else
+    (void)tune;
+    (void)alt_entropy;
+    script_add(&env->resp_script, fixture->resp_ephemeral.data, fixture->resp_ephemeral.size);
+#endif
+    env->resp_box.now = &env->now;
+    env->resp_box.entropy_script = &env->resp_script;
+    env->resp_box.pin_store = &env->resp_store;
+    memset(&resp_ports, 0, sizeof resp_ports);
     resp_ports.now_ms = now_of;
     resp_ports.entropy = entropy_of;
     resp_ports.commit_pin = commit_of;
     resp_ports.ctx = &env->resp_box;
+#if defined(DMP_P23_TARGET)
+    if (dmp_hs_init(env->responder, provider, &resp_config, &resp_ports) != DMP_HS_OK) {
+#else
     if ((g_endpoint_test_admission != NULL &&
          (g_endpoint_test_responder_admission_only == 0 ||
           g_endpoint_test_initiator_admission_only != 0)
@@ -1654,6 +1748,7 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
              : dmp_hs_init(env->responder, provider, &resp_config, &resp_ports)) !=
             DMP_HS_OK ||
         dmp_hs_begin_episode(env->initiator) != DMP_HS_OK) {
+#endif
         (void)fprintf(stderr, "make_pair handshake init failed\n");
         close_session(env);
         return 0;
@@ -1661,6 +1756,7 @@ static int make_pair(session *env, port_ctx *port, const noise_fixture_probe_fix
     return 1;
 }
 
+#if !defined(DMP_P23_TARGET)
 /* Re-create only a simulated remote initiator while retaining the responder
  * object bound to the endpoint. The test shares one provider across its local
  * endpoint and four in-process remote peers, so the remote initiator's old
@@ -1843,6 +1939,8 @@ static int bind_pair(session *env, uint32_t index)
     return 0;
 }
 
+#endif
+
 static int unwrap_core(const uint8_t *framed, size_t n, uint8_t *core, size_t cap, size_t *core_n,
                        dmp_time_ms now)
 {
@@ -1922,6 +2020,7 @@ static int wrap_core(const uint8_t *core, size_t n, uint8_t *out, size_t cap, si
     return 1;
 }
 
+#if !defined(DMP_P23_TARGET)
 static int wire_opens_type(wire *from, dmp_hs *receiver, uint32_t attempt,
                            uint8_t wanted_type, uint8_t *payload,
                            size_t payload_capacity, size_t *payload_size,
@@ -8213,6 +8312,8 @@ static int test_selective_repair(void)
 /* P23's versioned process seam joins this real C endpoint and its real SEC-1
  * state machine to the independent Python peer. The process protocol carries
  * only bounded opaque binding bytes; it does not implement DMP behavior. */
+#endif
+
 enum {
   P23_PROTOCOL_VERSION = 1,
   P23_OP_INIT = 1,
@@ -8227,8 +8328,14 @@ enum {
   P23_OP_SUBMIT_FRESH_DATA = 10,
   P23_OP_COMPLETE_TX = 11,
   P23_OP_REJECT_NEXT_TX = 12,
+#if defined(DMP_P23_TARGET)
+  P23_MAX_INPUT = NODE_PAYLOAD + 32U,
+  /* Three payload snapshots, the full TX queue and fixed response fields. */
+  P23_MAX_RESPONSE = 3U * NODE_PAYLOAD + QUEUE * (FRAME_CAP + 4U) + 512U,
+#else
   P23_MAX_INPUT = 65536,
   P23_MAX_RESPONSE = 32768,
+#endif
   P23_CONTEXT_TAG = 0x0b,
   P23_ORIGIN_TAG = 0x0f
 };
@@ -8507,6 +8614,22 @@ static int p23_complete_tx(uint64_t now, uint32_t count, p23_batch *batch) {
   return 1;
 }
 
+static int p23_encode_binding(const uint8_t *core, size_t size,
+                              uint8_t *out, size_t capacity, size_t *written)
+{
+#if defined(DMP_P23_TARGET)
+  if (P23_TARGET_PROFILE == P23_PROFILE_RADIO_XX) {
+    if (size > capacity) {
+      return 0;
+    }
+    memcpy(out, core, size);
+    *written = size;
+    return 1;
+  }
+#endif
+  return wrap_core(core, size, out, capacity, written);
+}
+
 static int p23_encode_bootstrap(const uint8_t *payload, size_t payload_size,
                                 uint8_t sequence, uint64_t epoch,
                                 uint32_t origin, uint8_t *wire_bytes,
@@ -8564,14 +8687,14 @@ static int p23_encode_bootstrap(const uint8_t *payload, size_t payload_size,
     return 0;
   }
   p23_write_u32(core + core_size - 4U, crc);
-  if (!wrap_core(core, core_size, wire_bytes, wire_capacity, &written)) {
+  if (!p23_encode_binding(core, core_size, wire_bytes, wire_capacity, &written)) {
     return 0;
   }
   *wire_size = written;
   return 1;
 }
 
-static const uint8_t p23_hash_radio_tombstone_pressure[32];
+#if !defined(DMP_P23_TARGET)
 
 static const uint8_t *p23_expected_profile_hash(uint8_t profile_id) {
   if (profile_id == P23_PROFILE_RADIO_SELECTIVE) {
@@ -8611,8 +8734,14 @@ static const uint8_t p23_hash_radio_tombstone_pressure[32] = {
     0x06U, 0x53U, 0x9aU, 0x78U, 0xa8U, 0x7bU, 0xf5U, 0xf0U,
     0xc4U, 0xf5U, 0x4dU, 0x9cU, 0x3eU, 0x7cU, 0x04U, 0xdfU,
     0xd5U, 0x92U, 0x35U, 0xa1U, 0x77U, 0x95U, 0x7aU, 0xe3U};
+#endif
 
 static uint8_t p23_profile_id_for_hash(const uint8_t *profile_hash) {
+#if defined(DMP_P23_TARGET)
+  return profile_hash != NULL &&
+         memcmp(profile_hash, p23_target_config.sha256, sizeof p23_target_config.sha256) == 0
+             ? P23_TARGET_PROFILE : P23_PROFILE_NONE;
+#else
   uint8_t profile_id;
   if (profile_hash == NULL) {
     return P23_PROFILE_NONE;
@@ -8630,6 +8759,7 @@ static uint8_t p23_profile_id_for_hash(const uint8_t *profile_hash) {
     return P23_PROFILE_RADIO_RETRY_ALL;
   }
   return P23_PROFILE_NONE;
+#endif
 }
 
 static int p23_routed_profile(void) {
@@ -8672,11 +8802,19 @@ static int p23_init(const uint8_t *profile_hash, const uint8_t *credential,
   dmp_endpoint_grant grants[4];
   uint8_t profile_id = p23_profile_id_for_hash(profile_hash);
   int ok;
+#if defined(DMP_P23_TARGET)
+  const uint8_t profile_mode = P23_TARGET_NOISE_MODE;
+  /* The measured binding uses synchronous completion. */
+  if (defer_tx_completions != 0U) {
+    return 0;
+  }
+#else
   uint8_t profile_mode = (profile_id == P23_PROFILE_DIRECT_XX ||
                           profile_id == P23_PROFILE_RADIO_XX ||
                           profile_id == P23_PROFILE_RADIO_RETRY_ALL_XX)
                              ? 2U
                              : 1U;
+#endif
   if (profile_id == P23_PROFILE_NONE || credential == NULL ||
       expected_pin == NULL || batch == NULL || requested_mode != profile_mode ||
       defer_tx_completions > 1U || p23_initialized) {
@@ -8684,12 +8822,16 @@ static int p23_init(const uint8_t *profile_hash, const uint8_t *credential,
   }
   p23_defer_tx_completions = defer_tx_completions != 0U;
   fixture = find_fixture(profile_mode == 2U ? "xx" : "nnpsk0");
+#if !defined(DMP_P23_TARGET)
   g_p23_profile_id = profile_id;
   g_p23_tombstone_pressure_profile =
       memcmp(profile_hash, p23_hash_radio_tombstone_pressure,
              sizeof p23_profile_hash) == 0;
   g_p23_security_mode = profile_mode;
   g_p23_confirmation_route_ttl = p23_routed_profile() ? 2U : 0U;
+#else
+  g_p23_confirmation_route_ttl = p23_target_config.origin_ttl;
+#endif
   memcpy(p23_profile_hash, profile_hash, sizeof p23_profile_hash);
   memcpy(p23_expected_remote_pin, expected_pin, sizeof p23_expected_remote_pin);
   p23_pin_commits = 0U;
@@ -8933,8 +9075,7 @@ static int p23_handshake_frame(const dmp_frame_view *frame, p23_batch *batch) {
     ready = dmp_hs_protected_frame(p23_env.responder, attempt_index,
                                    &ready_size);
     if (ready == NULL || ready_size == 0U ||
-        !wrap_core(ready, ready_size, wire_bytes, sizeof wire_bytes,
-                   &wire_size)) {
+        !p23_encode_binding(ready, ready_size, wire_bytes, sizeof wire_bytes, &wire_size)) {
       return 0;
     }
     return p23_add_frame(batch, wire_bytes, wire_size);
@@ -8946,6 +9087,7 @@ static int p23_receive(const uint8_t *input, size_t input_size, uint64_t now,
   uint8_t framed[FRAME_CAP + 1U];
   uint8_t core[MTU];
   size_t core_size = 0U;
+  dmp_bytes core_frame;
   dmp_frame_view frame;
   dmp_core_limits limits;
   dmp_parse_result parsed;
@@ -8968,17 +9110,30 @@ static int p23_receive(const uint8_t *input, size_t input_size, uint64_t now,
     return p23_endpoint_status == DMP_OK ||
            p23_endpoint_status == DMP_INCOMPLETE;
   }
-  framed[0] = 0U;
-  memcpy(framed + 1U, input, input_size);
-  if (!unwrap_core(framed, input_size + 1U, core, sizeof core, &core_size,
-                   now)) {
-    return 0;
+#if defined(DMP_P23_TARGET)
+  if (P23_TARGET_PROFILE == P23_PROFILE_RADIO_XX) {
+    core_frame = span(input, input_size);
+  } else
+#endif
+  {
+    framed[0] = 0U;
+    memcpy(framed + 1U, input, input_size);
+    if (!unwrap_core(framed, input_size + 1U, core, sizeof core, &core_size, now)) {
+      return 0;
+    }
+    core_frame = span(core, core_size);
   }
+#if defined(DMP_P23_TARGET)
+  limits.max_frame_bytes = p23_target_config.forward_mtu;
+  limits.max_message_bytes = p23_target_config.message_bytes;
+  limits.max_fragments = p23_target_config.fragments;
+#else
   limits.max_frame_bytes = MTU;
   limits.max_message_bytes = MESSAGE;
   limits.max_fragments = 32U;
+#endif
   memset(&frame, 0, sizeof frame);
-  parsed = dmp_core_parse(span(core, core_size), &limits, &frame);
+  parsed = dmp_core_parse(core_frame, &limits, &frame);
   if (parsed.status != DMP_OK) {
     return 0;
   }
@@ -8997,8 +9152,7 @@ static int p23_receive(const uint8_t *input, size_t input_size, uint64_t now,
     return 0;
   }
   p23_rx_status = p23_uses_packet_endpoint()
-                      ? dmp_endpoint_rx_packet(&right.endpoint,
-                                               span(core, core_size), now)
+                      ? dmp_endpoint_rx_packet(&right.endpoint, core_frame, now)
                       : dmp_endpoint_rx(&right.endpoint,
                                         span(input, input_size), now);
   p23_endpoint_status = p23_rx_status;
@@ -9386,7 +9540,11 @@ static int p23_dispatch(uint8_t operation, const uint8_t *input,
 static int p23_read_exact(uint8_t *bytes, size_t length) {
   size_t total = 0U;
   while (total < length) {
+#if defined(DMP_P23_TARGET)
+    size_t got = p23_uart_read(bytes + total, length - total);
+#else
     size_t got = fread(bytes + total, 1U, length - total, stdin);
+#endif
     if (got == 0U) {
       return 0;
     }
@@ -9397,8 +9555,15 @@ static int p23_read_exact(uint8_t *bytes, size_t length) {
 
 static int p23_driver_main(void) {
   uint8_t header[6];
+#if defined(DMP_P23_TARGET)
+  static uint8_t input[P23_MAX_INPUT];
+  static uint8_t response[P23_MAX_RESPONSE];
+  static p23_batch batch;
+#else
   uint8_t input[P23_MAX_INPUT];
   uint8_t response[P23_MAX_RESPONSE];
+  p23_batch batch;
+#endif
 #if defined(_WIN32)
   if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
       _setmode(_fileno(stdout), _O_BINARY) == -1) {
@@ -9408,7 +9573,6 @@ static int p23_driver_main(void) {
   while (p23_read_exact(header, sizeof header)) {
     uint32_t input_size = p23_read_u32(header + 2U);
     size_t response_size = 0U;
-    p23_batch batch;
     uint8_t status;
     if (header[0] != P23_PROTOCOL_VERSION || input_size > sizeof input) {
       return 2;
@@ -9417,20 +9581,40 @@ static int p23_driver_main(void) {
       return 2;
     }
     status = p23_dispatch(header[1], input, input_size, &batch) ? 0U : 1U;
-    if (!p23_emit_response(status, &batch, response, sizeof response,
-                           &response_size) ||
-        fwrite(response, 1U, response_size, stdout) != response_size ||
-        fflush(stdout) != 0) {
+    if (!p23_emit_response(status, &batch, response, sizeof response, &response_size)) {
       return 3;
     }
+#if defined(DMP_P23_TARGET)
+    if (!p23_uart_write(response, response_size)) {
+      return 3;
+    }
+#else
+    if (fwrite(response, 1U, response_size, stdout) != response_size || fflush(stdout) != 0) {
+      return 3;
+    }
+#endif
   }
   if (p23_initialized) {
     close_session(&p23_env);
     p23_initialized = 0;
   }
+#if defined(DMP_P23_TARGET)
+  return 0;
+#else
   return ferror(stdin) ? 4 : 0;
+#endif
 }
 
+#if defined(DMP_P23_TARGET)
+void app_main(void)
+{
+  static const uint8_t ready[] = "\nDMP P23 ready\n";
+  p23_uart_start();
+  if (!p23_uart_write(ready, sizeof ready - 1U) || p23_driver_main() != 0) {
+    abort();
+  }
+}
+#else
 static int profile_hash_nibble(char value, uint8_t *out)
 {
   if (value >= '0' && value <= '9') {
@@ -9646,3 +9830,4 @@ int main(int argc, char **argv) {
   }
   return failed == 0 ? 0 : 1;
 }
+#endif

@@ -185,6 +185,13 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         frames, _ = _settle(peer, list(events), clock)
         return frames
 
+    def _receive_forwarded(self, c_endpoint, packet, at_ms):
+        framed = encode_stream_r(packet, max_core=_MAX_CORE, max_encoded=_MAX_ENCODED)
+        return c_endpoint.receive(framed, at_ms)
+
+    def _decode_c_frame(self, frame):
+        return _decode_c_stream_frame(frame)
+
     def _dispatch(
         self,
         c_endpoint: _CProcess,
@@ -210,7 +217,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
                 try:
                     parse_frame(frame, max_frame=_MAX_CORE)
                 except FrameError:
-                    frame = _decode_c_stream_frame(frame)
+                    frame = self._decode_c_frame(frame)
             parsed = parse_frame(frame, max_frame=_MAX_CORE)
             if metrics is not None:
                 metrics.endpoint_tx(side, frame, parsed)
@@ -226,10 +233,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
             )
             at_ms = clock.next()
             if side == 10:
-                state = c_endpoint.receive(
-                    encode_stream_r(forwarded, max_core=_MAX_CORE, max_encoded=_MAX_ENCODED),
-                    at_ms,
-                )
+                state = self._receive_forwarded(c_endpoint, forwarded, at_ms)
                 self.assertEqual(
                     state.status,
                     0,
@@ -237,7 +241,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
                      parsed.fragment.index if parsed.fragment else None),
                 )
                 c_frames = [
-                    _decode_c_stream_frame(wire)
+                    self._decode_c_frame(wire)
                     for wire in state.frames
                     if wire != b"\x00"
                 ]
@@ -311,7 +315,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
             state = c_endpoint.poll(clock.next())
             self.assertEqual(state.status, 0, (state.endpoint_status, state.rx_status))
             c_frames = [
-                _decode_c_stream_frame(wire) for wire in state.frames if wire != b"\x00"
+                self._decode_c_frame(wire) for wire in state.frames if wire != b"\x00"
             ]
             statuses.extend(
                 frame for frame in c_frames
@@ -488,13 +492,10 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         self.assertEqual(len(request), 1)
         forwarded = self._route(relays, request[0], source=10, clock=clock)
         issued_at_ms = clock.next()
-        state = c_endpoint.receive(
-            encode_stream_r(forwarded, max_core=_MAX_CORE, max_encoded=_MAX_ENCODED),
-            issued_at_ms,
-        )
+        state = self._receive_forwarded(c_endpoint, forwarded, issued_at_ms)
         self.assertEqual(state.status, 0, (state.endpoint_status, state.rx_status))
         c_frames = [
-            _decode_c_stream_frame(wire)
+            self._decode_c_frame(wire)
             for wire in state.frames
             if wire != b"\x00"
         ]
@@ -519,13 +520,10 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
 
     def _send_peer_data_frame_to_c(self, c_endpoint, peer, relays, clock, frame):
         forwarded = self._route(relays, frame, source=10, clock=clock)
-        state = c_endpoint.receive(
-            encode_stream_r(forwarded, max_core=_MAX_CORE, max_encoded=_MAX_ENCODED),
-            clock.next(),
-        )
+        state = self._receive_forwarded(c_endpoint, forwarded, clock.next())
         self.assertEqual(state.status, 0, (state.endpoint_status, state.rx_status))
         c_frames = [
-            _decode_c_stream_frame(wire)
+            self._decode_c_frame(wire)
             for wire in state.frames
             if wire != b"\x00"
         ]
@@ -693,7 +691,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         self.assertEqual(request.status, 0)
         self.assertGreater(len(request.frames), 1)
         request_parts = [
-            parse_frame(_decode_c_stream_frame(wire), max_frame=_MAX_CORE)
+            parse_frame(self._decode_c_frame(wire), max_frame=_MAX_CORE)
             for wire in request.frames
         ]
         self.assertTrue(all(part.fragment is not None for part in request_parts))
@@ -717,7 +715,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
             c_state = c_endpoint.poll(clock.next())
             self.assertEqual(c_state.status, 0)
             c_frames = [
-                _decode_c_stream_frame(wire)
+                self._decode_c_frame(wire)
                 for wire in c_state.frames
                 if wire != b"\x00"
             ]
@@ -800,7 +798,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
             c_state = c_endpoint.poll(clock.next())
             self.assertEqual(c_state.status, 0)
             c_frames = [
-                _decode_c_stream_frame(wire)
+                self._decode_c_frame(wire)
                 for wire in c_state.frames
                 if wire != b"\x00"
             ]
@@ -869,7 +867,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         completed = c_endpoint.complete(clock.next())
         self.assertEqual(completed.status, 0)
         result_frames = [
-            _decode_c_stream_frame(wire)
+            self._decode_c_frame(wire)
             for wire in completed.frames
             if wire != b"\x00"
         ]
@@ -893,7 +891,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
             c_state = c_endpoint.poll(clock.next())
             self.assertEqual(c_state.status, 0)
             c_frames = [
-                _decode_c_stream_frame(wire)
+                self._decode_c_frame(wire)
                 for wire in c_state.frames
                 if wire != b"\x00"
             ]
@@ -931,7 +929,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
             self.assertTrue(all(value == 0 for value in relay._pending_airtime.values()))
         # This process was initialized once with one exact manifest digest and
         # the peer exercised one fresh association for that same profile.
-        self.assertEqual(len(c_endpoint.process.args), 2)
+        self.assertEqual(c_endpoint.last_state.profile_hash.hex(), self.digest_index[manifest_name])
         self.assertIsNotNone(peer.association)
         self.assertEqual(peer.association.status, "active")
 
@@ -1169,7 +1167,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         c_request = c_endpoint.submit_req_fresh(2, payload, token, clock.next())
         self.assertEqual(c_request.status, 0)
         initial = [
-            _decode_c_stream_frame(wire) for wire in c_request.frames if wire != b"\x00"
+            self._decode_c_frame(wire) for wire in c_request.frames if wire != b"\x00"
         ]
         self.assertEqual(len(initial), 8)
         sequence = parse_frame(initial[0], max_frame=_MAX_CORE).sequence
@@ -1226,7 +1224,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         request = c_endpoint.submit_req_fresh(2, payload, token, clock.next())
         self.assertEqual(request.status, 0)
         initial_wire = [wire for wire in request.frames if wire != b"\x00"]
-        initial = [_decode_c_stream_frame(wire) for wire in initial_wire]
+        initial = [self._decode_c_frame(wire) for wire in initial_wire]
         self.assertTrue(initial)
         sequence = parse_frame(initial[0], max_frame=_MAX_CORE).sequence
         initial_by_index = {
@@ -1251,7 +1249,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
             last_batch = [wire for wire in polled.frames if wire != b"\x00"]
             self.assertTrue(last_batch, "C sender did not continue its initial fragment burst")
             for wire in last_batch:
-                frame = _decode_c_stream_frame(wire)
+                frame = self._decode_c_frame(wire)
                 parsed = parse_frame(frame, max_frame=_MAX_CORE)
                 self.assertEqual(parsed.sequence, sequence)
                 self.assertIsNotNone(parsed.fragment)
@@ -1264,7 +1262,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         self.assertEqual(len(initial_frames), 8)
         delivered_initial = [
             wire for wire in initial_frames
-            if parse_frame(_decode_c_stream_frame(wire), max_frame=_MAX_CORE)
+            if parse_frame(self._decode_c_frame(wire), max_frame=_MAX_CORE)
             .fragment.index not in (2, 6)
         ]
 
@@ -1329,7 +1327,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
         self.assertEqual(repairs.status, 0, (repairs.endpoint_status, repairs.rx_status))
         repair_wire = [wire for wire in repairs.frames if wire != b"\x00"]
         all_repair_wire = list(repair_wire)
-        repair_frames = [_decode_c_stream_frame(wire) for wire in repair_wire]
+        repair_frames = [self._decode_c_frame(wire) for wire in repair_wire]
         repair_indices = [
             parse_frame(frame, max_frame=_MAX_CORE).fragment.index
             for frame in repair_frames
@@ -1346,7 +1344,7 @@ class TestP23RadioEndpointInterop(unittest.TestCase):
             repair_wire = [wire for wire in next_repairs.frames if wire != b"\x00"]
             self.assertTrue(repair_wire, "C sender did not continue its selective repair mask")
             all_repair_wire.extend(repair_wire)
-            repair_frames = [_decode_c_stream_frame(wire) for wire in repair_wire]
+            repair_frames = [self._decode_c_frame(wire) for wire in repair_wire]
             repair_indices.extend(
                 parse_frame(frame, max_frame=_MAX_CORE).fragment.index
                 for frame in repair_frames

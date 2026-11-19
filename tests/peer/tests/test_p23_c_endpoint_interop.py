@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from collections import deque
+from collections.abc import Sequence
 from pathlib import Path
 import struct
 import subprocess
@@ -80,7 +81,7 @@ def _read_exact(stream, size: int) -> bytes:
 class _CProcess:
     def __init__(
         self,
-        executable: str,
+        executable: str | Sequence[str],
         profile_hash: bytes,
         credential: bytes,
         *,
@@ -88,8 +89,9 @@ class _CProcess:
         expected_remote_pin: bytes = bytes(32),
         async_tx_completion: bool = False,
     ):
+        command = [executable] if isinstance(executable, str) else list(executable)
         self.process = subprocess.Popen(
-            [executable, "p23-driver"],
+            [*command, "p23-driver"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -762,31 +764,32 @@ class TestP23CPrimaryInterop(unittest.TestCase):
                 self.assertEqual(c_endpoint.last_state.body, peer_data)
 
     def test_p03_direct_nnpsk0_and_xx_large_request_result(self) -> None:
-        request_payload = bytes((index % 256) ^ 0x5A for index in range(1024))
-        expected_result = bytes((index % 256) ^ 0xA5 for index in range(1024))
         for profile, seed in (("direct-nnpsk0.json", 0x61), ("direct-xx.json", 0x81)):
             with self.subTest(profile=profile):
-                c_endpoint, peer, clock = self.open_pair(
-                    b"\x5a" * 32, seed, manifest_name=profile
-                )
-                request = c_endpoint.submit_req(2, request_payload, clock.next())
-                self.assertEqual(request.status, 0)
-                peer_events: list[Any] = []
-                for _ in range(64):
-                    peer_events.extend(_pump(c_endpoint, peer, request.frames, clock))
-                    if c_endpoint.last_state.results:
-                        break
-                    request = c_endpoint.poll(clock.advance(21))
-                    self.assertEqual(request.status, 0)
-                self.assertTrue(any(
-                    isinstance(event, ApplicationEvent)
-                    and event.kind == "request_accepted"
-                    and event.service_id == 2
-                    and event.payload == request_payload
-                    for event in peer_events
-                ))
-                self.assertEqual(c_endpoint.last_state.results, 1)
-                self.assertEqual(c_endpoint.last_state.result, expected_result)
+                self._exercise_large_request_result(profile, seed)
+
+    def _exercise_large_request_result(self, profile: str, seed: int) -> None:
+        request_payload = bytes((index % 256) ^ 0x5A for index in range(1024))
+        expected_result = bytes((index % 256) ^ 0xA5 for index in range(1024))
+        c_endpoint, peer, clock = self.open_pair(b"\x5a" * 32, seed, manifest_name=profile)
+        request = c_endpoint.submit_req(2, request_payload, clock.next())
+        self.assertEqual(request.status, 0)
+        peer_events: list[Any] = []
+        for _ in range(64):
+            peer_events.extend(_pump(c_endpoint, peer, request.frames, clock))
+            if c_endpoint.last_state.results:
+                break
+            request = c_endpoint.poll(clock.advance(21))
+            self.assertEqual(request.status, 0)
+        self.assertTrue(any(
+            isinstance(event, ApplicationEvent)
+            and event.kind == "request_accepted"
+            and event.service_id == 2
+            and event.payload == request_payload
+            for event in peer_events
+        ))
+        self.assertEqual(c_endpoint.last_state.results, 1)
+        self.assertEqual(c_endpoint.last_state.result, expected_result)
 
     def test_xx_rejects_wrong_remote_pin_without_activation_or_application_traffic(self) -> None:
         c_endpoint, peer, clock, peer_confirmation = self.open_xx_through_noise_confirmation(
