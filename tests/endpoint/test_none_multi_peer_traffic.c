@@ -64,7 +64,7 @@ static dmp_status discard_submit(void *user, const dmp_tx_submission *submission
 {
     (void)user;
     uint32_t crc = 0U;
-    uint32_t index;
+    size_t index;
     dmp_frame_view decoded;
     dmp_core_limits limits = {ENCODED_MTU, MESSAGE_BYTES, 16U};
     if (submission == NULL || submission->frame.data == NULL ||

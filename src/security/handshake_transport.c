@@ -195,7 +195,7 @@ static void tx_complete(void *owner, dmp_tx_token token, dmp_tx_outcome outcome,
     if (!token_matches(slot, token, token.slot) || slot->result_ready) {
         return;
     }
-    if (outcome < DMP_TX_TRANSMITTED || outcome > DMP_TX_POSSIBLY_TRANSMITTED) {
+    if ((unsigned int)outcome > (unsigned int)DMP_TX_POSSIBLY_TRANSMITTED) {
         outcome = DMP_TX_POSSIBLY_TRANSMITTED;
     }
     if (!slot->sync_action && when >= slot->deadline_ms &&

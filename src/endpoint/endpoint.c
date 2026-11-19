@@ -1671,13 +1671,13 @@ dmp_status dmp_endpoint_replace_none_peer_context(
         }
         old_generation_retired = 1;
     } else if (status == DMP_STALE_HANDLE && peer.generation != UINT64_MAX) {
-        const dmp_endpoint_peer_state *slot = &endpoint->peers[peer.slot];
+        const dmp_endpoint_peer_state *retired = &endpoint->peers[peer.slot];
         /* A previous call may have revoked this generation but returned BUSY
          * while an accepted outer send was still outstanding. Permit retry
          * only for the immediately retired generation and only while the slot
          * remains free; another owner cannot be displaced by this operation. */
-        if (slot->live == 0U && slot->retirement_requested == 0U &&
-            slot->handle.generation == peer.generation + 1U) {
+        if (retired->live == 0U && retired->retirement_requested == 0U &&
+            retired->handle.generation == peer.generation + 1U) {
             old_generation_retired = 1;
         }
     }

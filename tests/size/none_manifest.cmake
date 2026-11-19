@@ -5,7 +5,8 @@ function(dmp_configure_none_probe target kind)
     set(manifest "${root}/profiles/deployments/${kind}-none.json")
     set(header_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}-manifest")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-        "${manifest}" "${probe_dir}/generate_none_manifest.py"
+        "${manifest}" "${root}/profiles/deployments/digests.json"
+        "${probe_dir}/generate_none_manifest.py"
         "${root}/tests/identity/parity_drive.py"
         "${root}/tools/validate_profile.py" "${root}/profiles/schema/manifest-v1.schema.json")
     file(MAKE_DIRECTORY "${header_dir}")

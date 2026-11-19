@@ -165,13 +165,18 @@ static dmp_bytes span(const void *data, size_t size)
     return bytes;
 }
 
+static dmp_endpoint_framing_mode sample_framing(void)
+{
+    return SAMPLE_FRAMING_MODE;
+}
+
 static dmp_parse_result parse_outbound_core(const uint8_t *data, size_t size,
                                             dmp_time_ms now,
                                             dmp_frame_view *view,
                                             uint8_t view_storage[CORE_MTU])
 {
     dmp_core_limits limits = {CORE_MTU, MESSAGE_BYTES, 16U};
-    if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_PACKET) {
+    if (sample_framing() == DMP_ENDPOINT_FRAMING_PACKET) {
         return dmp_core_parse(span(data, size), &limits, view);
     }
     {
@@ -588,7 +593,7 @@ static void fill_storage(node *self, dmp_endpoint_storage *storage,
     storage->telemetry_next_capacity = sizeof(self->telemetry_next);
     storage->telemetry_frame = self->telemetry_frame;
     storage->telemetry_frame_capacity = sizeof(self->telemetry_frame);
-    if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+    if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
         storage->stream_tx = self->stream_tx;
         storage->stream_tx_capacity = sizeof(self->stream_tx);
         storage->stream_rx = self->stream_rx;
@@ -649,7 +654,7 @@ static int init_sample_endpoint(node *self)
     hooks.leave = hook_leave;
     hooks.reserve_next = hook_reserve;
     hooks.publish_telem = hook_publish;
-    if (SAMPLE_PEERS > DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS &&
+    if (self->endpoint.profile.peers > DMP_SAMPLE1_ENDPOINT_RESULT_SLOTS &&
         dmp_sample1_endpoint_init_with_peer_storage(
             &self->sample_endpoint, &self->endpoint, principal, &hooks,
             self->sample_peers, SAMPLE_PEERS) != DMP_SAMPLE1_OWNER_INVALID) {
@@ -663,6 +668,7 @@ static int init_sample_endpoint(node *self)
                : 1;
 }
 
+#if SAMPLE_PEERS == 1U
 static int replace_node_context(node *self, uint64_t local_epoch,
                                uint64_t peer_epoch, dmp_time_ms now)
 {
@@ -725,6 +731,7 @@ static int replace_node_context(node *self, uint64_t local_epoch,
     self->result_count = 0U;
     return self->is_producer != 0U ? init_sample_endpoint(self) : 0;
 }
+#endif
 
 static int process_sample_notice(node *self, dmp_time_ms now)
 {
@@ -1016,7 +1023,7 @@ static int run_multi_peer_round_trips(void)
     }
     CHECK(producer.tx.count == SAMPLE_PEERS);
     for (i = 0U; i < SAMPLE_PEERS; i++) {
-        if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
             /* Each independent peer must establish its own stream decoder
              * before any Core frame is encoded for that route. */
             CHECK(producer.tx.length[i] == 1U);
@@ -1053,7 +1060,7 @@ static int run_multi_peer_round_trips(void)
         consumer.tx.route_peer_override = 1U;
         consumer.tx.route_peer_slot = i;
         CHECK(consumer.endpoint.peer_count == 1U);
-        if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
             /* Drain the producer's per-peer open delimiter and establish the
              * independent reverse decoder before issuing app traffic. */
             CHECK(deliver(&producer, &consumer, now) == 0);
@@ -1093,10 +1100,10 @@ static int run_multi_peer_round_trips(void)
              * SEQ; their request/result histories must remain independent. */
             CHECK(request_view.fields.seq == first_status_seq);
         }
-        if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
             producer.endpoint.poll_peer_cursor = i;
         }
-        if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
             CHECK(pump_sample_peer(now + 1U, i, 0U) == 0);
         } else {
             CHECK(pump(now + 1U) == 0);
@@ -1172,7 +1179,7 @@ static int run_multi_peer_round_trips(void)
             CHECK(request_view.fields.seq == first_read_seq);
         }
         CHECK(deliver(&consumer, &producer, now + 2U) >= 0);
-        if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
             producer.endpoint.poll_peer_cursor = i;
         }
         CHECK(dmp_endpoint_poll(&producer.endpoint, now + 2U) == DMP_OK);
@@ -1243,7 +1250,7 @@ static int run_multi_peer_round_trips(void)
         CHECK(consumer.result_request.slot == request.slot);
         CHECK(producer.sample_peers[i].peer.slot == handles[i].slot);
         CHECK(producer.sample_peers[i].peer.generation == handles[i].generation);
-        if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+        if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
             CHECK(pump_sample_peer(now + 3U, i, 0U) == 0);
         } else {
             CHECK(pump(now + 3U) == 0);
@@ -1253,14 +1260,14 @@ static int run_multi_peer_round_trips(void)
 
     /* Keep real endpoint work accepted on peer 1 while replacing a distinct
      * peer whose earlier telemetry send has drained. */
-    if (SAMPLE_PEERS > 1U) {
+    if (producer.endpoint.profile.peers > 1U) {
         dmp_peer_handle replacement;
         dmp_peer_handle peer1 = handles[1U];
         dmp_peer_handle replaced_peer = handles[SAMPLE_PEERS - 1U];
         dmp_reliability_handle accepted_request;
         dmp_identity_context_config replacement_context;
         dmp_status replace_status;
-        uint32_t old_replaced_generation =
+        uint64_t old_replaced_generation =
             producer.endpoint.peers[replaced_peer.slot].handle.generation;
 
         CHECK(dmp_endpoint_submit_req_to(
@@ -1325,7 +1332,7 @@ static int run_persistent_consumer_history(void)
     dmp_identity_context_config context;
     uint32_t i;
 
-    CHECK(SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_PACKET);
+    CHECK(sample_framing() == DMP_ENDPOINT_FRAMING_PACKET);
     (void)memset(&store, 0, sizeof(store));
     store.next_epoch = sample_epoch - 1U;
     CHECK(init_node(&producer, &store, true, 10U, 20U,
@@ -1949,6 +1956,7 @@ static int run_shared_replace_borrow_fence(void)
 }
 #endif
 
+#if SAMPLE_PEERS == 1U
 static int begin_and_activate_sample(dmp_time_ms now)
 {
     dmp_peer_handle peer = producer.endpoint.peers[0].handle;
@@ -1982,6 +1990,7 @@ static int publish_and_check(dmp_time_ms now, uint32_t value,
     }
     return 0;
 }
+#endif
 
 #if SAMPLE_PEERS == 5U && SAMPLE_RADIO == 0 && \
     SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R
@@ -2129,20 +2138,6 @@ static int run_shared_producer_peer_driver(void)
 
 static int run_sample_workload(int argc, char **argv)
 {
-    const dmp_time_ms now = 100U;
-    const uint64_t first_sample_epoch = 700U;
-    const uint64_t second_sample_epoch = 701U;
-    const uint64_t producer_boot_1 = 0x101U;
-    const uint64_t consumer_boot_1 = 0x201U;
-    const uint64_t producer_boot_2 = 0x102U;
-    uint8_t stale_frame[CORE_MTU];
-    size_t stale_frame_len;
-    uint8_t read_request[DMP_SAMPLE1_READ_OPCODE] = {DMP_SAMPLE1_READ_OPCODE};
-    uint8_t status_request[DMP_SAMPLE1_READ_OPCODE] = {DMP_SAMPLE1_STATUS_OPCODE};
-    uint8_t expected[DMP_SAMPLE1_READ_BYTES];
-    dmp_reliability_handle request;
-    dmp_status stale_status;
-
 #if SAMPLE_PEERS == 5U && SAMPLE_RADIO == 0 && \
     SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R
     if (argc == 2 && strcmp(argv[1], "s3-driver") == 0) {
@@ -2157,15 +2152,27 @@ static int run_sample_workload(int argc, char **argv)
     if (run_multi_peer_round_trips() != 0) {
         return 1;
     }
-    if (SAMPLE_RADIO == 0 &&
-        SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_PACKET) {
+    if (sample_framing() == DMP_ENDPOINT_FRAMING_PACKET && SAMPLE_RADIO == 0) {
         if (run_persistent_consumer_history() != 0) {
             return 1;
         }
         return run_shared_replace_borrow_fence();
     }
     return 0;
-#endif
+#else
+    const dmp_time_ms now = 100U;
+    const uint64_t first_sample_epoch = 700U;
+    const uint64_t second_sample_epoch = 701U;
+    const uint64_t producer_boot_1 = 0x101U;
+    const uint64_t consumer_boot_1 = 0x201U;
+    const uint64_t producer_boot_2 = 0x102U;
+    uint8_t stale_frame[CORE_MTU];
+    size_t stale_frame_len;
+    uint8_t read_request[DMP_SAMPLE1_READ_OPCODE] = {DMP_SAMPLE1_READ_OPCODE};
+    uint8_t status_request[DMP_SAMPLE1_READ_OPCODE] = {DMP_SAMPLE1_STATUS_OPCODE};
+    uint8_t expected[DMP_SAMPLE1_READ_BYTES];
+    dmp_reliability_handle request;
+    dmp_status stale_status;
 
     (void)memset(&store, 0, sizeof(store));
     store.next_epoch = first_sample_epoch - 1U;
@@ -2176,7 +2183,7 @@ static int run_sample_workload(int argc, char **argv)
                     consumer_boot_1, producer_boot_1,
                     now) == 0);
     CHECK(init_sample_endpoint(&producer) == 0);
-    if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+    if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
         CHECK(pump(now) == 0);
     }
     CHECK(dmp_endpoint_submit_req_to(&consumer.endpoint,
@@ -2226,7 +2233,7 @@ static int run_sample_workload(int argc, char **argv)
     CHECK(store.committed_epoch == second_sample_epoch);
     CHECK(replace_node_context(&consumer, consumer_boot_1, producer_boot_2,
                                now + 2U) == 0);
-    if (SAMPLE_FRAMING_MODE == DMP_ENDPOINT_FRAMING_STREAM_R) {
+    if (sample_framing() == DMP_ENDPOINT_FRAMING_STREAM_R) {
         CHECK(pump(now + 2U) == 0);
         stale_status = dmp_endpoint_rx_from(
             &consumer.endpoint, consumer.endpoint.peers[0].handle,
@@ -2289,6 +2296,7 @@ static int run_sample_workload(int argc, char **argv)
     (void)printf("DIRECT-1 NONE %s\n", DMP_NONE_MANIFEST_SHA256);
 #endif
     return 0;
+#endif
 }
 
 #if defined(ESP_PLATFORM)

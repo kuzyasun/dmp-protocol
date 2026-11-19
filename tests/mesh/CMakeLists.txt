@@ -1,7 +1,10 @@
 add_executable(dmp_test_relay test_relay.c ../harness/harness.c)
-target_link_libraries(dmp_test_relay PRIVATE dmp::dmp)
 if(TARGET dmp_p01b_noise AND TARGET dmp_p01b_sodium)
     dmp_link_rescan(dmp_test_relay libdmp dmp_p01b_noise dmp_p01b_sodium)
+else()
+    # The relay passes SEC-1 bytes through and the loopback endpoint uses NONE.
+    target_link_libraries(dmp_test_relay PRIVATE dmp::dmp_none)
+    target_sources(dmp_test_relay PRIVATE "${PROJECT_SOURCE_DIR}/src/security/replay_window.c")
 endif()
 target_include_directories(dmp_test_relay PRIVATE
     "${CMAKE_SOURCE_DIR}/tests/harness"

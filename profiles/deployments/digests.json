@@ -1,6 +1,6 @@
 {
   "algorithm": "SHA-256",
-  "bytes": "original UTF-8, no BOM, LF, terminal LF; no JSON reserialization",
+  "bytes": "original UTF-8, no BOM, terminal newline; preserve the committed LF or CRLF bytes without JSON reserialization",
   "manifests": {
     "direct-nnpsk0-async.json": "b7ca5104e6abcb4e5b27c602ab17a1790eaa8b8510da568819df2cdc18851452",
     "direct-nnpsk0.json": "048e59973fda6088cb15f1bacdc8f68544ab825f1b4ffd120774f9ec8170f3df",

@@ -3,5 +3,9 @@
 tests/provider/backend/checked-init.patch text eol=lf whitespace=-blank-at-eol
 # Exact manifest bytes participate in SEC-1 PROFILE_HASH across host OSes.
 profiles/** text eol=lf
+# Store these deployments' pinned CRLF bytes verbatim in source archives too.
+profiles/deployments/direct-none.json -text !eol whitespace=cr-at-eol
+profiles/deployments/radio-none.json -text !eol whitespace=cr-at-eol
+profiles/deployments/test-direct-none-five-peers.json -text !eol whitespace=cr-at-eol
 tests/profiles/*.json text eol=lf
 tests/profiles/fixtures/*.json text eol=lf

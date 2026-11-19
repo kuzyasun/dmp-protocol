@@ -12,7 +12,8 @@ from parity_drive import typed_fields, validator  # noqa: E402
 def main():
     manifest, output = map(Path, sys.argv[1:])
     raw = manifest.read_bytes()
-    validator.validate_bytes(raw)
+    digests = json.loads(manifest.with_name("digests.json").read_bytes())["manifests"]
+    validator.validate_bytes(raw, digests[manifest.name])
     document = json.loads(raw)
     fields = typed_fields(raw, document)
     kind = document["binding"]["kind"]

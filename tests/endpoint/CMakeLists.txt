@@ -1,7 +1,10 @@
 add_executable(dmp_test_endpoint test_endpoint.c)
-target_link_libraries(dmp_test_endpoint PRIVATE dmp::dmp)
-if(TARGET dmp_p01b_noise AND TARGET dmp_p01b_sodium)
-    dmp_link_rescan(dmp_test_endpoint libdmp dmp_p01b_noise dmp_p01b_sodium)
+# This fixture uses NONE. The security subdirectory adds the pinned link
+# group later when that provider is configured.
+if(IS_DIRECTORY "${DMP_SODIUM_SOURCE_DIR}")
+    target_link_libraries(dmp_test_endpoint PRIVATE dmp::dmp)
+else()
+    target_link_libraries(dmp_test_endpoint PRIVATE dmp::dmp_none)
 endif()
 set_target_properties(dmp_test_endpoint PROPERTIES
     C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
